@@ -3,7 +3,8 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import json
 import argparse
-import shutil
+from pathlib import Path
+import tempfile
 import torch
 import numpy as np
 import pandas as pd
@@ -11,8 +12,18 @@ import o_voxel
 from tqdm import tqdm
 from easydict import EasyDict as edict
 from concurrent.futures import ThreadPoolExecutor
-from queue import Queue
-from utils import parse_view_indices
+from queue import Empty, Full, Queue
+
+if __package__:
+    from .utils import parse_view_indices
+else:
+    from utils import parse_view_indices
+
+from data_toolkit.pipeline.atomic_io import atomic_copy, atomic_save_npz
+from data_toolkit.pipeline.validation import (
+    validate_scale,
+    validate_sparse_latent,
+)
 
 import pixal3d.models as models
 import pixal3d.modules.sparse as sp
@@ -26,6 +37,136 @@ def is_valid_sparse_tensor(tensor):
 def clear_cuda_error():
     torch.cuda.synchronize()
     torch.cuda.empty_cache()
+
+
+def _sync_parent(path):
+    flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0)
+    directory = os.open(Path(path).parent, flags)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _atomic_write_csv(frame, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f'.{path.stem}.',
+            suffix='.csv',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        frame.to_csv(temporary, index=False)
+        pd.read_csv(temporary)
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _sync_parent(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _existing_sparse_tokens(path, grid_resolution):
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        validate_sparse_latent(
+            path,
+            grid_resolution=grid_resolution,
+            max_tokens=grid_resolution**3,
+        )
+        with np.load(path, allow_pickle=False) as data:
+            return int(data['coords'].shape[0])
+    except Exception as error:
+        print(f'Removing corrupt sparse latent {path}: {error}')
+        path.unlink(missing_ok=True)
+        return None
+
+
+def _publish_sparse_latent(path, feats, coords, grid_resolution):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f'.{path.stem}.',
+            suffix='.npz',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        atomic_save_npz(temporary, feats=feats, coords=coords)
+        validate_sparse_latent(
+            temporary,
+            grid_resolution=grid_resolution,
+            max_tokens=grid_resolution**3,
+        )
+        os.replace(temporary, path)
+        _sync_parent(path)
+        validate_sparse_latent(
+            path,
+            grid_resolution=grid_resolution,
+            max_tokens=grid_resolution**3,
+        )
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _encode_sparse_output(
+    path, encode, grid_resolution, latent_dtype='float32'
+):
+    path = Path(path)
+    existing_tokens = _existing_sparse_tokens(path, grid_resolution)
+    if existing_tokens is not None:
+        return existing_tokens
+
+    z = encode()
+    if not torch.isfinite(z.feats).all() or not torch.isfinite(z.coords).all():
+        raise ValueError('encoder produced a non-finite sparse latent')
+    feature_dtype = np.float16 if latent_dtype == 'float16' else np.float32
+    _publish_sparse_latent(
+        path,
+        feats=z.feats.cpu().numpy().astype(feature_dtype),
+        coords=z.coords[:, 1:].cpu().numpy().astype(np.uint8),
+        grid_resolution=grid_resolution,
+    )
+    return int(z.coords.shape[0])
+
+
+def _copy_valid_scale(source, destination):
+    source = Path(source)
+    destination = Path(destination)
+    if destination.exists():
+        try:
+            validate_scale(destination)
+            return
+        except Exception:
+            destination.unlink(missing_ok=True)
+    if not source.exists():
+        return
+    try:
+        validate_scale(source)
+    except Exception as error:
+        print(f'[Scale Skip] Invalid source {source}: {error}')
+        return
+    atomic_copy(source, destination)
+    validate_scale(destination)
+
+
+def _put_with_timeout(queue, item, timeout_seconds):
+    try:
+        queue.put(item, timeout=timeout_seconds)
+        return True
+    except Full:
+        print(f'[Loader Timeout] Output queue stayed full for {timeout_seconds}s')
+        return False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -55,7 +196,17 @@ if __name__ == '__main__':
                         help='Total number of views (used when view_indices is None)')
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
+    parser.add_argument('--loader_workers', type=int, default=2)
+    parser.add_argument('--saver_workers', type=int, default=1)
+    parser.add_argument('--latent_dtype', choices=('float32', 'float16'), default='float32')
+    parser.add_argument('--timeout_seconds', type=int, default=900)
     opt = parser.parse_args()
+    if opt.loader_workers <= 0:
+        parser.error('--loader_workers must be positive')
+    if opt.saver_workers <= 0:
+        parser.error('--saver_workers must be positive')
+    if opt.timeout_seconds <= 0:
+        parser.error('--timeout_seconds must be positive')
     opt = edict(vars(opt))
     opt.pbr_voxel_root = opt.pbr_voxel_root or opt.root
     opt.pbr_latent_root = opt.pbr_latent_root or opt.root
@@ -129,21 +280,11 @@ if __name__ == '__main__':
 
     records = []
     
-    # Build task list: (sha256, view_idx), filter already completed tasks via metadata
+    # Build all tasks. Files, not stale metadata, are the source of resume truth.
     all_tasks = []
-    skipped_count = 0
-    
-    # Pre-fetch completion status columns for each view
-    encoded_cols = {view_idx: f'pbr_latent_view{view_idx:02d}_encoded' for view_idx in view_indices}
-    
     for _, row in metadata.iterrows():
         sha256 = row['sha256']
         for view_idx in view_indices:
-            encoded_col = encoded_cols[view_idx]
-            # Check if already marked as completed in metadata
-            if encoded_col in metadata.columns and row.get(encoded_col, False) == True:
-                skipped_count += 1
-                continue
             all_tasks.append((sha256, view_idx))
     
     # Split tasks by rank after filtering completed ones
@@ -151,17 +292,17 @@ if __name__ == '__main__':
     end = len(all_tasks) * (opt.rank + 1) // opt.world_size
     tasks = all_tasks[start:end]
     
-    print(f'Total tasks: {len(all_tasks) + skipped_count}, Already done (from metadata): {skipped_count}, To process (all ranks): {len(all_tasks)}, This rank: {len(tasks)}')
-    
-    load_queue = Queue(maxsize=32)
-    
-    with ThreadPoolExecutor(max_workers=32) as loader_executor, \
-         ThreadPoolExecutor(max_workers=32) as saver_executor:
+    print(f'Total tasks to validate or process: {len(all_tasks)}, This rank: {len(tasks)}')
+
+    load_queue = Queue(maxsize=max(2, opt.loader_workers * 2))
+    saver_futures = []
+
+    with ThreadPoolExecutor(max_workers=opt.loader_workers) as loader_executor, \
+         ThreadPoolExecutor(max_workers=opt.saver_workers) as saver_executor:
 
         def loader(task):
             sha256, view_idx = task
             try:
-                # Check if output file already exists, skip if so (but still record)
                 output_path = os.path.join(
                     opt.pbr_latent_root, 
                     'pbr_latents', 
@@ -169,18 +310,21 @@ if __name__ == '__main__':
                     sha256, 
                     f'view{view_idx:02d}.npz'
                 )
-                if os.path.exists(output_path):
-                    try:
-                        data = np.load(output_path)
-                        num_tokens = data['coords'].shape[0]
-                    except Exception:
-                        num_tokens = -1
+                num_tokens = _existing_sparse_tokens(output_path, opt.resolution)
+                if num_tokens is not None:
+                    src_scale_path = Path(opt.pbr_voxel_root) / f'pbr_voxels_view_fix_{opt.resolution}' / sha256 / f'view{view_idx:02d}_scale.json'
+                    dst_scale_path = Path(output_path).with_name(f'view{view_idx:02d}_scale.json')
+                    _copy_valid_scale(src_scale_path, dst_scale_path)
                     records.append({
                         'sha256': sha256,
                         f'pbr_latent_view{view_idx:02d}_encoded': True,
                         f'pbr_latent_view{view_idx:02d}_tokens': num_tokens,
                     })
-                    load_queue.put((sha256, view_idx, None))
+                    _put_with_timeout(
+                        load_queue,
+                        (sha256, view_idx, None),
+                        opt.timeout_seconds,
+                    )
                     return
                 
                 # pbr_voxels_view_fix path: pbr_voxels_view_fix_{res}/{sha256}/view{idx:02d}.vxz
@@ -193,28 +337,45 @@ if __name__ == '__main__':
                 
                 if not os.path.exists(vxz_path):
                     print(f"[Loader Skip] {sha256}/view{view_idx:02d}: vxz file not found")
-                    load_queue.put((sha256, view_idx, None))
+                    _put_with_timeout(
+                        load_queue,
+                        (sha256, view_idx, None),
+                        opt.timeout_seconds,
+                    )
                     return
                 
                 attrs = ['base_color', 'metallic', 'roughness', 'alpha']
-                coords, attr = o_voxel.io.read_vxz(vxz_path, num_threads=4)
+                coords, attr = o_voxel.io.read_vxz(vxz_path, num_threads=1)
                 feats = torch.concat([attr[k] for k in attrs], dim=-1) / 255.0 * 2 - 1
                 x = sp.SparseTensor(
                     feats.float(),
                     torch.cat([torch.zeros_like(coords[:, 0:1]), coords], dim=-1),
                 )
-                load_queue.put((sha256, view_idx, x))
+                _put_with_timeout(
+                    load_queue,
+                    (sha256, view_idx, x),
+                    opt.timeout_seconds,
+                )
             except Exception as e:
                 print(f"[Loader Error] {sha256}/view{view_idx:02d}: {e}")
-                load_queue.put((sha256, view_idx, None))
+                _put_with_timeout(
+                    load_queue,
+                    (sha256, view_idx, None),
+                    opt.timeout_seconds,
+                )
 
         loader_executor.map(loader, tasks)
         
-        def saver(sha256, view_idx, pack):
+        def saver(sha256, view_idx, z):
             sha256_dir = os.path.join(opt.pbr_latent_root, 'pbr_latents', latent_view_name, sha256)
             os.makedirs(sha256_dir, exist_ok=True)
             save_path = os.path.join(sha256_dir, f'view{view_idx:02d}.npz')
-            np.savez_compressed(save_path, **pack)
+            num_tokens = _encode_sparse_output(
+                save_path,
+                lambda: z,
+                grid_resolution=opt.resolution,
+                latent_dtype=opt.latent_dtype,
+            )
             
             # Copy scale json from pbr_voxels_view_fix
             src_scale_path = os.path.join(
@@ -224,18 +385,19 @@ if __name__ == '__main__':
                 f'view{view_idx:02d}_scale.json'
             )
             dst_scale_path = os.path.join(sha256_dir, f'view{view_idx:02d}_scale.json')
-            if os.path.exists(src_scale_path):
-                shutil.copy2(src_scale_path, dst_scale_path)
+            _copy_valid_scale(src_scale_path, dst_scale_path)
             
             records.append({
                 'sha256': sha256,
                 f'pbr_latent_view{view_idx:02d}_encoded': True,
-                f'pbr_latent_view{view_idx:02d}_tokens': pack['coords'].shape[0]
+                f'pbr_latent_view{view_idx:02d}_tokens': num_tokens
             })
             
         for _ in tqdm(range(len(tasks)), desc=f"Extracting {os.path.basename(opt.root)} PBR view latents (res={opt.resolution})"):
             try:
-                sha256, view_idx, voxels = load_queue.get()
+                sha256, view_idx, voxels = load_queue.get(
+                    timeout=opt.timeout_seconds
+                )
                 if voxels is None:
                     continue
                 
@@ -254,18 +416,25 @@ if __name__ == '__main__':
                     clear_cuda_error()
                     continue
 
-                pack = {
-                    'feats': z.feats.cpu().numpy().astype(np.float32),
-                    'coords': z.coords[:, 1:].cpu().numpy().astype(np.uint8),
-                }
-                saver_executor.submit(saver, sha256, view_idx, pack)
+                saver_futures.append(
+                    saver_executor.submit(saver, sha256, view_idx, z)
+                )
 
+            except Empty:
+                print(f'[Loader Timeout] No result received for {opt.timeout_seconds}s')
+                break
             except Exception as e:
                 print(f"[Error] {sha256}/view{view_idx:02d} ({num_voxels} voxels): {e}")
                 clear_cuda_error()
                 continue
-            
-        saver_executor.shutdown(wait=True)
-        
+
+        for future in saver_futures:
+            future.result(timeout=opt.timeout_seconds)
+
     records = pd.DataFrame.from_records(records)
-    records.to_csv(os.path.join(opt.pbr_latent_root, 'pbr_latents', latent_view_name, 'new_records', f'part_{opt.rank}.csv'), index=False)
+    if len(records.columns) == 0:
+        records = pd.DataFrame(columns=['sha256'])
+    _atomic_write_csv(
+        records,
+        Path(opt.pbr_latent_root) / 'pbr_latents' / latent_view_name / 'new_records' / f'part_{opt.rank}.csv',
+    )

@@ -8,8 +8,11 @@ import copy
 import sys
 import importlib
 import argparse
+import inspect
 import json
 import math
+from pathlib import Path
+import tempfile
 import pandas as pd
 import pickle
 import numpy as np
@@ -17,7 +20,79 @@ import torch
 from easydict import EasyDict as edict
 from functools import partial
 import o_voxel
-from utils import get_new_camera_matrix, sphere_normalize_torch
+
+if __package__:
+    from .utils import get_new_camera_matrix, sphere_normalize_torch
+    from .pipeline.atomic_io import atomic_write_json
+    from .pipeline.validation import validate_scale
+else:
+    from utils import get_new_camera_matrix, sphere_normalize_torch
+    from pipeline.atomic_io import atomic_write_json
+    from pipeline.validation import validate_scale
+
+
+def _sync_parent(path):
+    flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0)
+    directory = os.open(Path(path).parent, flags)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _atomic_write_vxz(path, coord, attr, native_threads):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f'.{path.stem}.',
+            suffix='.vxz',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        o_voxel.io.write_vxz(
+            str(temporary), coord, attr, num_threads=native_threads
+        )
+        info = o_voxel.io.read_vxz_info(str(temporary))
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _sync_parent(path)
+        return o_voxel.io.read_vxz_info(str(path)) or info
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _atomic_write_csv(frame, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f'.{path.stem}.',
+            suffix='.csv',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        frame.to_csv(temporary, index=False)
+        pd.read_csv(temporary)
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _sync_parent(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _read_vxz_output(vxz_path, scale_path):
+    info = o_voxel.io.read_vxz_info(str(vxz_path))
+    validate_scale(Path(scale_path))
+    return info
 
 
 # ==================== PBR-specific transform functions ====================
@@ -263,7 +338,16 @@ def transform_pbr_dump(dump, frame):
     return transformed_dump, total_scale
 
 
-def _pbr_voxelize_view(file, sha256, pbr_dump_root, transform_root, root, view_indices=None):
+def _pbr_voxelize_view(
+    file,
+    sha256,
+    pbr_dump_root,
+    transform_root,
+    root,
+    resolutions,
+    native_threads,
+    view_indices=None,
+):
     """
     Process multi-view PBR voxelization for a single sha256.
 
@@ -300,21 +384,24 @@ def _pbr_voxelize_view(file, sha256, pbr_dump_root, transform_root, root, view_i
         skipped_count = 0
 
         for view_idx in view_indices:
-            for res in opt.resolution:
+            for res in resolutions:
                 need_process = False
 
                 # Check if already processed
                 # Path structure: pbr_voxels_view_fix_{res}/{sha256}/view{idx:02d}.vxz
                 sha256_dir = os.path.join(root, f'pbr_voxels_view_fix_{res}', sha256)
                 vxz_path = os.path.join(sha256_dir, f'view{view_idx:02d}.vxz')
+                scale_path = os.path.join(sha256_dir, f'view{view_idx:02d}_scale.json')
                 if os.path.exists(vxz_path):
                     try:
-                        info = o_voxel.io.read_vxz_info(vxz_path)
+                        info = _read_vxz_output(vxz_path, scale_path)
                         pack[f'pbr_voxelized_view_fix{view_idx:02d}_{res}'] = True
                         pack[f'num_pbr_voxels_view_fix{view_idx:02d}_{res}'] = info['num_voxel']
                         skipped_count += 1
                     except Exception as e:
                         print(f'Error reading {sha256}/view{view_idx:02d}.vxz: {e}, will reprocess')
+                        Path(vxz_path).unlink(missing_ok=True)
+                        Path(scale_path).unlink(missing_ok=True)
                         need_process = True
                 else:
                     need_process = True
@@ -360,17 +447,20 @@ def _pbr_voxelize_view(file, sha256, pbr_dump_root, transform_root, root, view_i
 
                     # Save .vxz file
                     os.makedirs(sha256_dir, exist_ok=True)
-                    o_voxel.io.write_vxz(vxz_path, coord, attr)
+                    _atomic_write_vxz(
+                        vxz_path,
+                        coord,
+                        attr,
+                        native_threads=native_threads,
+                    )
 
                     # Save scale info
-                    scale_path = os.path.join(sha256_dir, f'view{view_idx:02d}_scale.json')
                     scale_info = {
-                        'sha256': sha256,
                         'view_idx': view_idx,
                         'total_scale': float(total_scale),
                     }
-                    with open(scale_path, 'w') as f:
-                        json.dump(scale_info, f, indent=2)
+                    atomic_write_json(Path(scale_path), scale_info)
+                    validate_scale(Path(scale_path))
 
                     pack[f'pbr_voxelized_view_fix{view_idx:02d}_{res}'] = True
                     pack[f'num_pbr_voxels_view_fix{view_idx:02d}_{res}'] = len(coord)
@@ -391,7 +481,16 @@ def _pbr_voxelize_view(file, sha256, pbr_dump_root, transform_root, root, view_i
 
 
 if __name__ == '__main__':
-    dataset_utils = importlib.import_module(f'datasets.{sys.argv[1]}')
+    dataset_name = (
+        sys.argv[1]
+        if len(sys.argv) > 1 and not sys.argv[1].startswith('-')
+        else None
+    )
+    dataset_utils = (
+        importlib.import_module(f'datasets.{dataset_name}')
+        if dataset_name is not None
+        else None
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
@@ -417,12 +516,21 @@ if __name__ == '__main__':
     parser.add_argument('--clean_pbr_name', type=str, default=None,
                         help='Dataset name prefix for clean_pbr file (e.g., ObjaverseXL_github). '
                              'Defaults to sys.argv[1] if not specified')
-    dataset_utils.add_args(parser)
+    if dataset_utils is not None:
+        dataset_utils.add_args(parser)
     parser.add_argument('--resolution', type=str, default='1024')
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--max_workers', type=int, default=0)
-    opt = parser.parse_args(sys.argv[2:])
+    parser.add_argument('--native_threads', type=int, default=4)
+    parser.add_argument('--timeout_seconds', type=int, default=900)
+    opt = parser.parse_args(sys.argv[2:] if dataset_name is not None else sys.argv[1:])
+    if dataset_utils is None:
+        parser.error('dataset name is required')
+    if opt.native_threads <= 0:
+        parser.error('--native_threads must be positive')
+    if opt.timeout_seconds <= 0:
+        parser.error('--timeout_seconds must be positive')
     opt = edict(vars(opt))
     opt.resolution = sorted([int(x) for x in opt.resolution.split(',')], reverse=True)
     opt.pbr_dump_root = opt.pbr_dump_root or opt.root
@@ -494,34 +602,6 @@ if __name__ == '__main__':
             metadata = metadata[metadata['aesthetic_score'] >= opt.filter_low_aesthetic_score]
         metadata = metadata[metadata['pbr_dumped'] == True]
 
-        # Filter out objects with all views already processed
-        if view_indices is not None:
-            for res in opt.resolution:
-                # Check if each specified view is already processed
-                all_views_done_col = f'_all_views_done_{res}'
-                metadata[all_views_done_col] = True
-                for view_idx in view_indices:
-                    col_name = f'pbr_voxelized_view_fix{view_idx:02d}_{res}'
-                    if col_name in metadata.columns:
-                        metadata[all_views_done_col] = metadata[all_views_done_col] & (metadata[col_name] == True)
-                    else:
-                        metadata[all_views_done_col] = False
-                        break
-
-            # Keep objects with at least one incomplete resolution
-            any_incomplete = None
-            for res in opt.resolution:
-                all_views_done_col = f'_all_views_done_{res}'
-                if all_views_done_col in metadata.columns:
-                    if any_incomplete is None:
-                        any_incomplete = ~metadata[all_views_done_col]
-                    else:
-                        any_incomplete = any_incomplete | ~metadata[all_views_done_col]
-
-            if any_incomplete is not None:
-                before_filter = len(metadata)
-                metadata = metadata[any_incomplete]
-                print(f'Filtered out {before_filter - len(metadata)} already completed objects')
     else:
         if os.path.exists(opt.instances):
             with open(opt.instances, 'r') as f:
@@ -558,8 +638,18 @@ if __name__ == '__main__':
                    pbr_dump_root=opt.pbr_dump_root,
                    transform_root=opt.transform_root,
                    root=opt.pbr_voxel_root,
+                   resolutions=opt.resolution,
+                   native_threads=opt.native_threads,
                    view_indices=view_indices)
-    pbr_voxelized = dataset_utils.foreach_instance(metadata, opt.root, func, max_workers=opt.max_workers, desc='Voxelizing PBR views')
+    foreach_kwargs = {
+        'max_workers': opt.max_workers,
+        'desc': 'Voxelizing PBR views',
+    }
+    if 'timeout' in inspect.signature(dataset_utils.foreach_instance).parameters:
+        foreach_kwargs['timeout'] = opt.timeout_seconds
+    pbr_voxelized = dataset_utils.foreach_instance(
+        metadata, opt.root, func, **foreach_kwargs
+    )
 
     # Processing summary
     total_processed = pbr_voxelized['_processed_count'].sum() if '_processed_count' in pbr_voxelized.columns else 0
@@ -588,9 +678,9 @@ if __name__ == '__main__':
                 # Save simplified metadata
                 cols_to_save = ['sha256'] + [col for col in pbr_voxelized.columns if f'_{res}' in col]
                 cols_to_save = [col for col in cols_to_save if col in pbr_voxelized.columns]
-                pbr_voxel_metadata[cols_to_save].to_csv(
-                    os.path.join(opt.pbr_voxel_root, f'pbr_voxels_view_fix_{res}', 'new_records', f'part_{opt.rank}.csv'),
-                    index=False
+                _atomic_write_csv(
+                    pbr_voxel_metadata[cols_to_save],
+                    Path(opt.pbr_voxel_root) / f'pbr_voxels_view_fix_{res}' / 'new_records' / f'part_{opt.rank}.csv',
                 )
 
     print('Done!')

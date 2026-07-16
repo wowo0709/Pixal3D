@@ -1,14 +1,14 @@
 import os
-import shutil
-import copy
 import sys
 import importlib
 import argparse
+import inspect
+from pathlib import Path
+import pickle
+import subprocess
 import pandas as pd
 from easydict import EasyDict as edict
 from functools import partial
-from subprocess import DEVNULL, call
-import numpy as np
 import tempfile
 
 
@@ -24,34 +24,114 @@ def _install_blender():
         os.system(f'tar -xvf {BLENDER_INSTALLATION_PATH}/blender-4.5.1-linux-x64.tar.xz -C {BLENDER_INSTALLATION_PATH}')
 
 
-def _dump_mesh(file_path, sha256, root):
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        temp_path = os.path.join(tmp_dir, f'{sha256}.pickle')
-        output_path = os.path.join(root, 'mesh_dumps', f'{sha256}.pickle')
+def _sync_parent(path):
+    flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0)
+    directory = os.open(Path(path).parent, flags)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _read_pickle(path):
+    with Path(path).open('rb') as stream:
+        return pickle.load(stream)
+
+
+def _atomic_write_csv(frame, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f'.{path.stem}.',
+            suffix='.csv',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        frame.to_csv(temporary, index=False)
+        pd.read_csv(temporary)
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _sync_parent(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _dump_mesh(file_path, sha256, root, timeout_seconds=900):
+    output_path = Path(root) / 'mesh_dumps' / f'{sha256}.pickle'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        try:
+            _read_pickle(output_path)
+            return {'sha256': sha256, 'mesh_dumped': True}
+        except Exception:
+            output_path.unlink(missing_ok=True)
+
+    temporary = None
+    error_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=output_path.parent,
+            prefix=f'.{output_path.name}.',
+            suffix='.pickle',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        error_path = Path(f'{temporary}_error.txt')
         args = [
             BLENDER_PATH, '-b', '-P', os.path.join(os.path.dirname(__file__), 'blender_script', 'dump_mesh.py'),
             '--',
             '--object', os.path.expanduser(file_path),
-            '--output_path', os.path.expanduser(temp_path)
+            '--output_path', os.path.expanduser(temporary)
         ]
         if file_path.endswith('.blend'):
             args.insert(1, file_path)
-        
-        call(args, stdout=DEVNULL, stderr=DEVNULL)
-        
-        if os.path.exists(temp_path):
-            shutil.move(temp_path, output_path)
-            return {'sha256': sha256, 'mesh_dumped': True}
-        else:
-            if os.path.exists(temp_path + '_error.txt'):
-                with open(temp_path + '_error.txt', 'r') as f:
-                    error_msg = f.read()
-                raise ValueError(f'Failed to dump mesh. File {file_path}. Error message: {error_msg}')
-            else:
-                raise ValueError(f'Failed to dump mesh. File {file_path}.')
+
+        subprocess.run(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout_seconds,
+            check=False,
+        )
+
+        try:
+            _read_pickle(temporary)
+        except Exception as error:
+            if error_path.exists():
+                error_msg = error_path.read_text()
+                raise ValueError(
+                    f'Failed to dump mesh. File {file_path}. Error message: {error_msg}'
+                ) from error
+            raise ValueError(f'Failed to dump mesh. File {file_path}.') from error
+
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, output_path)
+        _sync_parent(output_path)
+        _read_pickle(output_path)
+        return {'sha256': sha256, 'mesh_dumped': True}
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        if error_path is not None:
+            error_path.unlink(missing_ok=True)
 
 if __name__ == '__main__':
-    dataset_utils = importlib.import_module(f'datasets.{sys.argv[1]}')
+    dataset_name = (
+        sys.argv[1]
+        if len(sys.argv) > 1 and not sys.argv[1].startswith('-')
+        else None
+    )
+    dataset_utils = (
+        importlib.import_module(f'datasets.{dataset_name}')
+        if dataset_name is not None
+        else None
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
@@ -64,11 +144,17 @@ if __name__ == '__main__':
                         help='Filter objects with aesthetic score lower than this value')
     parser.add_argument('--instances', type=str, default=None,
                         help='Instances to process')
-    dataset_utils.add_args(parser)
+    if dataset_utils is not None:
+        dataset_utils.add_args(parser)
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--max_workers', type=int, default=0)
-    opt = parser.parse_args(sys.argv[2:])
+    parser.add_argument('--timeout_seconds', type=int, default=900)
+    opt = parser.parse_args(sys.argv[2:] if dataset_name is not None else sys.argv[1:])
+    if dataset_utils is None:
+        parser.error('dataset name is required')
+    if opt.timeout_seconds <= 0:
+        parser.error('--timeout_seconds must be positive')
     opt = edict(vars(opt))
     opt.download_root = opt.download_root or opt.root
     opt.mesh_dump_root = opt.mesh_dump_root or opt.root
@@ -94,8 +180,6 @@ if __name__ == '__main__':
         metadata = metadata[metadata['local_path'].notna()]
         if opt.filter_low_aesthetic_score is not None:
             metadata = metadata[metadata['aesthetic_score'] >= opt.filter_low_aesthetic_score]
-        if 'mesh_dumped' in metadata.columns:
-            metadata = metadata[metadata['mesh_dumped'] != True]
     else:
         if os.path.exists(opt.instances):
             with open(opt.instances, 'r') as f:
@@ -110,8 +194,17 @@ if __name__ == '__main__':
     records = []
 
     # filter out objects that are already processed
-    sha256_list = os.listdir(os.path.join(opt.mesh_dump_root, 'mesh_dumps'))
-    sha256_list = [os.path.splitext(f)[0] for f in sha256_list if f.endswith('.pickle')]
+    sha256_list = []
+    for file_name in os.listdir(os.path.join(opt.mesh_dump_root, 'mesh_dumps')):
+        if not file_name.endswith('.pickle'):
+            continue
+        path = Path(opt.mesh_dump_root) / 'mesh_dumps' / file_name
+        try:
+            _read_pickle(path)
+            sha256_list.append(path.stem)
+        except Exception as error:
+            print(f'Removing corrupt mesh dump {path}: {error}')
+            path.unlink(missing_ok=True)
     for sha256 in sha256_list:
         records.append({'sha256': sha256, 'mesh_dumped': True})
     print(f'Found {len(sha256_list)} dumped mesh')
@@ -120,7 +213,24 @@ if __name__ == '__main__':
     print(f'Processing {len(metadata)} objects...')
 
     # process objects
-    func = partial(_dump_mesh, root=opt.mesh_dump_root)
-    mesh_dumped = dataset_utils.foreach_instance(metadata, opt.download_root, func, max_workers=opt.max_workers, desc='Dumping mesh')
+    func = partial(
+        _dump_mesh,
+        root=opt.mesh_dump_root,
+        timeout_seconds=opt.timeout_seconds,
+    )
+    foreach_kwargs = {
+        'max_workers': opt.max_workers,
+        'desc': 'Dumping mesh',
+    }
+    if 'timeout' in inspect.signature(dataset_utils.foreach_instance).parameters:
+        foreach_kwargs['timeout'] = opt.timeout_seconds
+    mesh_dumped = dataset_utils.foreach_instance(
+        metadata, opt.download_root, func, **foreach_kwargs
+    )
     mesh_dumped = pd.concat([mesh_dumped, pd.DataFrame.from_records(records)])
-    mesh_dumped.to_csv(os.path.join(opt.mesh_dump_root, 'mesh_dumps', 'new_records', f'part_{opt.rank}.csv'), index=False)
+    if len(mesh_dumped.columns) == 0:
+        mesh_dumped = pd.DataFrame(columns=['sha256', 'mesh_dumped'])
+    _atomic_write_csv(
+        mesh_dumped,
+        Path(opt.mesh_dump_root) / 'mesh_dumps' / 'new_records' / f'part_{opt.rank}.csv',
+    )
