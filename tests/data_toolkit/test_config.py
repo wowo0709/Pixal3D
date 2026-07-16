@@ -69,6 +69,18 @@ def test_config_read_rejects_symlink(tmp_path: Path):
         load_config(link)
 
 
+def test_config_read_rejects_symlinked_ancestor(tmp_path: Path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "config.yaml").write_text(CONFIG.read_text())
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    (trusted / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="unsafe config"):
+        load_config(trusted / "linked/config.yaml")
+
+
 @pytest.mark.parametrize(
     "section,mutation",
     [

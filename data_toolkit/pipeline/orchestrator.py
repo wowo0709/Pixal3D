@@ -43,6 +43,7 @@ from .registry import RegistryStore
 from .resources import (
     ResourceAccountingError,
     ResourceAction,
+    ResourceDecision,
     ResourceLimitExceeded,
 )
 from .validation import (
@@ -1036,7 +1037,13 @@ class PipelineRunner:
             self.active_checkpoint_path = checkpoint_path
             try:
                 self._restore_quality_state(context, checkpoint)
-            except Exception as error:
+            except (
+                CheckpointError,
+                InfrastructureError,
+                OSError,
+                UnicodeError,
+                ValueError,
+            ) as error:
                 self.stop(
                     context,
                     "quality_ledger",
@@ -1070,7 +1077,11 @@ class PipelineRunner:
                             continue
                     except PipelineStopped:
                         raise
-                    except Exception as error:
+                    except (
+                        CheckpointError,
+                        InfrastructureError,
+                        OSError,
+                    ) as error:
                         self.stop(
                             context,
                             command.name,
@@ -1115,7 +1126,7 @@ class PipelineRunner:
                             category=EscalationCategory.RESOURCE,
                             exit_code=3,
                         )
-                    except Exception as error:
+                    except (OSError, RuntimeError, ValueError) as error:
                         self.stop(
                             context,
                             command.name,
@@ -1166,7 +1177,12 @@ class PipelineRunner:
                         )
                     except PipelineStopped:
                         raise
-                    except Exception as error:
+                    except (
+                        OSError,
+                        RuntimeError,
+                        subprocess.SubprocessError,
+                        ValidationError,
+                    ) as error:
                         checkpoint.active_attempt = None
                         persistence_error = None
                         try:
@@ -1400,12 +1416,16 @@ class PipelineRunner:
 
             try:
                 decision = self.resource_guard.check(shard_id, command.name)
+                if not isinstance(decision, ResourceDecision):
+                    raise TypeError(
+                        f"invalid resource decision: {decision!r}"
+                    )
                 action = decision.action
                 if not isinstance(action, ResourceAction):
                     raise TypeError(f"invalid resource action: {action!r}")
             except ResourceLimitExceeded:
                 raise
-            except Exception as error:
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
                 raise InfrastructureError(
                     f"resource monitor failed: {error}"
                 ) from error
@@ -1557,7 +1577,11 @@ class PipelineRunner:
             raise CheckpointError(
                 f"checkpoint is not a regular file or has an unsafe path: {path}: {error}"
             ) from error
-        except Exception as error:
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            TypeError,
+        ) as error:
             raise CheckpointError(f"invalid checkpoint: {path}: {error}") from error
         checkpoint = _required_checkpoint_dict(value, path)
         if checkpoint.shard_id != shard_id:
@@ -1994,6 +2018,32 @@ def _atomic_write_bytes_nofollow(path: Path, value: bytes) -> None:
             os.unlink(temporary_name, dir_fd=directory_fd)
         except FileNotFoundError:
             pass
+        os.close(directory_fd)
+
+
+def _unlink_regular_nofollow(path: Path, *, missing_ok: bool = False) -> bool:
+    path = Path(path)
+    try:
+        directory_fd = _open_directory_nofollow(path.parent)
+    except FileNotFoundError:
+        if missing_ok:
+            return False
+        raise
+    try:
+        try:
+            value = os.stat(
+                path.name, dir_fd=directory_fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            if missing_ok:
+                return False
+            raise
+        if not stat.S_ISREG(value.st_mode):
+            raise OSError(errno.ELOOP, f"unsafe removal target: {path}")
+        os.unlink(path.name, dir_fd=directory_fd)
+        os.fsync(directory_fd)
+        return True
+    finally:
         os.close(directory_fd)
 
 
@@ -2551,7 +2601,7 @@ class PipelineServices:
                 check=True,
                 timeout=5,
             )
-        except Exception as error:
+        except (OSError, subprocess.SubprocessError, UnicodeError) as error:
             raise InfrastructureError(
                 f"cannot resolve tool Git commit: {error}"
             ) from error
@@ -2644,7 +2694,12 @@ class PipelineServices:
             marker = json.loads(_read_regular_bytes_nofollow(marker_path))
         except InfrastructureError:
             raise
-        except Exception as error:
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            TypeError,
+        ) as error:
             raise InfrastructureError(
                 f"invalid frozen batch manifest: {marker_path}: {error}"
             ) from error
@@ -2707,7 +2762,7 @@ class PipelineServices:
                 )
             except InfrastructureError:
                 raise
-            except Exception as error:
+            except (OSError, UnicodeDecodeError, ValueError) as error:
                 raise InfrastructureError(
                     f"invalid frozen batch: {path}: {error}"
                 ) from error
@@ -2923,7 +2978,7 @@ class PipelineServices:
                     f"invalid instances manifest: {context.instances}: {error}"
                 ) from error
             raise
-        except Exception as error:
+        except (UnicodeDecodeError, TypeError, ValueError) as error:
             raise ValidationError(
                 f"invalid instances manifest: {context.instances}: {error}"
             ) from error
@@ -2968,7 +3023,7 @@ class PipelineServices:
                     f"invalid raw metadata: {path}: {error}"
                 ) from error
             raise
-        except Exception as error:
+        except (UnicodeDecodeError, csv.Error, TypeError, ValueError) as error:
             raise ValidationError(f"invalid raw metadata: {path}: {error}") from error
         missing = set(selected) - set(by_sha)
         if missing:
@@ -3201,7 +3256,13 @@ class PipelineServices:
             raise
         except OSError:
             raise
-        except Exception as error:
+        except (
+            EOFError,
+            OverflowError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise ValidationError(
                 f"invalid voxel output: {relative.as_posix()}: {error}"
             ) from error
@@ -3415,7 +3476,7 @@ class PipelineServices:
         checkpoint = self.runner.active_checkpoint
         if checkpoint is None:
             checkpoint = self.runner.load_checkpoint(
-                self._checkpoint_path(context), context.shard_id
+                self._checkpoint_path(context), context.shard_id, context.gate
             )
         assets = self._instances(context)
         if tuple(checkpoint.quality_outcomes) != assets:

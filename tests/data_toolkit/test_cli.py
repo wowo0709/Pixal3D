@@ -15,7 +15,7 @@ from data_toolkit.pipeline.orchestrator import (
     PipelineStopped,
 )
 from data_toolkit.pipeline.packing import PACK_FAMILIES, build_pack
-from data_toolkit.pipeline.reporting import write_report
+from data_toolkit.pipeline.reporting import ReportValidationError, write_report
 from data_toolkit.pipeline.runtime import (
     ArtifactValidationError,
     CanonicalRegistryBuilder,
@@ -321,6 +321,64 @@ def test_production_gate_derives_pass_and_complete_handoff(tmp_config):
     assert len(handoff["packs"]) == len(config.sources) * len(PACK_FAMILIES)
 
 
+def test_failed_production_republication_revokes_previous_handoff(tmp_config):
+    config = load_config(tmp_config)
+    write_complete_gate_evidence(config, "production")
+    builder = RuntimeReportBuilder(config)
+    builder("production", True)
+    handoff_path = (
+        config.paths.data2_root / "control/splits/training_handoff.json"
+    )
+    assert handoff_path.is_file()
+
+    measurements_path = (
+        config.paths.data2_root
+        / "control/report_evidence/production/measurements.csv"
+    )
+    measurements = pd.read_csv(measurements_path, dtype={"sha256": str})
+    measurements["outcome"] = "failure"
+    measurements["failure_category"] = "quality"
+    measurements_path.write_text(measurements.to_csv(index=False))
+    candidate_path = (
+        config.paths.data2_root / "control/report_inputs/production.json"
+    )
+    candidate = json.loads(candidate_path.read_text())
+    candidate["artifacts"]["measurements_sha256"] = sha256(
+        measurements_path.read_bytes()
+    ).hexdigest()
+    candidate_path.write_text(json.dumps(candidate))
+
+    report_path, _ = builder("production")
+
+    assert json.loads(report_path.read_text())["decision"] == "failed"
+    assert not handoff_path.exists()
+
+
+def test_production_report_publication_failure_leaves_no_handoff(
+    tmp_config, monkeypatch
+):
+    config = load_config(tmp_config)
+    write_complete_gate_evidence(config, "production")
+    handoff_path = (
+        config.paths.data2_root / "control/splits/training_handoff.json"
+    )
+    report_path = (
+        config.paths.data2_root / "control/reports/gates/production.json"
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.runtime.write_report",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ReportValidationError("publication failed")
+        ),
+    )
+
+    with pytest.raises(ReportValidationError, match="publication failed"):
+        RuntimeReportBuilder(config)("production")
+
+    assert not handoff_path.exists()
+    assert not report_path.exists()
+
+
 def test_gate_telemetry_must_cover_every_frozen_scope(tmp_config):
     config = load_config(tmp_config)
     write_complete_gate_evidence(config, "production")
@@ -595,6 +653,10 @@ def test_resume_and_audit_dispatch_explicit_gate(tmp_config, monkeypatch):
         "data_toolkit.pipeline.cli.build_mutating_services",
         lambda config: Runtime(),
     )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.read_gate_report",
+        lambda config, gate: {"config_hash": config.config_hash()},
+    )
 
     for command in ("resume", "audit"):
         assert main(
@@ -615,6 +677,152 @@ def test_resume_and_audit_dispatch_explicit_gate(tmp_config, monkeypatch):
         ("resume", ("pilot", "ABO", "ABO-00000")),
         ("audit", ("pilot", "ABO", "ABO-00000")),
     ]
+
+
+@pytest.mark.parametrize(
+    ("gate", "expected_reports"),
+    [("pilot", ["smoke"]), ("production", ["smoke", "pilot"])],
+)
+def test_resume_requires_current_prerequisite_gates(
+    gate, expected_reports, tmp_config, monkeypatch
+):
+    reports = []
+    resumed = []
+
+    class Runtime:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        @property
+        def services(self):
+            return self
+
+        def resume(self, *args):
+            resumed.append(args)
+
+    def read(config, report_gate):
+        reports.append(report_gate)
+        return {"config_hash": config.config_hash()}
+
+    monkeypatch.setattr("data_toolkit.pipeline.cli.read_gate_report", read)
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: Runtime(),
+    )
+
+    assert main(
+        [
+            "resume",
+            "--config",
+            str(tmp_config),
+            "--gate",
+            gate,
+            "--source",
+            "ABO",
+            "--shard",
+            "ABO-00000",
+        ]
+    ) == 0
+    assert reports == expected_reports
+    assert resumed == [(gate, "ABO", "ABO-00000")]
+
+
+@pytest.mark.parametrize("gate", ["pilot", "production"])
+@pytest.mark.parametrize("invalid_evidence", ["missing", "stale", "failed"])
+def test_resume_rejects_invalid_smoke_evidence_before_runtime(
+    gate, invalid_evidence, tmp_config, monkeypatch
+):
+    built = []
+
+    def reject(config, gate):
+        raise ArtifactValidationError(f"{invalid_evidence} {gate} evidence")
+
+    monkeypatch.setattr("data_toolkit.pipeline.cli.read_gate_report", reject)
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: built.append(config),
+    )
+
+    assert main(
+        [
+            "resume",
+            "--config",
+            str(tmp_config),
+            "--gate",
+            gate,
+            "--source",
+            "ABO",
+            "--shard",
+            "ABO-00000",
+        ]
+    ) == 2
+    assert built == []
+
+
+@pytest.mark.parametrize("invalid_evidence", ["missing", "stale", "failed"])
+def test_production_resume_rejects_invalid_pilot_evidence_before_runtime(
+    invalid_evidence, tmp_config, monkeypatch
+):
+    built = []
+
+    def read(config, gate):
+        if gate == "pilot":
+            raise ArtifactValidationError(f"{invalid_evidence} pilot evidence")
+        return {"config_hash": config.config_hash()}
+
+    monkeypatch.setattr("data_toolkit.pipeline.cli.read_gate_report", read)
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: built.append(config),
+    )
+
+    assert main(
+        [
+            "resume",
+            "--config",
+            str(tmp_config),
+            "--gate",
+            "production",
+            "--source",
+            "ABO",
+            "--shard",
+            "ABO-00000",
+        ]
+    ) == 2
+    assert built == []
+
+
+def test_production_resume_rejects_cross_config_gate_evidence_before_runtime(
+    tmp_config, monkeypatch
+):
+    built = []
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.read_gate_report",
+        lambda config, gate: {"config_hash": gate},
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: built.append(config),
+    )
+
+    assert main(
+        [
+            "resume",
+            "--config",
+            str(tmp_config),
+            "--gate",
+            "production",
+            "--source",
+            "ABO",
+            "--shard",
+            "ABO-00000",
+        ]
+    ) == 2
+    assert built == []
 
 
 def test_production_requires_strict_smoke_and_pilot_gates(

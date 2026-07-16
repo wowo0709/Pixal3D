@@ -135,16 +135,35 @@ SECTION_KEYS = {
 
 
 def _read_config(path: Path) -> bytes:
-    flags = (
+    absolute = Path(os.path.abspath(path))
+    directory_flags = (
         os.O_RDONLY
         | os.O_CLOEXEC
-        | os.O_NONBLOCK
+        | getattr(os, "O_DIRECTORY", 0)
         | getattr(os, "O_NOFOLLOW", 0)
     )
+    directory_fd = None
     try:
-        descriptor = os.open(path, flags)
+        directory_fd = os.open("/", directory_flags)
+        for component in absolute.parts[1:-1]:
+            next_fd = os.open(
+                component, directory_flags, dir_fd=directory_fd
+            )
+            os.close(directory_fd)
+            directory_fd = next_fd
+        descriptor = os.open(
+            absolute.name,
+            os.O_RDONLY
+            | os.O_CLOEXEC
+            | os.O_NONBLOCK
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_fd,
+        )
     except OSError as error:
         raise ValueError(f"unsafe config: {path}: {error}") from error
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
     try:
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode):

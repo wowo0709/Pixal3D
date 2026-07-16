@@ -23,6 +23,7 @@ from .orchestrator import (
     _atomic_write_bytes_nofollow,
     _open_directory_nofollow,
     _read_regular_bytes_nofollow,
+    _unlink_regular_nofollow,
 )
 from .packing import PACK_FAMILIES
 from .registry import assign_shards, canonicalize_sources
@@ -2039,6 +2040,15 @@ class RuntimeReportBuilder:
         }
         return report, handoff, handoff_payload
 
+    def _revoke_production_publication(self) -> None:
+        root = self.config.paths.data2_root / "control"
+        for path in (
+            root / "splits/training_handoff.json",
+            root / "reports/gates/production.json",
+            root / "reports/gates/production.md",
+        ):
+            _unlink_regular_nofollow(path, missing_ok=True)
+
     def __call__(self, gate: str | None, hardware_check: bool = False):
         if gate is None:
             if not hardware_check:
@@ -2073,20 +2083,38 @@ class RuntimeReportBuilder:
             )
         if gate not in {"smoke", "pilot", "production"}:
             raise ArtifactValidationError("report requires a known gate")
+        if gate == "production":
+            self._revoke_production_publication()
         report, handoff, handoff_payload = self._derive_gate(gate)
         if hardware_check and not report["hardware"]["checked"]:
             raise ArtifactValidationError("hardware check did not pass")
-        if handoff is not None:
-            _atomic_write_bytes_nofollow(
-                self.config.paths.data2_root
-                / "control/splits/training_handoff.json",
-                handoff_payload,
+        try:
+            published = write_report(
+                self.config.paths.data2_root / "control/reports/gates",
+                gate,
+                report,
             )
-        return write_report(
-            self.config.paths.data2_root / "control/reports/gates",
-            gate,
-            report,
-        )
+        except BaseException as error:
+            if gate == "production":
+                try:
+                    self._revoke_production_publication()
+                except BaseException as revoke_error:
+                    raise error from revoke_error
+            raise
+        if handoff is not None:
+            try:
+                _atomic_write_bytes_nofollow(
+                    self.config.paths.data2_root
+                    / "control/splits/training_handoff.json",
+                    handoff_payload,
+                )
+            except BaseException as error:
+                try:
+                    self._revoke_production_publication()
+                except BaseException as revoke_error:
+                    raise error from revoke_error
+                raise
+        return published
 
 
 def build_read_only_services(config: PipelineConfig) -> PipelineServices:

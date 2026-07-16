@@ -180,6 +180,53 @@ def test_completed_output_revalidation_preserves_pipeline_stop(
     assert caught.value.exit_code == 4
 
 
+@pytest.mark.parametrize("error_type", [AssertionError, AttributeError, MemoryError])
+def test_quality_restore_does_not_hide_programmer_defects(
+    error_type, isolated_config, shard_context
+):
+    runner = RecordingRunner(isolated_config, commands=())
+    defect = error_type("quality restore programmer defect")
+    runner._restore_quality_state = lambda context, checkpoint: (
+        _ for _ in ()
+    ).throw(defect)
+
+    with pytest.raises(error_type) as caught:
+        runner.run_shard(shard_context)
+
+    assert caught.value is defect
+
+
+@pytest.mark.parametrize("error_type", [AssertionError, AttributeError, MemoryError])
+def test_completed_output_validation_does_not_hide_programmer_defects(
+    error_type, isolated_config, shard_context
+):
+    command = CommandSpec("completed", ("worker",))
+    runner = RecordingRunner(isolated_config, (command,))
+    runner.checkpoint.complete(command.name)
+    defect = error_type("completed validator programmer defect")
+    runner.validators[command.name] = lambda: (_ for _ in ()).throw(defect)
+
+    with pytest.raises(error_type) as caught:
+        runner.run_shard(shard_context)
+
+    assert caught.value is defect
+
+
+@pytest.mark.parametrize("error_type", [AssertionError, AttributeError, MemoryError])
+def test_command_execution_does_not_hide_programmer_defects(
+    error_type, isolated_config, shard_context
+):
+    command = CommandSpec("defective", ("worker",))
+    runner = RecordingRunner(isolated_config, (command,))
+    defect = error_type("command programmer defect")
+    runner.failures[command.name] = [defect]
+
+    with pytest.raises(error_type) as caught:
+        runner.run_shard(shard_context)
+
+    assert caught.value is defect
+
+
 def test_hard_resource_stop_checkpoints_and_escalates(
     isolated_config, shard_context
 ):
@@ -327,6 +374,26 @@ def test_corrupt_checkpoint_fails_closed(
 
     with pytest.raises(CheckpointError):
         runner.load_checkpoint(path, "ABO-00000")
+
+
+@pytest.mark.parametrize("error_type", [AssertionError, AttributeError, MemoryError])
+def test_checkpoint_parser_does_not_hide_programmer_defects(
+    error_type, isolated_config, monkeypatch, tmp_path
+):
+    path = tmp_path / "checkpoint.json"
+    path.write_text("{}")
+    runner = PipelineRunner(isolated_config, FakeResourceGuard(), {}, {})
+    defect = error_type("checkpoint parser programmer defect")
+    monkeypatch.setattr(
+        orchestrator_module.json,
+        "loads",
+        lambda payload: (_ for _ in ()).throw(defect),
+    )
+
+    with pytest.raises(error_type) as caught:
+        runner.load_checkpoint(path, "ABO-00000")
+
+    assert caught.value is defect
 
 
 def test_checkpoint_symlink_fails_closed(isolated_config, tmp_path):
@@ -944,6 +1011,56 @@ def test_resume_accepts_frozen_gate_subset_without_expanding_scope(
     ]
 
 
+@pytest.mark.parametrize("gate", ["smoke", "pilot"])
+def test_qualification_audit_reloads_gate_checkpoint_with_real_runner(
+    gate, isolated_config
+):
+    gib = 1024**3
+    asset_sha = "a" * 64
+    registry = FakeRegistry(
+        pd.DataFrame(
+            {
+                "sha256": [asset_sha],
+                "owner_source": ["ABO"],
+                "shard_id": ["ABO-00000"],
+            }
+        ),
+        isolated_config.paths.data2_root / "control/assets.parquet",
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        registry_store=registry,
+        pilot_reader=FakePilotReader(100),
+        disk_usage=lambda path: SimpleNamespace(
+            total=1000 * gib, free=1000 * gib
+        ),
+        raw_archive_verifier=lambda context: None,
+        project_accounting=FakeAccounting(),
+    )
+    services.plan(gate, "ABO", "ABO-00000", count=1, freeze=True)
+    context = ShardContext.from_config(
+        isolated_config,
+        "ABO",
+        "ABO-00000",
+        "batch000",
+        gate=gate,
+    )
+    services.runner.save_checkpoint(
+        services._checkpoint_path(context),
+        PipelineCheckpoint(
+            context.shard_id,
+            gate=gate,
+            quality_outcomes={asset_sha: "completed"},
+        ),
+    )
+    services.published_batch_verifier = lambda active: services._quality_state(
+        active
+    )
+
+    services.audit(gate, "ABO", "ABO-00000")
+
+
 def test_gate_scopes_isolate_qualification_from_full_production_shard(
     isolated_config,
 ):
@@ -1021,6 +1138,31 @@ def test_resume_gate_never_falls_back_to_another_frozen_scope(isolated_config):
 
     with pytest.raises(InfrastructureError, match="production"):
         services.resume("production", "ABO", "ABO-00000")
+
+
+@pytest.mark.parametrize("error_type", [AssertionError, AttributeError, MemoryError])
+def test_frozen_manifest_parser_does_not_hide_programmer_defects(
+    error_type, isolated_config, monkeypatch
+):
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+    root = services._batch_root("smoke", "ABO", "ABO-00000")
+    root.mkdir(parents=True)
+    (root / "batches.json").write_text("{}")
+    defect = error_type("frozen manifest programmer defect")
+    monkeypatch.setattr(
+        orchestrator_module.json,
+        "loads",
+        lambda payload: (_ for _ in ()).throw(defect),
+    )
+
+    with pytest.raises(error_type) as caught:
+        services._read_frozen_batches(
+            "smoke", "ABO", "ABO-00000", ("a" * 64,)
+        )
+
+    assert caught.value is defect
 
 
 def test_gate_identity_isolates_runtime_and_publication_paths(isolated_config):

@@ -127,7 +127,7 @@ def _validate_scope(args, config) -> None:
 
 
 def _required_gates(args, config) -> None:
-    if args.command != "run":
+    if args.command not in {"run", "resume"}:
         return
     if args.gate == "pilot":
         read_gate_report(config, "smoke")
