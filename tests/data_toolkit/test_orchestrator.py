@@ -1,5 +1,6 @@
 from collections import defaultdict, deque
 from dataclasses import asdict, replace
+import ast
 import errno
 from hashlib import sha256
 import json
@@ -160,6 +161,21 @@ def test_corrupt_complete_output_is_regenerated(isolated_config, shard_context):
     fake_runner.validators["render_cond"] = lambda: False
     fake_runner.run_shard(shard_context)
     assert "render_cond" in fake_runner.executed
+
+
+def test_completed_output_revalidation_preserves_pipeline_stop(
+    isolated_config, shard_context
+):
+    runner = RecordingRunner(isolated_config)
+    runner.checkpoint.complete("dump_mesh")
+    stopped = PipelineStopped(SimpleNamespace(reason="quality stop"), 4)
+    runner.validators["dump_mesh"] = lambda: (_ for _ in ()).throw(stopped)
+
+    with pytest.raises(PipelineStopped) as caught:
+        runner.run_shard(shard_context)
+
+    assert caught.value is stopped
+    assert caught.value.exit_code == 4
 
 
 def test_hard_resource_stop_checkpoints_and_escalates(
@@ -426,12 +442,12 @@ def test_quality_stop_report_has_complete_operator_context(
     command = CommandSpec("quality_checked", ("worker",))
     reports = []
     runner = RecordingRunner(isolated_config, (command,), reports=reports)
-    for index in range(500):
-        runner.quality_gate.record(
-            asset_sha=f"{index:064x}",
-            succeeded=index >= 51,
-            schema_failure=False,
-        )
+    assets = tuple(f"{index:064x}" for index in range(500))
+    write_instances(shard_context, assets)
+    runner.checkpoint.quality_outcomes = {
+        asset_sha: "failure" if index < 51 else "completed"
+        for index, asset_sha in enumerate(assets)
+    }
 
     with pytest.raises(PipelineStopped) as caught:
         runner.run_shard(shard_context)
@@ -447,9 +463,9 @@ def test_quality_stop_report_has_complete_operator_context(
     assert report.completed_counts == {
         "commands": 0,
         "outcomes": 500,
-        "completed_assets": 0,
-        "quarantined_assets": 0,
-        "failure_assets": 0,
+        "completed_assets": 449,
+        "quarantined_assets": 51,
+        "failure_assets": 51,
         "schema_failure_assets": 0,
     }
     assert "resume" in report.safe_resume_command
@@ -1668,6 +1684,28 @@ def test_quality_outcomes_are_durable_deduplicated_and_quarantined(
     assert resumed.quality_outcomes == checkpoint.quality_outcomes
 
 
+def test_sparse_quality_resume_preserves_frozen_positions_at_exact_threshold(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "sparse-quality-resume", "ABO", "ABO-00000"
+    )
+    assets = tuple(f"{index:064x}" for index in range(5000))
+    write_instances(context, assets)
+    command = CommandSpec("worker", ("worker",))
+    runner = RecordingRunner(isolated_config, (command,))
+    runner.checkpoint.quality_outcomes = {
+        assets[index]: "failure" for index in range(9, 5000, 10)
+    }
+
+    runner.resume_shard(context)
+
+    assert runner.executed == [command.name]
+    assert runner.quality_gate.count == 0
+    assert runner.quality_gate.violation_reason() is None
+    assert len(runner.checkpoint.quality_outcomes) == 500
+
+
 @pytest.mark.parametrize(
     ("failure_type", "count", "reason"),
     [
@@ -2688,6 +2726,66 @@ def test_pidfd_launch_cleanup_preserves_original_error_and_finally_kills(
     )
 
 
+def test_post_release_launch_failure_uses_supervisor_group_kill(monkeypatch):
+    class ReleasedProcess:
+        pid = 779
+
+        def __init__(self, release_fd):
+            self.release_fd = os.dup(release_fd)
+            self.release = None
+            self.killed = False
+            self.wait_timeouts = []
+
+        def wait(self, timeout):
+            self.wait_timeouts.append(timeout)
+            if self.release is None:
+                self.release = os.read(self.release_fd, 1)
+            if not self.killed:
+                raise subprocess.TimeoutExpired(("supervisor",), timeout)
+            os.close(self.release_fd)
+            self.release_fd = -1
+            return -signal.SIGKILL
+
+    class FailAfterRelease(orchestrator_module._LinuxProcessSupervisor):
+        def __init__(self, process, pidfd):
+            raise KeyboardInterrupt("post-release failure")
+
+    created = []
+    sent_signals = []
+    pidfd_template = os.open("/dev/null", os.O_RDONLY)
+
+    def process_factory(argv, **kwargs):
+        process = ReleasedProcess(kwargs["pass_fds"][0])
+        created.append(process)
+        return process
+
+    def fake_syscall(number, *arguments):
+        if number == FailAfterRelease._PIDFD_OPEN:
+            return os.dup(pidfd_template)
+        sent_signals.append(arguments[1])
+        if arguments[1] == signal.SIGUSR2:
+            created[0].killed = True
+        return 0
+
+    monkeypatch.setattr(orchestrator_module, "_linux_syscall", fake_syscall)
+    monkeypatch.setattr(
+        orchestrator_module, "_wait_for_supervisor_ready", lambda *args: None
+    )
+
+    try:
+        with pytest.raises(KeyboardInterrupt, match="post-release failure"):
+            FailAfterRelease.launch(process_factory, ("worker",), {})
+    finally:
+        os.close(pidfd_template)
+        if created and created[0].release_fd >= 0:
+            os.close(created[0].release_fd)
+
+    assert created[0].release == b"1"
+    assert created[0].wait_timeouts == [1, 1]
+    assert created[0].release_fd < 0
+    assert sent_signals == [signal.SIGUSR2]
+
+
 def test_default_dump_validator_propagates_source_io_failure(
     isolated_config, monkeypatch, tmp_path
 ):
@@ -2748,6 +2846,57 @@ def test_supervisor_program_uses_ready_handshake_and_kernel_group_control():
     assert program.index("os.read(release_fd") < program.index(
         "worker = subprocess.Popen"
     )
+
+
+def test_supervisor_resume_handler_ignores_self_delivery_while_resuming_group():
+    program = ast.parse(orchestrator_module._SUPERVISOR_PROGRAM)
+    resume_node = next(
+        node
+        for node in program.body
+        if isinstance(node, ast.FunctionDef) and node.name == "resume_group"
+    )
+    transitions = []
+
+    class FakeSignal:
+        SIGCONT = signal.SIGCONT
+        SIG_IGN = object()
+        current = None
+
+        @classmethod
+        def signal(cls, sent_signal, handler):
+            assert sent_signal == cls.SIGCONT
+            previous = cls.current
+            cls.current = handler
+            transitions.append(handler)
+            return previous
+
+    def killpg(leader, sent_signal):
+        assert leader == 91
+        assert sent_signal == signal.SIGCONT
+        assert FakeSignal.current is FakeSignal.SIG_IGN
+
+    namespace = {
+        "signal": FakeSignal,
+        "os": SimpleNamespace(killpg=killpg),
+        "leader": 91,
+    }
+    exec(
+        compile(
+            ast.fix_missing_locations(
+                ast.Module(body=[resume_node], type_ignores=[])
+            ),
+            "<resume-handler>",
+            "exec",
+        ),
+        namespace,
+    )
+    handler = namespace["resume_group"]
+    FakeSignal.current = handler
+
+    handler()
+
+    assert transitions == [FakeSignal.SIG_IGN, handler]
+    assert FakeSignal.current is handler
 
 
 def test_cleanup_finally_kills_reaps_and_closes_stubborn_supervisor(
@@ -3000,7 +3149,9 @@ def test_escalation_report_includes_terminal_asset_counts(
             "c" * 64: "schema_failure",
         },
     )
-    runner.quality_gate.restore(checkpoint.quality_outcomes)
+    runner.quality_gate.restore(
+        checkpoint.quality_outcomes, tuple(checkpoint.quality_outcomes)
+    )
 
     with pytest.raises(PipelineStopped) as caught:
         runner.stop(
@@ -3052,28 +3203,35 @@ def test_raw_delete_tombstone_detects_identity_swap_without_deleting_replacement
     replacement = b"replacement"
     rename_calls = 0
 
-    def swap_then_rename(source_name, destination_name, directory_fd):
+    def swap_then_rename(
+        source_name,
+        destination_name,
+        source_directory_fd,
+        destination_directory_fd=None,
+    ):
         nonlocal rename_calls
         rename_calls += 1
+        if destination_directory_fd is None:
+            destination_directory_fd = source_directory_fd
         if rename_calls > 1:
             os.rename(
                 source_name,
                 destination_name,
-                src_dir_fd=directory_fd,
-                dst_dir_fd=directory_fd,
+                src_dir_fd=source_directory_fd,
+                dst_dir_fd=destination_directory_fd,
             )
             return
         os.rename(
             source_name,
             "original.saved",
-            src_dir_fd=directory_fd,
-            dst_dir_fd=directory_fd,
+            src_dir_fd=source_directory_fd,
+            dst_dir_fd=source_directory_fd,
         )
         replacement_fd = os.open(
             source_name,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL,
             0o600,
-            dir_fd=directory_fd,
+            dir_fd=source_directory_fd,
         )
         try:
             os.write(replacement_fd, replacement)
@@ -3082,8 +3240,8 @@ def test_raw_delete_tombstone_detects_identity_swap_without_deleting_replacement
         os.rename(
             source_name,
             destination_name,
-            src_dir_fd=directory_fd,
-            dst_dir_fd=directory_fd,
+            src_dir_fd=source_directory_fd,
+            dst_dir_fd=destination_directory_fd,
         )
 
     with pytest.raises(ValidationError, match="identity changed"):
@@ -3096,6 +3254,38 @@ def test_raw_delete_tombstone_detects_identity_swap_without_deleting_replacement
     }
     assert b"original" in survivors.values()
     assert replacement in survivors.values()
+
+
+def test_raw_delete_post_validation_swap_cannot_delete_replacement(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "raw-delete-post-validation"
+    relative = Path("models/item.glb")
+    source = root / relative
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"original")
+    replacement = b"replacement"
+    real_same_inode = orchestrator_module._same_inode
+
+    def swap_public_tombstone_after_validation(first, second):
+        matches = real_same_inode(first, second)
+        public_tombstones = tuple(source.parent.glob(".*.delete"))
+        if public_tombstones:
+            public_tombstone = public_tombstones[0]
+            public_tombstone.rename(source.parent / "validated-original.saved")
+            public_tombstone.write_bytes(replacement)
+        else:
+            source.write_bytes(replacement)
+        return matches
+
+    monkeypatch.setattr(
+        orchestrator_module, "_same_inode", swap_public_tombstone_after_validation
+    )
+
+    removed = orchestrator_module._unlink_regular_beneath(root, relative)
+
+    assert removed == len(b"original")
+    assert source.read_bytes() == replacement
 
 
 def test_raw_archive_audit_rejects_unrelated_valid_member_mapping(

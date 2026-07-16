@@ -3,6 +3,7 @@ import json
 import multiprocessing
 import os
 import pickle
+import signal
 import subprocess
 import sys
 import threading
@@ -492,6 +493,86 @@ def test_vxz_pair_rejects_invalid_scale_before_final_marker(
     assert not writer_called
     assert not output.exists()
     assert not scale.exists()
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_voxel_adapter_child_stays_in_inherited_supervisor_group(
+    tmp_path, monkeypatch, module_name
+):
+    worker = importlib.import_module(module_name)
+    result_path = tmp_path / "result.pickle"
+    error_path = tmp_path / "error.txt"
+
+    class Adapter:
+        @staticmethod
+        def foreach_instance(*args, **kwargs):
+            return pd.DataFrame([{"sha256": "asset", "processed": True}])
+
+    monkeypatch.setattr(
+        worker.os,
+        "setsid",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("nested session escaped supervisor group")
+        ),
+    )
+
+    worker._foreach_child(
+        result_path,
+        error_path,
+        Adapter,
+        pd.DataFrame([{"sha256": "asset"}]),
+        tmp_path,
+        lambda *args: None,
+        "fixture",
+    )
+
+    assert result_path.is_file()
+    assert not error_path.exists()
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_voxel_adapter_timeout_uses_bounded_direct_pidfd_cleanup(
+    monkeypatch, module_name
+):
+    worker = importlib.import_module(module_name)
+    sent = []
+    closed = []
+
+    class StubbornProcess:
+        pid = 700
+
+        def __init__(self):
+            self.alive = True
+            self.joins = []
+
+        def join(self, timeout):
+            self.joins.append(timeout)
+
+        def is_alive(self):
+            return self.alive
+
+    process = StubbornProcess()
+    monkeypatch.setattr(worker, "_pidfd_open", lambda pid: 81)
+
+    def send_signal(pidfd, sent_signal, siginfo=None, flags=0):
+        sent.append((pidfd, sent_signal))
+        if sent_signal == signal.SIGKILL:
+            process.alive = False
+
+    monkeypatch.setattr(worker, "_pidfd_send_signal", send_signal)
+    monkeypatch.setattr(worker.os, "close", closed.append)
+
+    worker._terminate_process(process)
+
+    assert sent == [(81, signal.SIGTERM), (81, signal.SIGKILL)]
+    assert process.joins == [0.5, 0.5]
+    assert closed == [81]
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ import copy
 import sys
 import importlib
 import argparse
+import ctypes
 import json
 import math
 import multiprocessing
@@ -142,7 +143,6 @@ def _foreach_child(
     func,
     desc,
 ):
-    os.setsid()
     temporary = None
     try:
         result = dataset_utils.foreach_instance(
@@ -173,20 +173,40 @@ def _foreach_child(
             temporary.unlink(missing_ok=True)
 
 
-def _terminate_process_group(process):
+def _linux_syscall(number, *arguments):
+    result = ctypes.CDLL(None, use_errno=True).syscall(number, *arguments)
+    if result < 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    return int(result)
+
+
+def _pidfd_open(pid):
+    return _linux_syscall(434, pid, 0)
+
+
+def _pidfd_send_signal(pidfd, sent_signal, siginfo=None, flags=0):
+    return _linux_syscall(424, pidfd, int(sent_signal), 0, flags)
+
+
+def _terminate_process(process):
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        pidfd = _pidfd_open(process.pid)
     except ProcessLookupError:
-        process.terminate()
-    process.join(0.5)
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+        process.join(0.5)
         if process.is_alive():
-            process.kill()
-    process.join(0.5)
+            raise RuntimeError(f'worker process disappeared: {process.pid}')
+        return
+    try:
+        _pidfd_send_signal(pidfd, signal.SIGTERM)
+        process.join(0.5)
+        if process.is_alive():
+            _pidfd_send_signal(pidfd, signal.SIGKILL)
+            process.join(0.5)
+    finally:
+        os.close(pidfd)
     if process.is_alive():
-        raise RuntimeError(f'could not kill worker process group {process.pid}')
+        raise RuntimeError(f'could not kill worker process {process.pid}')
 
 
 def _run_foreach_bounded(
@@ -283,7 +303,7 @@ def _run_foreach_bounded(
                                     f'{error}',
                                 ))
                     elif now >= state['deadline']:
-                        _terminate_process_group(process)
+                        _terminate_process(process)
                         process.close()
                         del active[position]
                         progressed = True
@@ -303,7 +323,7 @@ def _run_foreach_bounded(
             for state in active.values():
                 process = state['process']
                 if process.is_alive():
-                    _terminate_process_group(process)
+                    _terminate_process(process)
                 process.close()
 
     if failures:

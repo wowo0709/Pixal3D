@@ -39,6 +39,13 @@ _FAMILY_DIRECTORIES = {
     "PBR-1024": Path("pbr", "1024"),
 }
 
+_VALIDATION_READ_ERRNOS = {
+    errno.ENOENT,
+    errno.ENOTDIR,
+    errno.ELOOP,
+    errno.EISDIR,
+}
+
 
 @dataclass(frozen=True)
 class PackMember:
@@ -347,7 +354,13 @@ def _manifest_from_value(value, manifest_path: Path) -> PackManifest:
 def _load_manifest(manifest_path: Path) -> PackManifest:
     try:
         value = json.loads(Path(manifest_path).read_text())
-    except Exception as error:
+    except OSError as error:
+        if error.errno not in _VALIDATION_READ_ERRNOS:
+            raise
+        raise ValidationError(
+            f"invalid pack manifest: {manifest_path}: {error}"
+        ) from error
+    except (UnicodeError, json.JSONDecodeError, TypeError) as error:
         raise ValidationError(
             f"invalid pack manifest: {manifest_path}: {error}"
         ) from error
@@ -408,7 +421,11 @@ def verify_pack(pack_path: Path, manifest_path: Path) -> None:
                 actual[name] = (item.size, member_sha.hexdigest())
     except ValidationError:
         raise
-    except (OSError, EOFError, tarfile.TarError) as error:
+    except OSError as error:
+        if error.errno not in _VALIDATION_READ_ERRNOS:
+            raise
+        raise ValidationError(f"invalid pack: {pack_path}: {error}") from error
+    except (EOFError, tarfile.TarError) as error:
         raise ValidationError(f"invalid pack: {pack_path}: {error}") from error
 
     if set(actual) != set(expected_members):
@@ -473,11 +490,17 @@ def _load_index(
     shard_id: str,
     replacing_batch: str,
 ) -> dict:
-    if not index_path.exists():
-        return {"source": source, "shard_id": shard_id, "batches": {}}
     try:
         value = json.loads(index_path.read_text())
-    except Exception as error:
+    except FileNotFoundError:
+        return {"source": source, "shard_id": shard_id, "batches": {}}
+    except OSError as error:
+        if error.errno not in _VALIDATION_READ_ERRNOS:
+            raise
+        raise ValidationError(
+            f"invalid shard index: {index_path}: {error}"
+        ) from error
+    except (UnicodeError, json.JSONDecodeError, TypeError) as error:
         raise ValidationError(f"invalid shard index: {index_path}: {error}") from error
     if (
         not isinstance(value, dict)

@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from dataclasses import asdict, replace
+import errno
 from hashlib import sha256
 import io
 import json
@@ -400,6 +401,68 @@ def test_verify_rejects_duplicate_manifest_members(tmp_path: Path):
 
     with pytest.raises(ValidationError, match="duplicate manifest member"):
         verify_pack(pack_path, manifest_path)
+
+
+def test_verify_pack_propagates_manifest_read_eio(tmp_path, monkeypatch):
+    pack_path = tmp_path / "pack.tar"
+    manifest_path = tmp_path / "pack.tar.manifest.json"
+    _write_tar(pack_path, [("member", b"value", "file")])
+    _write_manifest(manifest_path, pack_path, ["member"])
+    real_read_text = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if Path(path) == manifest_path:
+            raise OSError(errno.EIO, "manifest EIO")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    with pytest.raises(OSError, match="manifest EIO"):
+        verify_pack(pack_path, manifest_path)
+
+
+def test_verify_pack_propagates_pack_read_estale(tmp_path, monkeypatch):
+    pack_path = tmp_path / "pack.tar"
+    manifest_path = tmp_path / "pack.tar.manifest.json"
+    _write_tar(pack_path, [("member", b"value", "file")])
+    _write_manifest(manifest_path, pack_path, ["member"])
+    real_open = Path.open
+
+    def open_path(path, *args, **kwargs):
+        if Path(path) == pack_path:
+            raise OSError(errno.ESTALE, "pack ESTALE")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", open_path)
+
+    with pytest.raises(OSError, match="pack ESTALE"):
+        verify_pack(pack_path, manifest_path)
+
+
+def test_load_index_propagates_read_eio(tmp_path, monkeypatch):
+    index_path = tmp_path / "index.json"
+    index_path.write_text(
+        json.dumps(
+            {"source": "ABO", "shard_id": "ABO-00000", "batches": {}}
+        )
+    )
+    real_read_text = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if Path(path) == index_path:
+            raise OSError(errno.EIO, "index EIO")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    with pytest.raises(OSError, match="index EIO"):
+        packing._load_index(
+            index_path,
+            tmp_path,
+            "ABO",
+            "ABO-00000",
+            replacing_batch="batch000",
+        )
 
 
 def test_build_failure_preserves_existing_pack_and_cleans_temporary(

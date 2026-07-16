@@ -78,7 +78,11 @@ def pause_group(*_):
     os.killpg(leader, signal.SIGSTOP)
 
 def resume_group(*_):
-    os.killpg(leader, signal.SIGCONT)
+    signal.signal(signal.SIGCONT, signal.SIG_IGN)
+    try:
+        os.killpg(leader, signal.SIGCONT)
+    finally:
+        signal.signal(signal.SIGCONT, resume_group)
 
 def terminate_group(*_):
     global terminating
@@ -176,6 +180,7 @@ class _LinuxProcessSupervisor:
         )
         process = None
         pidfd = -1
+        released = False
         try:
             process = process_factory(
                 (sys.executable, "-c", _SUPERVISOR_PROGRAM, *argv),
@@ -191,7 +196,9 @@ class _LinuxProcessSupervisor:
             _wait_for_supervisor_ready(
                 ready_read_fd, cls._STARTUP_TIMEOUT_SECONDS
             )
-            os.write(release_write_fd, b"1")
+            if os.write(release_write_fd, b"1") != 1:
+                raise InfrastructureError("cannot release supervisor worker")
+            released = True
             supervisor = cls(process, pidfd)
             pidfd = -1
             return supervisor
@@ -219,7 +226,7 @@ class _LinuxProcessSupervisor:
                         _linux_syscall(
                             cls._PIDFD_SEND_SIGNAL,
                             pidfd,
-                            int(signal.SIGKILL),
+                            int(signal.SIGUSR2 if released else signal.SIGKILL),
                             0,
                             0,
                         )
@@ -452,13 +459,35 @@ class RollingQualityGate:
         self._outcomes.append((asset_sha, succeeded, schema_failure))
         return True
 
-    def restore(self, outcomes: Mapping[str, str]) -> None:
-        for asset_sha, outcome in outcomes.items():
+    def restore(
+        self,
+        outcomes: Mapping[str, str],
+        frozen_assets: Sequence[str],
+    ) -> int:
+        self._outcomes.clear()
+        self._by_asset.clear()
+        ordered_assets = tuple(
+            _validated_asset_sha(asset_sha) for asset_sha in frozen_assets
+        )
+        if len(ordered_assets) != len(set(ordered_assets)):
+            raise InfrastructureError("duplicate frozen quality asset")
+        unknown = set(outcomes) - set(ordered_assets)
+        if unknown:
+            raise InfrastructureError(
+                f"quality outcomes contain non-frozen assets: {sorted(unknown)}"
+            )
+        prefix_length = 0
+        for asset_sha in ordered_assets:
+            outcome = outcomes.get(asset_sha)
+            if outcome is None:
+                break
             self.record(
                 asset_sha=asset_sha,
                 succeeded=outcome == "completed",
                 schema_failure=outcome == "schema_failure",
             )
+            prefix_length += 1
+        return prefix_length
 
     @property
     def count(self) -> int:
@@ -681,6 +710,7 @@ class PipelineRunner:
         self.monitor_interval_seconds = monitor_interval_seconds
         self.environment = dict(os.environ if environment is None else environment)
         self.quality_gate = quality_gate or RollingQualityGate()
+        self._quality_prefix_length = 0
         self.utc_clock = utc_clock or (lambda: datetime.now(timezone.utc))
         self.active_context: ShardContext | None = None
         self.active_checkpoint: PipelineCheckpoint | None = None
@@ -727,7 +757,18 @@ class PipelineRunner:
                 )
             self.active_checkpoint = checkpoint
             self.active_checkpoint_path = checkpoint_path
-            self.quality_gate.restore(checkpoint.quality_outcomes)
+            if checkpoint.quality_outcomes:
+                frozen_assets = tuple(
+                    _validated_asset_sha(item)
+                    for item in _read_regular_bytes_nofollow(
+                        context.instances
+                    ).decode("ascii").splitlines()
+                )
+            else:
+                frozen_assets = ()
+            self._quality_prefix_length = self.quality_gate.restore(
+                checkpoint.quality_outcomes, frozen_assets
+            )
             if checkpoint.active_attempt is not None:
                 abandoned = checkpoint.active_attempt["command"]
                 checkpoint.active_attempt = None
@@ -751,6 +792,8 @@ class PipelineRunner:
                     try:
                         if self._valid_output(command.name):
                             continue
+                    except PipelineStopped:
+                        raise
                     except Exception as error:
                         self.stop(
                             context,
@@ -915,6 +958,7 @@ class PipelineRunner:
             self.active_context = None
             self.active_checkpoint = None
             self.active_checkpoint_path = None
+            self._quality_prefix_length = 0
 
     def resume_shard(self, context: ShardContext) -> None:
         self.run_shard(context)
@@ -952,7 +996,7 @@ class PipelineRunner:
             for frozen_sha in assets
             if frozen_sha in checkpoint.quality_outcomes
         }
-        for frozen_sha in assets:
+        for frozen_sha in assets[self._quality_prefix_length :]:
             terminal = checkpoint.quality_outcomes.get(frozen_sha)
             if terminal is None:
                 break
@@ -961,6 +1005,7 @@ class PipelineRunner:
                 succeeded=terminal == "completed",
                 schema_failure=terminal == "schema_failure",
             )
+            self._quality_prefix_length += 1
         self.save_checkpoint(checkpoint_path, checkpoint)
         reason = self.quality_gate.violation_reason()
         if reason:
@@ -1478,8 +1523,13 @@ def _same_inode(first, second) -> bool:
 
 
 def _rename_noreplace(
-    source_name: str, destination_name: str, directory_fd: int
+    source_name: str,
+    destination_name: str,
+    source_directory_fd: int,
+    destination_directory_fd: int | None = None,
 ) -> None:
+    if destination_directory_fd is None:
+        destination_directory_fd = source_directory_fd
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = libc.renameat2
     renameat2.argtypes = (
@@ -1492,9 +1542,9 @@ def _rename_noreplace(
     renameat2.restype = ctypes.c_int
     if (
         renameat2(
-            directory_fd,
+            source_directory_fd,
             os.fsencode(source_name),
-            directory_fd,
+            destination_directory_fd,
             os.fsencode(destination_name),
             1,
         )
@@ -1726,16 +1776,21 @@ def _unlink_regular_beneath(
     root: Path,
     relative: Path,
     *,
-    rename_noreplace: Callable[[str, str, int], None] = _rename_noreplace,
+    rename_noreplace: Callable[..., None] = _rename_noreplace,
 ) -> int:
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
-        directory_fd = _open_directory_nofollow(root)
+        root_fd = _open_directory_nofollow(root)
     except FileNotFoundError:
         return False
     except OSError as error:
         if error.errno in PATH_VALIDATION_ERRNOS:
             raise ValidationError(f"unsafe raw source root: {root}") from error
+        raise
+    try:
+        directory_fd = os.dup(root_fd)
+    except BaseException:
+        os.close(root_fd)
         raise
     try:
         for component in relative.parts[:-1]:
@@ -1777,40 +1832,70 @@ def _unlink_regular_beneath(
                     f"refusing to delete unsafe raw source: {relative.as_posix()}"
                 )
             source_name = relative.parts[-1]
-            tombstone_name = (
-                f".{source_name}.{os.getpid()}."
-                f"{time.monotonic_ns()}.delete"
+            quarantine_name = (
+                f".pixal3d-quarantine.{os.getpid()}."
+                f"{time.monotonic_ns()}"
             )
-            rename_noreplace(source_name, tombstone_name, directory_fd)
-            tombstone_fd = os.open(
-                tombstone_name,
-                flags | os.O_NONBLOCK,
-                dir_fd=directory_fd,
-            )
+            quarantine_fd = None
+            quarantine_created = False
             try:
-                tombstone = os.fstat(tombstone_fd)
-            finally:
-                os.close(tombstone_fd)
-            if not stat.S_ISREG(tombstone.st_mode) or not _same_inode(
-                opened, tombstone
-            ):
-                try:
-                    rename_noreplace(
-                        tombstone_name, source_name, directory_fd
-                    )
-                except FileExistsError:
-                    pass
-                raise ValidationError(
-                    f"raw source identity changed before delete: "
-                    f"{relative.as_posix()}"
+                os.mkdir(quarantine_name, 0o700, dir_fd=root_fd)
+                quarantine_created = True
+                quarantine_fd = os.open(
+                    quarantine_name,
+                    flags | os.O_DIRECTORY,
+                    dir_fd=root_fd,
                 )
-            os.unlink(tombstone_name, dir_fd=directory_fd)
+                quarantined_name = "payload"
+                rename_noreplace(
+                    source_name,
+                    quarantined_name,
+                    directory_fd,
+                    quarantine_fd,
+                )
+                quarantined_fd = os.open(
+                    quarantined_name,
+                    flags | os.O_NONBLOCK,
+                    dir_fd=quarantine_fd,
+                )
+                try:
+                    quarantined = os.fstat(quarantined_fd)
+                    if not stat.S_ISREG(
+                        quarantined.st_mode
+                    ) or not _same_inode(opened, quarantined):
+                        try:
+                            rename_noreplace(
+                                quarantined_name,
+                                source_name,
+                                quarantine_fd,
+                                directory_fd,
+                            )
+                        except FileExistsError:
+                            pass
+                        raise ValidationError(
+                            f"raw source identity changed before delete: "
+                            f"{relative.as_posix()}"
+                        )
+                    os.unlink(quarantined_name, dir_fd=quarantine_fd)
+                    os.fsync(quarantine_fd)
+                finally:
+                    os.close(quarantined_fd)
+            finally:
+                if quarantine_fd is not None:
+                    os.close(quarantine_fd)
+                if quarantine_created:
+                    try:
+                        os.rmdir(quarantine_name, dir_fd=root_fd)
+                    except OSError as error:
+                        if error.errno not in {errno.ENOTEMPTY, errno.EEXIST}:
+                            raise
         finally:
             os.close(file_fd)
         os.fsync(directory_fd)
         return opened.st_size
     finally:
         os.close(directory_fd)
+        os.close(root_fd)
 
 
 def _safe_destination_parent(root: Path, relative: Path) -> Path:
