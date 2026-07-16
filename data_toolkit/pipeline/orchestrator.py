@@ -1,24 +1,30 @@
 from collections import deque
 import csv
+import ctypes
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
+import errno
 import fcntl
 from hashlib import sha256
+import io
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
+import pickle
 import shutil
 import shlex
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Callable, Mapping, Protocol, Sequence
 import zipfile
 
-from .atomic_io import atomic_copy, atomic_write_json
+from .atomic_io import atomic_copy
 from .commands import (
     CommandSpec,
     ShardContext,
@@ -29,7 +35,6 @@ from .config import PipelineConfig
 from .packing import (
     PACK_FAMILIES,
     build_pack,
-    file_sha,
     publish_pack,
     verify_pack,
 )
@@ -44,9 +49,194 @@ from .validation import (
 )
 
 
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 2
 MAX_COMMAND_ATTEMPTS = 3
 QUALITY_WINDOW_SIZE = 500
+QUALITY_OUTCOMES = {"completed", "failure", "schema_failure"}
+PATH_VALIDATION_ERRNOS = {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+
+
+_SUPERVISOR_PROGRAM = r"""
+import ctypes
+import os
+import signal
+import subprocess
+import sys
+import time
+
+libc = ctypes.CDLL(None, use_errno=True)
+PR_SET_CHILD_SUBREAPER = 36
+if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER) failed")
+
+ready_fd = int(os.environ.pop("PIXAL3D_SUPERVISOR_READY_FD"))
+try:
+    ready = os.read(ready_fd, 1)
+finally:
+    os.close(ready_fd)
+if ready != b"1":
+    raise SystemExit(125)
+
+requests = {"pause": False, "resume": False, "terminate": False, "kill": False}
+signal.signal(signal.SIGUSR1, lambda *_: requests.__setitem__("pause", True))
+signal.signal(signal.SIGCONT, lambda *_: requests.__setitem__("resume", True))
+signal.signal(signal.SIGTERM, lambda *_: requests.__setitem__("terminate", True))
+signal.signal(signal.SIGUSR2, lambda *_: requests.__setitem__("kill", True))
+
+worker = subprocess.Popen(sys.argv[1:])
+leader = os.getpid()
+worker_status = None
+terminating = False
+
+def descendants():
+    parents = {}
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            value = open(f"/proc/{name}/stat", "r", encoding="ascii").read()
+            fields = value.rsplit(")", 1)[1].split()
+            parents[int(name)] = int(fields[1])
+        except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
+            continue
+    owned = {leader}
+    changed = True
+    while changed:
+        changed = False
+        for pid, parent in parents.items():
+            if parent in owned and pid not in owned:
+                owned.add(pid)
+                changed = True
+    owned.discard(leader)
+    return owned
+
+def send_descendants(sent_signal):
+    for pid in descendants():
+        try:
+            os.kill(pid, sent_signal)
+        except ProcessLookupError:
+            pass
+
+while True:
+    if requests["resume"]:
+        requests["resume"] = False
+        send_descendants(signal.SIGCONT)
+    if requests["pause"]:
+        requests["pause"] = False
+        send_descendants(signal.SIGSTOP)
+        os.kill(leader, signal.SIGSTOP)
+    if requests["terminate"]:
+        requests["terminate"] = False
+        terminating = True
+        send_descendants(signal.SIGTERM)
+    if requests["kill"]:
+        send_descendants(signal.SIGKILL)
+
+    while True:
+        try:
+            pid, status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            break
+        if pid == 0:
+            break
+        if pid == worker.pid:
+            worker_status = os.waitstatus_to_exitcode(status)
+
+    owned = descendants()
+    if requests["kill"] and not owned:
+        raise SystemExit(worker_status if worker_status is not None else 137)
+    if not terminating and worker_status is not None and not owned:
+        raise SystemExit(worker_status)
+    time.sleep(0.05)
+"""
+
+
+def _linux_syscall(number: int, *arguments: int) -> int:
+    result = ctypes.CDLL(None, use_errno=True).syscall(number, *arguments)
+    if result < 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    return int(result)
+
+
+class _LinuxProcessSupervisor:
+    """Pidfd-controlled owner of one external rank and all descendants."""
+
+    _PIDFD_SEND_SIGNAL = 424
+    _PIDFD_OPEN = 434
+    _SIGNALS = {
+        "pause": signal.SIGUSR1,
+        "resume": signal.SIGCONT,
+        "terminate": signal.SIGTERM,
+        "kill": signal.SIGUSR2,
+    }
+
+    def __init__(self, process, pidfd: int):
+        self.process = process
+        self.pid = process.pid
+        self.pidfd = pidfd
+
+    @classmethod
+    def launch(cls, process_factory, argv, environment):
+        read_fd, write_fd = os.pipe2(os.O_CLOEXEC)
+        supervisor_environment = dict(environment)
+        supervisor_environment["PIXAL3D_SUPERVISOR_READY_FD"] = str(read_fd)
+        process = None
+        pidfd = -1
+        try:
+            process = process_factory(
+                (sys.executable, "-c", _SUPERVISOR_PROGRAM, *argv),
+                env=supervisor_environment,
+                start_new_session=True,
+                pass_fds=(read_fd,),
+            )
+            os.close(read_fd)
+            read_fd = -1
+            pidfd = _linux_syscall(cls._PIDFD_OPEN, process.pid, 0)
+            os.write(write_fd, b"1")
+            supervisor = cls(process, pidfd)
+            pidfd = -1
+            return supervisor
+        except BaseException:
+            os.close(write_fd)
+            write_fd = -1
+            if process is not None:
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+            raise
+        finally:
+            if pidfd >= 0:
+                os.close(pidfd)
+            if read_fd >= 0:
+                os.close(read_fd)
+            if write_fd >= 0:
+                os.close(write_fd)
+
+    def poll(self):
+        return self.process.poll()
+
+    def wait(self, timeout: float):
+        try:
+            return self.process.wait(timeout=timeout)
+        finally:
+            if self.pidfd >= 0 and self.process.poll() is not None:
+                os.close(self.pidfd)
+                self.pidfd = -1
+
+    def send_control(self, action: str) -> None:
+        try:
+            sent_signal = self._SIGNALS[action]
+        except KeyError as error:
+            raise ValueError(f"unknown supervisor control: {action}") from error
+        _linux_syscall(
+            self._PIDFD_SEND_SIGNAL,
+            self.pidfd,
+            int(sent_signal),
+            0,
+            0,
+        )
 
 
 class CheckpointError(RuntimeError):
@@ -81,6 +271,8 @@ class PipelineCheckpoint:
     shard_id: str
     completed_commands: list[str] = field(default_factory=list)
     attempts: dict[str, int] = field(default_factory=dict)
+    active_attempt: dict[str, object] | None = None
+    quality_outcomes: dict[str, str] = field(default_factory=dict)
     schema_version: int = CHECKPOINT_SCHEMA_VERSION
 
     def complete(self, command: str) -> None:
@@ -100,6 +292,7 @@ class EscalationReport:
     safe_resume_command: str
     recovery_choices: tuple[str, ...]
     created_at: str
+    persistence_errors: tuple[str, ...]
 
 
 class PipelineStopped(RuntimeError):
@@ -126,6 +319,14 @@ class RawReferenceCounter(Protocol):
         """Return unarchived references excluding the just-archived batch."""
 
 
+class ProjectAccounting(Protocol):
+    def record_registry_delta(self, path: Path, delta_bytes: int) -> None:
+        """Record an atomic publication or deletion delta."""
+
+    def reconcile_at_shard_boundary(self) -> tuple[int, int]:
+        """Reconcile cached totals against both project roots."""
+
+
 class _MissingPilotReader:
     def p95_peak_local_bytes(self, source: str) -> int:
         raise IntegrationProviderRequired(
@@ -144,6 +345,18 @@ class _MissingReferenceCounter:
     ) -> int:
         raise IntegrationProviderRequired(
             "raw reference counter is required before data2 deletion"
+        )
+
+
+class _MissingProjectAccounting:
+    def record_registry_delta(self, path: Path, delta_bytes: int) -> None:
+        raise IntegrationProviderRequired(
+            "Task 8 project accounting is required before publication"
+        )
+
+    def reconcile_at_shard_boundary(self) -> tuple[int, int]:
+        raise IntegrationProviderRequired(
+            "Task 8 project accounting is required before execution"
         )
 
 
@@ -167,14 +380,42 @@ class RollingQualityGate:
     def __init__(self, window_size: int = QUALITY_WINDOW_SIZE):
         if window_size != QUALITY_WINDOW_SIZE:
             raise ValueError(f"quality window must be {QUALITY_WINDOW_SIZE}")
-        self._outcomes: deque[tuple[bool, bool]] = deque(maxlen=window_size)
+        self._outcomes: deque[tuple[str, bool, bool]] = deque(
+            maxlen=window_size
+        )
+        self._by_asset: dict[str, tuple[bool, bool]] = {}
 
-    def record(self, *, succeeded: bool, schema_failure: bool) -> None:
+    def record(
+        self,
+        *,
+        asset_sha: str,
+        succeeded: bool,
+        schema_failure: bool,
+    ) -> bool:
+        asset_sha = _validated_asset_sha(asset_sha)
         if not isinstance(succeeded, bool) or not isinstance(
             schema_failure, bool
         ):
             raise TypeError("quality outcomes must be booleans")
-        self._outcomes.append((succeeded, schema_failure))
+        outcome = (succeeded, schema_failure)
+        existing = self._by_asset.get(asset_sha)
+        if existing is not None:
+            if existing != outcome:
+                raise InfrastructureError(
+                    f"conflicting quality outcome for asset: {asset_sha}"
+                )
+            return False
+        self._by_asset[asset_sha] = outcome
+        self._outcomes.append((asset_sha, succeeded, schema_failure))
+        return True
+
+    def restore(self, outcomes: Mapping[str, str]) -> None:
+        for asset_sha, outcome in outcomes.items():
+            self.record(
+                asset_sha=asset_sha,
+                succeeded=outcome == "completed",
+                schema_failure=outcome == "schema_failure",
+            )
 
     @property
     def count(self) -> int:
@@ -183,8 +424,10 @@ class RollingQualityGate:
     def violation_reason(self) -> str | None:
         if len(self._outcomes) < QUALITY_WINDOW_SIZE:
             return None
-        failures = sum(not succeeded for succeeded, _ in self._outcomes)
-        schema_failures = sum(schema for _, schema in self._outcomes)
+        failures = sum(
+            not succeeded for _, succeeded, _ in self._outcomes
+        )
+        schema_failures = sum(schema for _, _, schema in self._outcomes)
         reasons = []
         if failures * 100 > 10 * len(self._outcomes):
             reasons.append(
@@ -264,6 +507,8 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
         "shard_id",
         "completed_commands",
         "attempts",
+        "active_attempt",
+        "quality_outcomes",
     }:
         raise CheckpointError(f"invalid checkpoint schema: {path}")
     if value["schema_version"] != CHECKPOINT_SCHEMA_VERSION:
@@ -271,6 +516,8 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
     shard_id = value["shard_id"]
     completed = value["completed_commands"]
     attempts = value["attempts"]
+    active_attempt = value["active_attempt"]
+    quality_outcomes = value["quality_outcomes"]
     if not isinstance(shard_id, str) or not shard_id:
         raise CheckpointError(f"invalid checkpoint shard identity: {path}")
     if (
@@ -290,10 +537,37 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
             or not 0 <= count <= MAX_COMMAND_ATTEMPTS
         ):
             raise CheckpointError(f"invalid checkpoint attempts: {path}")
+    if active_attempt is not None:
+        if (
+            not isinstance(active_attempt, dict)
+            or set(active_attempt) != {"command", "attempt"}
+            or not isinstance(active_attempt["command"], str)
+            or not active_attempt["command"]
+            or not isinstance(active_attempt["attempt"], int)
+            or isinstance(active_attempt["attempt"], bool)
+            or attempts.get(active_attempt["command"])
+            != active_attempt["attempt"]
+        ):
+            raise CheckpointError(f"invalid active checkpoint attempt: {path}")
+    if not isinstance(quality_outcomes, dict):
+        raise CheckpointError(f"invalid checkpoint quality outcomes: {path}")
+    try:
+        for asset_sha, outcome in quality_outcomes.items():
+            _validated_asset_sha(asset_sha)
+            if outcome not in QUALITY_OUTCOMES:
+                raise ValueError("invalid terminal outcome")
+    except (TypeError, ValueError) as error:
+        raise CheckpointError(
+            f"invalid checkpoint quality outcomes: {path}"
+        ) from error
     return PipelineCheckpoint(
         shard_id=shard_id,
         completed_commands=list(completed),
         attempts=dict(attempts),
+        active_attempt=(
+            dict(active_attempt) if active_attempt is not None else None
+        ),
+        quality_outcomes=dict(quality_outcomes),
         schema_version=CHECKPOINT_SCHEMA_VERSION,
     )
 
@@ -311,13 +585,17 @@ class PipelineRunner:
         ]
         | None = None,
         report_writer: Callable[[EscalationReport], None] | None = None,
+        fallback_report_path: Callable[[ShardContext, str], Path]
+        | None = None,
         checkpoint_path: Callable[[ShardContext], Path] | None = None,
         process_factory=subprocess.Popen,
+        supervisor_factory=None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
         killpg: Callable[[int, int], None] = os.killpg,
         getpgid: Callable[[int], int] = os.getpgid,
         termination_grace_seconds: float = 60.0,
+        reap_timeout_seconds: float = 30.0,
         monitor_interval_seconds: float = 5.0,
         environment: Mapping[str, str] | None = None,
         quality_gate: RollingQualityGate | None = None,
@@ -325,6 +603,8 @@ class PipelineRunner:
     ):
         if termination_grace_seconds < 0:
             raise ValueError("termination grace must be non-negative")
+        if reap_timeout_seconds <= 0:
+            raise ValueError("reap timeout must be positive")
         if monitor_interval_seconds <= 0:
             raise ValueError("monitor interval must be positive")
         self.config = config
@@ -333,20 +613,35 @@ class PipelineRunner:
         self.internal_handlers = internal_handlers
         self.command_builder = command_builder or build_preprocessing_dag
         self.report_writer = report_writer
+        self.fallback_report_path = fallback_report_path or (
+            lambda context, command: self.config.paths.local_root
+            / "control/escalations-fallback"
+            / context.source
+            / context.shard_id
+            / f"{command}.json"
+        )
         self.checkpoint_path = checkpoint_path or (
             lambda context: context.work_root / "checkpoint.json"
         )
         self.process_factory = process_factory
+        self.supervisor_factory = supervisor_factory or (
+            lambda argv, environment: _LinuxProcessSupervisor.launch(
+                self.process_factory, argv, environment
+            )
+        )
         self.monotonic_clock = monotonic_clock
         self.sleeper = sleeper
         self.killpg = killpg
         self.getpgid = getpgid
         self.termination_grace_seconds = termination_grace_seconds
+        self.reap_timeout_seconds = reap_timeout_seconds
         self.monitor_interval_seconds = monitor_interval_seconds
         self.environment = dict(os.environ if environment is None else environment)
         self.quality_gate = quality_gate or RollingQualityGate()
         self.utc_clock = utc_clock or (lambda: datetime.now(timezone.utc))
         self.active_context: ShardContext | None = None
+        self.active_checkpoint: PipelineCheckpoint | None = None
+        self.active_checkpoint_path: Path | None = None
 
     def _validator(self, command_name: str) -> Callable[[], bool]:
         try:
@@ -364,9 +659,7 @@ class PipelineRunner:
     def _valid_output(self, command_name: str) -> bool:
         try:
             return self._validator(command_name)() is True
-        except InfrastructureError:
-            raise
-        except Exception:
+        except ValidationError:
             return False
 
     def run_shard(self, context: ShardContext) -> None:
@@ -389,13 +682,33 @@ class PipelineRunner:
                     exit_code=2,
                     save_checkpoint=False,
                 )
+            self.active_checkpoint = checkpoint
+            self.active_checkpoint_path = checkpoint_path
+            self.quality_gate.restore(checkpoint.quality_outcomes)
+            if checkpoint.active_attempt is not None:
+                abandoned = checkpoint.active_attempt["command"]
+                checkpoint.active_attempt = None
+                try:
+                    self.save_checkpoint(checkpoint_path, checkpoint)
+                except BaseException as error:
+                    self.stop(
+                        context,
+                        str(abandoned),
+                        f"cannot finalize abandoned attempt: {error}",
+                        checkpoint,
+                        category=EscalationCategory.INFRASTRUCTURE,
+                        exit_code=2,
+                        initial_persistence_errors=(
+                            f"abandoned attempt persistence failed: {error}",
+                        ),
+                    )
 
             for command in self.command_builder(context, self.config):
                 if command.name in checkpoint.completed_commands:
                     try:
                         if self._valid_output(command.name):
                             continue
-                    except InfrastructureError as error:
+                    except Exception as error:
                         self.stop(
                             context,
                             command.name,
@@ -440,7 +753,36 @@ class PipelineRunner:
                             category=EscalationCategory.RESOURCE,
                             exit_code=3,
                         )
+                    except Exception as error:
+                        self.stop(
+                            context,
+                            command.name,
+                            str(error) or type(error).__name__,
+                            checkpoint,
+                            category=EscalationCategory.INFRASTRUCTURE,
+                            exit_code=2,
+                        )
 
+                    attempt = prior_attempts + 1
+                    checkpoint.attempts[command.name] = attempt
+                    checkpoint.active_attempt = {
+                        "command": command.name,
+                        "attempt": attempt,
+                    }
+                    try:
+                        self.save_checkpoint(checkpoint_path, checkpoint)
+                    except BaseException as error:
+                        self.stop(
+                            context,
+                            command.name,
+                            f"cannot persist attempt before launch: {error}",
+                            checkpoint,
+                            category=EscalationCategory.INFRASTRUCTURE,
+                            exit_code=2,
+                            initial_persistence_errors=(
+                                f"prelaunch checkpoint persistence failed: {error}",
+                            ),
+                        )
                     try:
                         self.execute(command, context.shard_id)
                         if not self._valid_output(command.name):
@@ -448,6 +790,7 @@ class PipelineRunner:
                                 f"validation failed: {command.name}"
                             )
                     except ResourceLimitExceeded as error:
+                        checkpoint.active_attempt = None
                         self.stop(
                             context,
                             command.name,
@@ -456,9 +799,15 @@ class PipelineRunner:
                             category=EscalationCategory.RESOURCE,
                             exit_code=3,
                         )
+                    except PipelineStopped:
+                        raise
                     except Exception as error:
-                        checkpoint.attempts[command.name] = prior_attempts + 1
-                        self.save_checkpoint(checkpoint_path, checkpoint)
+                        checkpoint.active_attempt = None
+                        persistence_error = None
+                        try:
+                            self.save_checkpoint(checkpoint_path, checkpoint)
+                        except BaseException as save_error:
+                            persistence_error = save_error
                         if self.is_infrastructure_error(error):
                             self.stop(
                                 context,
@@ -467,8 +816,18 @@ class PipelineRunner:
                                 checkpoint,
                                 category=EscalationCategory.INFRASTRUCTURE,
                                 exit_code=2,
+                                initial_persistence_errors=(
+                                    "attempt finalization failed: "
+                                    f"{persistence_error}",
+                                )
+                                if persistence_error is not None
+                                else (),
                             )
-                        if checkpoint.attempts[command.name] >= MAX_COMMAND_ATTEMPTS:
+                        if (
+                            checkpoint.attempts[command.name]
+                            >= MAX_COMMAND_ATTEMPTS
+                            or persistence_error is not None
+                        ):
                             is_validation = isinstance(error, ValidationError)
                             self.stop(
                                 context,
@@ -481,17 +840,74 @@ class PipelineRunner:
                                     else EscalationCategory.COMMAND_FAILURE
                                 ),
                                 exit_code=4 if is_validation else 2,
+                                initial_persistence_errors=(
+                                    f"attempt finalization failed: {persistence_error}",
+                                )
+                                if persistence_error is not None
+                                else (),
                             )
                         continue
 
+                    checkpoint.active_attempt = None
                     checkpoint.complete(command.name)
-                    self.save_checkpoint(checkpoint_path, checkpoint)
+                    try:
+                        self.save_checkpoint(checkpoint_path, checkpoint)
+                    except BaseException as error:
+                        self.stop(
+                            context,
+                            command.name,
+                            f"completion checkpoint failed: {error}",
+                            checkpoint,
+                            category=EscalationCategory.INFRASTRUCTURE,
+                            exit_code=2,
+                            initial_persistence_errors=(
+                                f"completion checkpoint persistence failed: {error}",
+                            ),
+                        )
                     break
         finally:
             self.active_context = None
+            self.active_checkpoint = None
+            self.active_checkpoint_path = None
 
     def resume_shard(self, context: ShardContext) -> None:
         self.run_shard(context)
+
+    def record_quality_outcome(self, asset_sha: str, outcome: str) -> None:
+        checkpoint = self.active_checkpoint
+        checkpoint_path = self.active_checkpoint_path
+        context = self.active_context
+        if checkpoint is None or checkpoint_path is None or context is None:
+            raise InfrastructureError(
+                "quality outcome has no active durable checkpoint"
+            )
+        if outcome not in QUALITY_OUTCOMES:
+            raise ValueError(f"invalid terminal quality outcome: {outcome}")
+        existing = checkpoint.quality_outcomes.get(asset_sha)
+        if existing is not None:
+            if existing != outcome:
+                raise InfrastructureError(
+                    f"conflicting durable quality outcome: {asset_sha}"
+                )
+            return
+        checkpoint.quality_outcomes[asset_sha] = outcome
+        self.quality_gate.record(
+            asset_sha=asset_sha,
+            succeeded=outcome == "completed",
+            schema_failure=outcome == "schema_failure",
+        )
+        self.save_checkpoint(checkpoint_path, checkpoint)
+        reason = self.quality_gate.violation_reason()
+        if reason:
+            checkpoint.active_attempt = None
+            self.stop(
+                context,
+                "validate_outputs",
+                reason,
+                checkpoint,
+                category=EscalationCategory.DATA_QUALITY,
+                exit_code=4,
+            )
 
     def execute(self, command: CommandSpec, shard_id: str) -> None:
         if not command.argv:
@@ -524,9 +940,7 @@ class PipelineRunner:
             for argv, additions in expand_ranked(command):
                 environment = dict(self.environment)
                 environment.update(dict(additions))
-                process = self.process_factory(
-                    argv, env=environment, start_new_session=True
-                )
+                process = self.supervisor_factory(argv, environment)
                 processes.append(process)
             self._monitor_processes(
                 processes, paused_groups, shard_id, command
@@ -535,7 +949,17 @@ class PipelineRunner:
             try:
                 self._terminate_and_reap(processes, paused_groups)
             except BaseException as cleanup_error:
-                raise cleanup_error from error
+                if isinstance(
+                    error, (ResourceLimitExceeded, ProcessGroupSafetyError)
+                ):
+                    notes = list(getattr(error, "__notes__", ()))
+                    notes.append(
+                        "supervisor cleanup failure: "
+                        f"{type(cleanup_error).__name__}: {cleanup_error}"
+                    )
+                    error.__notes__ = notes
+                else:
+                    raise cleanup_error from error
             raise
         else:
             self._reap(processes)
@@ -564,40 +988,66 @@ class PipelineRunner:
             if all(status is not None for status in statuses):
                 return
 
-            decision = self.resource_guard.check(shard_id, command.name)
-            if decision.action == ResourceAction.STOP:
+            try:
+                decision = self.resource_guard.check(shard_id, command.name)
+                action = decision.action
+                if not isinstance(action, ResourceAction):
+                    raise TypeError(f"invalid resource action: {action!r}")
+            except ResourceLimitExceeded:
+                raise
+            except Exception as error:
+                raise InfrastructureError(
+                    f"resource monitor failed: {error}"
+                ) from error
+            if action == ResourceAction.STOP:
                 raise ResourceLimitExceeded(decision.reasons)
-            if decision.action == ResourceAction.PAUSE:
+            if action == ResourceAction.PAUSE:
                 for process, status in zip(processes, statuses):
                     if status is None and process.pid not in paused_groups:
-                        self._signal_process(process, signal.SIGSTOP)
+                        self._signal_process(process, "pause")
                         paused_groups.add(process.pid)
-            elif decision.action == ResourceAction.RUN and paused_groups:
+            elif action == ResourceAction.RUN and paused_groups:
                 for process, status in zip(processes, statuses):
                     if status is None and process.pid in paused_groups:
-                        self._signal_process(process, signal.SIGCONT)
+                        self._signal_process(process, "resume")
                         paused_groups.discard(process.pid)
             self.sleeper(self.monitor_interval_seconds)
 
-    def _signal_process(self, process, sent_signal: int) -> None:
-        group_id = self.getpgid(process.pid)
-        if group_id != process.pid:
+    @staticmethod
+    def _signal_process(process, action: str) -> None:
+        try:
+            process.send_control(action)
+        except ProcessLookupError:
+            if process.poll() is not None:
+                return
             raise ProcessGroupSafetyError(
-                f"refusing to signal unexpected process group "
-                f"{group_id} for pid {process.pid}"
+                f"stable supervisor disappeared during {action}: {process.pid}"
             )
-        self.killpg(group_id, sent_signal)
+        except ProcessGroupSafetyError:
+            raise
+        except OSError as error:
+            if process.poll() is not None:
+                return
+            raise ProcessGroupSafetyError(
+                f"cannot control stable supervisor {process.pid}: {error}"
+            ) from error
 
     @staticmethod
     def _alive(processes):
         return [process for process in processes if process.poll() is None]
 
-    @staticmethod
-    def _reap(processes) -> None:
+    def _reap(self, processes) -> None:
         failure = None
         for process in processes:
             try:
-                process.wait()
+                process.wait(timeout=self.reap_timeout_seconds)
+            except subprocess.TimeoutExpired as error:
+                error = ProcessGroupSafetyError(
+                    f"supervisor did not exit within "
+                    f"{self.reap_timeout_seconds}s: {process.pid}"
+                )
+                if failure is None:
+                    failure = error
             except BaseException as error:
                 if failure is None:
                     failure = error
@@ -607,11 +1057,11 @@ class PipelineRunner:
     def _terminate_and_reap(self, processes, paused_groups: set[int]) -> None:
         failure = None
 
-        def signal_all(candidates, sent_signal):
+        def signal_all(candidates, action):
             nonlocal failure
             for process in candidates:
                 try:
-                    self._signal_process(process, sent_signal)
+                    self._signal_process(process, action)
                 except BaseException as error:
                     if failure is None:
                         failure = error
@@ -619,10 +1069,10 @@ class PipelineRunner:
         alive = self._alive(processes)
         signal_all(
             [process for process in alive if process.pid in paused_groups],
-            signal.SIGCONT,
+            "resume",
         )
         paused_groups.clear()
-        signal_all(alive, signal.SIGTERM)
+        signal_all(alive, "terminate")
 
         deadline = self.monotonic_clock() + self.termination_grace_seconds
         alive = self._alive(processes)
@@ -634,7 +1084,7 @@ class PipelineRunner:
                 )
             )
             alive = self._alive(processes)
-        signal_all(alive, signal.SIGKILL)
+        signal_all(alive, "kill")
         try:
             self._reap(processes)
         except BaseException as error:
@@ -648,19 +1098,14 @@ class PipelineRunner:
     ) -> PipelineCheckpoint:
         path = Path(path)
         try:
-            mode = path.lstat().st_mode
-        except FileNotFoundError:
-            return PipelineCheckpoint(shard_id)
+            payload = _read_regular_bytes_nofollow(path, missing_ok=True)
+            if payload is None:
+                return PipelineCheckpoint(shard_id)
+            value = json.loads(payload)
         except OSError as error:
             raise CheckpointError(
-                f"cannot inspect checkpoint: {path}: {error}"
+                f"checkpoint is not a regular file or has an unsafe path: {path}: {error}"
             ) from error
-        if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
-            raise CheckpointError(
-                f"checkpoint is not a regular file: {path}"
-            )
-        try:
-            value = json.loads(path.read_text())
         except Exception as error:
             raise CheckpointError(f"invalid checkpoint: {path}: {error}") from error
         checkpoint = _required_checkpoint_dict(value, path)
@@ -675,7 +1120,15 @@ class PipelineRunner:
         self, path: Path, checkpoint: PipelineCheckpoint
     ) -> None:
         validated = _required_checkpoint_dict(asdict(checkpoint), Path(path))
-        atomic_write_json(path, asdict(validated))
+        try:
+            payload = json.dumps(
+                asdict(validated), sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+            _atomic_write_bytes_nofollow(path, payload)
+        except OSError as error:
+            raise CheckpointError(
+                f"unsafe checkpoint destination: {path}: {error}"
+            ) from error
 
     def is_infrastructure_error(self, error: Exception) -> bool:
         if isinstance(
@@ -728,21 +1181,42 @@ class PipelineRunner:
         category: EscalationCategory,
         exit_code: int,
         save_checkpoint: bool = True,
+        initial_persistence_errors: Sequence[str] = (),
     ) -> None:
+        persistence_errors = list(initial_persistence_errors)
         if save_checkpoint:
-            self.save_checkpoint(self.checkpoint_path(context), checkpoint)
-        created_at = self.utc_clock()
-        if created_at.tzinfo is None or created_at.utcoffset() is None:
-            raise ValueError("escalation timestamp must be timezone-aware")
+            try:
+                self.save_checkpoint(self.checkpoint_path(context), checkpoint)
+            except BaseException as error:
+                persistence_errors.append(
+                    f"checkpoint persistence failed: "
+                    f"{type(error).__name__}: {error}"
+                )
+        try:
+            recent_telemetry = tuple(
+                self.resource_guard.last_five_minutes()
+            )
+        except BaseException as error:
+            recent_telemetry = ()
+            persistence_errors.append(
+                f"telemetry retrieval failed: {type(error).__name__}: {error}"
+            )
+        try:
+            created_at = self.utc_clock()
+            if created_at.tzinfo is None or created_at.utcoffset() is None:
+                raise ValueError("escalation timestamp must be timezone-aware")
+        except BaseException as error:
+            persistence_errors.append(
+                f"escalation clock failed: {type(error).__name__}: {error}"
+            )
+            created_at = datetime.now(timezone.utc)
         report = EscalationReport(
             source=context.source,
             shard_id=context.shard_id,
             command=command,
             category=category,
             reason=reason,
-            recent_telemetry=tuple(
-                self.resource_guard.last_five_minutes()
-            ),
+            recent_telemetry=recent_telemetry,
             completed_counts={
                 "commands": len(checkpoint.completed_commands),
                 "outcomes": self.quality_gate.count,
@@ -754,41 +1228,44 @@ class PipelineRunner:
             ),
             recovery_choices=self._recovery_choices(category),
             created_at=created_at.astimezone(timezone.utc).isoformat(),
+            persistence_errors=tuple(persistence_errors),
         )
-        if self.report_writer is not None:
-            self.report_writer(report)
+        primary_failed = self.report_writer is None
+        if self.report_writer is None:
+            persistence_errors.append("primary escalation report writer unavailable")
+        else:
+            try:
+                self.report_writer(report)
+            except BaseException as error:
+                primary_failed = True
+                persistence_errors.append(
+                    f"primary report persistence failed: "
+                    f"{type(error).__name__}: {error}"
+                )
+        if primary_failed:
+            report = replace(
+                report, persistence_errors=tuple(persistence_errors)
+            )
+            try:
+                payload = json.dumps(
+                    asdict(report), sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+                _atomic_write_bytes_nofollow(
+                    self.fallback_report_path(context, command), payload
+                )
+            except BaseException as error:
+                persistence_errors.append(
+                    f"fallback report persistence failed: "
+                    f"{type(error).__name__}: {error}"
+                )
+                report = replace(
+                    report, persistence_errors=tuple(persistence_errors)
+                )
         raise PipelineStopped(report, exit_code)
 
 
 def _atomic_write_text(path: Path, value: str) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as stream:
-            temporary = Path(stream.name)
-            stream.write(value)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        temporary = None
-        directory = os.open(
-            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        )
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    _atomic_write_bytes_nofollow(Path(path), value.encode("utf-8"))
 
 
 def _safe_component(value: str, description: str) -> str:
@@ -825,12 +1302,182 @@ def _sha_stream(stream) -> str:
     return digest.hexdigest()
 
 
+def _open_directory_nofollow(path: Path, *, create: bool = False) -> int:
+    absolute = Path(os.path.abspath(path))
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = os.open("/", flags)
+    try:
+        for component in absolute.parts[1:]:
+            try:
+                next_fd = os.open(component, flags, dir_fd=directory_fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(component, 0o755, dir_fd=directory_fd)
+                next_fd = os.open(component, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return directory_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
+
+
+def _same_inode(first, second) -> bool:
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
+def _read_regular_bytes_nofollow(
+    path: Path,
+    *,
+    missing_ok: bool = False,
+) -> bytes | None:
+    path = Path(path)
+    try:
+        directory_fd = _open_directory_nofollow(path.parent)
+    except FileNotFoundError:
+        if missing_ok:
+            return None
+        raise
+    try:
+        try:
+            file_fd = os.open(
+                path.name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                dir_fd=directory_fd,
+            )
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise
+        try:
+            opened = os.fstat(file_fd)
+            if not stat.S_ISREG(opened.st_mode):
+                raise OSError(f"not a regular file: {path}")
+            with os.fdopen(file_fd, "rb", closefd=False) as stream:
+                value = stream.read()
+            current = os.stat(
+                path.name, dir_fd=directory_fd, follow_symlinks=False
+            )
+            if not stat.S_ISREG(current.st_mode) or not _same_inode(
+                opened, current
+            ):
+                raise OSError(f"file identity changed while reading: {path}")
+            return value
+        finally:
+            os.close(file_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _regular_file_size_nofollow(path: Path, *, missing_ok: bool = False) -> int:
+    path = Path(path)
+    try:
+        directory_fd = _open_directory_nofollow(path.parent)
+    except FileNotFoundError:
+        if missing_ok:
+            return 0
+        raise
+    try:
+        try:
+            file_fd = os.open(
+                path.name,
+                os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory_fd,
+            )
+        except FileNotFoundError:
+            if missing_ok:
+                return 0
+            raise
+        try:
+            opened = os.fstat(file_fd)
+            current = os.stat(
+                path.name, dir_fd=directory_fd, follow_symlinks=False
+            )
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or not stat.S_ISREG(current.st_mode)
+                or not _same_inode(opened, current)
+            ):
+                raise OSError(f"unsafe accounted path: {path}")
+            return opened.st_size
+        finally:
+            os.close(file_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _atomic_write_bytes_nofollow(path: Path, value: bytes) -> None:
+    path = Path(path)
+    directory_fd = _open_directory_nofollow(path.parent, create=True)
+    temporary_name = (
+        f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+    )
+    temporary_fd = None
+    existing = None
+    try:
+        try:
+            existing = os.stat(
+                path.name, dir_fd=directory_fd, follow_symlinks=False
+            )
+            if not stat.S_ISREG(existing.st_mode):
+                raise OSError(f"unsafe destination: {path}")
+        except FileNotFoundError:
+            existing = None
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_NOFOLLOW
+            | os.O_CLOEXEC,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        view = memoryview(value)
+        while view:
+            written = os.write(temporary_fd, view)
+            view = view[written:]
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = None
+        try:
+            current = os.stat(
+                path.name, dir_fd=directory_fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            current = None
+        if (existing is None) != (current is None) or (
+            existing is not None
+            and current is not None
+            and not _same_inode(existing, current)
+        ):
+            raise OSError(f"destination identity changed: {path}")
+        os.replace(
+            temporary_name,
+            path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        os.fsync(directory_fd)
+    finally:
+        if temporary_fd is not None:
+            os.close(temporary_fd)
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        os.close(directory_fd)
+
+
 def _open_regular_beneath(root: Path, relative: Path):
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
-        root_fd = os.open(root, flags | os.O_DIRECTORY)
+        root_fd = _open_directory_nofollow(root)
     except OSError as error:
-        raise ValidationError(f"unsafe raw source root: {root}") from error
+        if error.errno in PATH_VALIDATION_ERRNOS:
+            raise ValidationError(f"unsafe raw source root: {root}") from error
+        raise
     directory_fd = os.dup(root_fd)
     os.close(root_fd)
     try:
@@ -842,9 +1489,11 @@ def _open_regular_beneath(root: Path, relative: Path):
                     dir_fd=directory_fd,
                 )
             except OSError as error:
-                raise ValidationError(
-                    f"symlink or unsafe raw source: {relative.as_posix()}"
-                ) from error
+                if error.errno in PATH_VALIDATION_ERRNOS:
+                    raise ValidationError(
+                        f"symlink or unsafe raw source: {relative.as_posix()}"
+                    ) from error
+                raise
             os.close(directory_fd)
             directory_fd = next_fd
         try:
@@ -854,9 +1503,11 @@ def _open_regular_beneath(root: Path, relative: Path):
                 dir_fd=directory_fd,
             )
         except OSError as error:
-            raise ValidationError(
-                f"symlink or missing raw source: {relative.as_posix()}"
-            ) from error
+            if error.errno in PATH_VALIDATION_ERRNOS:
+                raise ValidationError(
+                    f"symlink or missing raw source: {relative.as_posix()}"
+                ) from error
+            raise
         try:
             if not stat.S_ISREG(os.fstat(file_fd).st_mode):
                 raise ValidationError(
@@ -870,10 +1521,10 @@ def _open_regular_beneath(root: Path, relative: Path):
         os.close(directory_fd)
 
 
-def _unlink_regular_beneath(root: Path, relative: Path) -> bool:
+def _unlink_regular_beneath(root: Path, relative: Path) -> int:
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
-        directory_fd = os.open(root, flags | os.O_DIRECTORY)
+        directory_fd = _open_directory_nofollow(root)
     except FileNotFoundError:
         return False
     except OSError as error:
@@ -894,21 +1545,41 @@ def _unlink_regular_beneath(root: Path, relative: Path) -> bool:
                 ) from error
             os.close(directory_fd)
             directory_fd = next_fd
+        file_fd = None
         try:
-            mode = os.stat(
+            file_fd = os.open(
+                relative.parts[-1],
+                flags | os.O_NONBLOCK,
+                dir_fd=directory_fd,
+            )
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise ValidationError(
+                f"refusing to delete unsafe raw source: {relative.as_posix()}"
+            ) from error
+        try:
+            opened = os.fstat(file_fd)
+            if not stat.S_ISREG(opened.st_mode):
+                raise ValidationError(
+                    f"refusing to delete unsafe raw source: {relative.as_posix()}"
+                )
+            current = os.stat(
                 relative.parts[-1],
                 dir_fd=directory_fd,
                 follow_symlinks=False,
-            ).st_mode
-        except FileNotFoundError:
-            return False
-        if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
-            raise ValidationError(
-                f"refusing to delete unsafe raw source: {relative.as_posix()}"
             )
-        os.unlink(relative.parts[-1], dir_fd=directory_fd)
+            if not stat.S_ISREG(current.st_mode) or not _same_inode(
+                opened, current
+            ):
+                raise ValidationError(
+                    f"raw source identity changed before delete: {relative.as_posix()}"
+                )
+            os.unlink(relative.parts[-1], dir_fd=directory_fd)
+        finally:
+            os.close(file_fd)
         os.fsync(directory_fd)
-        return True
+        return opened.st_size
     finally:
         os.close(directory_fd)
 
@@ -941,40 +1612,137 @@ def _safe_destination_parent(root: Path, relative: Path) -> Path:
 def _atomic_stage_stream(
     stream, root: Path, relative: Path, expected_sha: str
 ) -> None:
-    parent = _safe_destination_parent(root, relative)
-    destination = root / relative
-    temporary = None
+    destination = Path(root) / relative
+    try:
+        directory_fd = _open_directory_nofollow(
+            destination.parent, create=True
+        )
+    except OSError as error:
+        raise ValidationError(
+            f"unsafe staging destination: {relative.as_posix()}: {error}"
+        ) from error
+    temporary_name = (
+        f".{destination.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+    )
+    temporary_fd = None
     digest = sha256()
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w+b",
-            dir=parent,
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as output:
-            temporary = Path(output.name)
-            for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-                digest.update(block)
-                output.write(block)
-            output.flush()
-            os.fsync(output.fileno())
+        try:
+            existing = os.stat(
+                destination.name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+            if not stat.S_ISREG(existing.st_mode):
+                raise OSError(f"unsafe destination: {destination}")
+        except FileNotFoundError:
+            existing = None
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_NOFOLLOW
+            | os.O_CLOEXEC,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+            view = memoryview(block)
+            while view:
+                written = os.write(temporary_fd, view)
+                view = view[written:]
         if digest.hexdigest() != expected_sha:
             raise ValidationError(
                 f"raw checksum mismatch: {relative.as_posix()}"
             )
-        os.replace(temporary, destination)
-        temporary = None
-        directory = os.open(
-            parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        )
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = None
         try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            current = os.stat(
+                destination.name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            current = None
+        if (existing is None) != (current is None) or (
+            existing is not None
+            and current is not None
+            and not _same_inode(existing, current)
+        ):
+            raise ValidationError(
+                f"staging destination identity changed: {relative.as_posix()}"
+            )
+        os.replace(
+            temporary_name,
+            destination.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        os.fsync(directory_fd)
+    except OSError as error:
+        raise ValidationError(
+            f"unsafe staging destination: {relative.as_posix()}: {error}"
+        ) from error
     finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+        if temporary_fd is not None:
+            os.close(temporary_fd)
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        os.close(directory_fd)
+
+
+def _remove_tree_nofollow(path: Path) -> bool:
+    path = Path(path)
+    try:
+        parent_fd = _open_directory_nofollow(path.parent)
+    except FileNotFoundError:
+        return False
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+    def remove_contents(directory_fd: int) -> None:
+        for name in os.listdir(directory_fd):
+            value = os.stat(
+                name, dir_fd=directory_fd, follow_symlinks=False
+            )
+            if stat.S_ISLNK(value.st_mode):
+                raise ValidationError(f"refusing symlink during cleanup: {name}")
+            if stat.S_ISDIR(value.st_mode):
+                child_fd = os.open(name, flags, dir_fd=directory_fd)
+                try:
+                    remove_contents(child_fd)
+                finally:
+                    os.close(child_fd)
+                os.rmdir(name, dir_fd=directory_fd)
+            elif stat.S_ISREG(value.st_mode):
+                os.unlink(name, dir_fd=directory_fd)
+            else:
+                raise ValidationError(
+                    f"refusing non-file during cleanup: {name}"
+                )
+        os.fsync(directory_fd)
+
+    try:
+        try:
+            directory_fd = os.open(path.name, flags, dir_fd=parent_fd)
+        except FileNotFoundError:
+            return False
+        try:
+            remove_contents(directory_fd)
+        finally:
+            os.close(directory_fd)
+        os.rmdir(path.name, dir_fd=parent_fd)
+        os.fsync(parent_fd)
+        return True
+    except OSError as error:
+        raise ValidationError(f"unsafe cleanup path: {path}: {error}") from error
+    finally:
+        os.close(parent_fd)
 
 
 def _zip_parts(relative: Path) -> tuple[Path, str] | None:
@@ -1020,10 +1788,17 @@ class PipelineServices:
         resource_guard=None,
         pilot_reader: PilotReader | None = None,
         reference_counter: RawReferenceCounter | None = None,
+        project_accounting: ProjectAccounting | None = None,
         registry_store=None,
         disk_usage: Callable[[Path], object] = shutil.disk_usage,
         runner=None,
         output_validator: Callable[[ShardContext], None] | None = None,
+        asset_output_validator: Callable[[ShardContext, str], None]
+        | None = None,
+        shape_resolution_validator: Callable[[ShardContext, int], None]
+        | None = None,
+        pbr_resolution_validator: Callable[[ShardContext, int], None]
+        | None = None,
         resolution_validator: Callable[[ShardContext, int], None]
         | None = None,
         pack_publisher=publish_pack,
@@ -1054,10 +1829,25 @@ class PipelineServices:
             if reference_counter is not None
             else _MissingReferenceCounter()
         )
+        self.project_accounting = (
+            project_accounting
+            if project_accounting is not None
+            else _MissingProjectAccounting()
+        )
         self.disk_usage = disk_usage
+        self.asset_output_validator = (
+            asset_output_validator or self._validate_asset_outputs
+        )
         self.output_validator = output_validator or self._validate_all_outputs
-        self.resolution_validator = (
-            resolution_validator or self._validate_resolution
+        self.shape_resolution_validator = (
+            shape_resolution_validator
+            or resolution_validator
+            or self._validate_shape_resolution
+        )
+        self.pbr_resolution_validator = (
+            pbr_resolution_validator
+            or resolution_validator
+            or self._validate_pbr_resolution
         )
         self.pack_publisher = pack_publisher
         self.pack_member_builder = pack_member_builder or self._pack_members
@@ -1136,7 +1926,10 @@ class PipelineServices:
             / report.shard_id
             / f"{report.command}.json"
         )
-        atomic_write_json(path, asdict(report))
+        payload = json.dumps(
+            asdict(report), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        _atomic_write_bytes_nofollow(path, payload)
 
     def _resolved_tool_commit(self) -> str:
         if self._tool_commit is not None:
@@ -1215,22 +2008,25 @@ class PipelineServices:
         allow_subset: bool = False,
     ) -> tuple[tuple[str, ...], ...] | None:
         root = self._batch_root(source, shard_id)
-        if root.is_symlink():
-            raise InfrastructureError(f"frozen batch root is a symlink: {root}")
-        if not root.exists():
+        try:
+            root_fd = _open_directory_nofollow(root)
+        except FileNotFoundError:
             return None
-        if not root.is_dir():
+        except OSError as error:
             raise InfrastructureError(
-                f"frozen batch root is not a directory: {root}"
+                f"unsafe frozen batch root: {root}: {error}"
+            ) from error
+        try:
+            actual_names = sorted(
+                name
+                for name in os.listdir(root_fd)
+                if name.startswith("batch") and name.endswith(".txt")
             )
+        finally:
+            os.close(root_fd)
         marker_path = root / "batches.json"
         try:
-            marker_mode = marker_path.lstat().st_mode
-            if stat.S_ISLNK(marker_mode) or not stat.S_ISREG(marker_mode):
-                raise InfrastructureError(
-                    f"frozen batch marker is not a regular file: {marker_path}"
-                )
-            marker = json.loads(marker_path.read_text())
+            marker = json.loads(_read_regular_bytes_nofollow(marker_path))
         except InfrastructureError:
             raise
         except Exception as error:
@@ -1271,12 +2067,7 @@ class PipelineServices:
                     f"invalid frozen batch entry: {marker_path}: {name}"
                 )
             try:
-                path_mode = path.lstat().st_mode
-                if stat.S_ISLNK(path_mode) or not stat.S_ISREG(path_mode):
-                    raise InfrastructureError(
-                        f"frozen batch is not a regular file: {path}"
-                    )
-                payload = path.read_bytes()
+                payload = _read_regular_bytes_nofollow(path)
                 if sha256(payload).hexdigest() != entry["sha256"]:
                     raise InfrastructureError(
                         f"frozen batch checksum mismatch: {path}"
@@ -1301,7 +2092,6 @@ class PipelineServices:
             ):
                 raise InfrastructureError(f"invalid frozen batch: {path}")
             batches.append(batch)
-        actual_names = sorted(path.name for path in root.glob("batch*.txt"))
         if actual_names != expected_names:
             raise InfrastructureError(
                 f"frozen batch file set mismatch: {root}"
@@ -1359,15 +2149,18 @@ class PipelineServices:
                         "sha256": sha256(payload.encode("ascii")).hexdigest(),
                     }
                 )
-            atomic_write_json(
+            marker = {
+                "schema_version": 1,
+                "source": source,
+                "shard_id": shard_id,
+                "config_hash": self.config.config_hash(),
+                "batches": entries,
+            }
+            _atomic_write_bytes_nofollow(
                 temporary / "batches.json",
-                {
-                    "schema_version": 1,
-                    "source": source,
-                    "shard_id": shard_id,
-                    "config_hash": self.config.config_hash(),
-                    "batches": entries,
-                },
+                json.dumps(
+                    marker, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8"),
             )
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             if destination.exists() or destination.is_symlink():
@@ -1463,15 +2256,17 @@ class PipelineServices:
     @staticmethod
     def _instances(context: ShardContext) -> tuple[str, ...]:
         try:
-            mode = context.instances.lstat().st_mode
-            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
-                raise ValidationError(
-                    f"instances manifest is not a regular file: {context.instances}"
-                )
+            payload = _read_regular_bytes_nofollow(context.instances)
             values = tuple(
                 _validated_asset_sha(item)
-                for item in context.instances.read_text().splitlines()
+                for item in payload.decode("ascii").splitlines()
             )
+        except OSError as error:
+            if error.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+                raise ValidationError(
+                    f"invalid instances manifest: {context.instances}: {error}"
+                ) from error
+            raise
         except Exception as error:
             raise ValidationError(
                 f"invalid instances manifest: {context.instances}: {error}"
@@ -1485,12 +2280,8 @@ class PipelineServices:
     @staticmethod
     def _read_raw_records(path: Path, selected: tuple[str, ...]) -> tuple[dict, ...]:
         try:
-            mode = Path(path).lstat().st_mode
-            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
-                raise ValidationError(
-                    f"raw metadata is not a regular file: {path}"
-                )
-            with Path(path).open(newline="", encoding="utf-8") as stream:
+            payload = _read_regular_bytes_nofollow(path)
+            with io.StringIO(payload.decode("utf-8"), newline="") as stream:
                 reader = csv.DictReader(stream)
                 if reader.fieldnames is None or not {
                     "sha256",
@@ -1515,6 +2306,12 @@ class PipelineServices:
                     }
         except ValidationError:
             raise
+        except OSError as error:
+            if error.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+                raise ValidationError(
+                    f"invalid raw metadata: {path}: {error}"
+                ) from error
+            raise
         except Exception as error:
             raise ValidationError(f"invalid raw metadata: {path}: {error}") from error
         missing = set(selected) - set(by_sha)
@@ -1531,39 +2328,18 @@ class PipelineServices:
     @staticmethod
     def _write_raw_records(path: Path, records: tuple[dict, ...]) -> None:
         path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = None
+        stream = io.StringIO(newline="")
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                newline="",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as stream:
-                temporary = Path(stream.name)
-                writer = csv.DictWriter(
-                    stream, fieldnames=("sha256", "local_path")
-                )
-                writer.writeheader()
-                writer.writerows(records)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-            temporary = None
-            directory = os.open(
-                path.parent,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            writer = csv.DictWriter(
+                stream, fieldnames=("sha256", "local_path")
             )
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            writer.writeheader()
+            writer.writerows(records)
+            _atomic_write_bytes_nofollow(path, stream.getvalue().encode("utf-8"))
+        except OSError as error:
+            raise ValidationError(f"unsafe raw metadata output: {path}") from error
         finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+            stream.close()
 
     @staticmethod
     def _source_raw_relative(relative: Path) -> Path:
@@ -1636,6 +2412,104 @@ class PipelineServices:
                         f"staged raw checksum mismatch: {relative.as_posix()}"
                     )
 
+    def _validate_dump_output(
+        self, context: ShardContext, directory: str, asset_sha: str
+    ) -> None:
+        relative = Path(directory) / f"{asset_sha}.pickle"
+        try:
+            with _open_regular_beneath(context.work_root, relative) as stream:
+                value = pickle.load(stream)
+        except ValidationError:
+            raise
+        except (pickle.PickleError, EOFError, AttributeError, ValueError) as error:
+            raise ValidationError(
+                f"invalid dump pickle: {relative.as_posix()}: {error}"
+            ) from error
+        if not isinstance(value, dict) or not isinstance(
+            value.get("objects"), list
+        ):
+            raise ValidationError(
+                f"invalid dump structure: {relative.as_posix()}"
+            )
+        if directory == "pbr_dumps" and not isinstance(
+            value.get("materials"), list
+        ):
+            raise ValidationError(
+                f"invalid PBR dump structure: {relative.as_posix()}"
+            )
+
+    def _validate_asset_stats(self, context: ShardContext) -> None:
+        relative = Path("asset_stats/metadata.csv")
+        with _open_regular_beneath(context.metadata_root, relative) as stream:
+            try:
+                reader = csv.DictReader(
+                    io.StringIO(stream.read().decode("utf-8"))
+                )
+            except (UnicodeDecodeError, csv.Error) as error:
+                raise ValidationError(f"invalid asset stats CSV: {error}") from error
+            required = {"sha256", "num_faces", "num_vertices"}
+            if reader.fieldnames is None or not required.issubset(
+                reader.fieldnames
+            ):
+                raise ValidationError("asset stats CSV missing required columns")
+            rows = tuple(reader)
+        assets = self._instances(context)
+        if tuple(sorted(row.get("sha256") for row in rows)) != assets:
+            raise ValidationError("asset stats SHA set mismatch")
+        for row in rows:
+            try:
+                counts = (int(row["num_faces"]), int(row["num_vertices"]))
+            except (TypeError, ValueError) as error:
+                raise ValidationError("invalid asset stats counts") from error
+            if any(value < 0 for value in counts):
+                raise ValidationError("negative asset stats counts")
+
+    @staticmethod
+    def _validate_voxel_output(
+        context: ShardContext, directory: str, asset_sha: str, view: int
+    ) -> None:
+        relative = Path(directory) / asset_sha / f"view{view:02d}.vxz"
+        try:
+            import o_voxel
+        except ImportError as error:
+            raise InfrastructureError("o_voxel validator is unavailable") from error
+        try:
+            with _open_regular_beneath(context.work_root, relative) as stream:
+                info = o_voxel.io.read_vxz_info(
+                    f"/proc/self/fd/{stream.fileno()}"
+                )
+        except ValidationError:
+            raise
+        except OSError:
+            raise
+        except Exception as error:
+            raise ValidationError(
+                f"invalid voxel output: {relative.as_posix()}: {error}"
+            ) from error
+        if not isinstance(info, Mapping) or not info:
+            raise ValidationError(
+                f"invalid voxel metadata: {relative.as_posix()}"
+            )
+        scale_relative = relative.with_name(f"view{view:02d}_scale.json")
+        with _open_regular_beneath(
+            context.work_root, scale_relative
+        ) as stream:
+            try:
+                scale = json.loads(stream.read())
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                raise ValidationError("invalid voxel scale metadata") from error
+        if (
+            not isinstance(scale, dict)
+            or not scale
+            or not all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                for value in scale.values()
+            )
+        ):
+            raise ValidationError("invalid voxel scale metadata")
+
     def _shape_directory(self, resolution: int) -> Path:
         return Path(
             "shape_latents",
@@ -1654,29 +2528,37 @@ class PipelineServices:
             f"ss_enc_conv3d_16l8_fp16_{self.config.targets.ss_resolution}_view",
         )
 
-    def _validate_resolution(
-        self, context: ShardContext, resolution: int
+    def _validate_resolution_family(
+        self, context: ShardContext, resolution: int, relative: Path
     ) -> None:
         if resolution not in self.config.targets.resolutions:
             raise ValidationError(f"unexpected resolution: {resolution}")
         for asset_sha in self._instances(context):
-            for relative in (
-                self._shape_directory(resolution),
-                self._pbr_directory(resolution),
-            ):
-                for view in self.config.targets.views:
-                    output = (
-                        context.output_root
-                        / relative
-                        / asset_sha
-                        / f"view{view:02d}.npz"
-                    )
-                    validate_sparse_latent(
-                        output, resolution, resolution**3
-                    )
-                    validate_scale(
-                        output.with_name(f"view{view:02d}_scale.json")
-                    )
+            for view in self.config.targets.views:
+                output = (
+                    context.output_root
+                    / relative
+                    / asset_sha
+                    / f"view{view:02d}.npz"
+                )
+                validate_sparse_latent(output, resolution, resolution**3)
+                validate_scale(
+                    output.with_name(f"view{view:02d}_scale.json")
+                )
+
+    def _validate_shape_resolution(
+        self, context: ShardContext, resolution: int
+    ) -> None:
+        self._validate_resolution_family(
+            context, resolution, self._shape_directory(resolution)
+        )
+
+    def _validate_pbr_resolution(
+        self, context: ShardContext, resolution: int
+    ) -> None:
+        self._validate_resolution_family(
+            context, resolution, self._pbr_directory(resolution)
+        )
 
     def _validate_asset_outputs(
         self, context: ShardContext, asset_sha: str
@@ -1716,47 +2598,76 @@ class PipelineServices:
 
     def _validate_all_outputs(self, context: ShardContext) -> None:
         for asset_sha in self._instances(context):
-            self._validate_asset_outputs(context, asset_sha)
+            self.asset_output_validator(context, asset_sha)
+
+    def _quality_state(
+        self, context: ShardContext
+    ) -> tuple[tuple[str, ...], tuple[str, ...], int]:
+        checkpoint = self.runner.active_checkpoint
+        if checkpoint is None:
+            checkpoint = self.runner.load_checkpoint(
+                self._checkpoint_path(context), context.shard_id
+            )
+        assets = self._instances(context)
+        if tuple(checkpoint.quality_outcomes) != assets:
+            raise ValidationError(
+                "terminal quality outcomes do not match frozen SHA order"
+            )
+        completed = tuple(
+            asset_sha
+            for asset_sha in assets
+            if checkpoint.quality_outcomes[asset_sha] == "completed"
+        )
+        quarantined = len(assets) - len(completed)
+        return assets, completed, quarantined
+
+    def _validate_terminal_outputs(self, context: ShardContext) -> None:
+        _, completed, _ = self._quality_state(context)
+        for asset_sha in completed:
+            self.asset_output_validator(context, asset_sha)
 
     def validate_outputs(self, context: ShardContext) -> None:
-        failures = []
+        checkpoint = self.runner.active_checkpoint
+        if checkpoint is None:
+            raise InfrastructureError(
+                "output validation has no active durable checkpoint"
+            )
         for asset_sha in self._instances(context):
+            if asset_sha in checkpoint.quality_outcomes:
+                continue
             try:
-                self._validate_asset_outputs(context, asset_sha)
+                self.asset_output_validator(context, asset_sha)
+            except OutputValidationError:
+                outcome = "failure"
             except ValidationError as error:
-                self.runner.quality_gate.record(
-                    succeeded=False, schema_failure=True
-                )
-                failures.append((asset_sha, error))
+                outcome = "schema_failure"
             else:
-                self.runner.quality_gate.record(
-                    succeeded=True, schema_failure=False
-                )
-        if failures:
-            asset_sha, error = failures[0]
-            raise ValidationError(
-                f"output validation failed for {asset_sha}: {error}"
-            ) from error
+                outcome = "completed"
+            self.runner.record_quality_outcome(asset_sha, outcome)
 
     def cleanup_voxels(
         self, context: ShardContext, resolution: int
     ) -> None:
-        self.resolution_validator(context, resolution)
+        self.shape_resolution_validator(context, resolution)
+        self.pbr_resolution_validator(context, resolution)
         for path in (
             context.work_root / f"dual_grid_view_{resolution}",
             context.work_root / f"pbr_voxels_view_fix_{resolution}",
         ):
-            if path.is_symlink():
-                raise ValidationError(f"refusing to clean symlink: {path}")
-            shutil.rmtree(path, ignore_errors=False) if path.exists() else None
+            try:
+                _remove_tree_nofollow(path)
+            except OSError as error:
+                raise ValidationError(
+                    f"unsafe voxel cleanup path: {path}: {error}"
+                ) from error
 
-    def _pack_members(
-        self, context: ShardContext
+    def _pack_members_for_assets(
+        self, context: ShardContext, assets: Sequence[str]
     ) -> Mapping[str, Sequence[Path]]:
         members: dict[str, list[Path]] = {
             family: [] for family in PACK_FAMILIES
         }
-        for asset_sha in self._instances(context):
+        for asset_sha in assets:
             render_root = Path("renders_cond", asset_sha)
             members["common"].extend(
                 [
@@ -1787,14 +2698,86 @@ class PipelineServices:
                     )
         return members
 
+    def _pack_members(
+        self, context: ShardContext
+    ) -> Mapping[str, Sequence[Path]]:
+        _, completed, _ = self._quality_state(context)
+        return self._pack_members_for_assets(context, completed)
+
+    @staticmethod
+    def _path_size(path: Path) -> int:
+        try:
+            return _regular_file_size_nofollow(path, missing_ok=True)
+        except OSError as error:
+            raise ValidationError(f"unsafe accounted path: {path}") from error
+
+    def _record_delta(self, path: Path, delta: int) -> None:
+        if delta == 0:
+            return
+        try:
+            self.project_accounting.record_registry_delta(path, delta)
+        except Exception as error:
+            try:
+                self.project_accounting.reconcile_at_shard_boundary()
+            except Exception as reconcile_error:
+                raise InfrastructureError(
+                    f"project accounting delta failed for {path}: {error}; "
+                    f"reconciliation failed: {reconcile_error}"
+                ) from error
+            raise InfrastructureError(
+                f"project accounting delta failed for {path}: {error}"
+            ) from error
+
+    def _published_paths(self, context: ShardContext) -> tuple[Path, ...]:
+        prepared = self.config.paths.data2_root / "prepared"
+        paths = []
+        for family in PACK_FAMILIES:
+            if family == "common":
+                root = Path("common")
+            elif family.startswith("SS-"):
+                root = Path("ss", family.removeprefix("SS-"))
+            elif family.startswith("shape-"):
+                root = Path("shape", family.removeprefix("shape-"))
+            else:
+                root = Path("pbr", family.removeprefix("PBR-"))
+            pack = (
+                prepared
+                / root
+                / context.source
+                / context.shard_id
+                / f"{context.batch_id}.tar"
+            )
+            paths.extend((pack, pack.with_suffix(".tar.manifest.json")))
+        paths.append(
+            prepared
+            / "index"
+            / context.source
+            / f"{context.shard_id}.json"
+        )
+        return tuple(paths)
+
     def build_packs(self, context: ShardContext) -> None:
         self.output_validator(context)
-        shas = self._instances(context)
+        shas, completed, quarantined = self._quality_state(context)
         members = self.pack_member_builder(context)
         if set(members) != set(PACK_FAMILIES):
             raise ValidationError(
                 "pack member mapping must contain exactly eight families"
             )
+        expected_members = self._pack_members_for_assets(context, completed)
+        if any(
+            tuple(sorted(Path(item).as_posix() for item in members[family]))
+            != tuple(
+                sorted(
+                    Path(item).as_posix()
+                    for item in expected_members[family]
+                )
+            )
+            for family in PACK_FAMILIES
+        ):
+            raise ValidationError("pack member mapping does not match admission")
+        accounted_paths = self._published_paths(context)
+        before = {path: self._path_size(path) for path in accounted_paths}
         manifests = self.pack_publisher(
             self.config.paths.data2_root,
             context.output_root,
@@ -1805,8 +2788,8 @@ class PipelineServices:
             config_hash=self.config.config_hash(),
             tool_commit=self._resolved_tool_commit(),
             asset_sha256s=shas,
-            completed_count=len(shas),
-            quarantined_count=0,
+            completed_count=len(completed),
+            quarantined_count=quarantined,
         )
         if (
             len(manifests) != len(PACK_FAMILIES)
@@ -1814,21 +2797,27 @@ class PipelineServices:
         ):
             raise ValidationError("pack publisher returned unvalidated packs")
         self.published_batch_verifier(context)
+        for path in accounted_paths:
+            self._record_delta(path, self._path_size(path) - before[path])
 
     def _verify_published_batch(self, context: ShardContext) -> None:
+        shas, completed, quarantined = self._quality_state(context)
+        expected_members = self._pack_members_for_assets(context, completed)
+        tool_commit = self._resolved_tool_commit()
         prepared = self.config.paths.data2_root / "prepared"
         index_path = (
             prepared / "index" / context.source / f"{context.shard_id}.json"
         )
         try:
-            index_mode = index_path.lstat().st_mode
-            if stat.S_ISLNK(index_mode) or not stat.S_ISREG(index_mode):
-                raise ValidationError(
-                    f"published shard index is not a regular file: {index_path}"
-                )
-            index = json.loads(index_path.read_text())
+            index = json.loads(_read_regular_bytes_nofollow(index_path))
             entries = index["batches"][context.batch_id]
-        except Exception as error:
+        except OSError as error:
+            if error.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+                raise
+            raise ValidationError(
+                f"invalid published shard index: {index_path}: {error}"
+            ) from error
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
             raise ValidationError(
                 f"invalid published shard index: {index_path}: {error}"
             ) from error
@@ -1878,18 +2867,36 @@ class PipelineServices:
                         f"symlinked published pack: {family}"
                     )
                 verify_pack(pack_path, manifest_path)
-                manifest = json.loads(manifest_path.read_text())
+                manifest_payload = _read_regular_bytes_nofollow(manifest_path)
+                try:
+                    manifest = json.loads(manifest_payload)
+                except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                    raise ValidationError(
+                        f"invalid published pack manifest: {family}"
+                    ) from error
                 if (
                     manifest["shard_id"] != context.shard_id
                     or manifest["batch_id"] != context.batch_id
                     or manifest["family"] != family
                     or manifest["config_hash"] != self.config.config_hash()
+                    or manifest["tool_commit"] != tool_commit
+                    or tuple(manifest["asset_sha256s"]) != shas
+                    or manifest["completed_count"] != len(completed)
+                    or manifest["quarantined_count"] != quarantined
+                    or {
+                        item["path"] for item in manifest["members"]
+                    }
+                    != {
+                        Path(item).as_posix()
+                        for item in expected_members[family]
+                    }
                     or not manifest["validated_at"]
                     or entry["pack_sha256"] != manifest["pack_sha256"]
-                    or entry["manifest_sha256"] != file_sha(manifest_path)
+                    or entry["manifest_sha256"]
+                    != sha256(manifest_payload).hexdigest()
                 ):
                     raise ValidationError(
-                        f"published pack identity mismatch: {family}"
+                        f"published pack frozen SHA or member identity mismatch: {family}"
                     )
             except (KeyError, TypeError) as error:
                 raise ValidationError(
@@ -1907,15 +2914,24 @@ class PipelineServices:
         return archive, archive.with_suffix(".tar.manifest.json")
 
     def _verify_raw_archive(self, context: ShardContext) -> None:
+        shas, completed, quarantined = self._quality_state(context)
         archive, manifest_path = self._raw_archive_paths(context)
         if archive.is_symlink() or manifest_path.is_symlink():
             raise ValidationError(
                 f"refusing symlinked raw archive output: {archive}"
-            )
+        )
         verify_pack(archive, manifest_path)
         try:
-            manifest = json.loads(manifest_path.read_text())
-        except Exception as error:
+            manifest = json.loads(
+                _read_regular_bytes_nofollow(manifest_path)
+            )
+        except OSError as error:
+            if error.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+                raise
+            raise ValidationError(
+                f"invalid raw archive manifest: {manifest_path}: {error}"
+            ) from error
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
             raise ValidationError(
                 f"invalid raw archive manifest: {manifest_path}: {error}"
             ) from error
@@ -1924,10 +2940,13 @@ class PipelineServices:
             or manifest.get("batch_id") != context.batch_id
             or manifest.get("family") != "raw"
             or manifest.get("config_hash") != self.config.config_hash()
+            or manifest.get("tool_commit") != self._resolved_tool_commit()
+            or manifest.get("completed_count") != len(completed)
+            or manifest.get("quarantined_count") != quarantined
             or not manifest.get("validated_at")
             or tuple(manifest.get("asset_sha256s", ()))
-            != self._instances(context)
-            or len(manifest.get("members", ())) != len(self._instances(context))
+            != shas
+            or len(manifest.get("members", ())) != len(shas)
         ):
             raise ValidationError(
                 f"raw archive identity mismatch: {manifest_path}"
@@ -1942,7 +2961,7 @@ class PipelineServices:
         local_archive = (
             context.work_root / "raw_archive" / f"{context.batch_id}.tar"
         )
-        shas = self._instances(context)
+        shas, completed, quarantined = self._quality_state(context)
         manifest = build_pack(
             context.download_root,
             members,
@@ -1953,8 +2972,8 @@ class PipelineServices:
             config_hash=self.config.config_hash(),
             tool_commit=self._resolved_tool_commit(),
             asset_sha256s=shas,
-            completed_count=len(shas),
-            quarantined_count=0,
+            completed_count=len(completed),
+            quarantined_count=quarantined,
         )
         local_manifest = local_archive.with_suffix(".tar.manifest.json")
         verify_pack(local_archive, local_manifest)
@@ -1962,7 +2981,12 @@ class PipelineServices:
             manifest,
             validated_at=datetime.now(timezone.utc).isoformat(),
         )
-        atomic_write_json(local_manifest, asdict(manifest))
+        _atomic_write_bytes_nofollow(
+            local_manifest,
+            json.dumps(
+                asdict(manifest), sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+        )
         verify_pack(local_archive, local_manifest)
         if (
             len(manifest.members) != len(records)
@@ -1976,13 +3000,17 @@ class PipelineServices:
             raise ValidationError("raw archive count, byte, or member hash mismatch")
 
         archive, archive_manifest = self._raw_archive_paths(context)
+        before_archive = self._path_size(archive)
+        before_manifest = self._path_size(archive_manifest)
         if archive.is_symlink() or archive_manifest.is_symlink():
             raise ValidationError(
                 f"refusing symlinked raw archive output: {archive}"
             )
         if archive.exists() and archive_manifest.exists():
             verify_pack(archive, archive_manifest)
-            existing = json.loads(archive_manifest.read_text())
+            existing = json.loads(
+                _read_regular_bytes_nofollow(archive_manifest)
+            )
             if (
                 existing.get("pack_sha256") != manifest.pack_sha256
                 or existing.get("members")
@@ -1996,6 +3024,13 @@ class PipelineServices:
             atomic_copy(local_archive, archive)
             atomic_copy(local_manifest, archive_manifest)
         self._verify_raw_archive(context)
+        self._record_delta(
+            archive, self._path_size(archive) - before_archive
+        )
+        self._record_delta(
+            archive_manifest,
+            self._path_size(archive_manifest) - before_manifest,
+        )
 
         source_paths = {
             self._source_raw_relative(member).as_posix() for member in members
@@ -2018,33 +3053,41 @@ class PipelineServices:
             if pending:
                 continue
             relative = _safe_raw_relative(relative_value)
-            _unlink_regular_beneath(context.source_root, relative)
+            removed_bytes = _unlink_regular_beneath(
+                context.source_root, relative
+            )
+            if removed_bytes:
+                self._record_delta(
+                    context.source_root / relative, -removed_bytes
+                )
 
     def cleanup_local(self, context: ShardContext) -> None:
         self.published_batch_verifier(context)
         self.raw_archive_verifier(context)
         for root in (
-            context.download_root,
-            context.work_root,
             context.output_root,
+            context.work_root,
+            context.download_root,
         ):
-            if root.is_symlink():
-                raise ValidationError(f"refusing to clean symlink: {root}")
-            if root.exists():
-                shutil.rmtree(root)
+            try:
+                _remove_tree_nofollow(root)
+            except OSError as error:
+                raise ValidationError(
+                    f"unsafe local cleanup path: {root}: {error}"
+                ) from error
 
     def _archive_is_valid(self, context: ShardContext) -> bool:
         try:
             self.raw_archive_verifier(context)
             return True
-        except Exception:
+        except ValidationError:
             return False
 
     def _published_is_valid(self, context: ShardContext) -> bool:
         try:
             self.published_batch_verifier(context)
             return True
-        except Exception:
+        except ValidationError:
             return False
 
     def _validate_command(self, name: str) -> bool:
@@ -2076,14 +3119,12 @@ class PipelineServices:
                 return True
             if name in {"dump_mesh", "dump_pbr"}:
                 directory = "mesh_dumps" if name == "dump_mesh" else "pbr_dumps"
-                return all(
-                    (context.work_root / directory / f"{asset}.pickle").is_file()
-                    for asset in self._instances(context)
-                )
+                for asset in self._instances(context):
+                    self._validate_dump_output(context, directory, asset)
+                return True
             if name == "asset_stats":
-                return (
-                    context.metadata_root / "asset_stats/metadata.csv"
-                ).is_file()
+                self._validate_asset_stats(context)
+                return True
             if name == "render_cond":
                 for asset in self._instances(context):
                     validate_render_dir(
@@ -2098,7 +3139,13 @@ class PipelineServices:
                     f"encode_pbr_{resolution}",
                     f"cleanup_voxels_{resolution}",
                 }:
-                    self.resolution_validator(context, resolution)
+                    if name == f"encode_shape_{resolution}":
+                        self.shape_resolution_validator(context, resolution)
+                    elif name == f"encode_pbr_{resolution}":
+                        self.pbr_resolution_validator(context, resolution)
+                    else:
+                        self.shape_resolution_validator(context, resolution)
+                        self.pbr_resolution_validator(context, resolution)
                     if name.startswith("cleanup_"):
                         return not any(
                             path.exists()
@@ -2119,16 +3166,12 @@ class PipelineServices:
                         if name.startswith("dual_grid")
                         else f"pbr_voxels_view_fix_{resolution}"
                     )
-                    return all(
-                        (
-                            context.work_root
-                            / directory
-                            / asset
-                            / f"view{view:02d}.vxz"
-                        ).is_file()
-                        for asset in self._instances(context)
-                        for view in self.config.targets.views
-                    )
+                    for asset in self._instances(context):
+                        for view in self.config.targets.views:
+                            self._validate_voxel_output(
+                                context, directory, asset, view
+                            )
+                    return True
             if name == f"encode_ss_{self.config.targets.ss_resolution}":
                 for asset in self._instances(context):
                     for view in self.config.targets.views:
@@ -2144,17 +3187,46 @@ class PipelineServices:
                         )
                 return True
             if name == "validate_outputs":
-                self.output_validator(context)
+                self._validate_terminal_outputs(context)
                 return True
             if name == "build_packs":
                 return self._published_is_valid(context)
-        except Exception:
+        except ValidationError:
             return False
         raise InfrastructureError(f"missing production validator: {name}")
 
     def _audit_batch(self, context: ShardContext) -> None:
         self.published_batch_verifier(context)
         self.raw_archive_verifier(context)
+
+    def _reconcile_accounting(
+        self, context: ShardContext, boundary: str
+    ) -> None:
+        try:
+            self.project_accounting.reconcile_at_shard_boundary()
+        except Exception as error:
+            infrastructure = InfrastructureError(
+                f"project accounting reconciliation failed at {boundary}: {error}"
+            )
+            if all(
+                hasattr(self.runner, attribute)
+                for attribute in ("load_checkpoint", "stop")
+            ):
+                try:
+                    checkpoint = self.runner.load_checkpoint(
+                        self._checkpoint_path(context), context.shard_id
+                    )
+                except Exception:
+                    checkpoint = PipelineCheckpoint(context.shard_id)
+                self.runner.stop(
+                    context,
+                    f"accounting_{boundary}",
+                    str(infrastructure),
+                    checkpoint,
+                    category=EscalationCategory.INFRASTRUCTURE,
+                    exit_code=2,
+                )
+            raise infrastructure from error
 
     def _frozen_for_execution(
         self, source: str, shard: str
@@ -2183,9 +3255,26 @@ class PipelineServices:
                 / f"{shard}.json"
             )
             try:
-                index = json.loads(index_path.read_text())
+                index = json.loads(
+                    _read_regular_bytes_nofollow(index_path)
+                )
                 indexed_batches = set(index["batches"])
-            except Exception as error:
+            except OSError as error:
+                if error.errno not in {
+                    errno.ENOENT,
+                    errno.ENOTDIR,
+                    errno.ELOOP,
+                }:
+                    raise
+                raise ValidationError(
+                    f"invalid logical shard index: {index_path}: {error}"
+                ) from error
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                KeyError,
+                TypeError,
+            ) as error:
                 raise ValidationError(
                     f"invalid logical shard index: {index_path}: {error}"
                 ) from error
@@ -2232,7 +3321,9 @@ class PipelineServices:
             )
             self.runner.run_shard(context)
             self.batch_auditor(context)
+            self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches)
+        self._reconcile_accounting(context, "shard")
 
     def resume(self, source: str | None, shard: str | None) -> None:
         if source is None or shard is None:
@@ -2244,7 +3335,9 @@ class PipelineServices:
             )
             self.runner.resume_shard(context)
             self.batch_auditor(context)
+            self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches)
+        self._reconcile_accounting(context, "shard")
 
     def audit(self, source: str | None, shard: str | None) -> None:
         if source is None or shard is None:
@@ -2252,11 +3345,13 @@ class PipelineServices:
         batches = self._frozen_for_execution(source, shard)
         for index in range(len(batches)):
             self.batch_auditor(
-                ShardContext.from_config(
+                context := ShardContext.from_config(
                     self.config, source, shard, f"batch{index:03d}"
                 )
             )
+            self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches)
+        self._reconcile_accounting(context, "shard")
 
     def report(self, gate: str | None, hardware_check: bool = False):
         if self.report_builder is None:
