@@ -1,10 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 import importlib
 from hashlib import sha256
 import inspect
 from io import BytesIO
 from pathlib import Path
 import stat
+import subprocess
+import sys
 import tarfile
+from threading import Barrier
 from types import SimpleNamespace
 import zipfile
 
@@ -254,11 +258,11 @@ def test_download_wrapper_maps_alias_and_merges_records(monkeypatch, tmp_path):
     adapter = SimpleNamespace(add_args=add_args, download=download)
     imported = []
 
-    def import_module(name):
+    def import_adapter(name):
         imported.append(name)
         return adapter
 
-    monkeypatch.setattr(module.importlib, "import_module", import_module)
+    monkeypatch.setattr(module, "_import_adapter", import_adapter)
     for rank in (0, 1):
         module.main(
             [
@@ -274,9 +278,106 @@ def test_download_wrapper_maps_alias_and_merges_records(monkeypatch, tmp_path):
             ]
         )
 
-    assert imported == ["datasets.ObjaverseXL", "datasets.ObjaverseXL"]
+    assert imported == ["ObjaverseXL", "ObjaverseXL"]
     assert [call[2]["source"] for call in calls] == ["github", "github"]
     assert [call[2]["max_workers"] for call in calls] == [5, 5]
     merged = pd.read_csv(root / "raw/metadata.csv")
     assert merged["sha256"].tolist() == ["a" * 64, "b" * 64]
     assert not (root / "raw/metadata.csv.tmp").exists()
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        ["data_toolkit/download.py"],
+        ["-m", "data_toolkit.download"],
+    ],
+)
+def test_download_adapter_imports_work_in_script_and_module_modes(invocation):
+    repository = Path(__file__).resolve().parents[2]
+
+    result = subprocess.run(
+        [sys.executable, *invocation, "ABO", "--help"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_merge_preserves_existing_rows_and_updates_non_null_fields(tmp_path):
+    module = importlib.import_module("data_toolkit.download")
+    raw = tmp_path / "raw"
+    new_records = raw / "new_records"
+    new_records.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "sha256": "a" * 64,
+                "local_path": "raw/existing.glb",
+                "provenance": "keep",
+            },
+            {
+                "sha256": "b" * 64,
+                "local_path": "raw/old.glb",
+                "provenance": "retain",
+            },
+        ]
+    ).to_csv(raw / "metadata.csv", index=False)
+    pd.DataFrame(
+        [
+            {"sha256": "b" * 64, "local_path": "raw/new.glb"},
+            {"sha256": "c" * 64, "local_path": "raw/added.glb"},
+        ]
+    ).to_csv(new_records / "part_0.csv", index=False)
+
+    module._merge_download_records(tmp_path)
+
+    merged = pd.read_csv(raw / "metadata.csv").set_index("sha256")
+    assert merged.loc["a" * 64].to_dict() == {
+        "local_path": "raw/existing.glb",
+        "provenance": "keep",
+    }
+    assert merged.loc["b" * 64].to_dict() == {
+        "local_path": "raw/new.glb",
+        "provenance": "retain",
+    }
+    assert merged.loc["c" * 64, "local_path"] == "raw/added.glb"
+
+
+def test_parallel_rank_publication_and_merge_has_no_lost_rows(tmp_path):
+    module = importlib.import_module("data_toolkit.download")
+    raw = tmp_path / "raw"
+    (raw / "new_records").mkdir(parents=True)
+    pd.DataFrame(
+        [{"sha256": "f" * 64, "local_path": "raw/existing.glb"}]
+    ).to_csv(raw / "metadata.csv", index=False)
+    worker_count = 8
+    published = Barrier(worker_count)
+
+    def publish_and_merge(rank):
+        frame = pd.DataFrame(
+            [
+                {
+                    "sha256": f"{rank:064x}",
+                    "local_path": f"raw/{rank}.glb",
+                }
+            ]
+        )
+        module._publish_download_records(tmp_path, rank, frame)
+        published.wait()
+        module._merge_download_records(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        list(executor.map(publish_and_merge, range(worker_count)))
+
+    merged = pd.read_csv(raw / "metadata.csv")
+    assert merged["sha256"].tolist() == [
+        *(f"{rank:064x}" for rank in range(worker_count)),
+        "f" * 64,
+    ]
+    assert not [
+        path for path in raw.rglob("*") if path.is_file() and ".tmp" in path.name
+    ]

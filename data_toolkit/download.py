@@ -1,8 +1,10 @@
 import argparse
+import fcntl
 import importlib
 import os
 from pathlib import Path
 import sys
+import tempfile
 
 from easydict import EasyDict as edict
 import pandas as pd
@@ -19,23 +21,87 @@ def _adapter_target(dataset_name: str) -> tuple[str, str | None]:
     return ("ObjaverseXL" if source else dataset_name, source)
 
 
+def _import_adapter(adapter_name: str):
+    package_name = f"data_toolkit.datasets.{adapter_name}"
+    legacy_name = f"datasets.{adapter_name}"
+    candidates = (
+        (package_name, legacy_name)
+        if __package__
+        else (legacy_name, package_name)
+    )
+    try:
+        return importlib.import_module(candidates[0])
+    except ModuleNotFoundError as error:
+        missing = error.name or ""
+        if not (
+            candidates[0] == missing
+            or candidates[0].startswith(f"{missing}.")
+        ):
+            raise
+    return importlib.import_module(candidates[1])
+
+
+def _atomic_write_csv(frame: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            frame.to_csv(temporary, index=False)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _publish_download_records(
+    download_root: Path, rank: int, downloaded: pd.DataFrame
+) -> None:
+    part = download_root / "raw/new_records" / f"part_{rank}.csv"
+    _atomic_write_csv(downloaded, part)
+
+
+def _read_records(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path, dtype={"sha256": str})
+
+
 def _merge_download_records(download_root: Path) -> None:
     raw_dir = download_root / "raw"
-    parts = sorted((raw_dir / "new_records").glob("part_*.csv"))
-    if not parts:
-        return
-    frames = [pd.read_csv(path) for path in parts]
-    merged = pd.concat(frames, ignore_index=True)
-    if "sha256" in merged.columns:
-        merged = (
-            merged.drop_duplicates(subset="sha256", keep="last")
-            .sort_values("sha256")
-            .reset_index(drop=True)
-        )
-    output = raw_dir / "metadata.csv"
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    merged.to_csv(temporary, index=False)
-    os.replace(temporary, output)
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = raw_dir / ".metadata.lock"
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            parts = sorted((raw_dir / "new_records").glob("part_*.csv"))
+            if not parts:
+                return
+            output = raw_dir / "metadata.csv"
+            frames = []
+            if output.is_file():
+                frames.append(_read_records(output))
+            frames.extend(_read_records(path) for path in parts)
+            combined = pd.concat(frames, ignore_index=True, sort=False)
+            merged = (
+                combined.groupby("sha256", as_index=False, sort=True)
+                .last()
+                .reset_index(drop=True)
+            )
+            _atomic_write_csv(merged, output)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -44,7 +110,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("dataset name is required")
 
     adapter_name, canonical_source = _adapter_target(argv[0])
-    dataset_utils = importlib.import_module(f"datasets.{adapter_name}")
+    dataset_utils = _import_adapter(adapter_name)
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -87,16 +153,16 @@ def main(argv: list[str] | None = None) -> None:
     metadata_path = Path(opt.root) / "metadata.csv"
     if not metadata_path.is_file():
         raise ValueError("metadata.csv not found")
-    metadata = pd.read_csv(metadata_path).set_index("sha256")
+    metadata = _read_records(metadata_path).set_index("sha256")
     aesthetic_path = Path(opt.root) / "aesthetic_scores/metadata.csv"
     if aesthetic_path.is_file():
         metadata = metadata.combine_first(
-            pd.read_csv(aesthetic_path).set_index("sha256")
+            _read_records(aesthetic_path).set_index("sha256")
         )
     downloaded_metadata = Path(opt.download_root) / "raw/metadata.csv"
     if downloaded_metadata.is_file():
         metadata = metadata.combine_first(
-            pd.read_csv(downloaded_metadata).set_index("sha256")
+            _read_records(downloaded_metadata).set_index("sha256")
         )
     metadata = metadata.reset_index()
 
@@ -123,8 +189,9 @@ def main(argv: list[str] | None = None) -> None:
     downloaded = dataset_utils.download(
         metadata, output_dir=opt.download_root, **opt
     )
-    downloaded.to_csv(new_records / f"part_{opt.rank}.csv", index=False)
-    _merge_download_records(Path(opt.download_root))
+    download_root = Path(opt.download_root)
+    _publish_download_records(download_root, opt.rank, downloaded)
+    _merge_download_records(download_root)
 
 
 if __name__ == "__main__":
