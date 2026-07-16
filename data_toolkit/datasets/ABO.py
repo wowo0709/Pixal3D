@@ -1,11 +1,21 @@
 import os
-import re
 import argparse
+from pathlib import Path, PurePosixPath
+import subprocess
 import tarfile
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
+
 import pandas as pd
-from utils import get_file_hash
+
+try:
+    from ..utils import get_file_hash
+except ImportError:  # Legacy execution from data_toolkit/download.py.
+    from utils import get_file_hash
+
+
+ABO_ARCHIVE_URL = (
+    "https://amazon-berkeley-objects.s3.amazonaws.com/archives/"
+    "abo-3dmodels.tar"
+)
 
 
 def add_args(parser: argparse.ArgumentParser):
@@ -17,49 +27,64 @@ def get_metadata(**kwargs):
     return metadata
         
 
-def download(metadata, root, **kwargs):    
-    output_dir  = root
-    os.makedirs(os.path.join(output_dir, 'raw'), exist_ok=True)
+def _safe_destination(root: Path, member_name: str) -> Path:
+    archive_path = PurePosixPath(member_name)
+    if archive_path.is_absolute() or ".." in archive_path.parts:
+        raise ValueError(f"Unsafe TAR member: {member_name}")
+    destination = (root / Path(*archive_path.parts)).resolve()
+    if not destination.is_relative_to(root.resolve()):
+        raise ValueError(f"Unsafe TAR member: {member_name}")
+    return destination
 
-    if not os.path.exists(os.path.join(output_dir, 'raw', 'abo-3dmodels.tar')):
-        try:
-            os.makedirs(os.path.join(output_dir, 'raw'), exist_ok=True)
-            os.system(f"wget -O {output_dir}/raw/abo-3dmodels.tar https://amazon-berkeley-objects.s3.amazonaws.com/archives/abo-3dmodels.tar")
-        except:
-            print("\033[93m")
-            print("Error downloading ABO dataset. Please check your internet connection and try again.")
-            print("Or, you can manually download the abo-3dmodels.tar file and place it in the {output_dir}/raw directory")
-            print("Visit https://amazon-berkeley-objects.s3.amazonaws.com/index.html for more information")
-            print("\033[0m")
-            raise FileNotFoundError("Error downloading ABO dataset")
-    
-    downloaded = {}
-    metadata = metadata.set_index("file_identifier")
-    with tarfile.open(os.path.join(output_dir, 'raw', 'abo-3dmodels.tar')) as tar:
-        with ThreadPoolExecutor(max_workers=1) as executor, \
-            tqdm(total=len(metadata), desc="Extracting") as pbar:
-            def worker(instance: str) -> str:
-                try:
-                    tar.extract(f"3dmodels/original/{instance}", path=os.path.join(output_dir, 'raw'))
-                    sha256 = get_file_hash(os.path.join(output_dir, 'raw/3dmodels/original', instance))
-                    pbar.update()
-                    return sha256
-                except Exception as e:
-                    pbar.update()
-                    print(f"Error extracting for {instance}: {e}")
-                    return None
-                
-            sha256s = executor.map(worker, metadata.index)
-            executor.shutdown(wait=True)
 
-    for k, sha256 in zip(metadata.index, sha256s):
-        if sha256 is not None:
-            if sha256 == metadata.loc[k, "sha256"]:
-                downloaded[sha256] = os.path.join('raw/3dmodels/original', k)
-            else:
-                print(f"Error downloading {k}: sha256s do not match")
+def _validate_tar_member(root: Path, member: tarfile.TarInfo) -> None:
+    if member.issym() or member.islnk():
+        raise ValueError(f"Unsafe TAR member: {member.name}")
+    if not (member.isfile() or member.isdir()):
+        raise ValueError(f"Unsafe TAR member: {member.name}")
+    _safe_destination(root, member.name)
 
-    return pd.DataFrame(downloaded.items(), columns=['sha256', 'local_path'])
+
+def download(
+    metadata: pd.DataFrame, output_dir: str, **kwargs
+) -> pd.DataFrame:
+    max_workers = min(int(kwargs.get("max_workers", 8)), 8)
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
+
+    raw_dir = Path(output_dir) / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = raw_dir / "abo-3dmodels.tar"
+    if not archive_path.is_file():
+        subprocess.run(
+            ["wget", "-O", str(archive_path), ABO_ARCHIVE_URL], check=True
+        )
+
+    downloaded = []
+    with tarfile.open(archive_path) as archive:
+        members = archive.getmembers()
+        for member in members:
+            _validate_tar_member(raw_dir, member)
+        members_by_name = {member.name: member for member in members}
+
+        for record in metadata.to_dict("records"):
+            identifier = str(record["file_identifier"])
+            member_name = f"3dmodels/original/{identifier}"
+            member = members_by_name.get(member_name)
+            if member is None or not member.isfile():
+                continue
+            archive.extract(member, raw_dir)
+            local_file = _safe_destination(raw_dir, member_name)
+            actual_sha256 = get_file_hash(str(local_file))
+            if actual_sha256 == record["sha256"]:
+                downloaded.append(
+                    {
+                        "sha256": actual_sha256,
+                        "local_path": f"raw/{member_name}",
+                    }
+                )
+
+    return pd.DataFrame(downloaded, columns=["sha256", "local_path"])
 
 
 def _process_instance(args):
