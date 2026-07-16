@@ -51,9 +51,47 @@ def _synthetic_disk_usage(path):
     )
 
 
+def _reject_host_resource_call(*args, **kwargs):
+    raise AssertionError("integration test attempted a live host resource read")
+
+
+class _SyntheticPsutil:
+    def __init__(self):
+        self.calls = Counter()
+        self.disk_paths = []
+
+    def _record(self, name, value):
+        self.calls[name] += 1
+        return value
+
+    def cpu_times_percent(self, interval=None):
+        assert interval is None
+        return self._record("cpu_times_percent", SimpleNamespace(iowait=0.0))
+
+    def virtual_memory(self):
+        return self._record(
+            "virtual_memory", SimpleNamespace(available=400 * 1024**3)
+        )
+
+    def swap_memory(self):
+        return self._record("swap_memory", SimpleNamespace(sin=0))
+
+    def cpu_percent(self, interval=None):
+        assert interval is None
+        return self._record("cpu_percent", 10.0)
+
+    def getloadavg(self):
+        return self._record("getloadavg", (1.0, 1.0, 1.0))
+
+    def disk_usage(self, path):
+        self.disk_paths.append(Path(path))
+        return self._record("disk_usage", _synthetic_disk_usage(path))
+
+
 @pytest.mark.integration
 def test_two_asset_shard_runs_and_resumes(synthetic_config, monkeypatch):
     config = load_config(synthetic_config)
+    synthetic_resources = _SyntheticPsutil()
     worker = Path("tests/data_toolkit/fixtures/fake_leaf_worker.py").resolve()
     monkeypatch.setenv("PIXAL3D_LEAF_WORKER", str(worker))
     monkeypatch.setattr(
@@ -61,9 +99,26 @@ def test_two_asset_shard_runs_and_resumes(synthetic_config, monkeypatch):
         "_gpu_metrics",
         lambda self: ((), "disabled by synthetic integration test"),
     )
+    for name in (
+        "cpu_times_percent",
+        "virtual_memory",
+        "swap_memory",
+        "cpu_percent",
+        "getloadavg",
+        "disk_usage",
+    ):
+        monkeypatch.setattr(
+            f"data_toolkit.pipeline.resources.psutil.{name}",
+            _reject_host_resource_call,
+        )
     monkeypatch.setattr(
-        "data_toolkit.pipeline.resources.psutil.disk_usage",
-        _synthetic_disk_usage,
+        "data_toolkit.pipeline.resources.os.getloadavg",
+        _reject_host_resource_call,
+    )
+    monkeypatch.setitem(
+        ResourceSampler.__init__.__kwdefaults__,
+        "psutil_api",
+        synthetic_resources,
     )
     monkeypatch.setitem(
         PipelineServices.__init__.__kwdefaults__,
@@ -86,6 +141,26 @@ def test_two_asset_shard_runs_and_resumes(synthetic_config, monkeypatch):
     ]
 
     assert main(["run", *arguments]) == 0
+
+    sample_count = synthetic_resources.calls["cpu_percent"]
+    assert sample_count > 0
+    assert synthetic_resources.calls == Counter(
+        {
+            "cpu_times_percent": sample_count,
+            "virtual_memory": sample_count,
+            "swap_memory": sample_count,
+            "cpu_percent": sample_count,
+            "getloadavg": sample_count,
+            "disk_usage": 3 * sample_count,
+        }
+    )
+    assert Counter(synthetic_resources.disk_paths) == Counter(
+        {
+            config.paths.local_root: sample_count,
+            config.paths.data2_root: sample_count,
+            config.paths.data3_root: sample_count,
+        }
+    )
 
     counts_path = context.instances.parent / "leaf-command-counts.json"
     first_counts = json.loads(counts_path.read_text())

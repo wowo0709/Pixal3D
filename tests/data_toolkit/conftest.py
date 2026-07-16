@@ -80,14 +80,6 @@ def synthetic_config(tmp_config):
     raw["sources"] = ["Synthetic"]
     raw["evaluation_sources"] = ["SyntheticEval"]
     raw["shard_size"] = 2
-    raw["limits"].update(
-        {
-            "local_free_percent": 0.01,
-            "local_free_gib": 1,
-            "ram_soft_available_gib": 2,
-            "ram_hard_available_gib": 1,
-        }
-    )
     tmp_config.write_text(yaml.safe_dump(raw, sort_keys=False))
     config = load_config(tmp_config)
 
