@@ -1,6 +1,9 @@
 import argparse
+import ctypes
+import errno
 import importlib
 import json
+import math
 import os
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +15,7 @@ import tempfile
 
 from easydict import EasyDict as edict
 import pandas as pd
+from PIL import Image
 from tqdm import tqdm
 try:
     from data_toolkit.pipeline.blender import ensure_blender
@@ -30,6 +34,19 @@ OBJAVERSE_ALIASES = {
     "ObjaverseXL_sketchfab": "sketchfab",
     "ObjaverseXL_github": "github",
 }
+AT_FDCWD = -100
+RENAME_EXCHANGE = 2
+LIBC = ctypes.CDLL(None, use_errno=True)
+RENAMEAT2 = getattr(LIBC, "renameat2", None)
+if RENAMEAT2 is not None:
+    RENAMEAT2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    RENAMEAT2.restype = ctypes.c_int
 
 
 def _import_adapter(adapter_name: str):
@@ -56,7 +73,17 @@ def _install_blender(tool_root: Path = DEFAULT_BLENDER_TOOL_ROOT) -> Path:
     return ensure_blender(tool_root)
 
 
-def _validate_render_output(path: Path, expected_views: int) -> None:
+def _finite_number(value) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _validate_render_output(
+    path: Path, expected_views: int, resolution: int
+) -> None:
     transforms_path = path / "transforms.json"
     if not transforms_path.is_file():
         raise ValueError(f"missing render metadata: {transforms_path}")
@@ -64,6 +91,21 @@ def _validate_render_output(path: Path, expected_views: int) -> None:
         transforms = json.loads(transforms_path.read_text())
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid render metadata: {transforms_path}") from error
+
+    if not isinstance(transforms, dict):
+        raise ValueError(f"invalid render metadata: {transforms_path}")
+    selected_devices = transforms.get("selected_devices")
+    if (
+        not isinstance(selected_devices, list)
+        or not selected_devices
+        or any(
+            not isinstance(name, str)
+            or not name.strip()
+            or "CPU" in name.upper()
+            for name in selected_devices
+        )
+    ):
+        raise ValueError(f"invalid selected devices: {transforms_path}")
 
     frames = transforms.get("frames")
     if not isinstance(frames, list) or len(frames) != expected_views:
@@ -74,9 +116,66 @@ def _validate_render_output(path: Path, expected_views: int) -> None:
         expected_name = f"{index:03d}.png"
         if not isinstance(frame, dict) or frame.get("file_path") != expected_name:
             raise ValueError(f"invalid render frame {index}: {transforms_path}")
+        if not _finite_number(frame.get("camera_angle_x")):
+            raise ValueError(f"invalid camera angle for frame {index}")
+        if not _finite_number(frame.get("radius")) or frame["radius"] <= 0:
+            raise ValueError(f"invalid camera radius for frame {index}")
+        matrix = frame.get("transform_matrix")
+        if (
+            not isinstance(matrix, list)
+            or len(matrix) != 4
+            or any(not isinstance(row, list) or len(row) != 4 for row in matrix)
+            or any(not _finite_number(value) for row in matrix for value in row)
+        ):
+            raise ValueError(f"invalid transform for frame {index}")
         image_path = path / expected_name
-        if not image_path.is_file() or image_path.stat().st_size == 0:
+        if not image_path.is_file():
             raise ValueError(f"missing render image: {image_path}")
+        try:
+            with Image.open(image_path) as image:
+                image.load()
+                image_format = image.format
+                image_mode = image.mode
+                image_size = image.size
+        except OSError as error:
+            raise ValueError(f"invalid render image: {image_path}") from error
+        if (
+            image_format != "PNG"
+            or image_mode != "RGBA"
+            or image_size != (resolution, resolution)
+        ):
+            raise ValueError(
+                f"invalid render image contract: {image_path} "
+                f"({image_format}, {image_mode}, {image_size})"
+            )
+
+
+def _cleanup_legacy_previous(final: Path) -> None:
+    previous = final.with_name(f".{final.name}.previous")
+    if previous.is_dir():
+        shutil.rmtree(previous)
+    elif previous.exists():
+        previous.unlink()
+
+
+def _rename_exchange(left: Path, right: Path) -> None:
+    if RENAMEAT2 is None:
+        raise OSError(errno.ENOSYS, "libc renameat2 is unavailable")
+    ctypes.set_errno(0)
+    result = RENAMEAT2(
+        AT_FDCWD,
+        os.fsencode(left),
+        AT_FDCWD,
+        os.fsencode(right),
+        RENAME_EXCHANGE,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(
+            error_number,
+            os.strerror(error_number),
+            f"{left} <-> {right}",
+        )
 
 
 def _publish_render_output(temporary: Path, final: Path) -> None:
@@ -84,16 +183,8 @@ def _publish_render_output(temporary: Path, final: Path) -> None:
         os.replace(temporary, final)
         return
 
-    backup = final.with_name(f".{final.name}.previous")
-    if backup.exists():
-        shutil.rmtree(backup)
-    os.replace(final, backup)
-    try:
-        os.replace(temporary, final)
-    except BaseException:
-        os.replace(backup, final)
-        raise
-    shutil.rmtree(backup)
+    _rename_exchange(temporary, final)
+    shutil.rmtree(temporary)
 
 
 def _render_cond(
@@ -139,8 +230,11 @@ def _render_cond(
             check=True,
             timeout=timeout_seconds,
         )
-        _validate_render_output(temporary, config.num_views)
+        _validate_render_output(
+            temporary, config.num_views, config.resolution
+        )
         _publish_render_output(temporary, final)
+        _cleanup_legacy_previous(final)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
@@ -183,7 +277,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--num_cond_views",
         type=int,
-        default=2,
+        default=8,
         help="Number of conditional views to render",
     )
     parser.add_argument("--cond_resolution", type=int, default=512)
@@ -257,8 +351,6 @@ def main(argv: list[str] | None = None) -> None:
             metadata = metadata[
                 metadata["aesthetic_score"] >= opt.filter_low_aesthetic_score
             ]
-        if "cond_rendered" in metadata.columns:
-            metadata = metadata[metadata["cond_rendered"] != True]
     else:
         if os.path.exists(opt.instances):
             with open(opt.instances, "r") as f:
@@ -277,17 +369,21 @@ def main(argv: list[str] | None = None) -> None:
         total=len(metadata), desc="Filtering existing objects"
     ) as pbar:
         def check_sha256(sha256):
-            transforms = os.path.join(
-                opt.render_cond_root,
-                "renders_cond",
-                sha256,
-                "transforms.json",
+            final = (
+                Path(opt.render_cond_root) / "renders_cond" / sha256
             )
-            if os.path.exists(transforms):
+            try:
+                _validate_render_output(
+                    final, render_config.num_views, render_config.resolution
+                )
+            except ValueError:
+                pass
+            else:
                 records.append({"sha256": sha256, "cond_rendered": True})
-            pbar.update()
-        executor.map(check_sha256, metadata["sha256"].values)
-        executor.shutdown(wait=True)
+                _cleanup_legacy_previous(final)
+            finally:
+                pbar.update()
+        list(executor.map(check_sha256, metadata["sha256"].values))
     existing_sha256 = set(r["sha256"] for r in records)
     metadata = metadata[~metadata["sha256"].isin(existing_sha256)]
 
