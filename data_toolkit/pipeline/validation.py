@@ -1,10 +1,12 @@
+import errno
 import json
 import math
 from numbers import Real
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
+import zipfile
 
 
 class ValidationError(ValueError):
@@ -14,7 +16,13 @@ class ValidationError(ValueError):
 def _load_json(path: Path, description: str):
     try:
         return json.loads(path.read_text())
-    except Exception as error:
+    except OSError as error:
+        if error.errno not in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+            raise
+        raise ValidationError(
+            f"invalid {description}: {path}: {error}"
+        ) from error
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
         raise ValidationError(
             f"invalid {description}: {path}: {error}"
         ) from error
@@ -24,7 +32,17 @@ def _load_npz(path: Path, keys: tuple[str, ...], description: str):
     try:
         with np.load(path, allow_pickle=False) as data:
             return tuple(np.asarray(data[key]) for key in keys)
-    except Exception as error:
+    except OSError as error:
+        if error.errno not in {
+            errno.ENOENT,
+            errno.ENOTDIR,
+            errno.ELOOP,
+        }:
+            raise
+        raise ValidationError(
+            f"invalid {description}: {path}: {error}"
+        ) from error
+    except (EOFError, KeyError, TypeError, ValueError, zipfile.BadZipFile) as error:
         raise ValidationError(
             f"invalid {description}: {path}: {error}"
         ) from error
@@ -103,7 +121,21 @@ def validate_render_dir(
                 image_mode = image.mode
                 image_size = image.size
                 rgba = np.asarray(image) if image_mode == "RGBA" else None
-        except Exception as error:
+        except UnidentifiedImageError as error:
+            raise ValidationError(
+                f"invalid render image: {image_path}: {error}"
+            ) from error
+        except OSError as error:
+            if error.errno not in {
+                errno.ENOENT,
+                errno.ENOTDIR,
+                errno.ELOOP,
+            }:
+                raise
+            raise ValidationError(
+                f"invalid render image: {image_path}: {error}"
+            ) from error
+        except (TypeError, ValueError) as error:
             raise ValidationError(
                 f"invalid render image: {image_path}: {error}"
             ) from error

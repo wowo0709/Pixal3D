@@ -1,11 +1,13 @@
 from collections import defaultdict, deque
 from dataclasses import asdict, replace
+import errno
 from hashlib import sha256
 import json
 import io
 import os
 import pickle
 from pathlib import Path
+import runpy
 import signal
 import subprocess
 import sys
@@ -13,6 +15,7 @@ from types import SimpleNamespace
 import zipfile
 
 import pandas as pd
+import numpy as np
 import pytest
 
 import data_toolkit.pipeline.orchestrator as orchestrator_module
@@ -172,7 +175,14 @@ def test_hard_resource_stop_checkpoints_and_escalates(
     assert caught.value.report.reason == "CPU hard duration"
     assert caught.value.report.shard_id == shard_context.shard_id
     assert caught.value.report.recent_telemetry
-    assert caught.value.report.completed_counts == {"commands": 0, "outcomes": 0}
+    assert caught.value.report.completed_counts == {
+        "commands": 0,
+        "outcomes": 0,
+        "completed_assets": 0,
+        "quarantined_assets": 0,
+        "failure_assets": 0,
+        "schema_failure_assets": 0,
+    }
     assert caught.value.report.safe_resume_command
     assert caught.value.report.recovery_choices
     assert fake_runner.checkpoint.was_saved
@@ -434,7 +444,14 @@ def test_quality_stop_report_has_complete_operator_context(
     assert report.category == EscalationCategory.DATA_QUALITY
     assert "end-to-end" in report.reason
     assert report.recent_telemetry
-    assert report.completed_counts == {"commands": 0, "outcomes": 500}
+    assert report.completed_counts == {
+        "commands": 0,
+        "outcomes": 500,
+        "completed_assets": 0,
+        "quarantined_assets": 0,
+        "failure_assets": 0,
+        "schema_failure_assets": 0,
+    }
     assert "resume" in report.safe_resume_command
     assert len(report.recovery_choices) >= 2
 
@@ -612,7 +629,7 @@ def test_stable_supervisor_identity_mismatch_never_signals_unrelated_process(
         runner.execute(CommandSpec("worker", ("worker",)), "shard")
 
     assert signals == []
-    assert process.waited == 1
+    assert process.waited == 2
 
 
 def test_negative_rank_count_fails_instead_of_becoming_noop(isolated_config):
@@ -1431,6 +1448,20 @@ def test_production_dag_shape_validation_precedes_pbr_and_cleanup_requires_both(
         isolated_config, resource_guard=FakeResourceGuard()
     )
     services.runner.active_context = context
+    for relative in (
+        services._shape_directory(256),
+        services._pbr_directory(256),
+    ):
+        for view in isolated_config.targets.views:
+            output = (
+                context.output_root
+                / relative
+                / asset_sha
+                / f"view{view:02d}.npz"
+            )
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"latent")
+            output.with_name(f"view{view:02d}_scale.json").write_text("{}")
 
     assert services.validators["encode_shape_256"]() is True
     assert validated
@@ -1536,7 +1567,7 @@ def test_resource_stop_survives_supervisor_cleanup_failures(isolated_config):
     with pytest.raises(ResourceLimitExceeded, match="memory hard") as caught:
         runner.execute(CommandSpec("worker", ("worker",)), "shard")
 
-    assert supervisor.wait_timeouts == [3]
+    assert supervisor.wait_timeouts == [3, 3]
     assert any(
         "cleanup" in note.lower() for note in getattr(caught.value, "__notes__", ())
     )
@@ -1691,7 +1722,7 @@ def test_dump_stats_and_voxel_validators_reject_structurally_corrupt_outputs(
         pickle.dump({"objects": []}, stream)
     assert services.validators["dump_mesh"]() is True
 
-    stats = context.metadata_root / "asset_stats/metadata.csv"
+    stats = context.metadata_root / "asset_stats/new_records/part_0.csv"
     stats.parent.mkdir(parents=True)
     stats.write_text("sha256,num_faces\n" + asset_sha + ",1\n")
     assert services.validators["asset_stats"]() is False
@@ -1831,60 +1862,6 @@ def test_staging_root_with_symlink_ancestor_is_rejected(tmp_path):
         )
 
     assert not (outside / "download/raw/item.glb").exists()
-
-
-def test_raw_delete_detects_inode_replacement_before_unlink(
-    tmp_path, monkeypatch
-):
-    root = tmp_path / "source"
-    target = root / "raw/item.glb"
-    target.parent.mkdir(parents=True)
-    target.write_bytes(b"original")
-    real_stat = orchestrator_module.os.stat
-    swapped = False
-
-    def racing_stat(path, *args, dir_fd=None, follow_symlinks=True, **kwargs):
-        nonlocal swapped
-        if (
-            path == "item.glb"
-            and dir_fd is not None
-            and follow_symlinks is False
-            and not swapped
-        ):
-            swapped = True
-            orchestrator_module.os.rename(
-                "item.glb",
-                "original.glb",
-                src_dir_fd=dir_fd,
-                dst_dir_fd=dir_fd,
-            )
-            replacement_fd = orchestrator_module.os.open(
-                "item.glb",
-                orchestrator_module.os.O_WRONLY
-                | orchestrator_module.os.O_CREAT
-                | orchestrator_module.os.O_EXCL,
-                0o600,
-                dir_fd=dir_fd,
-            )
-            orchestrator_module.os.write(replacement_fd, b"replacement")
-            orchestrator_module.os.close(replacement_fd)
-        return real_stat(
-            path,
-            *args,
-            dir_fd=dir_fd,
-            follow_symlinks=follow_symlinks,
-            **kwargs,
-        )
-
-    monkeypatch.setattr(orchestrator_module.os, "stat", racing_stat)
-
-    with pytest.raises(ValidationError, match="identity changed"):
-        orchestrator_module._unlink_regular_beneath(
-            root, Path("raw/item.glb")
-        )
-
-    assert (root / "raw/item.glb").read_bytes() == b"replacement"
-    assert (root / "raw/original.glb").read_bytes() == b"original"
 
 
 def write_quality_checkpoint(services, context, outcomes):
@@ -2663,6 +2640,54 @@ def test_pidfd_launch_failure_closes_gate_before_bounded_reap(monkeypatch):
     assert created[0].gate_fd < 0
 
 
+def test_pidfd_launch_cleanup_preserves_original_error_and_finally_kills(
+    monkeypatch,
+):
+    class BrokenWaitProcess:
+        pid = 778
+
+        def __init__(self):
+            self.wait_timeouts = []
+
+        def wait(self, timeout):
+            self.wait_timeouts.append(timeout)
+            if len(self.wait_timeouts) == 1:
+                raise RuntimeError("initial reap failed")
+            return -signal.SIGKILL
+
+    process = BrokenWaitProcess()
+    sent_signals = []
+    pidfd_template = os.open("/dev/null", os.O_RDONLY)
+
+    def fake_syscall(number, *arguments):
+        if number == orchestrator_module._LinuxProcessSupervisor._PIDFD_OPEN:
+            return os.dup(pidfd_template)
+        sent_signals.append(arguments[1])
+        return 0
+
+    monkeypatch.setattr(orchestrator_module, "_linux_syscall", fake_syscall)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_wait_for_supervisor_ready",
+        lambda *args: (_ for _ in ()).throw(TimeoutError("READY failed")),
+    )
+
+    try:
+        with pytest.raises(TimeoutError, match="READY failed") as caught:
+            orchestrator_module._LinuxProcessSupervisor.launch(
+                lambda *args, **kwargs: process, ("worker",), {}
+            )
+    finally:
+        os.close(pidfd_template)
+
+    assert process.wait_timeouts == [1, 1]
+    assert sent_signals == [signal.SIGKILL]
+    assert any(
+        "initial reap failed" in note
+        for note in getattr(caught.value, "__notes__", ())
+    )
+
+
 def test_default_dump_validator_propagates_source_io_failure(
     isolated_config, monkeypatch, tmp_path
 ):
@@ -2707,3 +2732,506 @@ def test_default_voxel_validator_propagates_reader_io_failure(
         PipelineServices._validate_voxel_output(
             context, "voxels", "a" * 64, 0
         )
+
+
+def test_supervisor_program_uses_ready_handshake_and_kernel_group_control():
+    program = orchestrator_module._SUPERVISOR_PROGRAM
+
+    assert "/proc" not in program
+    assert "os.killpg(leader" in program
+    assert program.index("signal.signal(signal.SIGUSR1") < program.index(
+        "os.write(ready_fd"
+    )
+    assert program.index("os.write(ready_fd") < program.index(
+        "os.read(release_fd"
+    )
+    assert program.index("os.read(release_fd") < program.index(
+        "worker = subprocess.Popen"
+    )
+
+
+def test_cleanup_finally_kills_reaps_and_closes_stubborn_supervisor(
+    isolated_config,
+):
+    stop = ResourceDecision(ResourceAction.STOP, ("disk hard",))
+    kill_count = 0
+
+    def exit_only_after_final_kill(supervisor, action):
+        nonlocal kill_count
+        if action == "kill":
+            kill_count += 1
+            if kill_count == 2:
+                supervisor.returncode = -signal.SIGKILL
+
+    supervisor = FakeSupervisor(
+        1001, [None] * 20, control=exit_only_after_final_kill
+    )
+    supervisor.closed = False
+    supervisor.close = lambda: setattr(supervisor, "closed", True)
+    runner, _ = supervisor_runner(
+        isolated_config, FakeResourceGuard((stop,)), [supervisor]
+    )
+
+    with pytest.raises(ResourceLimitExceeded, match="disk hard"):
+        runner.execute(CommandSpec("worker", ("worker",)), "shard")
+
+    assert supervisor.controls == ["terminate", "kill", "kill"]
+    assert supervisor.wait_timeouts == [3, 3]
+    assert supervisor.closed is True
+
+
+def test_cleanup_closes_supervisor_when_poll_fails(isolated_config):
+    class BrokenPollSupervisor:
+        pid = 1002
+
+        def __init__(self):
+            self.closed = False
+
+        def poll(self):
+            raise RuntimeError("poll failed")
+
+        def close(self):
+            self.closed = True
+
+    supervisor = BrokenPollSupervisor()
+    runner, _ = supervisor_runner(
+        isolated_config, FakeResourceGuard(), [supervisor]
+    )
+
+    with pytest.raises(RuntimeError, match="poll failed"):
+        runner._terminate_and_reap([supervisor], set())
+
+    assert supervisor.closed is True
+
+
+def test_final_reap_failure_retains_supervisor_until_kill_and_close(
+    isolated_config,
+):
+    class LateReapSupervisor:
+        pid = 1003
+
+        def __init__(self):
+            self.first_poll = True
+            self.returncode = None
+            self.controls = []
+            self.wait_timeouts = []
+            self.closed = False
+
+        def poll(self):
+            if self.first_poll:
+                self.first_poll = False
+                return 0
+            return self.returncode
+
+        def send_control(self, action):
+            self.controls.append(action)
+            if action == "kill":
+                self.returncode = -signal.SIGKILL
+
+        def wait(self, timeout):
+            self.wait_timeouts.append(timeout)
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired(("supervisor",), timeout)
+            return self.returncode
+
+        def close(self):
+            self.closed = True
+
+    supervisor = LateReapSupervisor()
+    runner, _ = supervisor_runner(
+        isolated_config, FakeResourceGuard(), [supervisor]
+    )
+
+    with pytest.raises(ProcessGroupSafetyError, match="did not exit"):
+        runner.execute(CommandSpec("worker", ("worker",)), "shard")
+
+    assert supervisor.controls == ["terminate", "kill"]
+    assert supervisor.wait_timeouts == [3, 3]
+    assert supervisor.closed is True
+
+
+def test_production_stage_quality_is_durable_and_filters_downstream_instances(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "stage-quality", "ABO", "ABO-00000"
+    )
+    completed, missing, invalid = tuple(
+        f"{index:064x}" for index in range(3)
+    )
+    write_instances(context, (completed, missing, invalid))
+    commands = (
+        CommandSpec(
+            "dump_mesh",
+            ("worker", "--instances", str(context.instances)),
+        ),
+        CommandSpec(
+            "dump_pbr",
+            ("worker", "--instances", str(context.instances)),
+        ),
+        CommandSpec("validate_outputs", ("internal:validate_outputs",)),
+    )
+    downstream_instances = []
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        asset_output_validator=lambda active_context, asset_sha: None,
+    )
+    services.runner.command_builder = lambda active_context, config: commands
+    internal_execute = services.runner.execute
+
+    def execute(command, shard_id):
+        if command.name == "dump_mesh":
+            root = context.work_root / "mesh_dumps"
+            root.mkdir(parents=True, exist_ok=True)
+            with (root / f"{completed}.pickle").open("wb") as stream:
+                pickle.dump({"objects": []}, stream)
+            (root / f"{invalid}.pickle").write_bytes(b"corrupt")
+        elif command.name == "dump_pbr":
+            index = command.argv.index("--instances") + 1
+            downstream_instances.extend(
+                Path(command.argv[index]).read_text().splitlines()
+            )
+            root = context.work_root / "pbr_dumps"
+            root.mkdir(parents=True, exist_ok=True)
+            with (root / f"{completed}.pickle").open("wb") as stream:
+                pickle.dump({"objects": [], "materials": []}, stream)
+        else:
+            return internal_execute(command, shard_id)
+
+    services.runner.execute = execute
+
+    services.runner.run_shard(context)
+
+    checkpoint = services.runner.load_checkpoint(
+        services._checkpoint_path(context), context.shard_id
+    )
+    assert checkpoint.quality_outcomes == {
+        missing: "failure",
+        invalid: "schema_failure",
+        completed: "completed",
+    }
+    assert downstream_instances == [completed]
+    assert checkpoint.attempts == {
+        "dump_mesh": 1,
+        "dump_pbr": 1,
+        "validate_outputs": 1,
+    }
+
+
+def test_real_asset_stats_leaf_part_is_accepted_by_production_validator(
+    isolated_config, monkeypatch, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "asset-stats-leaf", "ABO", "ABO-00000"
+    )
+    asset_sha = "a" * 64
+    write_instances(context, (asset_sha,))
+    context.metadata_root.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "sha256": asset_sha,
+                "mesh_dumped": True,
+                "pbr_dumped": False,
+            }
+        ]
+    ).to_csv(context.metadata_root / "metadata.csv", index=False)
+    dump = context.work_root / "mesh_dumps" / f"{asset_sha}.pickle"
+    dump.parent.mkdir(parents=True)
+    with dump.open("wb") as stream:
+        pickle.dump(
+            {
+                "objects": [
+                    {
+                        "vertices": np.zeros((3, 3)),
+                        "faces": np.zeros((1, 3)),
+                    }
+                ]
+            },
+            stream,
+        )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "asset_stats.py",
+            "--root",
+            str(context.metadata_root),
+            "--instances",
+            str(context.instances),
+            "--mesh_dump_root",
+            str(context.work_root),
+            "--pbr_dump_root",
+            str(context.work_root),
+            "--max_workers",
+            "1",
+        ],
+    )
+
+    runpy.run_module("data_toolkit.asset_stats", run_name="__main__")
+
+    part = context.metadata_root / "asset_stats/new_records/part_0.csv"
+    assert part.is_file()
+    assert not (context.metadata_root / "asset_stats/metadata.csv").exists()
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+    services._validate_asset_stats(context)
+
+
+def test_escalation_report_includes_terminal_asset_counts(
+    isolated_config, shard_context
+):
+    reports = []
+    runner = PipelineRunner(
+        isolated_config,
+        FakeResourceGuard(),
+        {},
+        {},
+        report_writer=reports.append,
+    )
+    checkpoint = PipelineCheckpoint(
+        shard_context.shard_id,
+        completed_commands=["dump_mesh"],
+        quality_outcomes={
+            "a" * 64: "completed",
+            "b" * 64: "failure",
+            "c" * 64: "schema_failure",
+        },
+    )
+    runner.quality_gate.restore(checkpoint.quality_outcomes)
+
+    with pytest.raises(PipelineStopped) as caught:
+        runner.stop(
+            shard_context,
+            "worker",
+            "stop",
+            checkpoint,
+            category=EscalationCategory.DATA_QUALITY,
+            exit_code=4,
+        )
+
+    assert caught.value.report.completed_counts == {
+        "commands": 1,
+        "outcomes": 3,
+        "completed_assets": 1,
+        "quarantined_assets": 2,
+        "failure_assets": 1,
+        "schema_failure_assets": 1,
+    }
+
+
+def test_staging_publication_never_replaces_existing_destination(tmp_path):
+    root = tmp_path / "staging"
+    relative = Path("raw/item.glb")
+    destination = root / relative
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"existing")
+    replacement = b"replacement"
+
+    with pytest.raises(ValidationError, match="staging destination"):
+        orchestrator_module._atomic_stage_stream(
+            io.BytesIO(replacement),
+            root,
+            relative,
+            sha256(replacement).hexdigest(),
+        )
+
+    assert destination.read_bytes() == b"existing"
+
+
+def test_raw_delete_tombstone_detects_identity_swap_without_deleting_replacement(
+    tmp_path,
+):
+    root = tmp_path / "raw-delete"
+    relative = Path("models/item.glb")
+    source = root / relative
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"original")
+    replacement = b"replacement"
+    rename_calls = 0
+
+    def swap_then_rename(source_name, destination_name, directory_fd):
+        nonlocal rename_calls
+        rename_calls += 1
+        if rename_calls > 1:
+            os.rename(
+                source_name,
+                destination_name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+            )
+            return
+        os.rename(
+            source_name,
+            "original.saved",
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        replacement_fd = os.open(
+            source_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        try:
+            os.write(replacement_fd, replacement)
+        finally:
+            os.close(replacement_fd)
+        os.rename(
+            source_name,
+            destination_name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+
+    with pytest.raises(ValidationError, match="identity changed"):
+        orchestrator_module._unlink_regular_beneath(
+            root, relative, rename_noreplace=swap_then_rename
+        )
+
+    survivors = {
+        path.name: path.read_bytes() for path in source.parent.iterdir()
+    }
+    assert b"original" in survivors.values()
+    assert replacement in survivors.values()
+
+
+def test_raw_archive_audit_rejects_unrelated_valid_member_mapping(
+    isolated_config,
+):
+    context = configured_context(isolated_config)
+    contents = b"raw mapping"
+    asset_sha = sha256(contents).hexdigest()
+    relative = "raw/models/item.glb"
+    source = context.source_root / relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(contents)
+    write_instances(context, (asset_sha,))
+    write_raw_metadata(
+        context, ({"sha256": asset_sha, "local_path": relative},)
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        reference_counter=FakeReferenceCounter(1),
+        project_accounting=FakeAccounting(),
+        published_batch_verifier=lambda active_context: None,
+        tool_commit="test-commit",
+    )
+    write_quality_checkpoint(services, context, {asset_sha: "completed"})
+    services.stage_raw(context)
+    services.archive_raw(context)
+    write_raw_metadata(
+        context,
+        ({"sha256": asset_sha, "local_path": "raw/models/other.glb"},),
+    )
+
+    with pytest.raises(ValidationError, match="raw archive.*mapping"):
+        services._verify_raw_archive(context)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        OSError(errno.ENOSPC, "metadata full"),
+        OSError("metadata write failed"),
+    ),
+)
+def test_raw_metadata_write_io_failure_propagates(
+    isolated_config, monkeypatch, tmp_path, fault
+):
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_atomic_write_bytes_nofollow",
+        lambda path, payload: (_ for _ in ()).throw(fault),
+    )
+
+    with pytest.raises(OSError, match="metadata"):
+        services._write_raw_records(
+            tmp_path / "metadata.csv",
+            ({"sha256": "a" * 64, "local_path": "raw/item.glb"},),
+        )
+
+
+def test_zip_source_eio_propagates(isolated_config, monkeypatch, tmp_path):
+    context = ShardContext.for_test(
+        tmp_path / "zip-eio", "ABO", "ABO-00000"
+    )
+    asset_sha = "a" * 64
+    write_instances(context, (asset_sha,))
+    write_raw_metadata(
+        context,
+        (
+            {
+                "sha256": asset_sha,
+                "local_path": "raw/bundle.zip/item.glb",
+            },
+        ),
+    )
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_open_regular_beneath",
+        lambda root, relative: (_ for _ in ()).throw(
+            OSError(errno.EIO, "ZIP source EIO")
+        ),
+    )
+
+    with pytest.raises(OSError, match="ZIP source EIO"):
+        services.stage_raw(context)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (OSError(errno.EIO, "cleanup EIO"), OSError("cleanup failed")),
+)
+def test_cleanup_io_failure_propagates(
+    isolated_config, monkeypatch, tmp_path, fault
+):
+    context = ShardContext.for_test(
+        tmp_path / "cleanup-eio", "ABO", "ABO-00000"
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        published_batch_verifier=lambda active_context: None,
+        raw_archive_verifier=lambda active_context: None,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_remove_tree_nofollow",
+        lambda path: (_ for _ in ()).throw(fault),
+    )
+
+    with pytest.raises(OSError, match="cleanup"):
+        services.cleanup_local(context)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        OSError(errno.ESTALE, "accounting ESTALE"),
+        OSError("accounting probe failed"),
+    ),
+)
+def test_accounting_probe_io_failure_propagates(
+    isolated_config, monkeypatch, tmp_path, fault
+):
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_regular_file_size_nofollow",
+        lambda path, missing_ok=False: (_ for _ in ()).throw(fault),
+    )
+
+    with pytest.raises(OSError, match="accounting"):
+        services._path_size(tmp_path / "pack.tar")

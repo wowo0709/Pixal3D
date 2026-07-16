@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import pickle
+import select
 import shutil
 import shlex
 import signal
@@ -69,83 +70,59 @@ PR_SET_CHILD_SUBREAPER = 36
 if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
     raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER) failed")
 
-ready_fd = int(os.environ.pop("PIXAL3D_SUPERVISOR_READY_FD"))
-try:
-    ready = os.read(ready_fd, 1)
-finally:
-    os.close(ready_fd)
-if ready != b"1":
-    raise SystemExit(125)
-
-requests = {"pause": False, "resume": False, "terminate": False, "kill": False}
-signal.signal(signal.SIGUSR1, lambda *_: requests.__setitem__("pause", True))
-signal.signal(signal.SIGCONT, lambda *_: requests.__setitem__("resume", True))
-signal.signal(signal.SIGTERM, lambda *_: requests.__setitem__("terminate", True))
-signal.signal(signal.SIGUSR2, lambda *_: requests.__setitem__("kill", True))
-
-worker = subprocess.Popen(sys.argv[1:])
 leader = os.getpid()
 worker_status = None
 terminating = False
 
-def descendants():
-    parents = {}
-    for name in os.listdir("/proc"):
-        if not name.isdigit():
-            continue
-        try:
-            value = open(f"/proc/{name}/stat", "r", encoding="ascii").read()
-            fields = value.rsplit(")", 1)[1].split()
-            parents[int(name)] = int(fields[1])
-        except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
-            continue
-    owned = {leader}
-    changed = True
-    while changed:
-        changed = False
-        for pid, parent in parents.items():
-            if parent in owned and pid not in owned:
-                owned.add(pid)
-                changed = True
-    owned.discard(leader)
-    return owned
+def pause_group(*_):
+    os.killpg(leader, signal.SIGSTOP)
 
-def send_descendants(sent_signal):
-    for pid in descendants():
-        try:
-            os.kill(pid, sent_signal)
-        except ProcessLookupError:
-            pass
+def resume_group(*_):
+    os.killpg(leader, signal.SIGCONT)
+
+def terminate_group(*_):
+    global terminating
+    terminating = True
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    os.killpg(leader, signal.SIGTERM)
+
+def kill_group(*_):
+    os.killpg(leader, signal.SIGKILL)
+
+signal.signal(signal.SIGUSR1, pause_group)
+signal.signal(signal.SIGCONT, resume_group)
+signal.signal(signal.SIGTERM, terminate_group)
+signal.signal(signal.SIGUSR2, kill_group)
+
+ready_fd = int(os.environ.pop("PIXAL3D_SUPERVISOR_READY_FD"))
+release_fd = int(os.environ.pop("PIXAL3D_SUPERVISOR_RELEASE_FD"))
+try:
+    os.write(ready_fd, b"1")
+finally:
+    os.close(ready_fd)
+try:
+    release = os.read(release_fd, 1)
+finally:
+    os.close(release_fd)
+if release != b"1":
+    raise SystemExit(125)
+
+worker = subprocess.Popen(sys.argv[1:])
 
 while True:
-    if requests["resume"]:
-        requests["resume"] = False
-        send_descendants(signal.SIGCONT)
-    if requests["pause"]:
-        requests["pause"] = False
-        send_descendants(signal.SIGSTOP)
-        os.kill(leader, signal.SIGSTOP)
-    if requests["terminate"]:
-        requests["terminate"] = False
-        terminating = True
-        send_descendants(signal.SIGTERM)
-    if requests["kill"]:
-        send_descendants(signal.SIGKILL)
-
+    no_children = False
     while True:
         try:
             pid, status = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:
+            no_children = True
             break
         if pid == 0:
             break
         if pid == worker.pid:
             worker_status = os.waitstatus_to_exitcode(status)
 
-    owned = descendants()
-    if requests["kill"] and not owned:
-        raise SystemExit(worker_status if worker_status is not None else 137)
-    if not terminating and worker_status is not None and not owned:
+    if not terminating and worker_status is not None and no_children:
         raise SystemExit(worker_status)
     time.sleep(0.05)
 """
@@ -159,11 +136,21 @@ def _linux_syscall(number: int, *arguments: int) -> int:
     return int(result)
 
 
+def _wait_for_supervisor_ready(file_descriptor: int, timeout: float) -> None:
+    poller = select.poll()
+    poller.register(file_descriptor, select.POLLIN | select.POLLHUP)
+    if not poller.poll(math.ceil(timeout * 1000)):
+        raise TimeoutError("supervisor READY acknowledgement timed out")
+    if os.read(file_descriptor, 1) != b"1":
+        raise InfrastructureError("invalid supervisor READY acknowledgement")
+
+
 class _LinuxProcessSupervisor:
     """Pidfd-controlled owner of one external rank and all descendants."""
 
     _PIDFD_SEND_SIGNAL = 424
     _PIDFD_OPEN = 434
+    _STARTUP_TIMEOUT_SECONDS = 5.0
     _SIGNALS = {
         "pause": signal.SIGUSR1,
         "resume": signal.SIGCONT,
@@ -178,9 +165,15 @@ class _LinuxProcessSupervisor:
 
     @classmethod
     def launch(cls, process_factory, argv, environment):
-        read_fd, write_fd = os.pipe2(os.O_CLOEXEC)
+        release_read_fd, release_write_fd = os.pipe2(os.O_CLOEXEC)
+        ready_read_fd, ready_write_fd = os.pipe2(os.O_CLOEXEC)
         supervisor_environment = dict(environment)
-        supervisor_environment["PIXAL3D_SUPERVISOR_READY_FD"] = str(read_fd)
+        supervisor_environment["PIXAL3D_SUPERVISOR_READY_FD"] = str(
+            ready_write_fd
+        )
+        supervisor_environment["PIXAL3D_SUPERVISOR_RELEASE_FD"] = str(
+            release_read_fd
+        )
         process = None
         pidfd = -1
         try:
@@ -188,31 +181,76 @@ class _LinuxProcessSupervisor:
                 (sys.executable, "-c", _SUPERVISOR_PROGRAM, *argv),
                 env=supervisor_environment,
                 start_new_session=True,
-                pass_fds=(read_fd,),
+                pass_fds=(release_read_fd, ready_write_fd),
             )
-            os.close(read_fd)
-            read_fd = -1
+            os.close(release_read_fd)
+            release_read_fd = -1
+            os.close(ready_write_fd)
+            ready_write_fd = -1
             pidfd = _linux_syscall(cls._PIDFD_OPEN, process.pid, 0)
-            os.write(write_fd, b"1")
+            _wait_for_supervisor_ready(
+                ready_read_fd, cls._STARTUP_TIMEOUT_SECONDS
+            )
+            os.write(release_write_fd, b"1")
             supervisor = cls(process, pidfd)
             pidfd = -1
             return supervisor
-        except BaseException:
-            os.close(write_fd)
-            write_fd = -1
+        except BaseException as launch_error:
+            if release_write_fd >= 0:
+                os.close(release_write_fd)
+                release_write_fd = -1
             if process is not None:
+                exited = False
                 try:
                     process.wait(timeout=1)
                 except subprocess.TimeoutExpired:
                     pass
-            raise
+                except BaseException as cleanup_error:
+                    notes = list(getattr(launch_error, "__notes__", ()))
+                    notes.append(
+                        "supervisor launch initial reap failed: "
+                        f"{type(cleanup_error).__name__}: {cleanup_error}"
+                    )
+                    launch_error.__notes__ = notes
+                else:
+                    exited = True
+                if not exited and pidfd >= 0:
+                    try:
+                        _linux_syscall(
+                            cls._PIDFD_SEND_SIGNAL,
+                            pidfd,
+                            int(signal.SIGKILL),
+                            0,
+                            0,
+                        )
+                    except BaseException as cleanup_error:
+                        notes = list(getattr(launch_error, "__notes__", ()))
+                        notes.append(
+                            "supervisor launch cleanup failed: "
+                            f"{type(cleanup_error).__name__}: {cleanup_error}"
+                        )
+                        launch_error.__notes__ = notes
+                    try:
+                        process.wait(timeout=1)
+                    except BaseException as cleanup_error:
+                        notes = list(getattr(launch_error, "__notes__", ()))
+                        notes.append(
+                            "supervisor launch final reap failed: "
+                            f"{type(cleanup_error).__name__}: {cleanup_error}"
+                        )
+                        launch_error.__notes__ = notes
+            raise launch_error
         finally:
             if pidfd >= 0:
                 os.close(pidfd)
-            if read_fd >= 0:
-                os.close(read_fd)
-            if write_fd >= 0:
-                os.close(write_fd)
+            for file_descriptor in (
+                release_read_fd,
+                release_write_fd,
+                ready_read_fd,
+                ready_write_fd,
+            ):
+                if file_descriptor >= 0:
+                    os.close(file_descriptor)
 
     def poll(self):
         return self.process.poll()
@@ -237,6 +275,11 @@ class _LinuxProcessSupervisor:
             0,
             0,
         )
+
+    def close(self) -> None:
+        if self.pidfd >= 0:
+            os.close(self.pidfd)
+            self.pidfd = -1
 
 
 class CheckpointError(RuntimeError):
@@ -784,7 +827,10 @@ class PipelineRunner:
                             ),
                         )
                     try:
-                        self.execute(command, context.shard_id)
+                        launch_command = self._command_for_eligible_assets(
+                            command, context, checkpoint
+                        )
+                        self.execute(launch_command, context.shard_id)
                         if not self._valid_output(command.name):
                             raise OutputValidationError(
                                 f"validation failed: {command.name}"
@@ -890,12 +936,31 @@ class PipelineRunner:
                     f"conflicting durable quality outcome: {asset_sha}"
                 )
             return
-        checkpoint.quality_outcomes[asset_sha] = outcome
-        self.quality_gate.record(
-            asset_sha=asset_sha,
-            succeeded=outcome == "completed",
-            schema_failure=outcome == "schema_failure",
+        assets = tuple(
+            _validated_asset_sha(item)
+            for item in _read_regular_bytes_nofollow(
+                context.instances
+            ).decode("ascii").splitlines()
         )
+        if asset_sha not in assets:
+            raise InfrastructureError(
+                f"quality outcome asset is not frozen: {asset_sha}"
+            )
+        checkpoint.quality_outcomes[asset_sha] = outcome
+        checkpoint.quality_outcomes = {
+            frozen_sha: checkpoint.quality_outcomes[frozen_sha]
+            for frozen_sha in assets
+            if frozen_sha in checkpoint.quality_outcomes
+        }
+        for frozen_sha in assets:
+            terminal = checkpoint.quality_outcomes.get(frozen_sha)
+            if terminal is None:
+                break
+            self.quality_gate.record(
+                asset_sha=frozen_sha,
+                succeeded=terminal == "completed",
+                schema_failure=terminal == "schema_failure",
+            )
         self.save_checkpoint(checkpoint_path, checkpoint)
         reason = self.quality_gate.violation_reason()
         if reason:
@@ -908,6 +973,37 @@ class PipelineRunner:
                 category=EscalationCategory.DATA_QUALITY,
                 exit_code=4,
             )
+
+    def _command_for_eligible_assets(
+        self,
+        command: CommandSpec,
+        context: ShardContext,
+        checkpoint: PipelineCheckpoint,
+    ) -> CommandSpec:
+        if not checkpoint.quality_outcomes or "--instances" not in command.argv:
+            return command
+        payload = _read_regular_bytes_nofollow(context.instances)
+        assets = tuple(
+            _validated_asset_sha(item)
+            for item in payload.decode("ascii").splitlines()
+        )
+        eligible = tuple(
+            asset
+            for asset in assets
+            if asset not in checkpoint.quality_outcomes
+        )
+        eligible_path = (
+            context.work_root
+            / "control/eligible"
+            / f"{_safe_component(command.name, 'command name')}.txt"
+        )
+        _atomic_write_bytes_nofollow(
+            eligible_path,
+            "".join(f"{asset}\n" for asset in eligible).encode("ascii"),
+        )
+        argv = list(command.argv)
+        argv[argv.index("--instances") + 1] = str(eligible_path)
+        return replace(command, argv=tuple(argv))
 
     def execute(self, command: CommandSpec, shard_id: str) -> None:
         if not command.argv:
@@ -945,6 +1041,8 @@ class PipelineRunner:
             self._monitor_processes(
                 processes, paused_groups, shard_id, command
             )
+            self._reap(processes)
+            self._close_processes(processes)
         except BaseException as error:
             try:
                 self._terminate_and_reap(processes, paused_groups)
@@ -961,8 +1059,6 @@ class PipelineRunner:
                 else:
                     raise cleanup_error from error
             raise
-        else:
-            self._reap(processes)
 
     def _monitor_processes(
         self,
@@ -1054,42 +1150,83 @@ class PipelineRunner:
         if failure is not None:
             raise failure
 
+    @staticmethod
+    def _close_processes(processes) -> None:
+        failure = None
+        for process in processes:
+            close = getattr(process, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+        if failure is not None:
+            raise failure
+
     def _terminate_and_reap(self, processes, paused_groups: set[int]) -> None:
         failure = None
 
-        def signal_all(candidates, action):
+        def remember(error):
             nonlocal failure
+            if failure is None:
+                failure = error
+
+        def alive_or_owned():
+            try:
+                return self._alive(processes)
+            except BaseException as error:
+                remember(error)
+                return list(processes)
+
+        def signal_all(candidates, action):
             for process in candidates:
                 try:
                     self._signal_process(process, action)
                 except BaseException as error:
-                    if failure is None:
-                        failure = error
+                    remember(error)
 
-        alive = self._alive(processes)
-        signal_all(
-            [process for process in alive if process.pid in paused_groups],
-            "resume",
-        )
-        paused_groups.clear()
-        signal_all(alive, "terminate")
-
-        deadline = self.monotonic_clock() + self.termination_grace_seconds
-        alive = self._alive(processes)
-        while alive and self.monotonic_clock() < deadline:
-            self.sleeper(
-                min(
-                    1.0,
-                    max(0.0, deadline - self.monotonic_clock()),
-                )
-            )
-            alive = self._alive(processes)
-        signal_all(alive, "kill")
         try:
-            self._reap(processes)
-        except BaseException as error:
-            if failure is None:
-                failure = error
+            alive = alive_or_owned()
+            signal_all(
+                [process for process in alive if process.pid in paused_groups],
+                "resume",
+            )
+            paused_groups.clear()
+            signal_all(alive, "terminate")
+
+            try:
+                deadline = self.monotonic_clock() + self.termination_grace_seconds
+                alive = alive_or_owned()
+                while alive and self.monotonic_clock() < deadline:
+                    self.sleeper(
+                        min(
+                            1.0,
+                            max(0.0, deadline - self.monotonic_clock()),
+                        )
+                    )
+                    alive = alive_or_owned()
+            except BaseException as error:
+                remember(error)
+                alive = list(processes)
+            signal_all(alive, "kill")
+            try:
+                self._reap(processes)
+            except BaseException as error:
+                remember(error)
+            alive = alive_or_owned()
+            if alive:
+                signal_all(alive, "kill")
+                try:
+                    self._reap(alive)
+                except BaseException as error:
+                    remember(error)
+        finally:
+            try:
+                self._close_processes(processes)
+            except BaseException as error:
+                remember(error)
         if failure is not None:
             raise failure
 
@@ -1210,6 +1347,10 @@ class PipelineRunner:
                 f"escalation clock failed: {type(error).__name__}: {error}"
             )
             created_at = datetime.now(timezone.utc)
+        outcome_counts = {
+            outcome: tuple(checkpoint.quality_outcomes.values()).count(outcome)
+            for outcome in QUALITY_OUTCOMES
+        }
         report = EscalationReport(
             source=context.source,
             shard_id=context.shard_id,
@@ -1220,6 +1361,15 @@ class PipelineRunner:
             completed_counts={
                 "commands": len(checkpoint.completed_commands),
                 "outcomes": self.quality_gate.count,
+                "completed_assets": outcome_counts["completed"],
+                "quarantined_assets": (
+                    outcome_counts["failure"]
+                    + outcome_counts["schema_failure"]
+                ),
+                "failure_assets": outcome_counts["failure"],
+                "schema_failure_assets": outcome_counts[
+                    "schema_failure"
+                ],
             },
             safe_resume_command=(
                 "python -m data_toolkit.pipeline.cli resume "
@@ -1327,6 +1477,33 @@ def _same_inode(first, second) -> bool:
     return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
 
+def _rename_noreplace(
+    source_name: str, destination_name: str, directory_fd: int
+) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = libc.renameat2
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    if (
+        renameat2(
+            directory_fd,
+            os.fsencode(source_name),
+            directory_fd,
+            os.fsencode(destination_name),
+            1,
+        )
+        != 0
+    ):
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+
+
 def _read_regular_bytes_nofollow(
     path: Path,
     *,
@@ -1353,7 +1530,7 @@ def _read_regular_bytes_nofollow(
         try:
             opened = os.fstat(file_fd)
             if not stat.S_ISREG(opened.st_mode):
-                raise OSError(f"not a regular file: {path}")
+                raise OSError(errno.ELOOP, f"not a regular file: {path}")
             with os.fdopen(file_fd, "rb", closefd=False) as stream:
                 value = stream.read()
             current = os.stat(
@@ -1362,7 +1539,9 @@ def _read_regular_bytes_nofollow(
             if not stat.S_ISREG(current.st_mode) or not _same_inode(
                 opened, current
             ):
-                raise OSError(f"file identity changed while reading: {path}")
+                raise OSError(
+                    errno.ELOOP, f"file identity changed while reading: {path}"
+                )
             return value
         finally:
             os.close(file_fd)
@@ -1370,13 +1549,15 @@ def _read_regular_bytes_nofollow(
         os.close(directory_fd)
 
 
-def _regular_file_size_nofollow(path: Path, *, missing_ok: bool = False) -> int:
+def _regular_file_stat_nofollow(
+    path: Path, *, missing_ok: bool = False
+):
     path = Path(path)
     try:
         directory_fd = _open_directory_nofollow(path.parent)
     except FileNotFoundError:
         if missing_ok:
-            return 0
+            return None
         raise
     try:
         try:
@@ -1387,7 +1568,7 @@ def _regular_file_size_nofollow(path: Path, *, missing_ok: bool = False) -> int:
             )
         except FileNotFoundError:
             if missing_ok:
-                return 0
+                return None
             raise
         try:
             opened = os.fstat(file_fd)
@@ -1399,12 +1580,30 @@ def _regular_file_size_nofollow(path: Path, *, missing_ok: bool = False) -> int:
                 or not stat.S_ISREG(current.st_mode)
                 or not _same_inode(opened, current)
             ):
-                raise OSError(f"unsafe accounted path: {path}")
-            return opened.st_size
+                raise OSError(errno.ELOOP, f"unsafe accounted path: {path}")
+            return opened
         finally:
             os.close(file_fd)
     finally:
         os.close(directory_fd)
+
+
+def _regular_file_size_nofollow(path: Path, *, missing_ok: bool = False) -> int:
+    value = _regular_file_stat_nofollow(path, missing_ok=missing_ok)
+    return 0 if value is None else value.st_size
+
+
+def _require_regular_artifact(path: Path) -> None:
+    try:
+        value = _regular_file_stat_nofollow(path, missing_ok=True)
+    except OSError as error:
+        if error.errno in {errno.ENOENT, errno.ENOTDIR}:
+            raise OutputValidationError(f"missing artifact: {path}") from error
+        if error.errno == errno.ELOOP:
+            raise ValidationError(f"unsafe artifact: {path}") from error
+        raise
+    if value is None:
+        raise OutputValidationError(f"missing artifact: {path}")
 
 
 def _atomic_write_bytes_nofollow(path: Path, value: bytes) -> None:
@@ -1421,7 +1620,7 @@ def _atomic_write_bytes_nofollow(path: Path, value: bytes) -> None:
                 path.name, dir_fd=directory_fd, follow_symlinks=False
             )
             if not stat.S_ISREG(existing.st_mode):
-                raise OSError(f"unsafe destination: {path}")
+                raise OSError(errno.ELOOP, f"unsafe destination: {path}")
         except FileNotFoundError:
             existing = None
         temporary_fd = os.open(
@@ -1452,7 +1651,9 @@ def _atomic_write_bytes_nofollow(path: Path, value: bytes) -> None:
             and current is not None
             and not _same_inode(existing, current)
         ):
-            raise OSError(f"destination identity changed: {path}")
+            raise OSError(
+                errno.ELOOP, f"destination identity changed: {path}"
+            )
         os.replace(
             temporary_name,
             path.name,
@@ -1521,14 +1722,21 @@ def _open_regular_beneath(root: Path, relative: Path):
         os.close(directory_fd)
 
 
-def _unlink_regular_beneath(root: Path, relative: Path) -> int:
+def _unlink_regular_beneath(
+    root: Path,
+    relative: Path,
+    *,
+    rename_noreplace: Callable[[str, str, int], None] = _rename_noreplace,
+) -> int:
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
         directory_fd = _open_directory_nofollow(root)
     except FileNotFoundError:
         return False
     except OSError as error:
-        raise ValidationError(f"unsafe raw source root: {root}") from error
+        if error.errno in PATH_VALIDATION_ERRNOS:
+            raise ValidationError(f"unsafe raw source root: {root}") from error
+        raise
     try:
         for component in relative.parts[:-1]:
             try:
@@ -1540,9 +1748,11 @@ def _unlink_regular_beneath(root: Path, relative: Path) -> int:
             except FileNotFoundError:
                 return False
             except OSError as error:
-                raise ValidationError(
-                    f"symlink or unsafe raw source: {relative.as_posix()}"
-                ) from error
+                if error.errno in PATH_VALIDATION_ERRNOS:
+                    raise ValidationError(
+                        f"symlink or unsafe raw source: {relative.as_posix()}"
+                    ) from error
+                raise
             os.close(directory_fd)
             directory_fd = next_fd
         file_fd = None
@@ -1555,27 +1765,46 @@ def _unlink_regular_beneath(root: Path, relative: Path) -> int:
         except FileNotFoundError:
             return False
         except OSError as error:
-            raise ValidationError(
-                f"refusing to delete unsafe raw source: {relative.as_posix()}"
-            ) from error
+            if error.errno in PATH_VALIDATION_ERRNOS:
+                raise ValidationError(
+                    f"refusing to delete unsafe raw source: {relative.as_posix()}"
+                ) from error
+            raise
         try:
             opened = os.fstat(file_fd)
             if not stat.S_ISREG(opened.st_mode):
                 raise ValidationError(
                     f"refusing to delete unsafe raw source: {relative.as_posix()}"
                 )
-            current = os.stat(
-                relative.parts[-1],
-                dir_fd=directory_fd,
-                follow_symlinks=False,
+            source_name = relative.parts[-1]
+            tombstone_name = (
+                f".{source_name}.{os.getpid()}."
+                f"{time.monotonic_ns()}.delete"
             )
-            if not stat.S_ISREG(current.st_mode) or not _same_inode(
-                opened, current
+            rename_noreplace(source_name, tombstone_name, directory_fd)
+            tombstone_fd = os.open(
+                tombstone_name,
+                flags | os.O_NONBLOCK,
+                dir_fd=directory_fd,
+            )
+            try:
+                tombstone = os.fstat(tombstone_fd)
+            finally:
+                os.close(tombstone_fd)
+            if not stat.S_ISREG(tombstone.st_mode) or not _same_inode(
+                opened, tombstone
             ):
+                try:
+                    rename_noreplace(
+                        tombstone_name, source_name, directory_fd
+                    )
+                except FileExistsError:
+                    pass
                 raise ValidationError(
-                    f"raw source identity changed before delete: {relative.as_posix()}"
+                    f"raw source identity changed before delete: "
+                    f"{relative.as_posix()}"
                 )
-            os.unlink(relative.parts[-1], dir_fd=directory_fd)
+            os.unlink(tombstone_name, dir_fd=directory_fd)
         finally:
             os.close(file_fd)
         os.fsync(directory_fd)
@@ -1618,25 +1847,17 @@ def _atomic_stage_stream(
             destination.parent, create=True
         )
     except OSError as error:
-        raise ValidationError(
-            f"unsafe staging destination: {relative.as_posix()}: {error}"
-        ) from error
+        if error.errno in PATH_VALIDATION_ERRNOS:
+            raise ValidationError(
+                f"unsafe staging destination: {relative.as_posix()}: {error}"
+            ) from error
+        raise
     temporary_name = (
         f".{destination.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
     )
     temporary_fd = None
     digest = sha256()
     try:
-        try:
-            existing = os.stat(
-                destination.name,
-                dir_fd=directory_fd,
-                follow_symlinks=False,
-            )
-            if not stat.S_ISREG(existing.st_mode):
-                raise OSError(f"unsafe destination: {destination}")
-        except FileNotFoundError:
-            existing = None
         temporary_fd = os.open(
             temporary_name,
             os.O_WRONLY
@@ -1661,32 +1882,49 @@ def _atomic_stage_stream(
         os.close(temporary_fd)
         temporary_fd = None
         try:
-            current = os.stat(
+            _rename_noreplace(
+                temporary_name, destination.name, directory_fd
+            )
+        except FileExistsError:
+            existing_fd = os.open(
                 destination.name,
+                os.O_RDONLY
+                | os.O_NOFOLLOW
+                | os.O_CLOEXEC
+                | os.O_NONBLOCK,
                 dir_fd=directory_fd,
-                follow_symlinks=False,
             )
-        except FileNotFoundError:
-            current = None
-        if (existing is None) != (current is None) or (
-            existing is not None
-            and current is not None
-            and not _same_inode(existing, current)
-        ):
-            raise ValidationError(
-                f"staging destination identity changed: {relative.as_posix()}"
-            )
-        os.replace(
-            temporary_name,
-            destination.name,
-            src_dir_fd=directory_fd,
-            dst_dir_fd=directory_fd,
-        )
+            try:
+                opened = os.fstat(existing_fd)
+                if not stat.S_ISREG(opened.st_mode):
+                    raise ValidationError(
+                        f"unsafe staging destination: {relative.as_posix()}"
+                    )
+                with os.fdopen(existing_fd, "rb", closefd=False) as existing:
+                    existing_sha = _sha_stream(existing)
+                current = os.stat(
+                    destination.name,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+                if (
+                    not stat.S_ISREG(current.st_mode)
+                    or not _same_inode(opened, current)
+                    or existing_sha != expected_sha
+                ):
+                    raise ValidationError(
+                        f"staging destination already differs: "
+                        f"{relative.as_posix()}"
+                    )
+            finally:
+                os.close(existing_fd)
         os.fsync(directory_fd)
     except OSError as error:
-        raise ValidationError(
-            f"unsafe staging destination: {relative.as_posix()}: {error}"
-        ) from error
+        if error.errno in PATH_VALIDATION_ERRNOS:
+            raise ValidationError(
+                f"unsafe staging destination: {relative.as_posix()}: {error}"
+            ) from error
+        raise
     finally:
         if temporary_fd is not None:
             os.close(temporary_fd)
@@ -1740,7 +1978,11 @@ def _remove_tree_nofollow(path: Path) -> bool:
         os.fsync(parent_fd)
         return True
     except OSError as error:
-        raise ValidationError(f"unsafe cleanup path: {path}: {error}") from error
+        if error.errno in PATH_VALIDATION_ERRNOS:
+            raise ValidationError(
+                f"unsafe cleanup path: {path}: {error}"
+            ) from error
+        raise
     finally:
         os.close(parent_fd)
 
@@ -2337,7 +2579,11 @@ class PipelineServices:
             writer.writerows(records)
             _atomic_write_bytes_nofollow(path, stream.getvalue().encode("utf-8"))
         except OSError as error:
-            raise ValidationError(f"unsafe raw metadata output: {path}") from error
+            if error.errno in PATH_VALIDATION_ERRNOS:
+                raise ValidationError(
+                    f"unsafe raw metadata output: {path}"
+                ) from error
+            raise
         finally:
             stream.close()
 
@@ -2387,7 +2633,9 @@ class PipelineServices:
                             )
             except ValidationError:
                 raise
-            except (OSError, zipfile.BadZipFile) as error:
+            except OSError:
+                raise
+            except zipfile.BadZipFile as error:
                 raise ValidationError(
                     f"invalid raw ZIP archive: {archive_relative.as_posix()}: {error}"
                 ) from error
@@ -2416,6 +2664,7 @@ class PipelineServices:
         self, context: ShardContext, directory: str, asset_sha: str
     ) -> None:
         relative = Path(directory) / f"{asset_sha}.pickle"
+        _require_regular_artifact(context.work_root / relative)
         try:
             with _open_regular_beneath(context.work_root, relative) as stream:
                 value = pickle.load(stream)
@@ -2438,37 +2687,93 @@ class PipelineServices:
                 f"invalid PBR dump structure: {relative.as_posix()}"
             )
 
-    def _validate_asset_stats(self, context: ShardContext) -> None:
-        relative = Path("asset_stats/metadata.csv")
-        with _open_regular_beneath(context.metadata_root, relative) as stream:
+    @staticmethod
+    def _validate_asset_stats_record(asset_sha: str, row: dict | None) -> None:
+        if row is None:
+            raise OutputValidationError(
+                f"missing asset stats record: {asset_sha}"
+            )
+        try:
+            counts = (int(row["num_faces"]), int(row["num_vertices"]))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValidationError("invalid asset stats counts") from error
+        if any(value < 0 for value in counts):
+            raise ValidationError("negative asset stats counts")
+
+    def _asset_stats_records(self, context: ShardContext) -> dict[str, dict]:
+        root = context.metadata_root / "asset_stats/new_records"
+        try:
+            directory_fd = _open_directory_nofollow(root)
+        except OSError as error:
+            if error.errno in {errno.ENOENT, errno.ENOTDIR}:
+                raise OutputValidationError(
+                    f"missing asset stats parts: {root}"
+                ) from error
+            if error.errno == errno.ELOOP:
+                raise ValidationError(
+                    f"unsafe asset stats parts: {root}"
+                ) from error
+            raise
+        try:
+            names = sorted(
+                name
+                for name in os.listdir(directory_fd)
+                if name.startswith("part_") and name.endswith(".csv")
+            )
+        finally:
+            os.close(directory_fd)
+        if not names:
+            raise OutputValidationError(f"missing asset stats parts: {root}")
+
+        records = {}
+        required = {"sha256", "num_faces", "num_vertices"}
+        for name in names:
+            payload = _read_regular_bytes_nofollow(root / name)
+            if not payload.strip():
+                continue
             try:
                 reader = csv.DictReader(
-                    io.StringIO(stream.read().decode("utf-8"))
+                    io.StringIO(payload.decode("utf-8"), newline="")
                 )
+                if reader.fieldnames is None or not required.issubset(
+                    reader.fieldnames
+                ):
+                    raise ValidationError(
+                        "asset stats CSV missing required columns"
+                    )
+                rows = tuple(reader)
             except (UnicodeDecodeError, csv.Error) as error:
-                raise ValidationError(f"invalid asset stats CSV: {error}") from error
-            required = {"sha256", "num_faces", "num_vertices"}
-            if reader.fieldnames is None or not required.issubset(
-                reader.fieldnames
-            ):
-                raise ValidationError("asset stats CSV missing required columns")
-            rows = tuple(reader)
+                raise ValidationError(
+                    f"invalid asset stats CSV: {root / name}: {error}"
+                ) from error
+            for row in rows:
+                try:
+                    asset_sha = _validated_asset_sha(row.get("sha256"))
+                except (TypeError, ValueError) as error:
+                    raise ValidationError(
+                        f"invalid asset stats SHA: {root / name}"
+                    ) from error
+                if asset_sha in records:
+                    raise ValidationError(
+                        f"duplicate asset stats SHA: {asset_sha}"
+                    )
+                records[asset_sha] = row
+        return records
+
+    def _validate_asset_stats(self, context: ShardContext) -> None:
+        records = self._asset_stats_records(context)
         assets = self._instances(context)
-        if tuple(sorted(row.get("sha256") for row in rows)) != assets:
+        if set(records) != set(assets):
             raise ValidationError("asset stats SHA set mismatch")
-        for row in rows:
-            try:
-                counts = (int(row["num_faces"]), int(row["num_vertices"]))
-            except (TypeError, ValueError) as error:
-                raise ValidationError("invalid asset stats counts") from error
-            if any(value < 0 for value in counts):
-                raise ValidationError("negative asset stats counts")
+        for asset_sha in assets:
+            self._validate_asset_stats_record(asset_sha, records.get(asset_sha))
 
     @staticmethod
     def _validate_voxel_output(
         context: ShardContext, directory: str, asset_sha: str, view: int
     ) -> None:
         relative = Path(directory) / asset_sha / f"view{view:02d}.vxz"
+        _require_regular_artifact(context.work_root / relative)
         try:
             import o_voxel
         except ImportError as error:
@@ -2491,6 +2796,7 @@ class PipelineServices:
                 f"invalid voxel metadata: {relative.as_posix()}"
             )
         scale_relative = relative.with_name(f"view{view:02d}_scale.json")
+        _require_regular_artifact(context.work_root / scale_relative)
         with _open_regular_beneath(
             context.work_root, scale_relative
         ) as stream:
@@ -2528,23 +2834,59 @@ class PipelineServices:
             f"ss_enc_conv3d_16l8_fp16_{self.config.targets.ss_resolution}_view",
         )
 
+    def _validate_render_output(
+        self, context: ShardContext, asset_sha: str
+    ) -> None:
+        root = context.output_root / "renders_cond" / asset_sha
+        _require_regular_artifact(root / "transforms.json")
+        for view in range(self.config.render.num_views):
+            _require_regular_artifact(root / f"{view:03d}.png")
+        validate_render_dir(
+            root,
+            self.config.render.num_views,
+            self.config.render.resolution,
+        )
+
+    @staticmethod
+    def _validate_sparse_output(
+        output: Path, resolution: int, *, ss: bool = False
+    ) -> None:
+        _require_regular_artifact(output)
+        scale = output.with_name(f"{output.stem}_scale.json")
+        _require_regular_artifact(scale)
+        if ss:
+            validate_ss_latent(output)
+        else:
+            validate_sparse_latent(output, resolution, resolution**3)
+        validate_scale(scale)
+
     def _validate_resolution_family(
         self, context: ShardContext, resolution: int, relative: Path
     ) -> None:
         if resolution not in self.config.targets.resolutions:
             raise ValidationError(f"unexpected resolution: {resolution}")
         for asset_sha in self._instances(context):
-            for view in self.config.targets.views:
-                output = (
-                    context.output_root
-                    / relative
-                    / asset_sha
-                    / f"view{view:02d}.npz"
-                )
-                validate_sparse_latent(output, resolution, resolution**3)
-                validate_scale(
-                    output.with_name(f"view{view:02d}_scale.json")
-                )
+            self._validate_resolution_asset(
+                context, resolution, relative, asset_sha
+            )
+
+    def _validate_resolution_asset(
+        self,
+        context: ShardContext,
+        resolution: int,
+        relative: Path,
+        asset_sha: str,
+    ) -> None:
+        if resolution not in self.config.targets.resolutions:
+            raise ValidationError(f"unexpected resolution: {resolution}")
+        for view in self.config.targets.views:
+            output = (
+                context.output_root
+                / relative
+                / asset_sha
+                / f"view{view:02d}.npz"
+            )
+            self._validate_sparse_output(output, resolution)
 
     def _validate_shape_resolution(
         self, context: ShardContext, resolution: int
@@ -2563,11 +2905,7 @@ class PipelineServices:
     def _validate_asset_outputs(
         self, context: ShardContext, asset_sha: str
     ) -> None:
-        validate_render_dir(
-            context.output_root / "renders_cond" / asset_sha,
-            self.config.render.num_views,
-            self.config.render.resolution,
-        )
+        self._validate_render_output(context, asset_sha)
         for resolution in self.config.targets.resolutions:
             for relative in (
                 self._shape_directory(resolution),
@@ -2580,12 +2918,7 @@ class PipelineServices:
                         / asset_sha
                         / f"view{view:02d}.npz"
                     )
-                    validate_sparse_latent(
-                        output, resolution, resolution**3
-                    )
-                    validate_scale(
-                        output.with_name(f"view{view:02d}_scale.json")
-                    )
+                    self._validate_sparse_output(output, resolution)
         for view in self.config.targets.views:
             output = (
                 context.output_root
@@ -2593,8 +2926,70 @@ class PipelineServices:
                 / asset_sha
                 / f"view{view:02d}.npz"
             )
-            validate_ss_latent(output)
-            validate_scale(output.with_name(f"view{view:02d}_scale.json"))
+            self._validate_sparse_output(
+                output, self.config.targets.ss_resolution, ss=True
+            )
+
+    def _eligible_assets(self, context: ShardContext) -> tuple[str, ...]:
+        assets = self._instances(context)
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        if checkpoint is None:
+            return assets
+        return tuple(
+            asset
+            for asset in assets
+            if asset not in checkpoint.quality_outcomes
+        )
+
+    def _validate_stage_assets(
+        self,
+        context: ShardContext,
+        validator: Callable[[str], None],
+    ) -> None:
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        for asset_sha in self._eligible_assets(context):
+            try:
+                validator(asset_sha)
+            except OutputValidationError:
+                if checkpoint is None:
+                    raise
+                self.runner.record_quality_outcome(asset_sha, "failure")
+            except ValidationError:
+                if checkpoint is None:
+                    raise
+                self.runner.record_quality_outcome(
+                    asset_sha, "schema_failure"
+                )
+
+    def _validate_asset_stats_stage(self, context: ShardContext) -> None:
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        if checkpoint is None:
+            self._validate_asset_stats(context)
+            return
+        assets = self._eligible_assets(context)
+        try:
+            records = self._asset_stats_records(context)
+        except OutputValidationError:
+            for asset_sha in assets:
+                self.runner.record_quality_outcome(asset_sha, "failure")
+            return
+        except ValidationError:
+            for asset_sha in assets:
+                self.runner.record_quality_outcome(
+                    asset_sha, "schema_failure"
+                )
+            return
+        for asset_sha in assets:
+            try:
+                self._validate_asset_stats_record(
+                    asset_sha, records.get(asset_sha)
+                )
+            except OutputValidationError:
+                self.runner.record_quality_outcome(asset_sha, "failure")
+            except ValidationError:
+                self.runner.record_quality_outcome(
+                    asset_sha, "schema_failure"
+                )
 
     def _validate_all_outputs(self, context: ShardContext) -> None:
         for asset_sha in self._instances(context):
@@ -2648,8 +3043,29 @@ class PipelineServices:
     def cleanup_voxels(
         self, context: ShardContext, resolution: int
     ) -> None:
-        self.shape_resolution_validator(context, resolution)
-        self.pbr_resolution_validator(context, resolution)
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        if checkpoint is None:
+            self.shape_resolution_validator(context, resolution)
+            self.pbr_resolution_validator(context, resolution)
+        else:
+            self._validate_stage_assets(
+                context,
+                lambda asset_sha: self._validate_resolution_asset(
+                    context,
+                    resolution,
+                    self._shape_directory(resolution),
+                    asset_sha,
+                ),
+            )
+            self._validate_stage_assets(
+                context,
+                lambda asset_sha: self._validate_resolution_asset(
+                    context,
+                    resolution,
+                    self._pbr_directory(resolution),
+                    asset_sha,
+                ),
+            )
         for path in (
             context.work_root / f"dual_grid_view_{resolution}",
             context.work_root / f"pbr_voxels_view_fix_{resolution}",
@@ -2657,9 +3073,11 @@ class PipelineServices:
             try:
                 _remove_tree_nofollow(path)
             except OSError as error:
-                raise ValidationError(
-                    f"unsafe voxel cleanup path: {path}: {error}"
-                ) from error
+                if error.errno in PATH_VALIDATION_ERRNOS:
+                    raise ValidationError(
+                        f"unsafe voxel cleanup path: {path}: {error}"
+                    ) from error
+                raise
 
     def _pack_members_for_assets(
         self, context: ShardContext, assets: Sequence[str]
@@ -2709,7 +3127,11 @@ class PipelineServices:
         try:
             return _regular_file_size_nofollow(path, missing_ok=True)
         except OSError as error:
-            raise ValidationError(f"unsafe accounted path: {path}") from error
+            if error.errno in PATH_VALIDATION_ERRNOS:
+                raise ValidationError(
+                    f"unsafe accounted path: {path}"
+                ) from error
+            raise
 
     def _record_delta(self, path: Path, delta: int) -> None:
         if delta == 0:
@@ -2935,6 +3357,22 @@ class PipelineServices:
             raise ValidationError(
                 f"invalid raw archive manifest: {manifest_path}: {error}"
             ) from error
+        expected_records = self._read_raw_records(
+            context.source_root / "raw/metadata.csv", shas
+        )
+        expected_members = {
+            record["local_path"]: record["sha256"]
+            for record in expected_records
+        }
+        try:
+            actual_members = {
+                item["path"]: item["sha256"]
+                for item in manifest.get("members", ())
+            }
+        except (KeyError, TypeError) as error:
+            raise ValidationError(
+                f"invalid raw archive member mapping: {manifest_path}"
+            ) from error
         if (
             manifest.get("shard_id") != context.shard_id
             or manifest.get("batch_id") != context.batch_id
@@ -2947,9 +3385,14 @@ class PipelineServices:
             or tuple(manifest.get("asset_sha256s", ()))
             != shas
             or len(manifest.get("members", ())) != len(shas)
+            or len(actual_members) != len(manifest.get("members", ()))
         ):
             raise ValidationError(
                 f"raw archive identity mismatch: {manifest_path}"
+            )
+        if actual_members != expected_members:
+            raise ValidationError(
+                f"raw archive member mapping mismatch: {manifest_path}"
             )
 
     def archive_raw(self, context: ShardContext) -> None:
@@ -3072,9 +3515,11 @@ class PipelineServices:
             try:
                 _remove_tree_nofollow(root)
             except OSError as error:
-                raise ValidationError(
-                    f"unsafe local cleanup path: {root}: {error}"
-                ) from error
+                if error.errno in PATH_VALIDATION_ERRNOS:
+                    raise ValidationError(
+                        f"unsafe local cleanup path: {root}: {error}"
+                    ) from error
+                raise
 
     def _archive_is_valid(self, context: ShardContext) -> bool:
         try:
@@ -3119,19 +3564,23 @@ class PipelineServices:
                 return True
             if name in {"dump_mesh", "dump_pbr"}:
                 directory = "mesh_dumps" if name == "dump_mesh" else "pbr_dumps"
-                for asset in self._instances(context):
-                    self._validate_dump_output(context, directory, asset)
+                self._validate_stage_assets(
+                    context,
+                    lambda asset: self._validate_dump_output(
+                        context, directory, asset
+                    ),
+                )
                 return True
             if name == "asset_stats":
-                self._validate_asset_stats(context)
+                self._validate_asset_stats_stage(context)
                 return True
             if name == "render_cond":
-                for asset in self._instances(context):
-                    validate_render_dir(
-                        context.output_root / "renders_cond" / asset,
-                        self.config.render.num_views,
-                        self.config.render.resolution,
-                    )
+                self._validate_stage_assets(
+                    context,
+                    lambda asset: self._validate_render_output(
+                        context, asset
+                    ),
+                )
                 return True
             for resolution in self.config.targets.resolutions:
                 if name in {
@@ -3140,12 +3589,35 @@ class PipelineServices:
                     f"cleanup_voxels_{resolution}",
                 }:
                     if name == f"encode_shape_{resolution}":
-                        self.shape_resolution_validator(context, resolution)
+                        if getattr(self.runner, "active_checkpoint", None) is None:
+                            self.shape_resolution_validator(context, resolution)
+                        else:
+                            self._validate_stage_assets(
+                                context,
+                                lambda asset: self._validate_resolution_asset(
+                                    context,
+                                    resolution,
+                                    self._shape_directory(resolution),
+                                    asset,
+                                ),
+                            )
                     elif name == f"encode_pbr_{resolution}":
-                        self.pbr_resolution_validator(context, resolution)
+                        if getattr(self.runner, "active_checkpoint", None) is None:
+                            self.pbr_resolution_validator(context, resolution)
+                        else:
+                            self._validate_stage_assets(
+                                context,
+                                lambda asset: self._validate_resolution_asset(
+                                    context,
+                                    resolution,
+                                    self._pbr_directory(resolution),
+                                    asset,
+                                ),
+                            )
                     else:
-                        self.shape_resolution_validator(context, resolution)
-                        self.pbr_resolution_validator(context, resolution)
+                        if getattr(self.runner, "active_checkpoint", None) is None:
+                            self.shape_resolution_validator(context, resolution)
+                            self.pbr_resolution_validator(context, resolution)
                     if name.startswith("cleanup_"):
                         return not any(
                             path.exists()
@@ -3166,14 +3638,18 @@ class PipelineServices:
                         if name.startswith("dual_grid")
                         else f"pbr_voxels_view_fix_{resolution}"
                     )
-                    for asset in self._instances(context):
-                        for view in self.config.targets.views:
+                    self._validate_stage_assets(
+                        context,
+                        lambda asset: [
                             self._validate_voxel_output(
                                 context, directory, asset, view
                             )
+                            for view in self.config.targets.views
+                        ],
+                    )
                     return True
             if name == f"encode_ss_{self.config.targets.ss_resolution}":
-                for asset in self._instances(context):
+                def validate_ss_asset(asset):
                     for view in self.config.targets.views:
                         output = (
                             context.output_root
@@ -3181,10 +3657,13 @@ class PipelineServices:
                             / asset
                             / f"view{view:02d}.npz"
                         )
-                        validate_ss_latent(output)
-                        validate_scale(
-                            output.with_name(f"view{view:02d}_scale.json")
+                        self._validate_sparse_output(
+                            output,
+                            self.config.targets.ss_resolution,
+                            ss=True,
                         )
+
+                self._validate_stage_assets(context, validate_ss_asset)
                 return True
             if name == "validate_outputs":
                 self._validate_terminal_outputs(context)

@@ -1,3 +1,4 @@
+import errno
 import json
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import numpy as np
 from PIL import Image
 import pytest
 
+import data_toolkit.pipeline.validation as validation_module
 from data_toolkit.pipeline.validation import (
     ValidationError,
     validate_render_dir,
@@ -295,3 +297,48 @@ def test_scale_load_errors_are_translated(case, tmp_path):
 
     with pytest.raises(ValidationError, match="scale metadata"):
         validate_scale(path)
+
+
+def test_json_loader_eio_propagates(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda path: (_ for _ in ()).throw(OSError(errno.EIO, "JSON EIO")),
+    )
+
+    with pytest.raises(OSError, match="JSON EIO"):
+        validate_scale(tmp_path / "scale.json")
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        OSError(errno.ESTALE, "NPZ ESTALE"),
+        OSError("NPZ read failed"),
+    ),
+)
+def test_npz_loader_io_failure_propagates(monkeypatch, tmp_path, fault):
+    monkeypatch.setattr(
+        validation_module.np,
+        "load",
+        lambda *args, **kwargs: (_ for _ in ()).throw(fault),
+    )
+
+    with pytest.raises(OSError, match="NPZ"):
+        validate_sparse_latent(tmp_path / "latent.npz", 16, 8192)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (OSError(errno.EIO, "image EIO"), OSError("image read failed")),
+)
+def test_render_image_io_failure_propagates(monkeypatch, tmp_path, fault):
+    _write_render_directory(tmp_path)
+    monkeypatch.setattr(
+        validation_module.Image,
+        "open",
+        lambda path: (_ for _ in ()).throw(fault),
+    )
+
+    with pytest.raises(OSError, match="image"):
+        validate_render_dir(tmp_path, 1, 16)
