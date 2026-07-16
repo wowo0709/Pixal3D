@@ -3257,6 +3257,7 @@ class PipelineServices:
         except OSError:
             raise
         except (
+            AssertionError,
             EOFError,
             OverflowError,
             RuntimeError,
