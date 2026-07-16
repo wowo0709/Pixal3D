@@ -44,6 +44,7 @@ from data_toolkit.pipeline.packing import (
 )
 from data_toolkit.pipeline.resources import (
     ResourceAction,
+    ResourceAccountingError,
     ResourceDecision,
     ResourceLimitExceeded,
 )
@@ -93,7 +94,8 @@ class RecordingRunner(PipelineRunner):
         self.executed = []
         self.failures = {}
 
-    def load_checkpoint(self, path, shard_id):
+    def load_checkpoint(self, path, shard_id, gate="production"):
+        self.checkpoint.gate = gate
         return self.checkpoint
 
     def save_checkpoint(self, path, checkpoint):
@@ -704,6 +706,7 @@ class FakeReferenceCounter:
         *,
         excluding_shard_id,
         excluding_batch_id,
+        gate="production",
     ):
         self.calls.append(
             (
@@ -711,6 +714,7 @@ class FakeReferenceCounter:
                 raw_relative_path,
                 excluding_shard_id,
                 excluding_batch_id,
+                gate,
             )
         )
         return self.value
@@ -894,7 +898,7 @@ def test_resume_reuses_frozen_batches_without_replanning(isolated_config):
         AssertionError("resume must not inspect free space")
     )
 
-    services.resume("ABO", "ABO-00000")
+    services.resume("production", "ABO", "ABO-00000")
 
     assert [item.batch_id for item in runner.resumes] == ["batch000"]
     assert audits == runner.resumes
@@ -933,11 +937,116 @@ def test_resume_accepts_frozen_gate_subset_without_expanding_scope(
         "smoke", "ABO", "ABO-00000", count=2, freeze=True
     )
 
-    services.resume("ABO", "ABO-00000")
+    services.resume("smoke", "ABO", "ABO-00000")
 
     assert [context.instances.read_text().splitlines() for context in runner.resumes] == [
         list(shas[:2])
     ]
+
+
+def test_gate_scopes_isolate_qualification_from_full_production_shard(
+    isolated_config,
+):
+    gib = 1024**3
+    shas = tuple(f"{index:064x}" for index in range(5))
+    registry = FakeRegistry(
+        pd.DataFrame(
+            {
+                "sha256": shas,
+                "owner_source": ["ABO"] * len(shas),
+                "shard_id": ["ABO-00000"] * len(shas),
+            }
+        ),
+        isolated_config.paths.data2_root / "control/assets.parquet",
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        registry_store=registry,
+        pilot_reader=FakePilotReader(100),
+        disk_usage=lambda path: SimpleNamespace(
+            total=1000 * gib, free=1000 * gib
+        ),
+    )
+
+    services.plan("smoke", "ABO", "ABO-00000", count=2, freeze=True)
+    services.plan("production", "ABO", "ABO-00000", freeze=True)
+
+    smoke = (
+        isolated_config.paths.data2_root
+        / "control/qualification/smoke/shards/ABO/ABO-00000"
+    )
+    production = (
+        isolated_config.paths.data2_root / "control/shards/ABO/ABO-00000"
+    )
+    assert (smoke / "batch000.txt").read_text().splitlines() == list(shas[:2])
+    assert (production / "batch000.txt").read_text().splitlines() == list(shas)
+    assert json.loads((smoke / "batches.json").read_text())["gate"] == "smoke"
+    assert json.loads((production / "batches.json").read_text())["gate"] == "production"
+
+
+def test_production_never_accepts_a_restricted_count(isolated_config):
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+    )
+
+    with pytest.raises(ValueError, match="full canonical shard"):
+        services.run("production", "ABO", "ABO-00000", count=1)
+
+
+def test_resume_gate_never_falls_back_to_another_frozen_scope(isolated_config):
+    gib = 1024**3
+    shas = ("a" * 64, "b" * 64)
+    registry = FakeRegistry(
+        pd.DataFrame(
+            {
+                "sha256": shas,
+                "owner_source": ["ABO"] * 2,
+                "shard_id": ["ABO-00000"] * 2,
+            }
+        ),
+        isolated_config.paths.data2_root / "control/assets.parquet",
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        registry_store=registry,
+        pilot_reader=FakePilotReader(100),
+        disk_usage=lambda path: SimpleNamespace(
+            total=1000 * gib, free=1000 * gib
+        ),
+    )
+    services.plan("smoke", "ABO", "ABO-00000", count=1, freeze=True)
+
+    with pytest.raises(InfrastructureError, match="production"):
+        services.resume("production", "ABO", "ABO-00000")
+
+
+def test_gate_identity_isolates_runtime_and_publication_paths(isolated_config):
+    smoke = ShardContext.from_config(
+        isolated_config,
+        "ABO",
+        "ABO-00000",
+        "batch000",
+        gate="smoke",
+    )
+    production = ShardContext.from_config(
+        isolated_config,
+        "ABO",
+        "ABO-00000",
+        "batch000",
+        gate="production",
+    )
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+
+    assert smoke.instances != production.instances
+    assert smoke.work_root != production.work_root
+    assert services._checkpoint_path(smoke) != services._checkpoint_path(production)
+    assert services._quality_ledger_path(smoke) != services._quality_ledger_path(production)
+    assert services._raw_archive_paths(smoke) != services._raw_archive_paths(production)
 
 
 def test_corrupt_frozen_batch_manifest_fails_closed(isolated_config):
@@ -970,7 +1079,7 @@ def test_corrupt_frozen_batch_manifest_fails_closed(isolated_config):
     batch.write_text("b" * 64 + "\n")
 
     with pytest.raises(InfrastructureError, match="frozen batch"):
-        services.resume("ABO", "ABO-00000")
+        services.resume("production", "ABO", "ABO-00000")
 
 
 def write_raw_metadata(context, records):
@@ -2141,7 +2250,7 @@ def test_resume_reconciles_accounting_at_batch_and_shard_boundaries(
     )
     services.plan("production", "ABO", "ABO-00000", freeze=True)
 
-    services.resume("ABO", "ABO-00000")
+    services.resume("production", "ABO", "ABO-00000")
 
     assert accounting.reconciliations == 2
 
@@ -2261,7 +2370,9 @@ def test_accounting_reconciliation_failure_checkpoints_and_reports(
         ),
         isolated_config.paths.data2_root / "control/assets.parquet",
     )
-    accounting = FakeAccounting(failure=RuntimeError("registry stale"))
+    accounting = FakeAccounting(
+        failure=ResourceAccountingError("registry stale")
+    )
     services = PipelineServices(
         isolated_config,
         resource_guard=FakeResourceGuard(),
@@ -2278,7 +2389,7 @@ def test_accounting_reconciliation_failure_checkpoints_and_reports(
     services.plan("production", "ABO", "ABO-00000", freeze=True)
 
     with pytest.raises(PipelineStopped) as caught:
-        services.resume("ABO", "ABO-00000")
+        services.resume("production", "ABO", "ABO-00000")
 
     assert caught.value.report.category == EscalationCategory.INFRASTRUCTURE
     assert "registry stale" in caught.value.report.reason
@@ -2573,7 +2684,7 @@ def test_accounting_delta_failure_reconciles_before_stopping(
             self.reconciliations = 0
 
         def record_registry_delta(self, path, delta):
-            raise RuntimeError("delta write failed")
+            raise ResourceAccountingError("delta write failed")
 
         def reconcile_at_shard_boundary(self):
             self.reconciliations += 1
@@ -2592,6 +2703,32 @@ def test_accounting_delta_failure_reconciles_before_stopping(
         )
 
     assert accounting.reconciliations == 1
+
+
+def test_accounting_boundaries_do_not_hide_programmer_defects(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "accounting-defect", "ABO", "ABO-00000"
+    )
+
+    class DefectiveAccounting:
+        def record_registry_delta(self, path, delta):
+            raise AssertionError("delta programmer defect")
+
+        def reconcile_at_shard_boundary(self):
+            raise AssertionError("reconcile programmer defect")
+
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        project_accounting=DefectiveAccounting(),
+    )
+
+    with pytest.raises(AssertionError, match="delta programmer defect"):
+        services._record_delta(tmp_path / "pack.tar", 1)
+    with pytest.raises(AssertionError, match="reconcile programmer defect"):
+        services._reconcile_accounting(context, "batch")
 
 
 def test_published_index_io_failure_propagates(

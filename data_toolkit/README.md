@@ -120,9 +120,12 @@ The machine-produced candidate belongs at:
 /root/data2/pixal3d/control/report_inputs/hardware.json
 ```
 
-It must include the active config hash, exact typed GPU/storage audits, and a
-positive conservative p95 local-byte sizing value for every source. Publish it
-only through the validator:
+It must include the active config hash, exact typed CUDA/torch/Blender/OptiX
+evidence, seven isolated GPU cube-render checks, the three 10 GiB storage
+measurements, and per-asset local-byte samples for every training source. The
+report command derives p95 sizing, throughput, free-space floors, and the pass
+decision; the candidate cannot supply those fields. Publish it only through the
+validator:
 
 ```bash
 $CLI report --config "$CONFIG" --hardware-check
@@ -161,8 +164,10 @@ checksummed frozen batch manifest and never replan from current free space.
 $CLI run --config "$CONFIG" --gate smoke \
   --source ABO --shard ABO-00000 --count 20
 $CLI resume --config "$CONFIG" \
+  --gate smoke \
   --source ABO --shard ABO-00000
 $CLI audit --config "$CONFIG" \
+  --gate smoke \
   --source ABO --shard ABO-00000
 ```
 
@@ -195,8 +200,13 @@ $CLI run --config "$CONFIG" --gate smoke \
 
 Repeat for ObjaverseXL GitHub, ABO, HSSD, and 3D-FUTURE. Audit every frozen
 scope. Require zero infrastructure, adapter, checkpoint, OptiX, checksum, and
-schema failures. Assemble the machine-readable candidate at
-`control/report_inputs/smoke.json`, then publish both JSON and Markdown:
+schema failures. Write held per-asset measurements and FP16 results under
+`control/report_evidence/smoke/`, plus scope-bound telemetry in
+`telemetry.jsonl`. Record those three artifact SHA-256 values in the fresh,
+config-bound manifest at `control/report_inputs/smoke.json`; the manifest must
+not contain aggregate pass fields. The report command reopens the frozen
+scopes, registry, packs, archives, hardware report, telemetry, and measurements
+and derives both JSON and Markdown:
 
 ```bash
 $CLI report --config "$CONFIG" --gate smoke
@@ -219,7 +229,8 @@ resolution, exact coordinates, zero non-finite values, absolute-error p99 at
 most `0.01`, and decode degradation at most `0.1%`. Otherwise retain FP32 and
 recalculate capacity.
 
-Publish the validated candidate only after all pilot audits complete:
+Publish the same checksum-bound evidence set under
+`control/report_evidence/pilot/` only after all pilot audits complete:
 
 ```bash
 $CLI report --config "$CONFIG" --gate pilot
@@ -243,9 +254,11 @@ $CLI run --config "$CONFIG" --gate production \
   --source ObjaverseXL_sketchfab \
   --shard ObjaverseXL_sketchfab-00000
 $CLI resume --config "$CONFIG" \
+  --gate production \
   --source ObjaverseXL_sketchfab \
   --shard ObjaverseXL_sketchfab-00000
 $CLI audit --config "$CONFIG" \
+  --gate production \
   --source ObjaverseXL_sketchfab \
   --shard ObjaverseXL_sketchfab-00000
 ```
@@ -315,9 +328,11 @@ Run `audit` before manual extraction or cleanup. Cleanup order is fixed:
 5. Remove local output, work, and staged-source scratch.
 
 ObjaverseXL GitHub repository ZIPs are shared. Never delete one manually: the
-validated reference counter preserves it until the final frozen referencing
-batch has a verified raw archive. A missing/corrupt frozen manifest, canonical
-raw metadata file, logical index, pack, or archive blocks deletion.
+validated complete-source reference index preserves it until every canonical
+reference, including future unfrozen shards, has a verified raw archive. A
+missing/corrupt checksum-bound training registry, source-input digest, reference
+index, frozen manifest, pack, or archive blocks deletion. Qualification gates
+never delete production raw data.
 
 Do not use broad `rm -rf` against `raw`, `prepared`, `archive`, `control`, or
 `preprocess/active`. After a successful audit, stale training extraction staging
@@ -364,6 +379,9 @@ done
 Stage 1 is `common + SS-64`; Stage 2 is `common + shape` at all three
 resolutions; Stage 3 is `common + shape + PBR` at all three resolutions. Load at
 least one sample per resolution and anchor before promoting a materialized
-directory. The final immutable handoff records config hash, registry checksum,
-pack checksums, counts, splits, resolutions, anchors, and these path mappings.
-Stop all preprocessing processes before fine-tuning reads `train/active`.
+directory. The final immutable handoff at
+`/root/data2/pixal3d/control/splits/training_handoff.json` records config hash,
+training/evaluation registry checksums, frozen scopes, pack/archive checksums,
+train/validation/evaluation identities, resolutions, anchors, and these path
+mappings. Stop all preprocessing processes before fine-tuning reads
+`train/active`.

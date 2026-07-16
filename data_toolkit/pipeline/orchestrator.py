@@ -40,7 +40,11 @@ from .packing import (
     verify_pack,
 )
 from .registry import RegistryStore
-from .resources import ResourceAction, ResourceLimitExceeded
+from .resources import (
+    ResourceAccountingError,
+    ResourceAction,
+    ResourceLimitExceeded,
+)
 from .validation import (
     ValidationError,
     validate_render_dir,
@@ -50,8 +54,8 @@ from .validation import (
 )
 
 
-CHECKPOINT_SCHEMA_VERSION = 2
-QUALITY_LEDGER_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 3
+QUALITY_LEDGER_SCHEMA_VERSION = 2
 MAX_COMMAND_ATTEMPTS = 3
 QUALITY_WINDOW_SIZE = 500
 QUALITY_OUTCOMES = {"completed", "failure", "schema_failure"}
@@ -325,6 +329,7 @@ class PipelineCheckpoint:
     active_attempt: dict[str, object] | None = None
     quality_outcomes: dict[str, str] = field(default_factory=dict)
     schema_version: int = CHECKPOINT_SCHEMA_VERSION
+    gate: str = "production"
 
     def complete(self, command: str) -> None:
         if command not in self.completed_commands:
@@ -344,6 +349,7 @@ class EscalationReport:
     recovery_choices: tuple[str, ...]
     created_at: str
     persistence_errors: tuple[str, ...]
+    gate: str = "production"
 
 
 class PipelineStopped(RuntimeError):
@@ -366,6 +372,7 @@ class RawReferenceCounter(Protocol):
         *,
         excluding_shard_id: str,
         excluding_batch_id: str,
+        gate: str = "production",
     ) -> int:
         """Return unarchived references excluding the just-archived batch."""
 
@@ -393,6 +400,7 @@ class _MissingReferenceCounter:
         *,
         excluding_shard_id: str,
         excluding_batch_id: str,
+        gate: str = "production",
     ) -> int:
         raise IntegrationProviderRequired(
             "raw reference counter is required before data2 deletion"
@@ -602,6 +610,7 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
         "attempts",
         "active_attempt",
         "quality_outcomes",
+        "gate",
     }:
         raise CheckpointError(f"invalid checkpoint schema: {path}")
     if value["schema_version"] != CHECKPOINT_SCHEMA_VERSION:
@@ -611,8 +620,11 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
     attempts = value["attempts"]
     active_attempt = value["active_attempt"]
     quality_outcomes = value["quality_outcomes"]
+    gate = value["gate"]
     if not isinstance(shard_id, str) or not shard_id:
         raise CheckpointError(f"invalid checkpoint shard identity: {path}")
+    if gate not in {"smoke", "pilot", "production"}:
+        raise CheckpointError(f"invalid checkpoint gate identity: {path}")
     if (
         not isinstance(completed, list)
         or not all(isinstance(item, str) and item for item in completed)
@@ -662,6 +674,7 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
         ),
         quality_outcomes=dict(quality_outcomes),
         schema_version=CHECKPOINT_SCHEMA_VERSION,
+        gate=gate,
     )
 
 
@@ -670,6 +683,7 @@ def _empty_quality_ledger(context: ShardContext) -> dict[str, object]:
         "schema_version": QUALITY_LEDGER_SCHEMA_VERSION,
         "source": context.source,
         "shard_id": context.shard_id,
+        "gate": context.gate,
         "batches": {},
         "entries": [],
     }
@@ -687,13 +701,18 @@ def _load_quality_ledger(path: Path, context: ShardContext) -> dict[str, object]
         "schema_version",
         "source",
         "shard_id",
+        "gate",
         "batches",
         "entries",
     }:
         raise CheckpointError(f"invalid quality ledger schema: {path}")
     if value["schema_version"] != QUALITY_LEDGER_SCHEMA_VERSION:
         raise CheckpointError(f"unsupported quality ledger schema: {path}")
-    if value["source"] != context.source or value["shard_id"] != context.shard_id:
+    if (
+        value["source"] != context.source
+        or value["shard_id"] != context.shard_id
+        or value["gate"] != context.gate
+    ):
         raise CheckpointError(f"quality ledger identity mismatch: {path}")
 
     batches = value["batches"]
@@ -935,6 +954,7 @@ class PipelineRunner:
             "schema_version": ledger["schema_version"],
             "source": ledger["source"],
             "shard_id": ledger["shard_id"],
+            "gate": ledger["gate"],
             "batches": {
                 batch_id: dict(batch_value)
                 for batch_id, batch_value in batches.items()
@@ -1000,14 +1020,14 @@ class PipelineRunner:
         try:
             try:
                 checkpoint = self.load_checkpoint(
-                    checkpoint_path, context.shard_id
+                    checkpoint_path, context.shard_id, context.gate
                 )
             except CheckpointError as error:
                 self.stop(
                     context,
                     "checkpoint",
                     str(error),
-                    PipelineCheckpoint(context.shard_id),
+                    PipelineCheckpoint(context.shard_id, gate=context.gate),
                     category=EscalationCategory.INFRASTRUCTURE,
                     exit_code=2,
                     save_checkpoint=False,
@@ -1525,13 +1545,13 @@ class PipelineRunner:
             raise failure
 
     def load_checkpoint(
-        self, path: Path, shard_id: str
+        self, path: Path, shard_id: str, gate: str = "production"
     ) -> PipelineCheckpoint:
         path = Path(path)
         try:
             payload = _read_regular_bytes_nofollow(path, missing_ok=True)
             if payload is None:
-                return PipelineCheckpoint(shard_id)
+                return PipelineCheckpoint(shard_id, gate=gate)
             value = json.loads(payload)
         except OSError as error:
             raise CheckpointError(
@@ -1544,6 +1564,11 @@ class PipelineRunner:
             raise CheckpointError(
                 f"checkpoint shard identity mismatch: "
                 f"expected {shard_id}, found {checkpoint.shard_id}"
+            )
+        if checkpoint.gate != gate:
+            raise CheckpointError(
+                f"checkpoint gate identity mismatch: expected {gate}, "
+                f"found {checkpoint.gate}"
             )
         return checkpoint
 
@@ -1667,12 +1692,14 @@ class PipelineRunner:
             },
             safe_resume_command=(
                 "python -m data_toolkit.pipeline.cli resume "
+                f"--gate {shlex.quote(context.gate)} "
                 f"--source {shlex.quote(context.source)} "
                 f"--shard {shlex.quote(context.shard_id)}"
             ),
             recovery_choices=self._recovery_choices(category),
             created_at=created_at.astimezone(timezone.utc).isoformat(),
             persistence_errors=tuple(persistence_errors),
+            gate=context.gate,
         )
         primary_failed = self.report_writer is None
         if self.report_writer is None:
@@ -2487,30 +2514,26 @@ class PipelineServices:
         return context
 
     def _checkpoint_path(self, context: ShardContext) -> Path:
-        return (
-            self.config.paths.data2_root
-            / "control/checkpoints"
-            / context.source
-            / context.shard_id
-            / f"{context.batch_id}.json"
-        )
+        root = self.config.paths.data2_root / "control"
+        if context.gate == "production":
+            root = root / "checkpoints"
+        else:
+            root = root / "qualification" / context.gate / "checkpoints"
+        return root / context.source / context.shard_id / f"{context.batch_id}.json"
 
     def _quality_ledger_path(self, context: ShardContext) -> Path:
-        return (
-            self.config.paths.data2_root
-            / "control/quality"
-            / context.source
-            / f"{context.shard_id}.json"
-        )
+        root = self.config.paths.data2_root / "control"
+        if context.gate == "production":
+            root = root / "quality"
+        else:
+            root = root / "qualification" / context.gate / "quality"
+        return root / context.source / f"{context.shard_id}.json"
 
     def _write_escalation(self, report: EscalationReport) -> None:
-        path = (
-            self.config.paths.data2_root
-            / "control/reports/escalations"
-            / report.source
-            / report.shard_id
-            / f"{report.command}.json"
-        )
+        root = self.config.paths.data2_root / "control/reports/escalations"
+        if report.gate != "production":
+            root = root / "qualification" / report.gate
+        path = root / report.source / report.shard_id / f"{report.command}.json"
         payload = json.dumps(
             asdict(report), sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
@@ -2572,27 +2595,34 @@ class PipelineServices:
             )
         return shas[:count] if count is not None else shas
 
-    def _batch_root(self, source: str, shard_id: str) -> Path:
-        return (
-            self.config.paths.data2_root
-            / "control/shards"
-            / source
-            / shard_id
-        )
+    def _batch_root(self, gate: str, source: str, shard_id: str) -> Path:
+        if gate not in {"smoke", "pilot", "production"}:
+            raise ValueError(f"unknown gate: {gate}")
+        root = self.config.paths.data2_root / "control"
+        if gate == "production":
+            root = root / "shards"
+        else:
+            root = root / "qualification" / gate / "shards"
+        return root / source / shard_id
 
     @staticmethod
     def _batch_file_payload(batch: tuple[str, ...]) -> str:
         return "".join(f"{item}\n" for item in batch)
 
+    @classmethod
+    def _asset_scope_sha256(cls, assets: tuple[str, ...]) -> str:
+        return sha256(cls._batch_file_payload(assets).encode("ascii")).hexdigest()
+
     def _read_frozen_batches(
         self,
+        gate: str,
         source: str,
         shard_id: str,
-        expected_shas: tuple[str, ...],
+        canonical_shas: tuple[str, ...],
         *,
-        allow_subset: bool = False,
+        expected_scope: tuple[str, ...] | None = None,
     ) -> tuple[tuple[str, ...], ...] | None:
-        root = self._batch_root(source, shard_id)
+        root = self._batch_root(gate, source, shard_id)
         try:
             root_fd = _open_directory_nofollow(root)
         except FileNotFoundError:
@@ -2621,11 +2651,23 @@ class PipelineServices:
         if (
             not isinstance(marker, dict)
             or set(marker)
-            != {"schema_version", "source", "shard_id", "config_hash", "batches"}
-            or marker["schema_version"] != 1
+            != {
+                "schema_version",
+                "gate",
+                "source",
+                "shard_id",
+                "config_hash",
+                "canonical_shard_sha256",
+                "scope_sha256",
+                "batches",
+            }
+            or marker["schema_version"] != 2
+            or marker["gate"] != gate
             or marker["source"] != source
             or marker["shard_id"] != shard_id
             or marker["config_hash"] != self.config.config_hash()
+            or marker["canonical_shard_sha256"]
+            != self._asset_scope_sha256(canonical_shas)
             or not isinstance(marker["batches"], list)
             or not marker["batches"]
         ):
@@ -2682,19 +2724,25 @@ class PipelineServices:
                 f"frozen batch file set mismatch: {root}"
             )
         flattened = tuple(item for batch in batches for item in batch)
-        if allow_subset:
-            expected_set = set(expected_shas)
+        if marker["scope_sha256"] != self._asset_scope_sha256(flattened):
+            raise InfrastructureError(
+                f"frozen batch scope checksum mismatch: {root}"
+            )
+        if gate == "production":
+            identity_valid = flattened == canonical_shas
+        else:
+            expected_set = set(canonical_shas)
             flattened_set = set(flattened)
             identity_valid = (
                 bool(flattened)
                 and flattened_set.issubset(expected_set)
                 and flattened
                 == tuple(
-                    item for item in expected_shas if item in flattened_set
+                    item for item in canonical_shas if item in flattened_set
                 )
             )
-        else:
-            identity_valid = flattened == expected_shas
+        if expected_scope is not None:
+            identity_valid = identity_valid and flattened == expected_scope
         if not identity_valid:
             raise InfrastructureError(
                 f"frozen batch asset identity mismatch: {root}"
@@ -2703,11 +2751,13 @@ class PipelineServices:
 
     def _freeze_batches(
         self,
+        gate: str,
         source: str,
         shard_id: str,
         batches: tuple[tuple[str, ...], ...],
+        canonical_shas: tuple[str, ...],
     ) -> tuple[tuple[str, ...], ...]:
-        destination = self._batch_root(source, shard_id)
+        destination = self._batch_root(gate, source, shard_id)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         lock_fd = None
@@ -2735,10 +2785,17 @@ class PipelineServices:
                     }
                 )
             marker = {
-                "schema_version": 1,
+                "schema_version": 2,
+                "gate": gate,
                 "source": source,
                 "shard_id": shard_id,
                 "config_hash": self.config.config_hash(),
+                "canonical_shard_sha256": self._asset_scope_sha256(
+                    canonical_shas
+                ),
+                "scope_sha256": self._asset_scope_sha256(
+                    tuple(item for batch in batches for item in batch)
+                ),
                 "batches": entries,
             }
             _atomic_write_bytes_nofollow(
@@ -2774,17 +2831,27 @@ class PipelineServices:
 
     def _planned_batches(
         self,
+        gate: str,
         source: str,
         shard_id: str,
         count: int | None,
         *,
         freeze: bool,
     ) -> tuple[tuple[str, ...], ...]:
-        shas = self._registry_shas(source, shard_id, count)
-        existing = self._read_frozen_batches(source, shard_id, shas)
+        canonical_shas = self._registry_shas(source, shard_id)
+        shas = canonical_shas[:count] if count is not None else canonical_shas
+        if gate == "production" and shas != canonical_shas:
+            raise ValueError("production requires the full canonical shard")
+        existing = self._read_frozen_batches(
+            gate,
+            source,
+            shard_id,
+            canonical_shas,
+            expected_scope=shas,
+        )
         if existing is not None:
             return existing
-        if not freeze and self._batch_root(source, shard_id).exists():
+        if not freeze and self._batch_root(gate, source, shard_id).exists():
             raise InfrastructureError("incomplete frozen batch publication")
         p95 = self.pilot_reader.p95_peak_local_bytes(source)
         if not isinstance(p95, int) or isinstance(p95, bool) or p95 <= 0:
@@ -2807,7 +2874,11 @@ class PipelineServices:
         reserve = max((total * 15 + 99) // 100, 120 * 1024**3)
         usable = max(0, free - reserve)
         batches = plan_work_batches(shas, usable, p95, self.config.shard_size)
-        return self._freeze_batches(source, shard_id, batches) if freeze else batches
+        return (
+            self._freeze_batches(gate, source, shard_id, batches, canonical_shas)
+            if freeze
+            else batches
+        )
 
     def plan(
         self,
@@ -2831,7 +2902,7 @@ class PipelineServices:
         if source is None or shard is None:
             raise ValueError("source and shard must be provided together")
         batches = self._planned_batches(
-            source, shard, count, freeze=freeze
+            gate, source, shard, count, freeze=freeze
         )
         return tuple(
             f"batch{index:03d}: {len(batch)} assets"
@@ -3481,10 +3552,20 @@ class PipelineServices:
             return
         try:
             self.project_accounting.record_registry_delta(path, delta)
-        except Exception as error:
+        except (
+            InfrastructureError,
+            IntegrationProviderRequired,
+            OSError,
+            ResourceAccountingError,
+        ) as error:
             try:
                 self.project_accounting.reconcile_at_shard_boundary()
-            except Exception as reconcile_error:
+            except (
+                InfrastructureError,
+                IntegrationProviderRequired,
+                OSError,
+                ResourceAccountingError,
+            ) as reconcile_error:
                 raise InfrastructureError(
                     f"project accounting delta failed for {path}: {error}; "
                     f"reconciliation failed: {reconcile_error}"
@@ -3495,6 +3576,11 @@ class PipelineServices:
 
     def _published_paths(self, context: ShardContext) -> tuple[Path, ...]:
         prepared = self.config.paths.data2_root / "prepared"
+        prefix = (
+            Path()
+            if context.gate == "production"
+            else Path("qualification", context.gate)
+        )
         paths = []
         for family in PACK_FAMILIES:
             if family == "common":
@@ -3507,6 +3593,7 @@ class PipelineServices:
                 root = Path("pbr", family.removeprefix("PBR-"))
             pack = (
                 prepared
+                / prefix
                 / root
                 / context.source
                 / context.shard_id
@@ -3515,6 +3602,7 @@ class PipelineServices:
             paths.extend((pack, pack.with_suffix(".tar.manifest.json")))
         paths.append(
             prepared
+            / prefix
             / "index"
             / context.source
             / f"{context.shard_id}.json"
@@ -3555,6 +3643,7 @@ class PipelineServices:
             asset_sha256s=shas,
             completed_count=len(completed),
             quarantined_count=quarantined,
+            gate=context.gate,
         )
         if (
             len(manifests) != len(PACK_FAMILIES)
@@ -3570,8 +3659,17 @@ class PipelineServices:
         expected_members = self._pack_members_for_assets(context, completed)
         tool_commit = self._resolved_tool_commit()
         prepared = self.config.paths.data2_root / "prepared"
+        prefix = (
+            Path()
+            if context.gate == "production"
+            else Path("qualification", context.gate)
+        )
         index_path = (
-            prepared / "index" / context.source / f"{context.shard_id}.json"
+            prepared
+            / prefix
+            / "index"
+            / context.source
+            / f"{context.shard_id}.json"
         )
         try:
             index = json.loads(_read_regular_bytes_nofollow(index_path))
@@ -3589,6 +3687,7 @@ class PipelineServices:
         if (
             index.get("source") != context.source
             or index.get("shard_id") != context.shard_id
+            or index.get("gate") != context.gate
             or set(entries) != set(PACK_FAMILIES)
         ):
             raise ValidationError(f"invalid published shard index: {index_path}")
@@ -3607,7 +3706,8 @@ class PipelineServices:
                 else:
                     raise ValidationError(f"unknown pack family: {family}")
                 expected_pack = (
-                    family_root
+                    prefix
+                    / family_root
                     / context.source
                     / context.shard_id
                     / f"{context.batch_id}.tar"
@@ -3641,6 +3741,7 @@ class PipelineServices:
                     ) from error
                 if (
                     manifest["shard_id"] != context.shard_id
+                    or manifest["gate"] != context.gate
                     or manifest["batch_id"] != context.batch_id
                     or manifest["family"] != family
                     or manifest["config_hash"] != self.config.config_hash()
@@ -3669,13 +3770,12 @@ class PipelineServices:
                 ) from error
 
     def _raw_archive_paths(self, context: ShardContext) -> tuple[Path, Path]:
-        archive = (
-            self.config.paths.data3_root
-            / "archive/raw"
-            / context.source
-            / context.shard_id
-            / f"{context.batch_id}.tar"
-        )
+        root = self.config.paths.data3_root / "archive"
+        if context.gate == "production":
+            root = root / "raw"
+        else:
+            root = root / "qualification" / context.gate / "raw"
+        archive = root / context.source / context.shard_id / f"{context.batch_id}.tar"
         return archive, archive.with_suffix(".tar.manifest.json")
 
     def _verify_raw_archive(self, context: ShardContext) -> None:
@@ -3718,6 +3818,7 @@ class PipelineServices:
             ) from error
         if (
             manifest.get("shard_id") != context.shard_id
+            or manifest.get("gate") != context.gate
             or manifest.get("batch_id") != context.batch_id
             or manifest.get("family") != "raw"
             or manifest.get("config_hash") != self.config.config_hash()
@@ -3760,6 +3861,7 @@ class PipelineServices:
             asset_sha256s=shas,
             completed_count=len(completed),
             quarantined_count=quarantined,
+            gate=context.gate,
         )
         local_manifest = local_archive.with_suffix(".tar.manifest.json")
         verify_pack(local_archive, local_manifest)
@@ -3827,6 +3929,7 @@ class PipelineServices:
                 relative_value,
                 excluding_shard_id=context.shard_id,
                 excluding_batch_id=context.batch_id,
+                gate=context.gate,
             )
             if (
                 not isinstance(pending, int)
@@ -4026,7 +4129,12 @@ class PipelineServices:
     ) -> None:
         try:
             self.project_accounting.reconcile_at_shard_boundary()
-        except Exception as error:
+        except (
+            InfrastructureError,
+            IntegrationProviderRequired,
+            OSError,
+            ResourceAccountingError,
+        ) as error:
             infrastructure = InfrastructureError(
                 f"project accounting reconciliation failed at {boundary}: {error}"
             )
@@ -4036,10 +4144,14 @@ class PipelineServices:
             ):
                 try:
                     checkpoint = self.runner.load_checkpoint(
-                        self._checkpoint_path(context), context.shard_id
+                        self._checkpoint_path(context),
+                        context.shard_id,
+                        context.gate,
                     )
-                except Exception:
-                    checkpoint = PipelineCheckpoint(context.shard_id)
+                except (CheckpointError, InfrastructureError, OSError):
+                    checkpoint = PipelineCheckpoint(
+                        context.shard_id, gate=context.gate
+                    )
                 self.runner.stop(
                     context,
                     f"accounting_{boundary}",
@@ -4051,15 +4163,15 @@ class PipelineServices:
             raise infrastructure from error
 
     def _frozen_for_execution(
-        self, source: str, shard: str
+        self, gate: str, source: str, shard: str
     ) -> tuple[tuple[str, ...], ...]:
         shas = self._registry_shas(source, shard)
         batches = self._read_frozen_batches(
-            source, shard, shas, allow_subset=True
+            gate, source, shard, shas
         )
         if batches is None:
             raise InfrastructureError(
-                f"no frozen batch manifest for resume: {source}/{shard}"
+                f"no frozen {gate} batch manifest for resume: {source}/{shard}"
             )
         return batches
 
@@ -4068,14 +4180,14 @@ class PipelineServices:
         source: str,
         shard: str,
         batches: tuple[tuple[str, ...], ...],
+        *,
+        gate: str = "production",
     ) -> None:
         if self.published_batch_verifier == self._verify_published_batch:
-            index_path = (
-                self.config.paths.data2_root
-                / "prepared/index"
-                / source
-                / f"{shard}.json"
-            )
+            prepared = self.config.paths.data2_root / "prepared"
+            if gate != "production":
+                prepared = prepared / "qualification" / gate
+            index_path = prepared / "index" / source / f"{shard}.json"
             try:
                 index = json.loads(
                     _read_regular_bytes_nofollow(index_path)
@@ -4109,7 +4221,11 @@ class PipelineServices:
                 )
         for index in range(len(batches)):
             context = ShardContext.from_config(
-                self.config, source, shard, f"batch{index:03d}"
+                self.config,
+                source,
+                shard,
+                f"batch{index:03d}",
+                gate=gate,
             )
             self.published_batch_verifier(context)
 
@@ -4129,50 +4245,75 @@ class PipelineServices:
     ) -> None:
         if source is None or shard is None:
             raise ValueError("run requires source and shard")
-        shas = self._registry_shas(source, shard, count)
+        if gate not in {"smoke", "pilot", "production"}:
+            raise ValueError(f"unknown gate: {gate}")
+        if gate == "production" and count is not None:
+            raise ValueError("production requires the full canonical shard")
+        canonical_shas = self._registry_shas(source, shard)
+        shas = canonical_shas[:count] if count is not None else canonical_shas
         batches = self._read_frozen_batches(
-            source, shard, shas, allow_subset=True
+            gate,
+            source,
+            shard,
+            canonical_shas,
+            expected_scope=shas,
         )
         if batches is None:
             batches = self._planned_batches(
-                source, shard, count, freeze=True
+                gate, source, shard, count, freeze=True
             )
         for index in range(len(batches)):
             context = ShardContext.from_config(
-                self.config, source, shard, f"batch{index:03d}"
+                self.config,
+                source,
+                shard,
+                f"batch{index:03d}",
+                gate=gate,
             )
             self.runner.run_shard(context)
             self.batch_auditor(context)
             self._reconcile_accounting(context, "batch")
-        self._verify_logical_index(source, shard, batches)
+        self._verify_logical_index(source, shard, batches, gate=gate)
         self._reconcile_accounting(context, "shard")
 
-    def resume(self, source: str | None, shard: str | None) -> None:
+    def resume(
+        self, gate: str, source: str | None, shard: str | None
+    ) -> None:
         if source is None or shard is None:
             raise ValueError("resume requires source and shard")
-        batches = self._frozen_for_execution(source, shard)
+        batches = self._frozen_for_execution(gate, source, shard)
         for index in range(len(batches)):
             context = ShardContext.from_config(
-                self.config, source, shard, f"batch{index:03d}"
+                self.config,
+                source,
+                shard,
+                f"batch{index:03d}",
+                gate=gate,
             )
             self.runner.resume_shard(context)
             self.batch_auditor(context)
             self._reconcile_accounting(context, "batch")
-        self._verify_logical_index(source, shard, batches)
+        self._verify_logical_index(source, shard, batches, gate=gate)
         self._reconcile_accounting(context, "shard")
 
-    def audit(self, source: str | None, shard: str | None) -> None:
+    def audit(
+        self, gate: str, source: str | None, shard: str | None
+    ) -> None:
         if source is None or shard is None:
             raise ValueError("audit requires source and shard")
-        batches = self._frozen_for_execution(source, shard)
+        batches = self._frozen_for_execution(gate, source, shard)
         for index in range(len(batches)):
             self.batch_auditor(
                 context := ShardContext.from_config(
-                    self.config, source, shard, f"batch{index:03d}"
+                    self.config,
+                    source,
+                    shard,
+                    f"batch{index:03d}",
+                    gate=gate,
                 )
             )
             self._reconcile_accounting(context, "batch")
-        self._verify_logical_index(source, shard, batches)
+        self._verify_logical_index(source, shard, batches, gate=gate)
         self._reconcile_accounting(context, "shard")
 
     def report(self, gate: str | None, hardware_check: bool = False):

@@ -262,7 +262,7 @@ def split_overlap(registry: pd.DataFrame) -> dict:
     for asset_sha in frame["sha256"]:
         _sha256(asset_sha, "registry SHA-256")
     if not frame["split"].map(
-        lambda value: value in {"train", "validation"}
+        lambda value: value in {"train", "validation", "evaluation"}
     ).all():
         raise ReportValidationError("invalid registry split")
     overlap = int(
@@ -286,6 +286,264 @@ def capacity_projection(
         "p95_final_bytes": p95,
         "headroom": multiplier,
         "projected_bytes": math.ceil(p95 * assets * multiplier),
+    }
+
+
+def gate_measurement_summary(
+    measurements: pd.DataFrame,
+    *,
+    total_assets: int,
+    local_limit_bytes: int,
+    data2_limit_bytes: int,
+    data3_limit_bytes: int,
+    headroom: float = 1.25,
+) -> dict:
+    columns = {
+        "sha256",
+        "source",
+        "shard_id",
+        "outcome",
+        "failure_category",
+        "elapsed_seconds",
+        "peak_local_bytes",
+        "final_local_bytes",
+        "final_data2_bytes",
+        "final_data3_bytes",
+    }
+    frame = _frame(measurements, columns, "gate measurements")
+    if set(frame.columns) != columns:
+        raise ReportValidationError("invalid gate measurement schema")
+    if frame["sha256"].duplicated().any():
+        raise ReportValidationError("duplicate gate measurement SHA-256")
+    for asset in frame["sha256"]:
+        _sha256(asset, "gate measurement SHA-256")
+    for column in ("source", "shard_id", "failure_category"):
+        if not frame[column].map(lambda value: isinstance(value, str) and bool(value)).all():
+            raise ReportValidationError(f"invalid gate measurement {column}")
+    if not frame["outcome"].map(
+        lambda value: value in {"completed", "failure", "schema_failure"}
+    ).all():
+        raise ReportValidationError("invalid gate measurement outcome")
+
+    elapsed = _numeric_series(frame, "elapsed_seconds", "gate elapsed seconds", positive=True)
+    byte_columns = (
+        "peak_local_bytes",
+        "final_local_bytes",
+        "final_data2_bytes",
+        "final_data3_bytes",
+    )
+    numeric = {
+        column: _numeric_series(frame, column, f"gate {column}")
+        for column in byte_columns
+    }
+    if any(not (values >= 0).all() for values in numeric.values()):
+        raise ReportValidationError("gate byte measurements must be non-negative")
+    assets = _count(total_assets, "total training assets", positive=True)
+    multiplier = _finite_number(headroom, "capacity headroom", positive=True)
+    if multiplier < 1:
+        raise ReportValidationError("capacity headroom must be at least one")
+    limits = {
+        "local": _count(local_limit_bytes, "local capacity limit", positive=True),
+        "data2": _count(data2_limit_bytes, "data2 capacity limit", positive=True),
+        "data3": _count(data3_limit_bytes, "data3 capacity limit", positive=True),
+    }
+
+    rates = 3600.0 / elapsed
+    throughput = {
+        f"p{quantile}_assets_per_hour": float(rates.quantile(value))
+        for quantile, value in ((50, 0.50), (95, 0.95), (99, 0.99))
+    }
+    byte_values = {
+        column: {
+            f"p{quantile}_bytes": float(values.quantile(value))
+            for quantile, value in ((50, 0.50), (95, 0.95), (99, 0.99))
+        }
+        for column, values in numeric.items()
+    }
+    projection_columns = {
+        "local": "peak_local_bytes",
+        "data2": "final_data2_bytes",
+        "data3": "final_data3_bytes",
+    }
+    projections = {}
+    for name, column in projection_columns.items():
+        p95 = byte_values[column]["p95_bytes"]
+        projected = math.ceil(p95 * assets * multiplier)
+        projections[name] = {
+            "p95_bytes": p95,
+            "headroom": multiplier,
+            "projected_bytes": projected,
+            "limit_bytes": limits[name],
+            "within_limit": projected <= limits[name],
+        }
+
+    source_quality = {}
+    source_capacity = {}
+    for source, group in frame.groupby("source", sort=True):
+        count = len(group)
+        failures = int((group["outcome"] != "completed").sum())
+        schema_failures = int((group["outcome"] == "schema_failure").sum())
+        failure_rate = failures / count
+        schema_rate = schema_failures / count
+        source_quality[str(source)] = {
+            "assets": count,
+            "failures": failures,
+            "schema_failures": schema_failures,
+            "failure_rate": failure_rate,
+            "schema_failure_rate": schema_rate,
+            "passed": failure_rate <= FAILURE_RATE_LIMIT and schema_rate <= SCHEMA_FAILURE_RATE_LIMIT,
+        }
+        source_values = pd.to_numeric(group["peak_local_bytes"], errors="raise").astype(float)
+        source_capacity[str(source)] = {
+            "samples": count,
+            "p95_peak_local_bytes": math.ceil(float(source_values.quantile(0.95))),
+        }
+
+    failures = int((frame["outcome"] != "completed").sum())
+    schema_failures = int((frame["outcome"] == "schema_failure").sum())
+    quality = {
+        "assets": len(frame),
+        "failures": failures,
+        "schema_failures": schema_failures,
+        "failure_rate": failures / len(frame),
+        "schema_failure_rate": schema_failures / len(frame),
+        "sources": source_quality,
+    }
+    categories = (
+        frame.assign(
+            failure_category=frame["failure_category"].replace("", "none")
+        )["failure_category"]
+        .value_counts(sort=False)
+        .sort_index()
+    )
+    return {
+        "source_counts": {
+            str(source): int(count)
+            for source, count in frame["source"].value_counts(sort=False).sort_index().items()
+        },
+        "failure_categories": {
+            str(category): int(count) for category, count in categories.items()
+        },
+        "throughput_quantiles": throughput,
+        "byte_quantiles": byte_values,
+        "capacity": {
+            "assets": assets,
+            "projections": projections,
+            "sources": source_capacity,
+        },
+        "eta_hours": assets / throughput["p50_assets_per_hour"],
+        "quality": quality,
+    }
+
+
+def fp16_family_summary(measurements: pd.DataFrame) -> dict[str, dict]:
+    columns = {
+        "sha256",
+        "family",
+        "resolution",
+        "fp16_abs_error",
+        "coordinates_match",
+        "fp16_finite",
+        "decode_degradation_percent",
+    }
+    frame = _frame(measurements, columns, "FP16 family measurements")
+    if set(frame.columns) != columns:
+        raise ReportValidationError("invalid FP16 family measurement schema")
+    for asset in frame["sha256"]:
+        _sha256(asset, "FP16 asset SHA-256")
+    expected = tuple(
+        (family, resolution)
+        for family in ("shape", "PBR")
+        for resolution in (256, 512, 1024)
+    )
+    actual = set(zip(frame["family"], frame["resolution"]))
+    if actual != set(expected):
+        raise ReportValidationError("FP16 group set is incomplete")
+    result = {}
+    for family, resolution in expected:
+        group = frame.loc[
+            (frame["family"] == family) & (frame["resolution"] == resolution)
+        ]
+        if len(group) < 32 or group["sha256"].duplicated().any():
+            raise ReportValidationError(
+                f"FP16 group {family}-{resolution} requires 32 unique assets"
+            )
+        result[f"{family}-{resolution}"] = fp16_parity(group, 0.01, 0.1)
+    return result
+
+
+def build_training_handoff(
+    *,
+    config_hash: str,
+    registry_checksum: str,
+    evaluation_registry_checksum: str,
+    frozen_scopes: Sequence[Mapping],
+    packs: Sequence[Mapping],
+    archives: Sequence[Mapping],
+    train_ids: Sequence[str],
+    validation_ids: Sequence[str],
+    evaluation_ids: Sequence[str],
+    created_at: str,
+) -> dict:
+    for value, name in (
+        (config_hash, "config hash"),
+        (registry_checksum, "registry checksum"),
+        (evaluation_registry_checksum, "evaluation registry checksum"),
+    ):
+        _sha256(value, name)
+    identities = {
+        "train": list(train_ids),
+        "validation": list(validation_ids),
+        "evaluation": list(evaluation_ids),
+    }
+    sets = []
+    for split, values in identities.items():
+        if len(values) != len(set(values)):
+            raise ReportValidationError(f"duplicate {split} identity")
+        for asset in values:
+            _sha256(asset, f"{split} identity")
+        sets.append(set(values))
+    if any(sets[first] & sets[second] for first in range(3) for second in range(first + 1, 3)):
+        raise ReportValidationError("training handoff split overlap")
+    families = [
+        "common", "SS-64", "shape-256", "shape-512", "shape-1024",
+        "PBR-256", "PBR-512", "PBR-1024",
+    ]
+    family_set = set(families)
+    grouped = {}
+    for pack in packs:
+        if not isinstance(pack, Mapping) or pack.get("family") not in family_set:
+            raise ReportValidationError("invalid training handoff pack")
+        key = (pack.get("source"), pack.get("shard_id"), pack.get("batch_id"))
+        grouped.setdefault(key, set()).add(pack["family"])
+    if not grouped or any(value != family_set for value in grouped.values()):
+        raise ReportValidationError("training handoff pack family coverage is incomplete")
+    if not frozen_scopes or not archives:
+        raise ReportValidationError("training handoff publication inventory is empty")
+    return {
+        "schema_version": 1,
+        "artifact_type": "training_handoff",
+        "config_hash": config_hash,
+        "created_at": created_at,
+        "registry": {
+            "training_sha256": registry_checksum,
+            "evaluation_sha256": evaluation_registry_checksum,
+        },
+        "frozen_scopes": [dict(value) for value in frozen_scopes],
+        "packs": [dict(value) for value in packs],
+        "archives": [dict(value) for value in archives],
+        "identities": identities,
+        "families": families,
+        "resolutions": {"SS": [64], "shape": [256, 512, 1024], "PBR": [256, 512, 1024]},
+        "anchors": ["view00", "view01"],
+        "path_mappings": {
+            "stage1": ["common", "SS-64"],
+            "stage2": ["common", "shape-256", "shape-512", "shape-1024"],
+            "stage3": [
+                "common", "shape-256", "shape-512", "shape-1024",
+                "PBR-256", "PBR-512", "PBR-1024",
+            ],
+        },
     }
 
 
@@ -594,10 +852,16 @@ def build_gate_report(value: Mapping) -> dict:
 
 def _markdown(name: str, payload: Mapping) -> bytes:
     generated = datetime.now(timezone.utc).isoformat()
-    lines = [f"# {name}", "", f"Generated: {generated}", ""]
-    for key in sorted(payload):
-        rendered = json.dumps(payload[key], sort_keys=True, allow_nan=False)
-        lines.append(f"- {key}: `{rendered}`")
+    rendered = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
+    lines = [
+        f"# {name}",
+        "",
+        f"Generated: {generated}",
+        "",
+        "```json",
+        rendered,
+        "```",
+    ]
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 

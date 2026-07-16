@@ -6,8 +6,6 @@ import re
 import sys
 from typing import Sequence
 
-import yaml
-
 from .config import load_config
 from .orchestrator import (
     CheckpointError,
@@ -82,10 +80,11 @@ def parser() -> argparse.ArgumentParser:
         child = children.add_parser(name)
         child.add_argument("--config", type=Path, required=True)
 
-    for name in ("plan", "run"):
+    for name in ("plan", "run", "resume", "audit"):
         children.choices[name].add_argument(
             "--gate", choices=GATES, required=True
         )
+    for name in ("plan", "run"):
         children.choices[name].add_argument(
             "--count", type=_positive_integer
         )
@@ -115,9 +114,12 @@ def _validate_scope(args, config) -> None:
     shard = getattr(args, "shard", None)
     if source is None:
         return
-    configured = (*config.sources, *config.evaluation_sources)
-    if source not in configured:
-        raise ArtifactValidationError(f"source is not configured: {source}")
+    if source not in config.sources:
+        if source in config.evaluation_sources:
+            raise ArtifactValidationError(
+                f"evaluation source cannot be used for training: {source}"
+            )
+        raise ArtifactValidationError(f"training source is not configured: {source}")
     if not re.fullmatch(rf"{re.escape(source)}-[0-9]{{5}}", shard or ""):
         raise ArtifactValidationError(
             f"shard does not belong to source {source}: {shard}"
@@ -180,9 +182,9 @@ def _dispatch(args, config) -> int:
         elif args.command == "run":
             services.run(args.gate, args.source, args.shard, args.count)
         elif args.command == "resume":
-            services.resume(args.source, args.shard)
+            services.resume(args.gate, args.source, args.shard)
         elif args.command == "audit":
-            services.audit(args.source, args.shard)
+            services.audit(args.gate, args.source, args.shard)
         elif args.command == "report":
             result = services.report(args.gate, args.hardware_check)
             for path in result:
@@ -196,7 +198,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         config = load_config(args.config)
-    except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError) as error:
+    except (OSError, ValueError) as error:
         return _operator_error(error)
     try:
         return _dispatch(args, config)
@@ -213,7 +215,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         IntegrationProviderRequired,
         InfrastructureError,
         ResourceAccountingError,
-        CheckpointError,
         ReportValidationError,
     ) as error:
         return _operator_error(error)

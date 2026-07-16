@@ -68,6 +68,7 @@ class PackManifest:
     validated_at: str
     pack_sha256: str
     members: tuple[PackMember, ...]
+    gate: str = "production"
 
 
 class _HashingReader:
@@ -215,6 +216,7 @@ def build_pack(
     asset_sha256s: tuple[str, ...],
     completed_count: int,
     quarantined_count: int,
+    gate: str = "production",
 ) -> PackManifest:
     source_root = Path(source_root).resolve(strict=True)
     output = Path(output)
@@ -288,6 +290,7 @@ def build_pack(
             validated_at="",
             pack_sha256=file_sha(output),
             members=tuple(recorded),
+            gate=gate,
         )
         atomic_write_json(_manifest_path(output), asdict(manifest))
         return manifest
@@ -353,6 +356,7 @@ def _manifest_from_value(value, manifest_path: Path) -> PackManifest:
                 value["pack_sha256"], "pack_sha256"
             ),
             members=tuple(members),
+            gate=_require_string(value["gate"], "gate"),
         )
     except KeyError as error:
         raise ValidationError(
@@ -459,9 +463,14 @@ def _validate_component(value: str, description: str) -> None:
 
 
 def _prepared_pack_relative(
-    family: str, source: str, shard_id: str, batch_id: str
+    family: str,
+    source: str,
+    shard_id: str,
+    batch_id: str,
+    gate: str = "production",
 ) -> Path:
-    return _FAMILY_DIRECTORIES[family] / source / shard_id / f"{batch_id}.tar"
+    prefix = Path() if gate == "production" else Path("qualification", gate)
+    return prefix / _FAMILY_DIRECTORIES[family] / source / shard_id / f"{batch_id}.tar"
 
 
 def _same_publication(first: PackManifest, second: PackManifest) -> bool:
@@ -476,6 +485,7 @@ def _same_publication(first: PackManifest, second: PackManifest) -> bool:
         "quarantined_count",
         "pack_sha256",
         "members",
+        "gate",
     )
     return all(getattr(first, field) == getattr(second, field) for field in fields)
 
@@ -498,11 +508,17 @@ def _load_index(
     source: str,
     shard_id: str,
     replacing_batch: str,
+    gate: str = "production",
 ) -> dict:
     try:
         value = json.loads(index_path.read_text())
     except FileNotFoundError:
-        return {"source": source, "shard_id": shard_id, "batches": {}}
+        return {
+            "gate": gate,
+            "source": source,
+            "shard_id": shard_id,
+            "batches": {},
+        }
     except OSError as error:
         if error.errno not in _VALIDATION_READ_ERRNOS:
             raise
@@ -513,6 +529,7 @@ def _load_index(
         raise ValidationError(f"invalid shard index: {index_path}: {error}") from error
     if (
         not isinstance(value, dict)
+        or value.get("gate") != gate
         or value.get("source") != source
         or value.get("shard_id") != shard_id
         or not isinstance(value.get("batches"), dict)
@@ -531,7 +548,7 @@ def _load_index(
         for family in PACK_FAMILIES:
             entry = entries[family]
             pack_relative = _prepared_pack_relative(
-                family, source, shard_id, batch_id
+                family, source, shard_id, batch_id, gate
             )
             manifest_relative = _manifest_path(pack_relative)
             if (
@@ -551,6 +568,7 @@ def _load_index(
             manifest = _load_manifest(manifest_path)
             if (
                 manifest.shard_id != shard_id
+                or manifest.gate != gate
                 or manifest.batch_id != batch_id
                 or manifest.family != family
                 or entry.get("pack_sha256") != manifest.pack_sha256
@@ -563,9 +581,16 @@ def _load_index(
 
 
 @contextmanager
-def _source_shard_lock(data2_root: Path, source: str, shard_id: str):
+def _source_shard_lock(
+    data2_root: Path, source: str, shard_id: str, gate: str
+):
     lock_directory = (
-        Path(data2_root) / "control" / "locks" / "packing" / source
+        Path(data2_root)
+        / "control"
+        / "locks"
+        / "packing"
+        / gate
+        / source
     )
     lock_directory.mkdir(parents=True, exist_ok=True)
     lock_path = lock_directory / f"{shard_id}.lock"
@@ -586,7 +611,11 @@ def _source_shard_lock(data2_root: Path, source: str, shard_id: str):
 
 def _cleanup_staging(run_directory: Path, batch_directory: Path) -> None:
     shutil.rmtree(run_directory, ignore_errors=True)
-    for path in (batch_directory, batch_directory.parent):
+    for path in (
+        batch_directory,
+        batch_directory.parent,
+        batch_directory.parent.parent,
+    ):
         try:
             path.rmdir()
         except OSError:
@@ -606,6 +635,7 @@ def publish_pack(
     asset_sha256s: tuple[str, ...],
     completed_count: int,
     quarantined_count: int,
+    gate: str = "production",
 ) -> tuple[PackManifest, ...]:
     if set(members_by_family) != set(PACK_FAMILIES):
         expected = ", ".join(PACK_FAMILIES)
@@ -613,16 +643,19 @@ def publish_pack(
     _validate_component(source, "source")
     _validate_component(shard_id, "shard id")
     _validate_component(batch_id, "batch id")
+    if gate not in {"smoke", "pilot", "production"}:
+        raise ValueError(f"invalid gate: {gate}")
 
     data2_root = Path(data2_root)
     source_root = Path(source_root)
     prepared_root = data2_root / "prepared"
-    batch_staging = data2_root / "staging" / shard_id / batch_id
+    batch_staging = data2_root / "staging" / gate / shard_id / batch_id
     batch_staging.mkdir(parents=True, exist_ok=True)
     run_directory = Path(
         tempfile.mkdtemp(prefix=".publish-", dir=batch_staging)
     )
-    index_path = prepared_root / "index" / source / f"{shard_id}.json"
+    prefix = Path() if gate == "production" else Path("qualification", gate)
+    index_path = prepared_root / prefix / "index" / source / f"{shard_id}.json"
 
     try:
         staged = {}
@@ -640,6 +673,7 @@ def publish_pack(
                 asset_sha256s=asset_sha256s,
                 completed_count=completed_count,
                 quarantined_count=quarantined_count,
+                gate=gate,
             )
             manifest_path = _manifest_path(pack_path)
             verify_pack(pack_path, manifest_path)
@@ -648,19 +682,20 @@ def publish_pack(
             verify_pack(pack_path, manifest_path)
             staged[family] = (pack_path, manifest)
 
-        with _source_shard_lock(data2_root, source, shard_id):
+        with _source_shard_lock(data2_root, source, shard_id, gate):
             index = _load_index(
                 index_path,
                 prepared_root,
                 source,
                 shard_id,
                 replacing_batch=batch_id,
+                gate=gate,
             )
 
             reusable = {}
             for family in PACK_FAMILIES:
                 destination = prepared_root / _prepared_pack_relative(
-                    family, source, shard_id, batch_id
+                    family, source, shard_id, batch_id, gate
                 )
                 destination_manifest = _manifest_path(destination)
                 if destination.exists() and destination_manifest.exists():
@@ -684,7 +719,7 @@ def publish_pack(
                     continue
                 staged_pack, _ = staged[family]
                 destination = prepared_root / _prepared_pack_relative(
-                    family, source, shard_id, batch_id
+                    family, source, shard_id, batch_id, gate
                 )
                 _replace_and_sync(staged_pack, destination)
                 _replace_and_sync(
@@ -695,7 +730,7 @@ def publish_pack(
             entries = {}
             for family in PACK_FAMILIES:
                 destination = prepared_root / _prepared_pack_relative(
-                    family, source, shard_id, batch_id
+                    family, source, shard_id, batch_id, gate
                 )
                 destination_manifest = _manifest_path(destination)
                 verify_pack(destination, destination_manifest)
@@ -712,6 +747,7 @@ def publish_pack(
             batches = dict(index["batches"])
             batches[batch_id] = entries
             updated_index = {
+                "gate": gate,
                 "source": source,
                 "shard_id": shard_id,
                 "batches": {

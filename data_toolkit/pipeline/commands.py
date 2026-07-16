@@ -15,11 +15,13 @@ class ShardContext:
     work_root: Path
     output_root: Path
     batch_id: str
+    gate: str = "production"
 
     @classmethod
     def for_test(
-        cls, root: Path, source: str, shard_id: str
+        cls, root: Path, source: str, shard_id: str, *, gate: str = "production"
     ) -> "ShardContext":
+        _validate_gate(gate)
         return cls(
             source,
             shard_id,
@@ -30,6 +32,7 @@ class ShardContext:
             root / "work",
             root / "output",
             "batch000",
+            gate,
         )
 
     @classmethod
@@ -39,6 +42,8 @@ class ShardContext:
         source: str,
         shard_id: str,
         batch_id: str,
+        *,
+        gate: str = "production",
     ) -> "ShardContext":
         for name, value in (
             ("source", source),
@@ -46,29 +51,35 @@ class ShardContext:
             ("batch_id", batch_id),
         ):
             _validate_identifier(name, value)
+        _validate_gate(gate)
 
-        local = (
-            config.paths.local_root
-            / "preprocess"
-            / "active"
-            / shard_id
-            / batch_id
-        )
+        if gate == "production":
+            local = config.paths.local_root / "preprocess" / "active"
+            shard_root = config.paths.data2_root / "control" / "shards"
+        else:
+            local = (
+                config.paths.local_root / "preprocess" / "qualification" / gate
+            )
+            shard_root = (
+                config.paths.data2_root
+                / "control"
+                / "qualification"
+                / gate
+                / "shards"
+            )
+        local = local / shard_id / batch_id
         control = config.paths.data2_root / "control"
         return cls(
             source=source,
             shard_id=shard_id,
-            instances=control
-            / "shards"
-            / source
-            / shard_id
-            / f"{batch_id}.txt",
+            instances=shard_root / source / shard_id / f"{batch_id}.txt",
             metadata_root=control / "metadata" / source,
             source_root=config.paths.data2_root / "raw" / source,
             download_root=local / "source",
             work_root=local / "work",
             output_root=local / "output",
             batch_id=batch_id,
+            gate=gate,
         )
 
 
@@ -102,6 +113,11 @@ def _validate_identifier(name: str, value: str) -> None:
         or "\0" in value
     ):
         raise ValueError(f"unsafe {name}: {value!r}")
+
+
+def _validate_gate(value: str) -> None:
+    if value not in {"smoke", "pilot", "production"}:
+        raise ValueError(f"invalid gate: {value!r}")
 
 
 def python_command(script: str, *args: str) -> tuple[str, ...]:
