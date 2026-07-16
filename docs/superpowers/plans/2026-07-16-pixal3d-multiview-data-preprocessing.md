@@ -6,7 +6,7 @@
 
 **Architecture:** Existing `data_toolkit` scripts remain leaf workers. A focused `data_toolkit.pipeline` package owns configuration, canonical Parquet state, deterministic sampling, resource admission, subprocess orchestration, validation, packing, reporting, and recovery. Production data flows through bounded local scratch and is published as verified uncompressed tar packs on `/root/data2`, with raw archives on `/root/data3`.
 
-**Tech Stack:** Python 3.11 in conda environment `pixal3d`, PyTorch 2.8+, CUDA 12.8+, pandas, PyArrow, Pillow, NumPy, psutil, pytest, Blender 4.5.1 LTS, OptiX, existing Pixal3D and O-Voxel modules.
+**Tech Stack:** Python 3.10 in conda environment `pixal3d`, PyTorch 2.8+, CUDA 12.8+, pandas, PyArrow, Pillow, NumPy, psutil, pytest, Blender 4.5.1 LTS, OptiX, existing Pixal3D and O-Voxel modules.
 
 **Primary References:** `data_toolkit/README.md`, the current `data_toolkit/*.py` leaf workers, [Pixal3D issue #9](https://github.com/TencentARC/Pixal3D/issues/9), and the upstream [TRELLIS dataset adapters](https://github.com/microsoft/TRELLIS/tree/main/dataset_toolkits/datasets).
 
@@ -327,14 +327,14 @@ Expected: FAIL importing `data_toolkit.pipeline.registry`.
 
 ```python
 # data_toolkit/pipeline/registry.py
-from enum import StrEnum
+from enum import Enum
 from hashlib import sha256 as digest
 import json
 import os
 from pathlib import Path
 import pandas as pd
 
-class AssetState(StrEnum):
+class AssetState(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETE = "complete"
@@ -520,12 +520,12 @@ Before tar or ZIP extraction, reject absolute names, `..` components, symlinks, 
 ```python
 # data_toolkit/pipeline/preflight.py
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 import huggingface_hub
 from .config import PipelineConfig
 
-class PreflightStatus(StrEnum):
+class PreflightStatus(str, Enum):
     READY = "ready"
     BLOCKED = "blocked"
     ERROR = "error"
@@ -1209,7 +1209,7 @@ Expected: FAIL importing resources.
 # data_toolkit/pipeline/resources.py
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from enum import StrEnum
+from enum import Enum
 import json
 from pathlib import Path
 import os
@@ -1231,7 +1231,7 @@ class ResourceSnapshot:
     data3_project_tib: float
     data3_fs_free_tib: float
 
-class ResourceAction(StrEnum):
+class ResourceAction(str, Enum):
     RUN = "run"
     PAUSE = "pause"
     STOP = "stop"
