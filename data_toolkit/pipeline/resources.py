@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import threading
+import time
 from typing import Callable
 
 import psutil
@@ -46,17 +48,39 @@ class ResourceSnapshot:
     data3_fs_free_tib: float
     gpu_metrics: tuple[GpuMetric, ...] = ()
     gpu_query_error: str | None = None
+    monotonic_seconds: float | None = None
+
+
+class ResourceAccountingError(RuntimeError):
+    pass
+
+
+class ResourceAccountingConflict(ResourceAccountingError):
+    pass
+
+
+def _raise_walk_error(error: OSError) -> None:
+    raise error
 
 
 def _directory_size(root: Path) -> int:
     total = 0
-    for directory, _, filenames in os.walk(root):
+    for directory, _, filenames in os.walk(root, onerror=_raise_walk_error):
         for filename in filenames:
-            try:
-                total += (Path(directory) / filename).stat().st_size
-            except FileNotFoundError:
-                continue
+            total += (Path(directory) / filename).stat().st_size
     return total
+
+
+def _validated_project_root(root: Path) -> Path:
+    try:
+        resolved = Path(root).resolve(strict=True)
+    except OSError as error:
+        raise ResourceAccountingError(
+            f"project root is not a directory: {root}"
+        ) from error
+    if not resolved.is_dir():
+        raise ResourceAccountingError(f"project root is not a directory: {root}")
+    return resolved
 
 
 class ProjectStorageAccounting:
@@ -67,40 +91,64 @@ class ProjectStorageAccounting:
         data2_root: Path,
         data3_root: Path,
         *,
-        data2_bytes: int = 0,
-        data3_bytes: int = 0,
+        data2_bytes: int | None = None,
+        data3_bytes: int | None = None,
         directory_size: Callable[[Path], int] = _directory_size,
     ):
-        self.data2_root = Path(data2_root)
-        self.data3_root = Path(data3_root)
+        if data2_bytes is None or data3_bytes is None:
+            raise ResourceAccountingError("registry totals must be initialized")
+        if data2_bytes < 0 or data3_bytes < 0:
+            raise ResourceAccountingError("negative project accounting")
+        self.data2_root = _validated_project_root(data2_root)
+        self.data3_root = _validated_project_root(data3_root)
+        if self.data2_root == self.data3_root:
+            raise ResourceAccountingError("project roots must be distinct")
         self._data2_bytes = data2_bytes
         self._data3_bytes = data3_bytes
         self._directory_size = directory_size
+        self._lock = threading.Lock()
+        self._version = 0
 
     def current_bytes(self) -> tuple[int, int]:
-        return self._data2_bytes, self._data3_bytes
+        with self._lock:
+            return self._data2_bytes, self._data3_bytes
 
     def record_registry_delta(self, path: Path, delta_bytes: int) -> None:
         candidate = Path(path).resolve()
         for attribute, root in (
-            ("_data2_bytes", self.data2_root.resolve()),
-            ("_data3_bytes", self.data3_root.resolve()),
+            ("_data2_bytes", self.data2_root),
+            ("_data3_bytes", self.data3_root),
         ):
             if candidate == root or root in candidate.parents:
-                updated = getattr(self, attribute) + delta_bytes
-                if updated < 0:
-                    raise ValueError("negative project accounting")
-                setattr(self, attribute, updated)
+                with self._lock:
+                    updated = getattr(self, attribute) + delta_bytes
+                    if updated < 0:
+                        raise ValueError("negative project accounting")
+                    setattr(self, attribute, updated)
+                    self._version += 1
                 return
         raise ValueError(f"path outside configured project roots: {path}")
 
     def reconcile_at_shard_boundary(self) -> tuple[int, int]:
-        self._data2_bytes = self._directory_size(self.data2_root)
-        self._data3_bytes = self._directory_size(self.data3_root)
-        return self.current_bytes()
+        with self._lock:
+            version = self._version
+        data2_bytes = self._directory_size(self.data2_root)
+        data3_bytes = self._directory_size(self.data3_root)
+        if data2_bytes < 0 or data3_bytes < 0:
+            raise ResourceAccountingError("negative reconciliation result")
+        with self._lock:
+            if self._version != version:
+                raise ResourceAccountingConflict(
+                    "accounting changed during reconciliation"
+                )
+            self._data2_bytes = data2_bytes
+            self._data3_bytes = data3_bytes
+            self._version += 1
+            return self._data2_bytes, self._data3_bytes
 
 
 class ResourceSampler:
+    GPU_QUERY_TIMEOUT_SECONDS = 5.0
     GPU_QUERY = (
         "nvidia-smi",
         "--query-gpu=index,utilization.gpu,memory.used,temperature.gpu,power.draw",
@@ -115,18 +163,24 @@ class ResourceSampler:
         psutil_api=psutil,
         gpu_runner=subprocess.run,
         clock: Callable[[], datetime] = _utc_now,
+        monotonic_clock: Callable[[], float] = time.monotonic,
     ):
         self.config = config
         self.project_accounting = project_accounting
         self.psutil = psutil_api
         self.gpu_runner = gpu_runner
         self.clock = clock
+        self.monotonic_clock = monotonic_clock
         self._previous_swap_in: int | None = None
 
     def _gpu_metrics(self) -> tuple[tuple[GpuMetric, ...], str | None]:
         try:
             completed = self.gpu_runner(
-                list(self.GPU_QUERY), capture_output=True, text=True, check=True
+                list(self.GPU_QUERY),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=self.GPU_QUERY_TIMEOUT_SECONDS,
             )
             metrics = []
             for line in completed.stdout.splitlines():
@@ -167,11 +221,14 @@ class ResourceSampler:
         data3_usage = self.psutil.disk_usage(paths.data3_root)
         data2_bytes, data3_bytes = self.project_accounting.current_bytes()
         gpu_metrics, gpu_error = self._gpu_metrics()
+        timestamp = self.clock()
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("resource timestamp must be timezone-aware")
         local_free_percent = (
             100.0 * local_usage.free / local_usage.total if local_usage.total else 0.0
         )
         return ResourceSnapshot(
-            timestamp=self.clock(),
+            timestamp=timestamp.astimezone(timezone.utc),
             cpu_percent=self.psutil.cpu_percent(interval=None),
             load_1m=self.psutil.getloadavg()[0],
             io_wait_percent=getattr(cpu_times, "iowait", 0.0),
@@ -185,6 +242,7 @@ class ResourceSampler:
             data3_fs_free_tib=data3_usage.free / TIB,
             gpu_metrics=gpu_metrics,
             gpu_query_error=gpu_error,
+            monotonic_seconds=self.monotonic_clock(),
         )
 
 
@@ -208,7 +266,11 @@ class ResourceLimitExceeded(RuntimeError):
 
 def _snapshot_payload(snapshot: ResourceSnapshot) -> dict:
     payload = asdict(snapshot)
-    payload["timestamp"] = snapshot.timestamp.isoformat()
+    timestamp = snapshot.timestamp
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("resource timestamp must be timezone-aware")
+    payload["timestamp"] = timestamp.astimezone(timezone.utc).isoformat()
+    payload.pop("monotonic_seconds", None)
     return payload
 
 
@@ -217,14 +279,21 @@ class TelemetryWriter:
         self,
         path: Path,
         *,
-        clock: Callable[[], datetime] = _utc_now,
-        sync_interval: timedelta = timedelta(seconds=30),
+        clock: Callable[[], float] = time.monotonic,
+        sync_interval: float | timedelta = 30.0,
     ):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._stream = self.path.open("a", encoding="utf-8")
         self._clock = clock
-        self._sync_interval = sync_interval
+        self._sync_interval = (
+            sync_interval.total_seconds()
+            if isinstance(sync_interval, timedelta)
+            else float(sync_interval)
+        )
+        if self._sync_interval <= 0:
+            self._stream.close()
+            raise ValueError("telemetry sync interval must be positive")
         self._last_sync = clock()
         self._closed = False
 
@@ -254,16 +323,37 @@ class TelemetryWriter:
             self._sync()
 
     def close(self) -> None:
-        if not self._closed:
+        if self._closed:
+            return
+        sync_error = None
+        close_error = None
+        try:
             self._sync()
+        except BaseException as error:
+            sync_error = error
+        try:
             self._stream.close()
+        except BaseException as error:
+            close_error = error
+        finally:
             self._closed = True
+        if sync_error is not None:
+            if close_error is not None:
+                raise sync_error from close_error
+            raise sync_error
+        if close_error is not None:
+            raise close_error
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self.close()
+        try:
+            self.close()
+        except BaseException as close_error:
+            if exc_value is None:
+                raise
+            raise exc_value.with_traceback(traceback) from close_error
 
 
 class ResourceGuard:
@@ -272,7 +362,7 @@ class ResourceGuard:
         sample: Callable[[], ResourceSnapshot],
         policy: "ResourcePolicy",
         telemetry_writer: TelemetryWriter,
-        clock: Callable[[], datetime],
+        clock: Callable[[], float],
         sleeper: Callable[[float], None],
     ):
         self.sample = sample
@@ -282,7 +372,7 @@ class ResourceGuard:
         self.sleeper = sleeper
         self._snapshots = deque(maxlen=60)
         self._recovery_required = False
-        self._stable_since: datetime | None = None
+        self._stable_since: float | None = None
 
     def check(self, shard_id: str, command: str) -> ResourceDecision:
         snapshot = self.sample()
@@ -292,7 +382,7 @@ class ResourceGuard:
             if self._recovery_required:
                 if self._stable_since is None:
                     self._stable_since = now
-                if now - self._stable_since < timedelta(minutes=5):
+                if now - self._stable_since < 5 * 60:
                     decision = ResourceDecision(
                         ResourceAction.PAUSE, ("resource recovery period",)
                     )
@@ -322,19 +412,28 @@ class ResourceGuard:
 
 
 class ResourcePolicy:
-    def __init__(self, limits: LimitConfig):
+    def __init__(
+        self,
+        limits: LimitConfig,
+        monotonic_clock: Callable[[], float] = time.monotonic,
+    ):
         self.limits = limits
-        self.first_seen: dict[str, datetime] = {}
+        self.monotonic_clock = monotonic_clock
+        self.first_seen: dict[str, float] = {}
 
-    def duration(self, key: str, active: bool, now: datetime) -> timedelta:
+    def duration(self, key: str, active: bool, now: float) -> float:
         if not active:
             self.first_seen.pop(key, None)
-            return timedelta()
+            return 0.0
         self.first_seen.setdefault(key, now)
         return now - self.first_seen[key]
 
     def evaluate(self, value: ResourceSnapshot) -> ResourceDecision:
-        now = value.timestamp
+        now = (
+            value.monotonic_seconds
+            if value.monotonic_seconds is not None
+            else self.monotonic_clock()
+        )
         hard = []
         soft = []
         if (
@@ -352,19 +451,17 @@ class ResourcePolicy:
             hard.append("RAM hard floor")
         if self.duration(
             "cpu_hard", value.cpu_percent > self.limits.cpu_hard_percent, now
-        ) >= timedelta(minutes=5):
+        ) >= 5 * 60:
             hard.append("CPU hard duration")
         if self.duration(
             "cpu_soft", value.cpu_percent > self.limits.cpu_soft_percent, now
-        ) >= timedelta(minutes=2):
+        ) >= 2 * 60:
             soft.append("CPU soft duration")
-        if self.duration("load", value.load_1m > self.limits.load_soft, now) >= timedelta(
-            minutes=2
-        ):
+        if self.duration("load", value.load_1m > self.limits.load_soft, now) >= 2 * 60:
             soft.append("load soft duration")
         if self.duration(
             "iowait", value.io_wait_percent > self.limits.io_wait_soft_percent, now
-        ) >= timedelta(minutes=2):
+        ) >= 2 * 60:
             soft.append("I/O wait")
         if value.available_ram_gib < self.limits.ram_soft_available_gib:
             soft.append("RAM soft floor")
