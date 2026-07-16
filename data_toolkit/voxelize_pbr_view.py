@@ -14,6 +14,7 @@ import multiprocessing
 from pathlib import Path
 import signal
 import tempfile
+import time
 import traceback
 import pandas as pd
 import pickle
@@ -139,24 +140,37 @@ def _foreach_child(
     metadata,
     output_dir,
     func,
-    max_workers,
     desc,
 ):
     os.setsid()
+    temporary = None
     try:
         result = dataset_utils.foreach_instance(
             metadata,
             output_dir,
             func,
-            max_workers=max_workers,
+            max_workers=1,
             desc=desc,
         )
-        with Path(result_path).open('wb') as stream:
+        result_path = Path(result_path)
+        with tempfile.NamedTemporaryFile(
+            dir=result_path.parent,
+            prefix=f'.{result_path.stem}.',
+            suffix='.pickle',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
             pickle.dump(result, stream)
             stream.flush()
             os.fsync(stream.fileno())
+        os.replace(temporary, result_path)
+        temporary = None
+        _sync_parent(result_path)
     except BaseException:
         Path(error_path).write_text(traceback.format_exc())
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _terminate_process_group(process):
@@ -185,38 +199,131 @@ def _run_foreach_bounded(
     timeout_seconds,
 ):
     context = multiprocessing.get_context('fork')
+    worker_limit = (
+        max_workers
+        if max_workers is not None and max_workers > 0
+        else os.cpu_count() or 1
+    )
+    results = {}
+    failures = []
+
     with tempfile.TemporaryDirectory() as temporary_dir:
-        result_path = Path(temporary_dir) / 'result.pickle'
-        error_path = Path(temporary_dir) / 'error.txt'
-        process = context.Process(
-            target=_foreach_child,
-            args=(
-                result_path,
-                error_path,
-                dataset_utils,
-                metadata,
-                output_dir,
-                func,
-                max_workers,
-                desc,
-            ),
-        )
-        process.start()
-        process.join(timeout_seconds)
-        if process.is_alive():
-            _terminate_process_group(process)
-            process.close()
-            raise TimeoutError(
-                f'{desc} timed out after {timeout_seconds} seconds'
+        temporary_dir = Path(temporary_dir)
+        active = {}
+        next_position = 0
+
+        def launch(position):
+            result_path = temporary_dir / f'{position:08d}.result.pickle'
+            error_path = temporary_dir / f'{position:08d}.error.txt'
+            row = metadata.iloc[[position]].copy()
+            asset = str(row.iloc[0].get('sha256', f'row {position}'))
+            process = context.Process(
+                target=_foreach_child,
+                args=(
+                    result_path,
+                    error_path,
+                    dataset_utils,
+                    row,
+                    output_dir,
+                    func,
+                    f'{desc}: {asset}',
+                ),
             )
-        exit_code = process.exitcode
-        process.close()
-        if error_path.exists():
-            raise RuntimeError(error_path.read_text())
-        if exit_code != 0 or not result_path.exists():
-            raise RuntimeError(f'{desc} worker exited with code {exit_code}')
-        with result_path.open('rb') as stream:
-            return pickle.load(stream)
+            process.start()
+            active[position] = {
+                'asset': asset,
+                'process': process,
+                'result_path': result_path,
+                'error_path': error_path,
+                'deadline': time.monotonic() + timeout_seconds,
+            }
+
+        try:
+            while next_position < len(metadata) or active:
+                while (
+                    next_position < len(metadata)
+                    and len(active) < worker_limit
+                ):
+                    launch(next_position)
+                    next_position += 1
+
+                progressed = False
+                now = time.monotonic()
+                for position, state in list(active.items()):
+                    process = state['process']
+                    process.join(0)
+                    if not process.is_alive():
+                        exit_code = process.exitcode
+                        process.close()
+                        del active[position]
+                        progressed = True
+                        if state['error_path'].exists():
+                            failures.append((
+                                position,
+                                RuntimeError,
+                                f"{state['asset']}: "
+                                f"{state['error_path'].read_text()}",
+                            ))
+                        elif exit_code != 0 or not state['result_path'].exists():
+                            failures.append((
+                                position,
+                                RuntimeError,
+                                f"{state['asset']}: worker exited with code "
+                                f'{exit_code}',
+                            ))
+                        else:
+                            try:
+                                with state['result_path'].open('rb') as stream:
+                                    results[position] = pickle.load(stream)
+                            except Exception as error:
+                                failures.append((
+                                    position,
+                                    RuntimeError,
+                                    f"{state['asset']}: invalid worker result: "
+                                    f'{error}',
+                                ))
+                    elif now >= state['deadline']:
+                        _terminate_process_group(process)
+                        process.close()
+                        del active[position]
+                        progressed = True
+                        failures.append((
+                            position,
+                            TimeoutError,
+                            f"{state['asset']}: timed out after "
+                            f'{timeout_seconds} seconds',
+                        ))
+
+                if not progressed and active:
+                    next_deadline = min(
+                        state['deadline'] for state in active.values()
+                    )
+                    time.sleep(min(0.01, max(0, next_deadline - now)))
+        finally:
+            for state in active.values():
+                process = state['process']
+                if process.is_alive():
+                    _terminate_process_group(process)
+                process.close()
+
+    if failures:
+        failures.sort(key=lambda failure: failure[0])
+        message = f'{desc} failed: ' + '; '.join(
+            failure[2] for failure in failures
+        )
+        error_type = (
+            TimeoutError
+            if any(failure[1] is TimeoutError for failure in failures)
+            else RuntimeError
+        )
+        raise error_type(message)
+
+    ordered_results = [results[position] for position in range(len(metadata))]
+    if not ordered_results:
+        return pd.DataFrame()
+    if all(isinstance(result, pd.DataFrame) for result in ordered_results):
+        return pd.concat(ordered_results, ignore_index=True)
+    return ordered_results[0] if len(ordered_results) == 1 else ordered_results
 
 
 # ==================== PBR-specific transform functions ====================

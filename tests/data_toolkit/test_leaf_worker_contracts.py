@@ -1,5 +1,6 @@
 import importlib
 import json
+import multiprocessing
 import os
 import pickle
 import subprocess
@@ -527,6 +528,120 @@ def test_voxel_adapter_timeout_kills_process_group(
     child_pid = int(pid_path.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_voxel_adapter_timeout_is_per_asset(module_name):
+    worker = importlib.import_module(module_name)
+
+    class ProgressiveAdapter:
+        @staticmethod
+        def foreach_instance(metadata, output_dir, func, max_workers, desc):
+            assert len(metadata) == 1
+            assert max_workers == 1
+            time.sleep(0.12)
+            return metadata[["sha256"]].assign(processed=True)
+
+    started = time.monotonic()
+    result = worker._run_foreach_bounded(
+        ProgressiveAdapter,
+        pd.DataFrame([{"sha256": "first"}, {"sha256": "second"}]),
+        None,
+        lambda *args: None,
+        max_workers=1,
+        desc="fixture",
+        timeout_seconds=0.2,
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed > 0.2
+    assert result.to_dict("records") == [
+        {"sha256": "first", "processed": True},
+        {"sha256": "second", "processed": True},
+    ]
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_voxel_adapter_timeout_isolates_healthy_asset(
+    tmp_path, module_name
+):
+    worker = importlib.import_module(module_name)
+    healthy_path = tmp_path / "healthy.txt"
+    hanging_pid_path = tmp_path / "hanging.pid"
+
+    class MixedAdapter:
+        @staticmethod
+        def foreach_instance(metadata, output_dir, func, max_workers, desc):
+            records = []
+            for sha256 in metadata["sha256"]:
+                if sha256 == "hang":
+                    hanging_pid_path.write_text(str(os.getpid()))
+                    while True:
+                        time.sleep(1)
+                healthy_path.write_text(sha256)
+                records.append({"sha256": sha256, "processed": True})
+            return pd.DataFrame.from_records(records)
+
+    with pytest.raises(TimeoutError, match="hang"):
+        worker._run_foreach_bounded(
+            MixedAdapter,
+            pd.DataFrame([{"sha256": "healthy"}, {"sha256": "hang"}]),
+            str(tmp_path),
+            lambda *args: None,
+            max_workers=2,
+            desc="fixture",
+            timeout_seconds=0.2,
+        )
+
+    assert healthy_path.read_text() == "healthy"
+    hanging_pid = int(hanging_pid_path.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(hanging_pid, 0)
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_voxel_adapter_never_exceeds_configured_workers(module_name):
+    worker = importlib.import_module(module_name)
+    context = multiprocessing.get_context("fork")
+    active = context.Value("i", 0)
+    peak = context.Value("i", 0)
+
+    class ConcurrencyAdapter:
+        @staticmethod
+        def foreach_instance(metadata, output_dir, func, max_workers, desc):
+            assert len(metadata) == 1
+            assert max_workers == 1
+            with active.get_lock():
+                active.value += 1
+                peak.value = max(peak.value, active.value)
+            try:
+                time.sleep(0.12)
+                return metadata[["sha256"]].assign(processed=True)
+            finally:
+                with active.get_lock():
+                    active.value -= 1
+
+    result = worker._run_foreach_bounded(
+        ConcurrencyAdapter,
+        pd.DataFrame([{"sha256": f"asset-{index}"} for index in range(6)]),
+        None,
+        lambda *args: None,
+        max_workers=2,
+        desc="fixture",
+        timeout_seconds=0.5,
+    )
+
+    assert len(result) == 6
+    assert peak.value == 2
 
 
 @pytest.mark.parametrize(
