@@ -51,6 +51,7 @@ from .validation import (
 
 
 CHECKPOINT_SCHEMA_VERSION = 2
+QUALITY_LEDGER_SCHEMA_VERSION = 1
 MAX_COMMAND_ATTEMPTS = 3
 QUALITY_WINDOW_SIZE = 500
 QUALITY_OUTCOMES = {"completed", "failure", "schema_failure"}
@@ -196,9 +197,9 @@ class _LinuxProcessSupervisor:
             _wait_for_supervisor_ready(
                 ready_read_fd, cls._STARTUP_TIMEOUT_SECONDS
             )
+            released = True
             if os.write(release_write_fd, b"1") != 1:
                 raise InfrastructureError("cannot release supervisor worker")
-            released = True
             supervisor = cls(process, pidfd)
             pidfd = -1
             return supervisor
@@ -455,17 +456,37 @@ class RollingQualityGate:
                     f"conflicting quality outcome for asset: {asset_sha}"
                 )
             return False
+        if len(self._outcomes) == self._outcomes.maxlen:
+            expired_asset, _, _ = self._outcomes[0]
+            self._by_asset.pop(expired_asset, None)
         self._by_asset[asset_sha] = outcome
         self._outcomes.append((asset_sha, succeeded, schema_failure))
         return True
+
+    def restore_entries(
+        self, entries: Sequence[tuple[str, str]]
+    ) -> None:
+        if len(entries) > QUALITY_WINDOW_SIZE:
+            raise InfrastructureError("quality history exceeds rolling window")
+        self._outcomes.clear()
+        self._by_asset.clear()
+        for asset_sha, outcome in entries:
+            if outcome not in QUALITY_OUTCOMES:
+                raise InfrastructureError(
+                    f"invalid quality history outcome: {outcome!r}"
+                )
+            self.record(
+                asset_sha=asset_sha,
+                succeeded=outcome == "completed",
+                schema_failure=outcome == "schema_failure",
+            )
 
     def restore(
         self,
         outcomes: Mapping[str, str],
         frozen_assets: Sequence[str],
     ) -> int:
-        self._outcomes.clear()
-        self._by_asset.clear()
+        self.restore_entries(())
         ordered_assets = tuple(
             _validated_asset_sha(asset_sha) for asset_sha in frozen_assets
         )
@@ -644,6 +665,106 @@ def _required_checkpoint_dict(value, path: Path) -> PipelineCheckpoint:
     )
 
 
+def _empty_quality_ledger(context: ShardContext) -> dict[str, object]:
+    return {
+        "schema_version": QUALITY_LEDGER_SCHEMA_VERSION,
+        "source": context.source,
+        "shard_id": context.shard_id,
+        "batches": {},
+        "entries": [],
+    }
+
+
+def _load_quality_ledger(path: Path, context: ShardContext) -> dict[str, object]:
+    payload = _read_regular_bytes_nofollow(path, missing_ok=True)
+    if payload is None:
+        return _empty_quality_ledger(context)
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise CheckpointError(f"invalid quality ledger JSON: {path}") from error
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "source",
+        "shard_id",
+        "batches",
+        "entries",
+    }:
+        raise CheckpointError(f"invalid quality ledger schema: {path}")
+    if value["schema_version"] != QUALITY_LEDGER_SCHEMA_VERSION:
+        raise CheckpointError(f"unsupported quality ledger schema: {path}")
+    if value["source"] != context.source or value["shard_id"] != context.shard_id:
+        raise CheckpointError(f"quality ledger identity mismatch: {path}")
+
+    batches = value["batches"]
+    if not isinstance(batches, dict):
+        raise CheckpointError(f"invalid quality ledger batches: {path}")
+    for batch_id, batch in batches.items():
+        if (
+            not isinstance(batch_id, str)
+            or not batch_id
+            or not isinstance(batch, dict)
+            or set(batch) != {"instances_sha256", "admitted_prefix"}
+        ):
+            raise CheckpointError(f"invalid quality ledger batch: {path}")
+        try:
+            _validated_asset_sha(batch["instances_sha256"])
+        except (TypeError, ValueError) as error:
+            raise CheckpointError(
+                f"invalid quality ledger batch hash: {path}"
+            ) from error
+        prefix = batch["admitted_prefix"]
+        if (
+            not isinstance(prefix, int)
+            or isinstance(prefix, bool)
+            or prefix < 0
+        ):
+            raise CheckpointError(f"invalid quality ledger prefix: {path}")
+
+    entries = value["entries"]
+    if not isinstance(entries, list) or len(entries) > QUALITY_WINDOW_SIZE:
+        raise CheckpointError(f"invalid quality ledger entries: {path}")
+    identities = set()
+    assets = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {
+            "batch_id",
+            "position",
+            "asset_sha",
+            "outcome",
+        }:
+            raise CheckpointError(f"invalid quality ledger entry: {path}")
+        batch_id = entry["batch_id"]
+        position = entry["position"]
+        try:
+            asset_sha = _validated_asset_sha(entry["asset_sha"])
+        except (TypeError, ValueError) as error:
+            raise CheckpointError(
+                f"invalid quality ledger entry asset: {path}"
+            ) from error
+        if (
+            batch_id not in batches
+            or not isinstance(position, int)
+            or isinstance(position, bool)
+            or position < 0
+            or position >= batches[batch_id]["admitted_prefix"]
+            or entry["outcome"] not in QUALITY_OUTCOMES
+            or (batch_id, position) in identities
+            or asset_sha in assets
+        ):
+            raise CheckpointError(f"invalid quality ledger entry: {path}")
+        identities.add((batch_id, position))
+        assets.add(asset_sha)
+    return value
+
+
+def _save_quality_ledger(path: Path, ledger: Mapping[str, object]) -> None:
+    payload = json.dumps(
+        ledger, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    _atomic_write_bytes_nofollow(path, payload)
+
+
 class PipelineRunner:
     def __init__(
         self,
@@ -660,6 +781,7 @@ class PipelineRunner:
         fallback_report_path: Callable[[ShardContext, str], Path]
         | None = None,
         checkpoint_path: Callable[[ShardContext], Path] | None = None,
+        quality_ledger_path: Callable[[ShardContext], Path] | None = None,
         process_factory=subprocess.Popen,
         supervisor_factory=None,
         monotonic_clock: Callable[[], float] = time.monotonic,
@@ -695,6 +817,12 @@ class PipelineRunner:
         self.checkpoint_path = checkpoint_path or (
             lambda context: context.work_root / "checkpoint.json"
         )
+        self.quality_ledger_path = quality_ledger_path or (
+            lambda context: self.config.paths.data2_root
+            / "control/quality"
+            / context.source
+            / f"{context.shard_id}.json"
+        )
         self.process_factory = process_factory
         self.supervisor_factory = supervisor_factory or (
             lambda argv, environment: _LinuxProcessSupervisor.launch(
@@ -715,6 +843,10 @@ class PipelineRunner:
         self.active_context: ShardContext | None = None
         self.active_checkpoint: PipelineCheckpoint | None = None
         self.active_checkpoint_path: Path | None = None
+        self._active_quality_ledger: dict[str, object] | None = None
+        self._active_quality_ledger_path: Path | None = None
+        self._active_quality_assets: tuple[str, ...] | None = None
+        self._active_instances_sha256: str | None = None
 
     def _validator(self, command_name: str) -> Callable[[], bool]:
         try:
@@ -734,6 +866,131 @@ class PipelineRunner:
             return self._validator(command_name)() is True
         except ValidationError:
             return False
+
+    def _load_frozen_quality_assets(
+        self, context: ShardContext
+    ) -> tuple[str, ...]:
+        if self._active_quality_assets is not None:
+            return self._active_quality_assets
+        payload = _read_regular_bytes_nofollow(context.instances)
+        assets = tuple(
+            _validated_asset_sha(item)
+            for item in payload.decode("ascii").splitlines()
+        )
+        if len(assets) != len(set(assets)):
+            raise InfrastructureError("duplicate frozen quality asset")
+        self._active_quality_assets = assets
+        self._active_instances_sha256 = sha256(payload).hexdigest()
+        return assets
+
+    @staticmethod
+    def _contiguous_quality_prefix(
+        checkpoint: PipelineCheckpoint, assets: Sequence[str]
+    ) -> int:
+        unknown = set(checkpoint.quality_outcomes) - set(assets)
+        if unknown:
+            raise InfrastructureError(
+                f"quality outcomes contain non-frozen assets: {sorted(unknown)}"
+            )
+        prefix = 0
+        for asset_sha in assets:
+            if asset_sha not in checkpoint.quality_outcomes:
+                break
+            prefix += 1
+        return prefix
+
+    def _advance_quality_ledger(
+        self,
+        context: ShardContext,
+        checkpoint: PipelineCheckpoint,
+        assets: Sequence[str],
+        *,
+        update_gate: bool,
+    ) -> int:
+        ledger = self._active_quality_ledger
+        ledger_path = self._active_quality_ledger_path
+        instances_sha256 = self._active_instances_sha256
+        if ledger is None or ledger_path is None or instances_sha256 is None:
+            raise InfrastructureError("quality ledger is not active")
+
+        prefix = self._contiguous_quality_prefix(checkpoint, assets)
+        batches = ledger["batches"]
+        batch = batches.get(context.batch_id)
+        if batch is None:
+            cursor = 0
+        else:
+            if batch["instances_sha256"] != instances_sha256:
+                raise InfrastructureError(
+                    f"quality ledger batch identity changed: {context.batch_id}"
+                )
+            cursor = batch["admitted_prefix"]
+        if cursor > prefix:
+            raise InfrastructureError(
+                f"quality ledger is ahead of checkpoint: {context.batch_id}"
+            )
+        if cursor == prefix:
+            return prefix
+
+        next_ledger = {
+            "schema_version": ledger["schema_version"],
+            "source": ledger["source"],
+            "shard_id": ledger["shard_id"],
+            "batches": {
+                batch_id: dict(batch_value)
+                for batch_id, batch_value in batches.items()
+            },
+            "entries": [dict(entry) for entry in ledger["entries"]],
+        }
+        next_ledger["batches"][context.batch_id] = {
+            "instances_sha256": instances_sha256,
+            "admitted_prefix": prefix,
+        }
+        admitted = []
+        for position in range(cursor, prefix):
+            asset_sha = assets[position]
+            outcome = checkpoint.quality_outcomes[asset_sha]
+            entry = {
+                "batch_id": context.batch_id,
+                "position": position,
+                "asset_sha": asset_sha,
+                "outcome": outcome,
+            }
+            next_ledger["entries"].append(entry)
+            admitted.append(entry)
+        next_ledger["entries"] = next_ledger["entries"][-QUALITY_WINDOW_SIZE:]
+        _save_quality_ledger(ledger_path, next_ledger)
+        self._active_quality_ledger = next_ledger
+        if update_gate:
+            for entry in admitted:
+                self.quality_gate.record(
+                    asset_sha=entry["asset_sha"],
+                    succeeded=entry["outcome"] == "completed",
+                    schema_failure=entry["outcome"] == "schema_failure",
+                )
+        return prefix
+
+    def _restore_quality_state(
+        self, context: ShardContext, checkpoint: PipelineCheckpoint
+    ) -> None:
+        ledger_path = self.quality_ledger_path(context)
+        ledger = _load_quality_ledger(ledger_path, context)
+        self._active_quality_ledger = ledger
+        self._active_quality_ledger_path = ledger_path
+        batch = ledger["batches"].get(context.batch_id)
+        if checkpoint.quality_outcomes or batch is not None:
+            assets = self._load_frozen_quality_assets(context)
+            self._quality_prefix_length = self._advance_quality_ledger(
+                context, checkpoint, assets, update_gate=False
+            )
+            ledger = self._active_quality_ledger
+        else:
+            self._quality_prefix_length = 0
+        self.quality_gate.restore_entries(
+            tuple(
+                (entry["asset_sha"], entry["outcome"])
+                for entry in ledger["entries"]
+            )
+        )
 
     def run_shard(self, context: ShardContext) -> None:
         if self.active_context is not None:
@@ -757,18 +1014,17 @@ class PipelineRunner:
                 )
             self.active_checkpoint = checkpoint
             self.active_checkpoint_path = checkpoint_path
-            if checkpoint.quality_outcomes:
-                frozen_assets = tuple(
-                    _validated_asset_sha(item)
-                    for item in _read_regular_bytes_nofollow(
-                        context.instances
-                    ).decode("ascii").splitlines()
+            try:
+                self._restore_quality_state(context, checkpoint)
+            except Exception as error:
+                self.stop(
+                    context,
+                    "quality_ledger",
+                    str(error) or type(error).__name__,
+                    checkpoint,
+                    category=EscalationCategory.INFRASTRUCTURE,
+                    exit_code=2,
                 )
-            else:
-                frozen_assets = ()
-            self._quality_prefix_length = self.quality_gate.restore(
-                checkpoint.quality_outcomes, frozen_assets
-            )
             if checkpoint.active_attempt is not None:
                 abandoned = checkpoint.active_attempt["command"]
                 checkpoint.active_attempt = None
@@ -959,6 +1215,10 @@ class PipelineRunner:
             self.active_checkpoint = None
             self.active_checkpoint_path = None
             self._quality_prefix_length = 0
+            self._active_quality_ledger = None
+            self._active_quality_ledger_path = None
+            self._active_quality_assets = None
+            self._active_instances_sha256 = None
 
     def resume_shard(self, context: ShardContext) -> None:
         self.run_shard(context)
@@ -973,40 +1233,29 @@ class PipelineRunner:
             )
         if outcome not in QUALITY_OUTCOMES:
             raise ValueError(f"invalid terminal quality outcome: {outcome}")
+        asset_sha = _validated_asset_sha(asset_sha)
         existing = checkpoint.quality_outcomes.get(asset_sha)
         if existing is not None:
             if existing != outcome:
                 raise InfrastructureError(
                     f"conflicting durable quality outcome: {asset_sha}"
                 )
-            return
-        assets = tuple(
-            _validated_asset_sha(item)
-            for item in _read_regular_bytes_nofollow(
-                context.instances
-            ).decode("ascii").splitlines()
-        )
+        assets = self._load_frozen_quality_assets(context)
         if asset_sha not in assets:
             raise InfrastructureError(
                 f"quality outcome asset is not frozen: {asset_sha}"
             )
-        checkpoint.quality_outcomes[asset_sha] = outcome
+        if existing is None:
+            checkpoint.quality_outcomes[asset_sha] = outcome
         checkpoint.quality_outcomes = {
             frozen_sha: checkpoint.quality_outcomes[frozen_sha]
             for frozen_sha in assets
             if frozen_sha in checkpoint.quality_outcomes
         }
-        for frozen_sha in assets[self._quality_prefix_length :]:
-            terminal = checkpoint.quality_outcomes.get(frozen_sha)
-            if terminal is None:
-                break
-            self.quality_gate.record(
-                asset_sha=frozen_sha,
-                succeeded=terminal == "completed",
-                schema_failure=terminal == "schema_failure",
-            )
-            self._quality_prefix_length += 1
         self.save_checkpoint(checkpoint_path, checkpoint)
+        self._quality_prefix_length = self._advance_quality_ledger(
+            context, checkpoint, assets, update_gate=True
+        )
         reason = self.quality_gate.violation_reason()
         if reason:
             checkpoint.active_attempt = None
@@ -2228,6 +2477,7 @@ class PipelineServices:
             self.internal_handlers,
             report_writer=self._write_escalation,
             checkpoint_path=self._checkpoint_path,
+            quality_ledger_path=self._quality_ledger_path,
         )
 
     def _active_context(self) -> ShardContext:
@@ -2243,6 +2493,14 @@ class PipelineServices:
             / context.source
             / context.shard_id
             / f"{context.batch_id}.json"
+        )
+
+    def _quality_ledger_path(self, context: ShardContext) -> Path:
+        return (
+            self.config.paths.data2_root
+            / "control/quality"
+            / context.source
+            / f"{context.shard_id}.json"
         )
 
     def _write_escalation(self, report: EscalationReport) -> None:

@@ -122,20 +122,29 @@ def _safe_source_member(source_root: Path, relative: Path) -> tuple[Path, str]:
     return relative, name
 
 
-def _source_open_error(
+_STRUCTURAL_SOURCE_ERRNOS = frozenset(
+    (errno.ENOENT, errno.ENOTDIR, errno.ELOOP)
+)
+
+
+def _raise_source_open_error(
     error: OSError, directory_fd: int, component: str, name: str
-) -> ValueError:
+) -> None:
+    if error.errno not in _STRUCTURAL_SOURCE_ERRNOS:
+        raise error
     try:
         component_mode = os.stat(
             component, dir_fd=directory_fd, follow_symlinks=False
         ).st_mode
-    except OSError:
+    except OSError as stat_error:
+        if stat_error.errno not in _STRUCTURAL_SOURCE_ERRNOS:
+            raise
         component_mode = None
     if error.errno == errno.ELOOP or (
         component_mode is not None and stat.S_ISLNK(component_mode)
     ):
-        return ValueError(f"symlink member: {name}")
-    return ValueError(f"unsafe member: {name}")
+        raise ValueError(f"symlink member: {name}") from error
+    raise ValueError(f"unsafe member: {name}") from error
 
 
 def _open_source_member(root_fd: int, relative: Path, name: str) -> int:
@@ -152,9 +161,7 @@ def _open_source_member(root_fd: int, relative: Path, name: str) -> int:
                     dir_fd=directory_fd,
                 )
             except OSError as error:
-                raise _source_open_error(
-                    error, directory_fd, component, name
-                ) from error
+                _raise_source_open_error(error, directory_fd, component, name)
             os.close(directory_fd)
             directory_fd = next_fd
 
@@ -169,9 +176,9 @@ def _open_source_member(root_fd: int, relative: Path, name: str) -> int:
                 dir_fd=directory_fd,
             )
         except OSError as error:
-            raise _source_open_error(
+            _raise_source_open_error(
                 error, directory_fd, final_component, name
-            ) from error
+            )
         try:
             if not stat.S_ISREG(os.fstat(file_fd).st_mode):
                 raise ValueError(f"non-file member: {name}")
@@ -190,6 +197,8 @@ def _open_source_root(source_root: Path) -> int:
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
     except OSError as error:
+        if error.errno not in _STRUCTURAL_SOURCE_ERRNOS:
+            raise
         raise ValueError(f"unsafe source root: {source_root}") from error
 
 

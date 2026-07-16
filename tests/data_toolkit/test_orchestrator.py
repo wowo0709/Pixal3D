@@ -1684,6 +1684,57 @@ def test_quality_outcomes_are_durable_deduplicated_and_quarantined(
     assert resumed.quality_outcomes == checkpoint.quality_outcomes
 
 
+def test_quality_window_is_durable_across_batches_and_service_restart(
+    isolated_config, tmp_path
+):
+    first_context = replace(
+        ShardContext.for_test(
+            tmp_path / "quality-batch-000", "ABO", "ABO-00000"
+        ),
+        batch_id="batch000",
+    )
+    second_context = replace(
+        ShardContext.for_test(
+            tmp_path / "quality-batch-001", "ABO", "ABO-00000"
+        ),
+        batch_id="batch001",
+    )
+    assets = tuple(f"{index:064x}" for index in range(500))
+    first_assets = assets[:250]
+    second_assets = assets[250:]
+    write_instances(first_context, first_assets)
+    write_instances(second_context, second_assets)
+
+    first_services = quality_services(
+        isolated_config,
+        first_context,
+        {asset: OutputValidationError("terminal") for asset in first_assets[:26]},
+    )
+    first_services.runner.run_shard(first_context)
+    assert first_services.runner.quality_gate.count == 250
+
+    second_services = quality_services(
+        isolated_config,
+        second_context,
+        {
+            asset: OutputValidationError("terminal")
+            for asset in second_assets[:26]
+        },
+    )
+    with pytest.raises(PipelineStopped) as caught:
+        second_services.runner.run_shard(second_context)
+
+    assert caught.value.report.category == EscalationCategory.DATA_QUALITY
+    assert "52/500" in caught.value.report.reason
+    assert second_services.runner.quality_gate.count == 500
+    ledger = json.loads(
+        second_services._quality_ledger_path(second_context).read_text()
+    )
+    assert len(ledger["entries"]) == 500
+    assert ledger["batches"]["batch000"]["admitted_prefix"] == 250
+    assert ledger["batches"]["batch001"]["admitted_prefix"] == 250
+
+
 def test_sparse_quality_resume_preserves_frozen_positions_at_exact_threshold(
     isolated_config, tmp_path
 ):
@@ -2783,6 +2834,67 @@ def test_post_release_launch_failure_uses_supervisor_group_kill(monkeypatch):
     assert created[0].release == b"1"
     assert created[0].wait_timeouts == [1, 1]
     assert created[0].release_fd < 0
+    assert sent_signals == [signal.SIGUSR2]
+
+
+def test_release_write_failure_uses_supervisor_group_kill(monkeypatch):
+    class ReadyProcess:
+        pid = 780
+
+        def __init__(self, release_fd):
+            self.release_fd = os.dup(release_fd)
+            self.release = None
+            self.killed = False
+
+        def wait(self, timeout):
+            if self.release is None:
+                self.release = os.read(self.release_fd, 1)
+            if not self.killed:
+                raise subprocess.TimeoutExpired(("supervisor",), timeout)
+            os.close(self.release_fd)
+            self.release_fd = -1
+            return -signal.SIGKILL
+
+    created = []
+    sent_signals = []
+    pidfd_template = os.open("/dev/null", os.O_RDONLY)
+    real_write = os.write
+
+    def process_factory(argv, **kwargs):
+        process = ReadyProcess(kwargs["pass_fds"][0])
+        created.append(process)
+        return process
+
+    def fake_syscall(number, *arguments):
+        if number == orchestrator_module._LinuxProcessSupervisor._PIDFD_OPEN:
+            return os.dup(pidfd_template)
+        sent_signals.append(arguments[1])
+        if arguments[1] == signal.SIGUSR2:
+            created[0].killed = True
+        return 0
+
+    def fail_release_write(file_descriptor, data):
+        if data == b"1":
+            raise OSError(errno.EIO, "release EIO")
+        return real_write(file_descriptor, data)
+
+    monkeypatch.setattr(orchestrator_module, "_linux_syscall", fake_syscall)
+    monkeypatch.setattr(
+        orchestrator_module, "_wait_for_supervisor_ready", lambda *args: None
+    )
+    monkeypatch.setattr(orchestrator_module.os, "write", fail_release_write)
+
+    try:
+        with pytest.raises(OSError, match="release EIO"):
+            orchestrator_module._LinuxProcessSupervisor.launch(
+                process_factory, ("worker",), {}
+            )
+    finally:
+        os.close(pidfd_template)
+        if created and created[0].release_fd >= 0:
+            os.close(created[0].release_fd)
+
+    assert created[0].release == b""
     assert sent_signals == [signal.SIGUSR2]
 
 

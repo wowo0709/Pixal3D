@@ -346,6 +346,47 @@ def test_component_swap_cannot_pack_content_outside_source_root(
     assert not (tmp_path / "bad.tar").exists()
 
 
+@pytest.mark.parametrize(
+    "failure_point,error_number",
+    (("root", errno.EIO), ("component", errno.ESTALE), ("final", errno.EIO)),
+)
+def test_build_pack_propagates_source_open_io_failures(
+    tmp_path: Path, monkeypatch, failure_point: str, error_number: int
+):
+    source = tmp_path / "source"
+    nested = source / "nested"
+    nested.mkdir(parents=True)
+    (nested / "payload").write_bytes(b"payload")
+    real_open = os.open
+
+    def fail_selected_open(path, flags, *args, **kwargs):
+        is_root = Path(path) == source and "dir_fd" not in kwargs
+        is_component = path == "nested" and "dir_fd" in kwargs
+        is_final = path == "payload" and "dir_fd" in kwargs
+        if (
+            (failure_point == "root" and is_root)
+            or (failure_point == "component" and is_component)
+            or (failure_point == "final" and is_final)
+        ):
+            raise OSError(error_number, f"source {failure_point} I/O")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(packing.os, "open", fail_selected_open)
+
+    with pytest.raises(OSError, match=f"source {failure_point} I/O") as caught:
+        build_pack(
+            source,
+            [Path("nested/payload")],
+            tmp_path / "bad.tar",
+            "ABO-00000",
+            **PACK_METADATA,
+        )
+
+    assert caught.value.errno == error_number
+    assert not (tmp_path / "bad.tar").exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
 def test_rejected_source_member_closes_all_file_descriptors(tmp_path: Path):
     source = tmp_path / "source"
     source.mkdir()

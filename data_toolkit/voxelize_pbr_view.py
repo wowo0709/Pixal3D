@@ -28,10 +28,12 @@ import o_voxel
 if __package__:
     from .utils import get_new_camera_matrix, sphere_normalize_torch
     from .pipeline.atomic_io import atomic_write_json
+    from .pipeline.dataset_adapter import process_single_metadata_row
     from .pipeline.validation import validate_scale
 else:
     from utils import get_new_camera_matrix, sphere_normalize_torch
     from pipeline.atomic_io import atomic_write_json
+    from pipeline.dataset_adapter import process_single_metadata_row
     from pipeline.validation import validate_scale
 
 
@@ -145,12 +147,8 @@ def _foreach_child(
 ):
     temporary = None
     try:
-        result = dataset_utils.foreach_instance(
-            metadata,
-            output_dir,
-            func,
-            max_workers=1,
-            desc=desc,
+        result = process_single_metadata_row(
+            dataset_utils, metadata, output_dir, func
         )
         result_path = Path(result_path)
         with tempfile.NamedTemporaryFile(

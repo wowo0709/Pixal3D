@@ -509,7 +509,15 @@ def test_voxel_adapter_child_stays_in_inherited_supervisor_group(
     class Adapter:
         @staticmethod
         def foreach_instance(*args, **kwargs):
-            return pd.DataFrame([{"sha256": "asset", "processed": True}])
+            raise AssertionError("nested adapter executor must not be used")
+
+        @staticmethod
+        def _process_instance(args):
+            metadatum, output_dir, func = args
+            return func(
+                os.path.join(output_dir, metadatum["local_path"]),
+                metadatum["sha256"],
+            )
 
     monkeypatch.setattr(
         worker.os,
@@ -523,14 +531,27 @@ def test_voxel_adapter_child_stays_in_inherited_supervisor_group(
         result_path,
         error_path,
         Adapter,
-        pd.DataFrame([{"sha256": "asset"}]),
+        pd.DataFrame([{"sha256": "asset", "local_path": "raw/asset.glb"}]),
         tmp_path,
-        lambda *args: None,
+        lambda path, sha256: {
+            "sha256": sha256,
+            "path": os.fspath(path),
+            "processed": True,
+        },
         "fixture",
     )
 
     assert result_path.is_file()
     assert not error_path.exists()
+    with result_path.open("rb") as stream:
+        result = pickle.load(stream)
+    assert result.to_dict("records") == [
+        {
+            "sha256": "asset",
+            "path": os.fspath(tmp_path / "raw/asset.glb"),
+            "processed": True,
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -587,7 +608,7 @@ def test_voxel_adapter_timeout_kills_process_group(
 
     class HangingAdapter:
         @staticmethod
-        def foreach_instance(*args, **kwargs):
+        def _process_instance(args):
             pid_path.write_text(str(os.getpid()))
             while True:
                 time.sleep(1)
@@ -620,11 +641,10 @@ def test_voxel_adapter_timeout_is_per_asset(module_name):
 
     class ProgressiveAdapter:
         @staticmethod
-        def foreach_instance(metadata, output_dir, func, max_workers, desc):
-            assert len(metadata) == 1
-            assert max_workers == 1
+        def _process_instance(args):
+            metadatum, output_dir, func = args
             time.sleep(0.12)
-            return metadata[["sha256"]].assign(processed=True)
+            return {"sha256": metadatum["sha256"], "processed": True}
 
     started = time.monotonic()
     result = worker._run_foreach_bounded(
@@ -658,16 +678,15 @@ def test_voxel_adapter_timeout_isolates_healthy_asset(
 
     class MixedAdapter:
         @staticmethod
-        def foreach_instance(metadata, output_dir, func, max_workers, desc):
-            records = []
-            for sha256 in metadata["sha256"]:
-                if sha256 == "hang":
-                    hanging_pid_path.write_text(str(os.getpid()))
-                    while True:
-                        time.sleep(1)
-                healthy_path.write_text(sha256)
-                records.append({"sha256": sha256, "processed": True})
-            return pd.DataFrame.from_records(records)
+        def _process_instance(args):
+            metadatum, output_dir, func = args
+            sha256 = metadatum["sha256"]
+            if sha256 == "hang":
+                hanging_pid_path.write_text(str(os.getpid()))
+                while True:
+                    time.sleep(1)
+            healthy_path.write_text(sha256)
+            return {"sha256": sha256, "processed": True}
 
     with pytest.raises(TimeoutError, match="hang"):
         worker._run_foreach_bounded(
@@ -698,15 +717,14 @@ def test_voxel_adapter_never_exceeds_configured_workers(module_name):
 
     class ConcurrencyAdapter:
         @staticmethod
-        def foreach_instance(metadata, output_dir, func, max_workers, desc):
-            assert len(metadata) == 1
-            assert max_workers == 1
+        def _process_instance(args):
+            metadatum, output_dir, func = args
             with active.get_lock():
                 active.value += 1
                 peak.value = max(peak.value, active.value)
             try:
                 time.sleep(0.12)
-                return metadata[["sha256"]].assign(processed=True)
+                return {"sha256": metadatum["sha256"], "processed": True}
             finally:
                 with active.get_lock():
                     active.value -= 1
