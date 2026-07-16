@@ -1,5 +1,8 @@
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+import errno
+import fcntl
 from hashlib import sha256
 import json
 import os
@@ -106,26 +109,81 @@ def _safe_source_member(source_root: Path, relative: Path) -> tuple[Path, str]:
         or not name
         or name == "."
         or ".." in relative.parts
+        or "\\" in name
     ):
         raise ValueError(f"unsafe member: {relative}")
+    return relative, name
 
-    path = source_root
-    for part in relative.parts:
-        path = path / part
-        if path.is_symlink():
-            raise ValueError(f"symlink member: {relative}")
 
+def _source_open_error(
+    error: OSError, directory_fd: int, component: str, name: str
+) -> ValueError:
     try:
-        path.resolve(strict=True).relative_to(source_root)
-    except (FileNotFoundError, ValueError) as error:
-        raise ValueError(f"unsafe member: {relative}") from error
+        component_mode = os.stat(
+            component, dir_fd=directory_fd, follow_symlinks=False
+        ).st_mode
+    except OSError:
+        component_mode = None
+    if error.errno == errno.ELOOP or (
+        component_mode is not None and stat.S_ISLNK(component_mode)
+    ):
+        return ValueError(f"symlink member: {name}")
+    return ValueError(f"unsafe member: {name}")
+
+
+def _open_source_member(root_fd: int, relative: Path, name: str) -> int:
+    directory_fd = os.dup(root_fd)
     try:
-        mode = path.stat().st_mode
+        for component in relative.parts[:-1]:
+            try:
+                next_fd = os.open(
+                    component,
+                    os.O_RDONLY
+                    | os.O_DIRECTORY
+                    | os.O_NOFOLLOW
+                    | os.O_CLOEXEC,
+                    dir_fd=directory_fd,
+                )
+            except OSError as error:
+                raise _source_open_error(
+                    error, directory_fd, component, name
+                ) from error
+            os.close(directory_fd)
+            directory_fd = next_fd
+
+        final_component = relative.parts[-1]
+        try:
+            file_fd = os.open(
+                final_component,
+                os.O_RDONLY
+                | os.O_NOFOLLOW
+                | os.O_CLOEXEC
+                | os.O_NONBLOCK,
+                dir_fd=directory_fd,
+            )
+        except OSError as error:
+            raise _source_open_error(
+                error, directory_fd, final_component, name
+            ) from error
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise ValueError(f"non-file member: {name}")
+            return file_fd
+        except BaseException:
+            os.close(file_fd)
+            raise
+    finally:
+        os.close(directory_fd)
+
+
+def _open_source_root(source_root: Path) -> int:
+    try:
+        return os.open(
+            source_root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
     except OSError as error:
-        raise ValueError(f"invalid member: {relative}") from error
-    if not stat.S_ISREG(mode):
-        raise ValueError(f"non-file member: {relative}")
-    return path, name
+        raise ValueError(f"unsafe source root: {source_root}") from error
 
 
 def build_pack(
@@ -164,27 +222,37 @@ def build_pack(
             temporary = Path(stream.name)
 
         recorded = []
-        with tarfile.open(temporary, "w", format=tarfile.PAX_FORMAT) as bundle:
-            for path, name in ordered:
-                with path.open("rb") as stream:
-                    file_stat = os.fstat(stream.fileno())
-                    if not stat.S_ISREG(file_stat.st_mode):
-                        raise ValueError(f"non-file member: {name}")
-                    info = tarfile.TarInfo(name)
-                    info.size = file_stat.st_size
-                    info.mode = 0o644
-                    info.mtime = 0
-                    info.uid = info.gid = 0
-                    info.uname = info.gname = ""
-                    hashing_stream = _HashingReader(stream)
-                    bundle.addfile(info, hashing_stream)
-                    recorded.append(
-                        PackMember(
-                            name,
-                            info.size,
-                            hashing_stream.digest.hexdigest(),
+        root_fd = _open_source_root(source_root)
+        try:
+            with tarfile.open(
+                temporary, "w", format=tarfile.PAX_FORMAT
+            ) as bundle:
+                for relative, name in ordered:
+                    file_fd = _open_source_member(root_fd, relative, name)
+                    try:
+                        stream = os.fdopen(file_fd, "rb", closefd=True)
+                    except BaseException:
+                        os.close(file_fd)
+                        raise
+                    with stream:
+                        file_stat = os.fstat(stream.fileno())
+                        info = tarfile.TarInfo(name)
+                        info.size = file_stat.st_size
+                        info.mode = 0o644
+                        info.mtime = 0
+                        info.uid = info.gid = 0
+                        info.uname = info.gname = ""
+                        hashing_stream = _HashingReader(stream)
+                        bundle.addfile(info, hashing_stream)
+                        recorded.append(
+                            PackMember(
+                                name,
+                                info.size,
+                                hashing_stream.digest.hexdigest(),
+                            )
                         )
-                    )
+        finally:
+            os.close(root_fd)
 
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
@@ -462,6 +530,28 @@ def _load_index(
     return value
 
 
+@contextmanager
+def _source_shard_lock(data2_root: Path, source: str, shard_id: str):
+    lock_directory = (
+        Path(data2_root) / "control" / "locks" / "packing" / source
+    )
+    lock_directory.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_directory / f"{shard_id}.lock"
+    lock_fd = os.open(
+        lock_path,
+        os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    finally:
+        os.close(lock_fd)
+
+
 def _cleanup_staging(run_directory: Path, batch_directory: Path) -> None:
     shutil.rmtree(run_directory, ignore_errors=True)
     for path in (batch_directory, batch_directory.parent):
@@ -526,72 +616,78 @@ def publish_pack(
             verify_pack(pack_path, manifest_path)
             staged[family] = (pack_path, manifest)
 
-        index = _load_index(
-            index_path,
-            prepared_root,
-            source,
-            shard_id,
-            replacing_batch=batch_id,
-        )
-
-        reusable = {}
-        for family in PACK_FAMILIES:
-            destination = prepared_root / _prepared_pack_relative(
-                family, source, shard_id, batch_id
-            )
-            destination_manifest = _manifest_path(destination)
-            if destination.exists() and destination_manifest.exists():
-                try:
-                    verify_pack(destination, destination_manifest)
-                except ValidationError:
-                    pass
-                else:
-                    existing = _load_manifest(destination_manifest)
-                    if not _same_publication(existing, staged[family][1]):
-                        raise ValidationError(
-                            f"different valid published pack: {destination}"
-                        )
-                    reusable[family] = existing
-
-        for family in PACK_FAMILIES:
-            if family in reusable:
-                continue
-            staged_pack, _ = staged[family]
-            destination = prepared_root / _prepared_pack_relative(
-                family, source, shard_id, batch_id
-            )
-            _replace_and_sync(staged_pack, destination)
-            _replace_and_sync(
-                _manifest_path(staged_pack), _manifest_path(destination)
+        with _source_shard_lock(data2_root, source, shard_id):
+            index = _load_index(
+                index_path,
+                prepared_root,
+                source,
+                shard_id,
+                replacing_batch=batch_id,
             )
 
-        published = []
-        entries = {}
-        for family in PACK_FAMILIES:
-            destination = prepared_root / _prepared_pack_relative(
-                family, source, shard_id, batch_id
-            )
-            destination_manifest = _manifest_path(destination)
-            verify_pack(destination, destination_manifest)
-            manifest = _load_manifest(destination_manifest)
-            if not manifest.validated_at:
-                raise ValidationError(
-                    f"published pack is not validated: {destination}"
+            reusable = {}
+            for family in PACK_FAMILIES:
+                destination = prepared_root / _prepared_pack_relative(
+                    family, source, shard_id, batch_id
                 )
-            published.append(manifest)
-            entries[family] = _index_entry(
-                prepared_root, destination, manifest
-            )
+                destination_manifest = _manifest_path(destination)
+                if destination.exists() and destination_manifest.exists():
+                    try:
+                        verify_pack(destination, destination_manifest)
+                    except ValidationError:
+                        pass
+                    else:
+                        existing = _load_manifest(destination_manifest)
+                        if not _same_publication(
+                            existing, staged[family][1]
+                        ):
+                            raise ValidationError(
+                                "different valid published pack: "
+                                f"{destination}"
+                            )
+                        reusable[family] = existing
 
-        batches = dict(index["batches"])
-        batches[batch_id] = entries
-        updated_index = {
-            "source": source,
-            "shard_id": shard_id,
-            "batches": {name: batches[name] for name in sorted(batches)},
-        }
-        if updated_index != index:
-            atomic_write_json(index_path, updated_index)
-        return tuple(published)
+            for family in PACK_FAMILIES:
+                if family in reusable:
+                    continue
+                staged_pack, _ = staged[family]
+                destination = prepared_root / _prepared_pack_relative(
+                    family, source, shard_id, batch_id
+                )
+                _replace_and_sync(staged_pack, destination)
+                _replace_and_sync(
+                    _manifest_path(staged_pack), _manifest_path(destination)
+                )
+
+            published = []
+            entries = {}
+            for family in PACK_FAMILIES:
+                destination = prepared_root / _prepared_pack_relative(
+                    family, source, shard_id, batch_id
+                )
+                destination_manifest = _manifest_path(destination)
+                verify_pack(destination, destination_manifest)
+                manifest = _load_manifest(destination_manifest)
+                if not manifest.validated_at:
+                    raise ValidationError(
+                        f"published pack is not validated: {destination}"
+                    )
+                published.append(manifest)
+                entries[family] = _index_entry(
+                    prepared_root, destination, manifest
+                )
+
+            batches = dict(index["batches"])
+            batches[batch_id] = entries
+            updated_index = {
+                "source": source,
+                "shard_id": shard_id,
+                "batches": {
+                    name: batches[name] for name in sorted(batches)
+                },
+            }
+            if updated_index != index:
+                atomic_write_json(index_path, updated_index)
+            return tuple(published)
     finally:
         _cleanup_staging(run_directory, batch_staging)
