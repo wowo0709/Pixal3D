@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 from .config import PipelineConfig
@@ -121,6 +122,9 @@ def _validate_gate(value: str) -> None:
 
 
 def python_command(script: str, *args: str) -> tuple[str, ...]:
+    override = os.environ.get("PIXAL3D_LEAF_WORKER")
+    if override:
+        return ("python", override, "--original-script", script, *args)
     return ("python", f"data_toolkit/{script}", *args)
 
 
