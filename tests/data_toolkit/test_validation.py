@@ -144,6 +144,15 @@ def test_render_rejects_invalid_camera_metadata(field, value, match, tmp_path):
         validate_render_dir(tmp_path, 1, 16)
 
 
+def test_render_translates_overflowing_camera_metadata(tmp_path):
+    frames = _write_render_directory(tmp_path)
+    frames[0]["camera_angle_x"] = 10**1000
+    _rewrite_frames(tmp_path, frames)
+
+    with pytest.raises(ValidationError, match="camera angle"):
+        validate_render_dir(tmp_path, 1, 16)
+
+
 def test_render_frame_key_errors_are_translated(tmp_path):
     frames = _write_render_directory(tmp_path)
     frames[0].pop("transform_matrix")
@@ -268,6 +277,14 @@ def test_scale_requires_nonempty_finite_metadata(tmp_path):
         path.write_text(json.dumps(value))
         with pytest.raises(ValidationError, match="scale metadata"):
             validate_scale(path)
+
+
+def test_scale_translates_overflowing_numeric_metadata(tmp_path):
+    path = tmp_path / "overflow.json"
+    path.write_text(json.dumps({"scale": 10**1000}))
+
+    with pytest.raises(ValidationError, match="scale metadata"):
+        validate_scale(path)
 
 
 @pytest.mark.parametrize("case", ["missing", "malformed"])

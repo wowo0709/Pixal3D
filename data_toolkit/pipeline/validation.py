@@ -38,11 +38,12 @@ def _is_finite(array: np.ndarray) -> bool:
 
 
 def _is_finite_number(value) -> bool:
-    return (
-        isinstance(value, Real)
-        and not isinstance(value, bool)
-        and math.isfinite(float(value))
-    )
+    if not isinstance(value, Real) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def validate_render_dir(
