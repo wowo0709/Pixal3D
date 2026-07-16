@@ -44,7 +44,7 @@ def _atomic_write_csv(frame, path):
 
 def _list_optional_directory(path):
     path = Path(path)
-    return os.listdir(path) if path.is_dir() else []
+    return sorted(os.listdir(path)) if path.is_dir() else []
 
 
 def update_metadata(path, opt):
@@ -157,7 +157,16 @@ def _is_view_dir(dirname):
 
 
 if __name__ == '__main__':
-    dataset_utils = importlib.import_module(f'datasets.{sys.argv[1]}')
+    dataset_name = (
+        sys.argv[1]
+        if len(sys.argv) > 1 and not sys.argv[1].startswith('-')
+        else None
+    )
+    dataset_utils = (
+        importlib.import_module(f'datasets.{dataset_name}')
+        if dataset_name is not None
+        else None
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
@@ -192,8 +201,11 @@ if __name__ == '__main__':
     parser.add_argument('--record_start', type=int)
     parser.add_argument('--rebuild', action='store_true',
                         help='Rebuild metadata from scratch, ignore existing metadata.')
-    dataset_utils.add_args(parser)
-    opt = parser.parse_args(sys.argv[2:])
+    if dataset_utils is not None:
+        dataset_utils.add_args(parser)
+    opt = parser.parse_args(sys.argv[2:] if dataset_name is not None else sys.argv[1:])
+    if dataset_utils is None:
+        parser.error('dataset name is required')
     opt = edict(vars(opt))
     opt.download_root = opt.download_root or opt.root
     opt.thumbnail_root = opt.thumbnail_root or opt.root

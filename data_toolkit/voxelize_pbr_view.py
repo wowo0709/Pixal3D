@@ -8,11 +8,13 @@ import copy
 import sys
 import importlib
 import argparse
-import inspect
 import json
 import math
+import multiprocessing
 from pathlib import Path
+import signal
 import tempfile
+import traceback
 import pandas as pd
 import pickle
 import numpy as np
@@ -60,7 +62,12 @@ def _atomic_write_vxz(path, coord, attr, native_threads):
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         _sync_parent(path)
-        return o_voxel.io.read_vxz_info(str(path)) or info
+        try:
+            return o_voxel.io.read_vxz_info(str(path)) or info
+        except Exception:
+            path.unlink(missing_ok=True)
+            _sync_parent(path)
+            raise
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -93,6 +100,123 @@ def _read_vxz_output(vxz_path, scale_path):
     info = o_voxel.io.read_vxz_info(str(vxz_path))
     validate_scale(Path(scale_path))
     return info
+
+
+def _publish_vxz_pair(
+    vxz_path,
+    scale_path,
+    scale_info,
+    coord,
+    attr,
+    native_threads,
+):
+    vxz_path = Path(vxz_path)
+    scale_path = Path(scale_path)
+    scale_published = False
+    try:
+        atomic_write_json(scale_path, scale_info)
+        scale_published = True
+        validate_scale(scale_path)
+        return _atomic_write_vxz(
+            vxz_path,
+            coord,
+            attr,
+            native_threads=native_threads,
+        )
+    except Exception:
+        vxz_path.unlink(missing_ok=True)
+        if scale_published:
+            scale_path.unlink(missing_ok=True)
+        if vxz_path.parent.exists():
+            _sync_parent(vxz_path)
+        raise
+
+
+def _foreach_child(
+    result_path,
+    error_path,
+    dataset_utils,
+    metadata,
+    output_dir,
+    func,
+    max_workers,
+    desc,
+):
+    os.setsid()
+    try:
+        result = dataset_utils.foreach_instance(
+            metadata,
+            output_dir,
+            func,
+            max_workers=max_workers,
+            desc=desc,
+        )
+        with Path(result_path).open('wb') as stream:
+            pickle.dump(result, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        Path(error_path).write_text(traceback.format_exc())
+
+
+def _terminate_process_group(process):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        process.terminate()
+    process.join(0.5)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        if process.is_alive():
+            process.kill()
+    process.join(0.5)
+    if process.is_alive():
+        raise RuntimeError(f'could not kill worker process group {process.pid}')
+
+
+def _run_foreach_bounded(
+    dataset_utils,
+    metadata,
+    output_dir,
+    func,
+    max_workers,
+    desc,
+    timeout_seconds,
+):
+    context = multiprocessing.get_context('fork')
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        result_path = Path(temporary_dir) / 'result.pickle'
+        error_path = Path(temporary_dir) / 'error.txt'
+        process = context.Process(
+            target=_foreach_child,
+            args=(
+                result_path,
+                error_path,
+                dataset_utils,
+                metadata,
+                output_dir,
+                func,
+                max_workers,
+                desc,
+            ),
+        )
+        process.start()
+        process.join(timeout_seconds)
+        if process.is_alive():
+            _terminate_process_group(process)
+            process.close()
+            raise TimeoutError(
+                f'{desc} timed out after {timeout_seconds} seconds'
+            )
+        exit_code = process.exitcode
+        process.close()
+        if error_path.exists():
+            raise RuntimeError(error_path.read_text())
+        if exit_code != 0 or not result_path.exists():
+            raise RuntimeError(f'{desc} worker exited with code {exit_code}')
+        with result_path.open('rb') as stream:
+            return pickle.load(stream)
 
 
 # ==================== PBR-specific transform functions ====================
@@ -447,20 +571,18 @@ def _pbr_voxelize_view(
 
                     # Save .vxz file
                     os.makedirs(sha256_dir, exist_ok=True)
-                    _atomic_write_vxz(
-                        vxz_path,
-                        coord,
-                        attr,
-                        native_threads=native_threads,
-                    )
-
-                    # Save scale info
                     scale_info = {
                         'view_idx': view_idx,
                         'total_scale': float(total_scale),
                     }
-                    atomic_write_json(Path(scale_path), scale_info)
-                    validate_scale(Path(scale_path))
+                    _publish_vxz_pair(
+                        vxz_path,
+                        scale_path,
+                        scale_info,
+                        coord,
+                        attr,
+                        native_threads=native_threads,
+                    )
 
                     pack[f'pbr_voxelized_view_fix{view_idx:02d}_{res}'] = True
                     pack[f'num_pbr_voxels_view_fix{view_idx:02d}_{res}'] = len(coord)
@@ -641,14 +763,14 @@ if __name__ == '__main__':
                    resolutions=opt.resolution,
                    native_threads=opt.native_threads,
                    view_indices=view_indices)
-    foreach_kwargs = {
-        'max_workers': opt.max_workers,
-        'desc': 'Voxelizing PBR views',
-    }
-    if 'timeout' in inspect.signature(dataset_utils.foreach_instance).parameters:
-        foreach_kwargs['timeout'] = opt.timeout_seconds
-    pbr_voxelized = dataset_utils.foreach_instance(
-        metadata, opt.root, func, **foreach_kwargs
+    pbr_voxelized = _run_foreach_bounded(
+        dataset_utils,
+        metadata,
+        opt.root,
+        func,
+        max_workers=opt.max_workers,
+        desc='Voxelizing PBR views',
+        timeout_seconds=opt.timeout_seconds,
     )
 
     # Processing summary

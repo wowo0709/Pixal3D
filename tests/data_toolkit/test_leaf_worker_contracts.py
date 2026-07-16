@@ -1,7 +1,11 @@
 import importlib
+import json
+import os
 import pickle
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +14,7 @@ import pandas as pd
 import pytest
 import torch
 
-from data_toolkit.pipeline.validation import validate_sparse_latent
+from data_toolkit.pipeline.validation import ValidationError, validate_sparse_latent
 
 
 CPU_SCRIPTS = (
@@ -61,10 +65,60 @@ def test_voxel_native_thread_bound(script):
     assert "--native_threads" in result.stdout
 
 
+def test_build_metadata_help_does_not_import_help_as_a_dataset():
+    result = _help("build_metadata.py")
+
+    assert result.returncode == 0, result.stderr
+    assert "--from_merged_records" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+    ),
+)
+@pytest.mark.parametrize("bad_coordinate", (-1, 256))
+def test_sparse_coordinates_are_rejected_before_uint8_narrowing(
+    tmp_path, module_name, bad_coordinate
+):
+    worker = importlib.import_module(module_name)
+    source_scale = tmp_path / "source_scale.json"
+    source_scale.write_text('{"total_scale": 1.0}')
+    destination_scale = tmp_path / "view00_scale.json"
+    output = tmp_path / "view00.npz"
+
+    def encode():
+        return SimpleNamespace(
+            feats=torch.tensor([[1.0]], dtype=torch.float32),
+            coords=torch.tensor(
+                [[0, bad_coordinate, 0, 0]], dtype=torch.int64
+            ),
+        )
+
+    with pytest.raises(ValueError, match="coordinate"):
+        worker._encode_sparse_output(
+            output,
+            encode,
+            grid_resolution=1024,
+            latent_dtype="float32",
+            scale_source=source_scale,
+            scale_destination=destination_scale,
+        )
+
+    assert not output.exists()
+    assert not destination_scale.exists()
+    assert not list(tmp_path.glob(".*.npz"))
+
+
 def test_corrupt_sparse_output_is_replaced_by_one_stubbed_asset(tmp_path):
     worker = importlib.import_module("data_toolkit.encode_shape_latent_view")
     output = tmp_path / "view00.npz"
     output.write_bytes(b"not an npz")
+    source_scale = tmp_path / "source_scale.json"
+    source_scale.write_text('{"total_scale": 1.0}')
+    destination_scale = tmp_path / "view00_scale.json"
     input_marker = object()
 
     class StubEncoder:
@@ -84,6 +138,8 @@ def test_corrupt_sparse_output_is_replaced_by_one_stubbed_asset(tmp_path):
         lambda: encoder(input_marker),
         grid_resolution=16,
         latent_dtype="float16",
+        scale_source=source_scale,
+        scale_destination=destination_scale,
     )
 
     assert encoder.calls == 1
@@ -92,11 +148,15 @@ def test_corrupt_sparse_output_is_replaced_by_one_stubbed_asset(tmp_path):
     with np.load(output, allow_pickle=False) as data:
         assert data["feats"].dtype == np.float16
         assert data["coords"].dtype == np.uint8
+    assert json.loads(destination_scale.read_text()) == {"total_scale": 1.0}
 
 
 def test_invalid_sparse_encoder_result_is_not_published(tmp_path):
     worker = importlib.import_module("data_toolkit.encode_shape_latent_view")
     output = tmp_path / "view00.npz"
+    source_scale = tmp_path / "source_scale.json"
+    source_scale.write_text('{"total_scale": 1.0}')
+    destination_scale = tmp_path / "view00_scale.json"
 
     def encode():
         return SimpleNamespace(
@@ -110,10 +170,152 @@ def test_invalid_sparse_encoder_result_is_not_published(tmp_path):
             encode,
             grid_resolution=16,
             latent_dtype="float32",
+            scale_source=source_scale,
+            scale_destination=destination_scale,
         )
 
     assert not output.exists()
-    assert not list(tmp_path.iterdir())
+    assert not destination_scale.exists()
+    assert not list(tmp_path.glob(".*.npz"))
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+    ),
+)
+@pytest.mark.parametrize("source_contents", (None, "not-json"))
+def test_sparse_encoder_requires_valid_source_scale(
+    tmp_path, module_name, source_contents
+):
+    worker = importlib.import_module(module_name)
+    output = tmp_path / "view00.npz"
+    destination_scale = tmp_path / "view00_scale.json"
+    source_scale = tmp_path / "source_scale.json"
+    if source_contents is not None:
+        source_scale.write_text(source_contents)
+    encoder_called = False
+
+    def encode():
+        nonlocal encoder_called
+        encoder_called = True
+        raise AssertionError("scale must be checked before encoding")
+
+    with pytest.raises(Exception, match="scale metadata"):
+        worker._encode_sparse_output(
+            output,
+            encode,
+            grid_resolution=16,
+            latent_dtype="float32",
+            scale_source=source_scale,
+            scale_destination=destination_scale,
+        )
+
+    assert not encoder_called
+    assert not output.exists()
+    assert not destination_scale.exists()
+
+
+@pytest.mark.parametrize("source_contents", (None, "not-json"))
+def test_ss_encoder_requires_valid_source_scale(tmp_path, source_contents):
+    worker = importlib.import_module("data_toolkit.encode_ss_latent_view")
+    encoder_called = False
+    source_scale = tmp_path / "source_scale.json"
+    if source_contents is not None:
+        source_scale.write_text(source_contents)
+
+    def encode():
+        nonlocal encoder_called
+        encoder_called = True
+        raise AssertionError("scale must be checked before encoding")
+
+    with pytest.raises(Exception, match="scale metadata"):
+        worker._encode_ss_output(
+            tmp_path / "view00.npz",
+            encode,
+            latent_dtype="float32",
+            scale_source=source_scale,
+            scale_destination=tmp_path / "view00_scale.json",
+        )
+
+    assert not encoder_called
+    assert not (tmp_path / "view00.npz").exists()
+    assert not (tmp_path / "view00_scale.json").exists()
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+    ),
+)
+def test_sparse_pair_cleanup_when_final_reopen_fails(
+    monkeypatch, tmp_path, module_name
+):
+    worker = importlib.import_module(module_name)
+    output = tmp_path / "view00.npz"
+    source_scale = tmp_path / "source_scale.json"
+    source_scale.write_text('{"total_scale": 1.0}')
+    destination_scale = tmp_path / "view00_scale.json"
+    real_validate = worker.validate_sparse_latent
+
+    def fail_final(path, grid_resolution, max_tokens):
+        if Path(path) == output:
+            raise ValidationError("injected final reopen failure")
+        return real_validate(path, grid_resolution, max_tokens)
+
+    monkeypatch.setattr(worker, "validate_sparse_latent", fail_final)
+    z = SimpleNamespace(
+        feats=torch.tensor([[1.0]], dtype=torch.float32),
+        coords=torch.tensor([[0, 1, 2, 3]], dtype=torch.int64),
+    )
+
+    with pytest.raises(ValidationError, match="injected"):
+        worker._encode_sparse_output(
+            output,
+            lambda: z,
+            grid_resolution=16,
+            latent_dtype="float32",
+            scale_source=source_scale,
+            scale_destination=destination_scale,
+        )
+
+    assert not output.exists()
+    assert not destination_scale.exists()
+    assert not list(tmp_path.glob(".*.npz"))
+
+
+def test_ss_pair_cleanup_when_final_reopen_fails(monkeypatch, tmp_path):
+    worker = importlib.import_module("data_toolkit.encode_ss_latent_view")
+    output = tmp_path / "view00.npz"
+    source_scale = tmp_path / "source_scale.json"
+    source_scale.write_text('{"total_scale": 1.0}')
+    destination_scale = tmp_path / "view00_scale.json"
+    real_validate = worker.validate_ss_latent
+
+    def fail_final(path):
+        if Path(path) == output:
+            raise ValidationError("injected final reopen failure")
+        return real_validate(path)
+
+    monkeypatch.setattr(worker, "validate_ss_latent", fail_final)
+    z = torch.tensor([[1.0]], dtype=torch.float32)
+
+    with pytest.raises(ValidationError, match="injected"):
+        worker._encode_ss_output(
+            output,
+            lambda: z,
+            latent_dtype="float32",
+            scale_source=source_scale,
+            scale_destination=destination_scale,
+        )
+
+    assert not output.exists()
+    assert not destination_scale.exists()
+    assert not list(tmp_path.glob(".*.npz"))
 
 
 @pytest.mark.parametrize(
@@ -150,6 +352,45 @@ def test_dump_worker_propagates_timeout_and_reopens_pickle(
 
 
 @pytest.mark.parametrize(
+    ("module_name", "function_name", "directory"),
+    (
+        ("data_toolkit.dump_mesh", "_dump_mesh", "mesh_dumps"),
+        ("data_toolkit.dump_pbr", "_dump_pbr", "pbr_dumps"),
+    ),
+)
+def test_dump_removes_final_when_post_replace_reopen_fails(
+    monkeypatch, tmp_path, module_name, function_name, directory
+):
+    worker = importlib.import_module(module_name)
+
+    def fake_run(args, **kwargs):
+        temporary = Path(args[args.index("--output_path") + 1])
+        with temporary.open("wb") as stream:
+            pickle.dump({"objects": []}, stream)
+        return SimpleNamespace(returncode=0)
+
+    real_read = worker._read_pickle
+
+    def fail_final(path):
+        path = Path(path)
+        if path.name == "abc123.pickle":
+            raise ValueError("injected final reopen failure")
+        return real_read(path)
+
+    monkeypatch.setattr(worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(worker, "_read_pickle", fail_final)
+
+    with pytest.raises(ValueError, match="injected"):
+        getattr(worker, function_name)(
+            "fixture.glb", "abc123", str(tmp_path), timeout_seconds=17
+        )
+
+    output_dir = tmp_path / directory
+    assert not (output_dir / "abc123.pickle").exists()
+    assert not list(output_dir.glob(".abc123.pickle.*"))
+
+
+@pytest.mark.parametrize(
     "module_name",
     ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
 )
@@ -182,6 +423,191 @@ def test_vxz_writer_uses_native_thread_bound_and_native_temp_suffix(
     assert not list(output.parent.glob(".*.vxz"))
 
 
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_vxz_pair_cleanup_when_final_reopen_fails(
+    monkeypatch, tmp_path, module_name
+):
+    worker = importlib.import_module(module_name)
+    output = tmp_path / "asset" / "view00.vxz"
+    scale = output.with_name("view00_scale.json")
+
+    def fake_write(path, coord, attr, num_threads):
+        Path(path).write_bytes(b"valid-vxz")
+
+    def fake_read(path):
+        if Path(path) == output:
+            raise ValueError("injected final reopen failure")
+        return {"num_voxel": 3}
+
+    monkeypatch.setattr(worker.o_voxel.io, "write_vxz", fake_write)
+    monkeypatch.setattr(worker.o_voxel.io, "read_vxz_info", fake_read)
+
+    with pytest.raises(ValueError, match="injected"):
+        worker._publish_vxz_pair(
+            output,
+            scale,
+            {"total_scale": 1.0},
+            object(),
+            {},
+            native_threads=5,
+        )
+
+    assert not output.exists()
+    assert not scale.exists()
+    assert not list(output.parent.glob(".*.vxz"))
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_vxz_pair_rejects_invalid_scale_before_final_marker(
+    monkeypatch, tmp_path, module_name
+):
+    worker = importlib.import_module(module_name)
+    output = tmp_path / "asset" / "view00.vxz"
+    scale = output.with_name("view00_scale.json")
+    writer_called = False
+
+    def fake_write(path, coord, attr, num_threads):
+        nonlocal writer_called
+        writer_called = True
+
+    monkeypatch.setattr(worker.o_voxel.io, "write_vxz", fake_write)
+
+    with pytest.raises(Exception, match="scale metadata"):
+        worker._publish_vxz_pair(
+            output,
+            scale,
+            {"total_scale": float("nan")},
+            object(),
+            {},
+            native_threads=5,
+        )
+
+    assert not writer_called
+    assert not output.exists()
+    assert not scale.exists()
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
+def test_voxel_adapter_timeout_kills_process_group(
+    tmp_path, module_name
+):
+    worker = importlib.import_module(module_name)
+    pid_path = tmp_path / f"{module_name.rsplit('.', 1)[-1]}.pid"
+
+    class HangingAdapter:
+        @staticmethod
+        def foreach_instance(*args, **kwargs):
+            pid_path.write_text(str(os.getpid()))
+            while True:
+                time.sleep(1)
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="timed out"):
+        worker._run_foreach_bounded(
+            HangingAdapter,
+            pd.DataFrame([{"sha256": "asset"}]),
+            str(tmp_path),
+            lambda *args: None,
+            max_workers=1,
+            desc="fixture",
+            timeout_seconds=0.25,
+        )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0
+    child_pid = int(pid_path.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+        "data_toolkit.encode_ss_latent_view",
+    ),
+)
+def test_encoder_pipeline_returns_boundedly_from_stuck_loader(module_name):
+    worker = importlib.import_module(module_name)
+    release = threading.Event()
+
+    def load(task, cancel):
+        release.wait()
+        return None, None
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="loader"):
+            worker._run_bounded_pipeline(
+                [("asset", 0)],
+                load=load,
+                process=lambda task, payload: payload,
+                save=lambda task, payload, cancel: None,
+                cleanup=lambda task: None,
+                loader_workers=1,
+                saver_workers=1,
+                timeout_seconds=0.2,
+            )
+    finally:
+        release.set()
+
+    assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+        "data_toolkit.encode_ss_latent_view",
+    ),
+)
+def test_encoder_pipeline_cancels_stuck_saver_without_publication(
+    tmp_path, module_name
+):
+    worker = importlib.import_module(module_name)
+    release = threading.Event()
+    marker = tmp_path / "published"
+    cleaned = []
+
+    def save(task, payload, cancel):
+        release.wait()
+        if not cancel.is_set():
+            marker.write_text("published")
+        return {"sha256": task[0]}
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="saver"):
+            worker._run_bounded_pipeline(
+                [("asset", 0)],
+                load=lambda task, cancel: (object(), None),
+                process=lambda task, payload: payload,
+                save=save,
+                cleanup=lambda task: cleaned.append(task),
+                loader_workers=1,
+                saver_workers=1,
+                timeout_seconds=0.2,
+            )
+    finally:
+        release.set()
+        time.sleep(0.05)
+
+    assert time.monotonic() - started < 1.0
+    assert cleaned == [("asset", 0)]
+    assert not marker.exists()
+
+
 def test_build_metadata_reads_merged_records_from_the_selected_directory(tmp_path):
     worker = importlib.import_module("data_toolkit.build_metadata")
     path = tmp_path / "mesh_dumps"
@@ -201,6 +627,25 @@ def test_build_metadata_reads_merged_records_from_the_selected_directory(tmp_pat
     assert list(metadata.index) == ["merged"]
     assert merged.exists()
     assert not (path / "metadata.csv.tmp").exists()
+
+
+def test_merged_records_are_applied_in_sorted_order(tmp_path):
+    worker = importlib.import_module("data_toolkit.build_metadata")
+    path = tmp_path / "mesh_dumps"
+    merged = path / "merged_records"
+    merged.mkdir(parents=True)
+    (path / "new_records").mkdir()
+    pd.DataFrame([{"sha256": "same", "value": "newer"}]).to_csv(
+        merged / "200_part_0.csv", index=False
+    )
+    pd.DataFrame([{"sha256": "same", "value": "older"}]).to_csv(
+        merged / "100_part_0.csv", index=False
+    )
+    opt = SimpleNamespace(from_merged_records=True, record_start=0)
+
+    metadata = worker.update_metadata(path, opt)
+
+    assert metadata.loc["same", "value"] == "newer"
 
 
 def test_missing_optional_directory_is_an_empty_input(tmp_path):

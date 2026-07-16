@@ -113,7 +113,12 @@ def _dump_mesh(file_path, sha256, root, timeout_seconds=900):
             os.fsync(stream.fileno())
         os.replace(temporary, output_path)
         _sync_parent(output_path)
-        _read_pickle(output_path)
+        try:
+            _read_pickle(output_path)
+        except Exception:
+            output_path.unlink(missing_ok=True)
+            _sync_parent(output_path)
+            raise
         return {'sha256': sha256, 'mesh_dumped': True}
     finally:
         if temporary is not None:

@@ -9,9 +9,9 @@ import torch
 import numpy as np
 import pandas as pd
 import o_voxel
-from tqdm import tqdm
+import threading
+import time
 from easydict import EasyDict as edict
-from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, Full, Queue
 
 if __package__:
@@ -89,6 +89,31 @@ def _existing_sparse_tokens(path, grid_resolution):
         return None
 
 
+def _coordinates_to_uint8(coords, grid_resolution):
+    coords = np.asarray(coords)
+    if coords.ndim != 2 or coords.shape[1] != 3:
+        raise ValueError(f'invalid coordinate shape: {coords.shape}')
+    if not (
+        np.issubdtype(coords.dtype, np.integer)
+        or np.issubdtype(coords.dtype, np.floating)
+    ):
+        raise ValueError(f'invalid coordinate dtype: {coords.dtype}')
+    if not np.isfinite(coords).all():
+        raise ValueError('coordinates must be finite')
+    if not np.equal(coords, np.trunc(coords)).all():
+        raise ValueError('coordinates must be integral')
+    if (coords < 0).any():
+        raise ValueError('coordinates must be non-negative')
+    if (coords >= grid_resolution).any():
+        raise ValueError('coordinates outside grid resolution')
+    if (coords > np.iinfo(np.uint8).max).any():
+        raise ValueError('coordinates exceed uint8 storage range')
+    narrowed = coords.astype(np.uint8)
+    if not np.array_equal(narrowed.astype(np.float64), coords.astype(np.float64)):
+        raise ValueError('coordinate narrowing to uint8 was not lossless')
+    return narrowed
+
+
 def _publish_sparse_latent(path, feats, coords, grid_resolution):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,64 +134,252 @@ def _publish_sparse_latent(path, feats, coords, grid_resolution):
         )
         os.replace(temporary, path)
         _sync_parent(path)
-        validate_sparse_latent(
-            path,
-            grid_resolution=grid_resolution,
-            max_tokens=grid_resolution**3,
-        )
+        try:
+            validate_sparse_latent(
+                path,
+                grid_resolution=grid_resolution,
+                max_tokens=grid_resolution**3,
+            )
+        except Exception:
+            path.unlink(missing_ok=True)
+            _sync_parent(path)
+            raise
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
 
 def _encode_sparse_output(
-    path, encode, grid_resolution, latent_dtype='float32'
+    path,
+    encode,
+    grid_resolution,
+    latent_dtype='float32',
+    scale_source=None,
+    scale_destination=None,
+    cancel_event=None,
 ):
     path = Path(path)
+    scale_source = Path(scale_source) if scale_source is not None else Path('')
+    scale_destination = (
+        Path(scale_destination) if scale_destination is not None else Path('')
+    )
+    validate_scale(scale_source)
     existing_tokens = _existing_sparse_tokens(path, grid_resolution)
     if existing_tokens is not None:
-        return existing_tokens
+        try:
+            validate_scale(scale_destination)
+            return existing_tokens
+        except Exception:
+            path.unlink(missing_ok=True)
+            scale_destination.unlink(missing_ok=True)
 
     z = encode()
     if not torch.isfinite(z.feats).all() or not torch.isfinite(z.coords).all():
         raise ValueError('encoder produced a non-finite sparse latent')
     feature_dtype = np.float16 if latent_dtype == 'float16' else np.float32
-    _publish_sparse_latent(
-        path,
-        feats=z.feats.cpu().numpy().astype(feature_dtype),
-        coords=z.coords[:, 1:].cpu().numpy().astype(np.uint8),
-        grid_resolution=grid_resolution,
-    )
+    raw_coords = z.coords[:, 1:].cpu().numpy()
+    coords = _coordinates_to_uint8(raw_coords, grid_resolution)
+    copied_scale = False
+    try:
+        if scale_destination.exists():
+            try:
+                validate_scale(scale_destination)
+            except Exception:
+                scale_destination.unlink(missing_ok=True)
+        if not scale_destination.exists():
+            atomic_copy(scale_source, scale_destination)
+            copied_scale = True
+        validate_scale(scale_destination)
+        if cancel_event is not None and cancel_event.is_set():
+            raise TimeoutError('saver cancelled before latent publication')
+        _publish_sparse_latent(
+            path,
+            feats=z.feats.cpu().numpy().astype(feature_dtype),
+            coords=coords,
+            grid_resolution=grid_resolution,
+        )
+        if cancel_event is not None and cancel_event.is_set():
+            raise TimeoutError('saver cancelled after latent publication')
+    except Exception:
+        path.unlink(missing_ok=True)
+        if copied_scale:
+            scale_destination.unlink(missing_ok=True)
+        raise
     return int(z.coords.shape[0])
 
 
-def _copy_valid_scale(source, destination):
-    source = Path(source)
-    destination = Path(destination)
-    if destination.exists():
+def _put_cancellable(queue, item, cancel_event):
+    while not cancel_event.is_set():
         try:
-            validate_scale(destination)
-            return
-        except Exception:
-            destination.unlink(missing_ok=True)
-    if not source.exists():
-        return
-    try:
-        validate_scale(source)
-    except Exception as error:
-        print(f'[Scale Skip] Invalid source {source}: {error}')
-        return
-    atomic_copy(source, destination)
-    validate_scale(destination)
+            queue.put(item, timeout=0.05)
+            return True
+        except Full:
+            continue
+    return False
 
 
-def _put_with_timeout(queue, item, timeout_seconds):
+def _worker_error(error_queue):
     try:
-        queue.put(item, timeout=timeout_seconds)
-        return True
-    except Full:
-        print(f'[Loader Timeout] Output queue stayed full for {timeout_seconds}s')
-        return False
+        stage, task, error = error_queue.get_nowait()
+    except Empty:
+        return None
+    return RuntimeError(f'{stage} failed for {task}: {error}')
+
+
+def _wait_for_result(queue, error_queue, timeout_seconds, stage):
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        error = _worker_error(error_queue)
+        if error is not None:
+            raise error
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f'{stage} inactivity timed out after {timeout_seconds} seconds'
+            )
+        try:
+            return queue.get(timeout=min(0.05, remaining))
+        except Empty:
+            continue
+
+
+def _run_bounded_pipeline(
+    tasks,
+    load,
+    process,
+    save,
+    cleanup,
+    loader_workers,
+    saver_workers,
+    timeout_seconds,
+):
+    tasks = list(tasks)
+    cancel_event = threading.Event()
+    loader_tasks = Queue(maxsize=max(2, loader_workers * 2))
+    loader_results = Queue(maxsize=max(2, loader_workers * 2))
+    saver_tasks = Queue(maxsize=max(2, saver_workers * 2))
+    saver_results = Queue(maxsize=max(2, saver_workers * 2))
+    errors = Queue(maxsize=max(2, loader_workers + saver_workers))
+    sentinel = object()
+
+    def report_error(stage, task, error):
+        try:
+            errors.put_nowait((stage, task, error))
+        except Full:
+            pass
+        cancel_event.set()
+
+    def produce():
+        for task in tasks:
+            if not _put_cancellable(loader_tasks, task, cancel_event):
+                return
+        for _ in range(loader_workers):
+            if not _put_cancellable(loader_tasks, sentinel, cancel_event):
+                return
+
+    def loader_worker():
+        while not cancel_event.is_set():
+            try:
+                task = loader_tasks.get(timeout=0.05)
+            except Empty:
+                continue
+            if task is sentinel:
+                return
+            try:
+                result = load(task, cancel_event)
+            except BaseException as error:
+                report_error('loader', task, error)
+                return
+            if not _put_cancellable(
+                loader_results, (task, result), cancel_event
+            ):
+                return
+
+    def saver_worker():
+        while not cancel_event.is_set():
+            try:
+                task, payload = saver_tasks.get(timeout=0.05)
+            except Empty:
+                continue
+            try:
+                record = save(task, payload, cancel_event)
+            except BaseException as error:
+                report_error('saver', task, error)
+                return
+            if not _put_cancellable(
+                saver_results, (task, record), cancel_event
+            ):
+                return
+
+    threads = [threading.Thread(target=produce, daemon=True)]
+    threads.extend(
+        threading.Thread(target=loader_worker, daemon=True)
+        for _ in range(loader_workers)
+    )
+    threads.extend(
+        threading.Thread(target=saver_worker, daemon=True)
+        for _ in range(saver_workers)
+    )
+    for thread in threads:
+        thread.start()
+
+    records = []
+    pending_saves = []
+
+    def drain_savers():
+        while True:
+            error = _worker_error(errors)
+            if error is not None:
+                raise error
+            try:
+                task, record = saver_results.get_nowait()
+            except Empty:
+                return
+            pending_saves.remove(task)
+            if record is not None:
+                records.append(record)
+
+    try:
+        for _ in range(len(tasks)):
+            drain_savers()
+            task, (payload, immediate_record) = _wait_for_result(
+                loader_results, errors, timeout_seconds, 'loader'
+            )
+            if immediate_record is not None:
+                records.append(immediate_record)
+            if payload is None:
+                continue
+            save_payload = process(task, payload)
+            if save_payload is None:
+                continue
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                drain_savers()
+                try:
+                    saver_tasks.put_nowait((task, save_payload))
+                    pending_saves.append(task)
+                    break
+                except Full:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            'saver queue timed out while awaiting capacity'
+                        )
+                    time.sleep(0.01)
+        while pending_saves:
+            task, record = _wait_for_result(
+                saver_results, errors, timeout_seconds, 'saver'
+            )
+            pending_saves.remove(task)
+            if record is not None:
+                records.append(record)
+        return records
+    except BaseException:
+        cancel_event.set()
+        for task in list(pending_saves):
+            cleanup(task)
+        raise
+    finally:
+        cancel_event.set()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -292,145 +505,101 @@ if __name__ == '__main__':
 
     print(f'Total tasks to validate or process: {len(tasks)}')
 
-    load_queue = Queue(maxsize=max(2, opt.loader_workers * 2))
-    saver_futures = []
+    def task_paths(task):
+        sha256, view_idx = task
+        output_path = Path(opt.shape_latent_root) / 'shape_latents' / latent_view_name / sha256 / f'view{view_idx:02d}.npz'
+        source_scale = Path(opt.dual_grid_root) / f'dual_grid_view_{opt.resolution}' / sha256 / f'view{view_idx:02d}_scale.json'
+        destination_scale = output_path.with_name(f'view{view_idx:02d}_scale.json')
+        vxz_path = Path(opt.dual_grid_root) / f'dual_grid_view_{opt.resolution}' / sha256 / f'view{view_idx:02d}.vxz'
+        return output_path, source_scale, destination_scale, vxz_path
 
-    with ThreadPoolExecutor(max_workers=opt.loader_workers) as loader_executor, \
-         ThreadPoolExecutor(max_workers=opt.saver_workers) as saver_executor:
-
-        def loader(task):
-            sha256, view_idx = task
+    def load(task, cancel_event):
+        sha256, view_idx = task
+        output_path, source_scale, destination_scale, vxz_path = task_paths(task)
+        num_tokens = _existing_sparse_tokens(output_path, opt.resolution)
+        if num_tokens is not None:
             try:
-                output_path = os.path.join(
-                    opt.shape_latent_root, 
-                    'shape_latents', 
-                    latent_view_name, 
-                    sha256, 
-                    f'view{view_idx:02d}.npz'
-                )
-                num_tokens = _existing_sparse_tokens(output_path, opt.resolution)
-                if num_tokens is not None:
-                    src_scale_path = Path(opt.dual_grid_root) / f'dual_grid_view_{opt.resolution}' / sha256 / f'view{view_idx:02d}_scale.json'
-                    dst_scale_path = Path(output_path).with_name(f'view{view_idx:02d}_scale.json')
-                    _copy_valid_scale(src_scale_path, dst_scale_path)
-                    records.append({
-                        'sha256': sha256,
-                        f'shape_latent_view{view_idx:02d}_encoded': True,
-                        f'shape_latent_view{view_idx:02d}_tokens': num_tokens,
-                    })
-                    _put_with_timeout(
-                        load_queue,
-                        (sha256, view_idx, None, None),
-                        opt.timeout_seconds,
-                    )
-                    return
-                
-                # dual_grid_view path: dual_grid_view_{res}/{sha256}/view{idx:02d}.vxz
-                vxz_path = os.path.join(
-                    opt.dual_grid_root, 
-                    f'dual_grid_view_{opt.resolution}', 
-                    sha256, 
-                    f'view{view_idx:02d}.vxz'
-                )
-                
-                if not os.path.exists(vxz_path):
-                    print(f"[Loader Skip] {sha256}/view{view_idx:02d}: vxz file not found")
-                    _put_with_timeout(
-                        load_queue,
-                        (sha256, view_idx, None, None),
-                        opt.timeout_seconds,
-                    )
-                    return
-                
-                coords, attr = o_voxel.io.read_vxz(vxz_path, num_threads=1)
-                vertices = sp.SparseTensor(
-                    (attr['vertices'] / 255.0).float(),
-                    torch.cat([torch.zeros_like(coords[:, 0:1]), coords], dim=-1),
-                )
-                intersected = vertices.replace(torch.cat([
-                    attr['intersected'] % 2,
-                    attr['intersected'] // 2 % 2,
-                    attr['intersected'] // 4 % 2,
-                ], dim=-1).bool())
-                _put_with_timeout(
-                    load_queue,
-                    (sha256, view_idx, vertices, intersected),
-                    opt.timeout_seconds,
-                )
-            except Exception as e:
-                print(f"[Loader Error] {sha256}/view{view_idx:02d}: {e}")
-                _put_with_timeout(
-                    load_queue,
-                    (sha256, view_idx, None, None),
-                    opt.timeout_seconds,
-                )
+                validate_scale(source_scale)
+                validate_scale(destination_scale)
+                return None, {
+                    'sha256': sha256,
+                    f'shape_latent_view{view_idx:02d}_encoded': True,
+                    f'shape_latent_view{view_idx:02d}_tokens': num_tokens,
+                }
+            except Exception as error:
+                output_path.unlink(missing_ok=True)
+                destination_scale.unlink(missing_ok=True)
+                print(f'[Loader Repair] {sha256}/view{view_idx:02d}: {error}')
+        try:
+            validate_scale(source_scale)
+        except Exception as error:
+            print(f'[Loader Skip] {sha256}/view{view_idx:02d}: {error}')
+            return None, None
+        if not vxz_path.exists():
+            print(f'[Loader Skip] {sha256}/view{view_idx:02d}: vxz file not found')
+            return None, None
+        coords, attr = o_voxel.io.read_vxz(str(vxz_path), num_threads=1)
+        vertices = sp.SparseTensor(
+            (attr['vertices'] / 255.0).float(),
+            torch.cat([torch.zeros_like(coords[:, 0:1]), coords], dim=-1),
+        )
+        intersected = vertices.replace(torch.cat([
+            attr['intersected'] % 2,
+            attr['intersected'] // 2 % 2,
+            attr['intersected'] // 4 % 2,
+        ], dim=-1).bool())
+        return (vertices, intersected), None
 
-        loader_executor.map(loader, tasks)
-        
-        def saver(sha256, view_idx, z):
-            sha256_dir = os.path.join(opt.shape_latent_root, 'shape_latents', latent_view_name, sha256)
-            os.makedirs(sha256_dir, exist_ok=True)
-            save_path = os.path.join(sha256_dir, f'view{view_idx:02d}.npz')
-            num_tokens = _encode_sparse_output(
-                save_path,
-                lambda: z,
-                grid_resolution=opt.resolution,
-                latent_dtype=opt.latent_dtype,
-            )
-            
-            # Copy scale json from dual_grid_view
-            src_scale_path = os.path.join(
-                opt.dual_grid_root,
-                f'dual_grid_view_{opt.resolution}',
-                sha256,
-                f'view{view_idx:02d}_scale.json'
-            )
-            dst_scale_path = os.path.join(sha256_dir, f'view{view_idx:02d}_scale.json')
-            _copy_valid_scale(src_scale_path, dst_scale_path)
-            
-            records.append({
-                'sha256': sha256,
-                f'shape_latent_view{view_idx:02d}_encoded': True,
-                f'shape_latent_view{view_idx:02d}_tokens': num_tokens
-            })
-            
-        for _ in tqdm(range(len(tasks)), desc="Extracting view latents"):
-            try:
-                sha256, view_idx, vertices, intersected = load_queue.get(
-                    timeout=opt.timeout_seconds
-                )
-                if vertices is None or intersected is None:
-                    continue
-                
-                num_voxels = vertices.feats.shape[0]
+    def process(task, payload):
+        sha256, view_idx = task
+        vertices, intersected = payload
+        if not (
+            is_valid_sparse_tensor(vertices)
+            and is_valid_sparse_tensor(intersected)
+        ):
+            print(f'[Skip] {sha256}/view{view_idx:02d}: NaN/Inf in input')
+            return None
+        z = encoder(vertices.cuda(), intersected.cuda())
+        torch.cuda.synchronize()
+        if not torch.isfinite(z.feats).all():
+            print(f'[Skip] {sha256}/view{view_idx:02d}: non-finite latent')
+            clear_cuda_error()
+            return None
+        return z
 
-                # NaN/Inf check
-                if not (is_valid_sparse_tensor(vertices) and is_valid_sparse_tensor(intersected)):
-                    print(f"[Skip] {sha256}/view{view_idx:02d}: NaN/Inf in input")
-                    continue
+    def save(task, z, cancel_event):
+        sha256, view_idx = task
+        output_path, source_scale, destination_scale, _ = task_paths(task)
+        num_tokens = _encode_sparse_output(
+            output_path,
+            lambda: z,
+            grid_resolution=opt.resolution,
+            latent_dtype=opt.latent_dtype,
+            scale_source=source_scale,
+            scale_destination=destination_scale,
+            cancel_event=cancel_event,
+        )
+        return {
+            'sha256': sha256,
+            f'shape_latent_view{view_idx:02d}_encoded': True,
+            f'shape_latent_view{view_idx:02d}_tokens': num_tokens,
+        }
 
-                z = encoder(vertices.cuda(), intersected.cuda())
-                torch.cuda.synchronize()
+    def cleanup(task):
+        output_path, _, destination_scale, _ = task_paths(task)
+        output_path.unlink(missing_ok=True)
+        destination_scale.unlink(missing_ok=True)
 
-                if not torch.isfinite(z.feats).all():
-                    print(f"[Skip] {sha256}/view{view_idx:02d}: Non-finite latent in z.feats")
-                    clear_cuda_error()
-                    continue
-
-                saver_futures.append(
-                    saver_executor.submit(saver, sha256, view_idx, z)
-                )
-
-            except Empty:
-                print(f'[Loader Timeout] No result received for {opt.timeout_seconds}s')
-                break
-            except Exception as e:
-                print(f"[Error] {sha256}/view{view_idx:02d} ({num_voxels} voxels): {e}")
-                clear_cuda_error()
-                continue
-
-        for future in saver_futures:
-            future.result(timeout=opt.timeout_seconds)
+    records = _run_bounded_pipeline(
+        tasks,
+        load=load,
+        process=process,
+        save=save,
+        cleanup=cleanup,
+        loader_workers=opt.loader_workers,
+        saver_workers=opt.saver_workers,
+        timeout_seconds=opt.timeout_seconds,
+    )
 
     records = pd.DataFrame.from_records(records)
     if len(records.columns) == 0:
