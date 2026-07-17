@@ -40,7 +40,12 @@ def _blender_archive(contents: dict[str, bytes]) -> bytes:
 
 def test_installer_uses_pinned_verified_archive(monkeypatch, tmp_path):
     payload = _blender_archive(
-        {f"{blender.BLENDER_DIR}/blender": b"blender fixture"}
+        {
+            f"{blender.BLENDER_DIR}/blender": b"blender fixture",
+            f"{blender.BLENDER_DIR}/4.5/python/bin/python3.11": (
+                b"#!/bin/sh\nexit 0\n"
+            ),
+        }
     )
     requests = []
 
@@ -61,7 +66,12 @@ def test_installer_uses_pinned_verified_archive(monkeypatch, tmp_path):
 
 def test_installer_sends_explicit_user_agent(monkeypatch, tmp_path):
     payload = _blender_archive(
-        {f"{blender.BLENDER_DIR}/blender": b"blender fixture"}
+        {
+            f"{blender.BLENDER_DIR}/blender": b"blender fixture",
+            f"{blender.BLENDER_DIR}/4.5/python/bin/python3.11": (
+                b"#!/bin/sh\nexit 0\n"
+            ),
+        }
     )
 
     def require_user_agent(request):
@@ -74,6 +84,35 @@ def test_installer_sends_explicit_user_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(blender, "BLENDER_SHA256", sha256(payload).hexdigest())
 
     ensure_blender(tmp_path)
+
+
+def test_existing_blender_installs_pinned_pillow_when_missing(tmp_path):
+    blender_root = tmp_path / blender.BLENDER_DIR
+    binary = blender_root / "blender"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"blender fixture")
+    bundled_python = blender_root / "4.5/python/bin/python3.11"
+    bundled_python.parent.mkdir(parents=True)
+    marker = tmp_path / "pillow-installed"
+    bundled_python.write_text(
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        "import sys\n"
+        f"marker = Path({str(marker)!r})\n"
+        "args = sys.argv[1:]\n"
+        "if args == ['-c', 'from PIL import Image']:\n"
+        "    raise SystemExit(0 if marker.exists() else 1)\n"
+        "if args[:2] == ['-m', 'ensurepip']:\n"
+        "    raise SystemExit(0)\n"
+        "if args[:2] == ['-m', 'pip'] and 'Pillow==12.3.0' in args:\n"
+        "    marker.touch()\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(2)\n"
+    )
+    bundled_python.chmod(0o755)
+
+    assert ensure_blender(tmp_path) == binary
+    assert marker.is_file()
 
 
 def _write_render_fixture(
@@ -435,7 +474,7 @@ def test_blender_script_selects_gpu_and_scales_boundary():
     ).read_text()
 
     assert "preferences.compute_device_type = arg.cycles_device" in source
-    assert 'device.use = device.type != "CPU"' in source
+    assert "device.use = device.type == arg.cycles_device" in source
     assert '"selected_devices": selected_devices' in source
     assert "130 * arg.cond_resolution / 1024" in source
     assert 'parser.add_argument("--cycles_device"' in source

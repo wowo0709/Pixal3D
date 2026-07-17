@@ -436,7 +436,7 @@ def main(arg):
     preferences.get_devices()
     selected_devices = []
     for device in preferences.devices:
-        device.use = device.type != "CPU"
+        device.use = device.type == arg.cycles_device
         if device.use:
             selected_devices.append(device.name)
     if not selected_devices:
