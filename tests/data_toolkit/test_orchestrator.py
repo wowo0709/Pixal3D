@@ -3468,17 +3468,21 @@ def test_real_asset_stats_leaf_part_is_accepted_by_production_validator(
     asset_sha = "a" * 64
     write_instances(context, (asset_sha,))
     context.metadata_root.mkdir(parents=True)
-    pd.DataFrame(
-        [
-            {
-                "sha256": asset_sha,
-                "mesh_dumped": True,
-                "pbr_dumped": False,
-            }
-        ]
-    ).to_csv(context.metadata_root / "metadata.csv", index=False)
-    dump = context.work_root / "mesh_dumps" / f"{asset_sha}.pickle"
-    dump.parent.mkdir(parents=True)
+    pd.DataFrame([{"sha256": asset_sha}]).to_csv(
+        context.metadata_root / "metadata.csv", index=False
+    )
+    mesh_records = context.work_root / "mesh_dumps/new_records"
+    mesh_records.mkdir(parents=True)
+    pd.DataFrame([{"sha256": asset_sha, "mesh_dumped": True}]).to_csv(
+        mesh_records / "part_0.csv", index=False
+    )
+    pbr_records = context.work_root / "pbr_dumps/new_records"
+    pbr_records.mkdir(parents=True)
+    pd.DataFrame([{"sha256": asset_sha, "pbr_dumped": True}]).to_csv(
+        pbr_records / "part_0.csv", index=False
+    )
+    dump = context.work_root / "pbr_dumps" / f"{asset_sha}.pickle"
+    dump.parent.mkdir(parents=True, exist_ok=True)
     with dump.open("wb") as stream:
         pickle.dump(
             {
@@ -3487,7 +3491,15 @@ def test_real_asset_stats_leaf_part_is_accepted_by_production_validator(
                         "vertices": np.zeros((3, 3)),
                         "faces": np.zeros((1, 3)),
                     }
-                ]
+                ],
+                "materials": [
+                    {
+                        "baseColorTexture": object(),
+                        "metallicTexture": None,
+                        "roughnessTexture": None,
+                        "alphaTexture": None,
+                    }
+                ],
             },
             stream,
         )

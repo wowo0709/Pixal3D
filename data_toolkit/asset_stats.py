@@ -1,10 +1,28 @@
 import os
 import argparse
 import pickle
+from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
 from easydict import EasyDict as edict
 from concurrent.futures import ThreadPoolExecutor
+
+
+def _merge_new_records(metadata, stage_root):
+    new_records = Path(stage_root) / 'new_records'
+    if not new_records.is_dir():
+        return metadata
+    for part in sorted(new_records.glob('part_*.csv')):
+        records = pd.read_csv(part)
+        if records.empty:
+            continue
+        if 'sha256' not in records.columns:
+            raise ValueError(f'sha256 column not found in {part}')
+        records = records.set_index('sha256')
+        if records.index.duplicated().any():
+            records = records.groupby(level=0).first()
+        metadata = records.combine_first(metadata)
+    return metadata
 
 
 if __name__ == '__main__':
@@ -35,8 +53,14 @@ if __name__ == '__main__':
         metadata = metadata.combine_first(pd.read_csv(os.path.join(opt.root, 'asset_stats','metadata.csv')).set_index('sha256'))
     if os.path.exists(os.path.join(opt.mesh_dump_root, 'mesh_dumps', 'metadata.csv')):
         metadata = metadata.combine_first(pd.read_csv(os.path.join(opt.mesh_dump_root, 'mesh_dumps','metadata.csv')).set_index('sha256'))
+    metadata = _merge_new_records(
+        metadata, Path(opt.mesh_dump_root) / 'mesh_dumps'
+    )
     if os.path.exists(os.path.join(opt.pbr_dump_root, 'pbr_dumps', 'metadata.csv')):
         metadata = metadata.combine_first(pd.read_csv(os.path.join(opt.pbr_dump_root, 'pbr_dumps', 'metadata.csv')).set_index('sha256'))
+    metadata = _merge_new_records(
+        metadata, Path(opt.pbr_dump_root) / 'pbr_dumps'
+    )
     metadata = metadata.reset_index()
     if opt.instances is None:
         if 'num_faces' in metadata.columns:
