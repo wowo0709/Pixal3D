@@ -1320,6 +1320,101 @@ def test_registry_builder_uses_configured_source_order_and_no_network(
     assert set(evaluation["split"]) == {"evaluation"}
 
 
+def test_registry_builder_normalizes_adapter_raw_reference_paths(tmp_config):
+    config = load_config(tmp_config)
+    sketchfab_uid = "18e8e405446849afb22b3760d3c73a31"
+    frames = {
+        "ObjaverseXL_sketchfab": pd.DataFrame(
+            {
+                "sha256": [f"{1:064x}"],
+                "file_identifier": [
+                    f"https://sketchfab.com/3d-models/{sketchfab_uid}"
+                ],
+            }
+        ),
+        "ObjaverseXL_github": pd.DataFrame(
+            {
+                "sha256": [f"{2:064x}"],
+                "file_identifier": [
+                    "https://github.com/example/repository/blob/"
+                    "0123456789abcdef/models/Model With Spaces.fbx"
+                ],
+            }
+        ),
+        "ABO": pd.DataFrame(
+            {
+                "sha256": [f"{3:064x}"],
+                "file_identifier": ["3/B07YBH2SR3.glb"],
+            }
+        ),
+        "HSSD": pd.DataFrame(
+            {
+                "sha256": [f"{4:064x}"],
+                "file_identifier": ["objects/3/object.glb"],
+            }
+        ),
+        "3D-FUTURE": pd.DataFrame(
+            {
+                "sha256": [f"{5:064x}"],
+                "file_identifier": ["3D-FUTURE-model/object-id"],
+            }
+        ),
+        "Toys4k": pd.DataFrame(
+            {
+                "sha256": [f"{6:064x}"],
+                "file_identifier": ["hammer/hammer_001.blend"],
+            }
+        ),
+    }
+
+    CanonicalRegistryBuilder(
+        config, source_loader=lambda source: frames[source]
+    )()
+
+    index = json.loads(
+        (
+            config.paths.data2_root / "control/raw_references.json"
+        ).read_text()
+    )["sources"]
+    expected = {
+        "ObjaverseXL_sketchfab": (
+            f"raw/hf-objaverse-v1/by-uid/{sketchfab_uid}.glb"
+        ),
+        "ObjaverseXL_github": "raw/github/repos/example/repository.zip",
+        "ABO": "raw/3dmodels/original/3/B07YBH2SR3.glb",
+        "HSSD": "raw/objects/3/object.glb",
+        "3D-FUTURE": "raw/3D-FUTURE-model/object-id/raw_model.obj",
+    }
+    assert {
+        source: tuple(paths) for source, paths in index.items()
+    } == {source: (path,) for source, path in expected.items()}
+
+    runtime_paths = {
+        "ObjaverseXL_sketchfab": (
+            "raw/hf-objaverse-v1/glbs/000-000/"
+            f"{sketchfab_uid}.glb"
+        ),
+        "ObjaverseXL_github": (
+            "raw/github/repos/example/repository.zip/"
+            "models/Model With Spaces.fbx"
+        ),
+        **{
+            source: path
+            for source, path in expected.items()
+            if "Objaverse" not in source
+        },
+    }
+    counter = FrozenReferenceCounter(config)
+    for source, path in runtime_paths.items():
+        assert counter.pending_references(
+            source,
+            path,
+            excluding_shard_id=f"{source}-00000",
+            excluding_batch_id="batch000",
+            gate="smoke",
+        ) == 1
+
+
 def test_registry_builder_refreshes_injected_input_digests_each_build(
     tmp_config,
 ):

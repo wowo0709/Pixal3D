@@ -12,6 +12,7 @@ import stat
 import tarfile
 import time
 from typing import Callable, Mapping
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -485,7 +486,7 @@ class CanonicalRegistryBuilder:
         for record in training.to_dict("records"):
             source = record["owner_source"]
             raw_value = record.get("local_path") or record.get("file_identifier")
-            raw_path = _raw_reference_path(raw_value)
+            raw_path = _canonical_raw_reference_path(source, raw_value)
             references.setdefault(source, {}).setdefault(raw_path, []).append(
                 {"sha256": record["sha256"], "shard_id": record["shard_id"]}
             )
@@ -817,6 +818,69 @@ def _raw_reference_path(value: str) -> str:
     return pure.as_posix()
 
 
+def _canonical_raw_reference_path(source: str, value: str) -> str:
+    if source == "ObjaverseXL_github" and isinstance(value, str):
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc:
+            parts = parsed.path.split("/")
+            if (
+                parsed.scheme != "https"
+                or parsed.netloc.lower() != "github.com"
+                or len(parts) < 6
+                or parts[0]
+                or parts[3] != "blob"
+            ):
+                raise ArtifactValidationError(
+                    f"unsafe raw path: {value!r}"
+                )
+            organization = _component(parts[1], "GitHub organization")
+            repository = _component(parts[2], "GitHub repository")
+            return _raw_reference_path(
+                f"raw/github/repos/{organization}/{repository}.zip"
+            )
+
+    if source == "ObjaverseXL_sketchfab" and isinstance(value, str):
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc:
+            parts = parsed.path.split("/")
+            if (
+                parsed.scheme != "https"
+                or parsed.netloc.lower() != "sketchfab.com"
+                or len(parts) != 3
+                or parts[0]
+                or parts[1] != "3d-models"
+            ):
+                raise ArtifactValidationError(
+                    f"unsafe raw path: {value!r}"
+                )
+            uid = parts[2]
+        else:
+            safe = _raw_reference_path(value)
+            candidate = PurePosixPath(safe).name
+            uid = candidate[:-4] if candidate.endswith(".glb") else ""
+            if not (
+                len(uid) == 32
+                and all(character in "0123456789abcdef" for character in uid)
+            ):
+                return safe
+        if not (
+            len(uid) == 32
+            and all(character in "0123456789abcdef" for character in uid)
+        ):
+            raise ArtifactValidationError(f"unsafe raw path: {value!r}")
+        return f"raw/hf-objaverse-v1/by-uid/{uid}.glb"
+
+    if not isinstance(value, str) or value.startswith("raw/"):
+        return _raw_reference_path(value)
+    if source == "ABO":
+        value = f"raw/3dmodels/original/{value}"
+    elif source == "HSSD":
+        value = f"raw/{value}"
+    elif source == "3D-FUTURE":
+        value = f"raw/{value}/raw_model.obj"
+    return _raw_reference_path(value)
+
+
 class FrozenReferenceCounter:
     """Caches the complete canonical reference index for one runtime."""
 
@@ -869,7 +933,7 @@ class FrozenReferenceCounter:
             expected[record["sha256"]] = (
                 record["owner_source"],
                 record["shard_id"],
-                _raw_reference_path(raw_value),
+                _canonical_raw_reference_path(record["owner_source"], raw_value),
             )
         seen = set()
         result = {}
@@ -879,7 +943,7 @@ class FrozenReferenceCounter:
                 raise ArtifactValidationError("invalid raw reference source index")
             source_result = {}
             for raw_path, entries in source_value.items():
-                if _raw_reference_path(raw_path) != raw_path:
+                if _canonical_raw_reference_path(source, raw_path) != raw_path:
                     raise ArtifactValidationError("non-canonical raw reference path")
                 if not isinstance(entries, list) or not entries:
                     raise ArtifactValidationError("empty raw reference entry")
@@ -1155,7 +1219,7 @@ class FrozenReferenceCounter:
         _component(source, "source")
         _component(excluding_shard_id, "excluded shard")
         _component(excluding_batch_id, "excluded batch")
-        requested = _raw_reference_path(raw_relative_path)
+        requested = _canonical_raw_reference_path(source, raw_relative_path)
         if gate not in {"smoke", "pilot", "production"}:
             raise ArtifactValidationError(f"invalid reference gate: {gate}")
         references = self._reference_index().get(source, {}).get(requested)
