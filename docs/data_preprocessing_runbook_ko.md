@@ -138,6 +138,40 @@ conda run --no-capture-output -n pixal3d \
 
 pilot audit가 통과한 뒤에만 전체 production preprocessing을 검토한다.
 
+## 7-1. 전체 데이터 다운로드/전처리
+
+전체 처리는 smoke와 pilot audit가 통과한 source에 대해서만 실행한다. 전체 실행에서는 `--count`를 절대 사용하지 않는다.
+
+```bash
+SOURCE=3D-FUTURE
+SHARD=3D-FUTURE-00000
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli run \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --gate production --source "$SOURCE" --shard "$SHARD"
+```
+
+중단 후 전체 production을 재개할 때:
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli resume \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --gate production --source "$SOURCE" --shard "$SHARD"
+```
+
+전체 처리 전에는 다음을 확인한다.
+
+- data2/data3와 local에 필요한 여유 공간이 있는지
+- source 전체 다운로드에 필요한 시간과 네트워크 사용량
+- pilot에서 관측한 p95 처리시간과 GPU/RAM peak
+- quarantine 예상량과 최종 training handoff asset 수
+
+ABO는 production 실행 시에도 최초 단계에서 약 154GB `abo-3dmodels.tar` 전체 archive를 다운로드한다. 현재 ABO는 이 archive 다운로드를 시작하다가 중단된 상태이므로, 사용자가 전체 다운로드를 허용한 뒤 production 또는 resume을 실행해야 한다.
+
+현재 source 상태상 전체 production을 아직 실행하지 않는 이유는 smoke/pilot gate를 통과하지 않은 source를 곧바로 대규모 처리하지 않기 위해서다. 이 조건을 충족한 source만 위 명령으로 전체 다운로드와 전처리를 진행한다.
+
 ## 8. 모델 구현 시점
 
 데이터 단계에서 최소한 다음 조건을 만족한 뒤 모델 구현으로 이동한다.
