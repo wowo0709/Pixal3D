@@ -2260,6 +2260,44 @@ def test_pack_publication_uses_frozen_quality_admission_counts(
     )
 
 
+def test_pack_default_validation_skips_quarantined_assets(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "pack-validation", "ABO", "ABO-00000"
+    )
+    completed = "a" * 64
+    quarantined = "b" * 64
+    write_instances(context, (completed, quarantined))
+    validated = []
+
+    def pack_publisher(*args, **kwargs):
+        return tuple(
+            SimpleNamespace(validated_at="now") for _ in PACK_FAMILIES
+        )
+
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        project_accounting=FakeAccounting(),
+        asset_output_validator=lambda active_context, asset_sha: validated.append(
+            asset_sha
+        ),
+        pack_publisher=pack_publisher,
+        published_batch_verifier=lambda context: None,
+        tool_commit="test-commit",
+    )
+    write_quality_checkpoint(
+        services,
+        context,
+        {completed: "completed", quarantined: "failure"},
+    )
+
+    services.build_packs(context)
+
+    assert validated == [completed]
+
+
 def test_published_pack_rejects_stale_frozen_sha_identity(
     isolated_config, tmp_path
 ):

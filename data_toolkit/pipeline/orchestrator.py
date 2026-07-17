@@ -2491,7 +2491,9 @@ class PipelineServices:
         self.asset_output_validator = (
             asset_output_validator or self._validate_asset_outputs
         )
-        self.output_validator = output_validator or self._validate_all_outputs
+        self.output_validator = (
+            output_validator or self._validate_terminal_outputs
+        )
         self.shape_resolution_validator = (
             shape_resolution_validator
             or resolution_validator
