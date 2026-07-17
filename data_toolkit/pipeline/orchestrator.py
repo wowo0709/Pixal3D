@@ -687,6 +687,7 @@ def _empty_quality_ledger(context: ShardContext) -> dict[str, object]:
         "gate": context.gate,
         "batches": {},
         "entries": [],
+        "quarantine": {},
     }
 
 
@@ -698,14 +699,22 @@ def _load_quality_ledger(path: Path, context: ShardContext) -> dict[str, object]
         value = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise CheckpointError(f"invalid quality ledger JSON: {path}") from error
-    if not isinstance(value, dict) or set(value) != {
+    if not isinstance(value, dict) or set(value) not in ({
         "schema_version",
         "source",
         "shard_id",
         "gate",
         "batches",
         "entries",
-    }:
+    }, {
+        "schema_version",
+        "source",
+        "shard_id",
+        "gate",
+        "batches",
+        "entries",
+        "quarantine",
+    }):
         raise CheckpointError(f"invalid quality ledger schema: {path}")
     if value["schema_version"] != QUALITY_LEDGER_SCHEMA_VERSION:
         raise CheckpointError(f"unsupported quality ledger schema: {path}")
@@ -775,6 +784,22 @@ def _load_quality_ledger(path: Path, context: ShardContext) -> dict[str, object]
             raise CheckpointError(f"invalid quality ledger entry: {path}")
         identities.add((batch_id, position))
         assets.add(asset_sha)
+    quarantine = value.setdefault("quarantine", {})
+    if not isinstance(quarantine, dict):
+        raise CheckpointError(f"invalid quality ledger quarantine: {path}")
+    for asset_sha, record in quarantine.items():
+        try:
+            _validated_asset_sha(asset_sha)
+        except (TypeError, ValueError) as error:
+            raise CheckpointError(f"invalid quarantine asset: {path}") from error
+        if not isinstance(record, dict) or set(record) != {
+            "category", "stage", "reason", "attempts"
+        }:
+            raise CheckpointError(f"invalid quarantine record: {path}")
+        if not all(isinstance(record[key], str) and record[key] for key in ("category", "stage", "reason")):
+            raise CheckpointError(f"invalid quarantine record: {path}")
+        if not isinstance(record["attempts"], int) or isinstance(record["attempts"], bool) or record["attempts"] < 0:
+            raise CheckpointError(f"invalid quarantine attempts: {path}")
     return value
 
 
@@ -961,6 +986,10 @@ class PipelineRunner:
                 for batch_id, batch_value in batches.items()
             },
             "entries": [dict(entry) for entry in ledger["entries"]],
+            "quarantine": {
+                asset: dict(record)
+                for asset, record in ledger.get("quarantine", {}).items()
+            },
         }
         next_ledger["batches"][context.batch_id] = {
             "instances_sha256": instances_sha256,
@@ -1296,6 +1325,18 @@ class PipelineRunner:
         self.run_shard(context)
 
     def record_quality_outcome(self, asset_sha: str, outcome: str) -> None:
+        self.record_asset_outcome(asset_sha, outcome)
+
+    def record_asset_outcome(
+        self,
+        asset_sha: str,
+        outcome: str,
+        *,
+        category: str = "asset_validation",
+        stage: str = "validation",
+        reason: str = "asset output failed validation",
+        attempts: int = 0,
+    ) -> None:
         checkpoint = self.active_checkpoint
         checkpoint_path = self.active_checkpoint_path
         context = self.active_context
@@ -1325,6 +1366,24 @@ class PipelineRunner:
             if frozen_sha in checkpoint.quality_outcomes
         }
         self.save_checkpoint(checkpoint_path, checkpoint)
+        if outcome in {"failure", "schema_failure"}:
+            ledger = self._active_quality_ledger
+            ledger_path = self._active_quality_ledger_path
+            if ledger is None or ledger_path is None:
+                raise InfrastructureError("quality ledger is not active")
+            next_ledger = dict(ledger)
+            next_ledger["quarantine"] = {
+                asset: dict(record)
+                for asset, record in ledger.get("quarantine", {}).items()
+            }
+            next_ledger["quarantine"][asset_sha] = {
+                "category": category,
+                "stage": stage,
+                "reason": reason,
+                "attempts": attempts,
+            }
+            _save_quality_ledger(ledger_path, next_ledger)
+            self._active_quality_ledger = next_ledger
         self._quality_prefix_length = self._advance_quality_ledger(
             context, checkpoint, assets, update_gate=True
         )
@@ -4113,7 +4172,23 @@ class PipelineServices:
                 f"download missing selected assets: {list(missing)}"
             )
         for asset_sha in missing:
-            self.runner.record_quality_outcome(asset_sha, "failure")
+            recorder = getattr(self.runner, "record_asset_outcome", None)
+            if (
+                callable(recorder)
+                and getattr(self.runner, "active_context", None) is not None
+                and getattr(self.runner, "active_checkpoint", None) is not None
+                and getattr(self.runner, "active_checkpoint_path", None) is not None
+            ):
+                recorder(
+                    asset_sha,
+                    "failure",
+                    category="provider_asset_unavailable",
+                    stage="download",
+                    reason="source metadata has no verified downloaded record after maximum attempts",
+                    attempts=attempts,
+                )
+            else:
+                self.runner.record_quality_outcome(asset_sha, "failure")
         return True
 
     def _validate_command(self, name: str) -> bool:
