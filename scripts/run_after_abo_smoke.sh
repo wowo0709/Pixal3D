@@ -24,7 +24,7 @@ expected={
  'encode_pbr_512','cleanup_voxels_512','dual_grid_1024','voxelize_pbr_1024',
  'encode_shape_1024','encode_pbr_1024','cleanup_voxels_1024','encode_ss_64',
  'validate_outputs','build_packs','archive_raw','cleanup_local'}
-files=sorted(root.glob('batch[0-2].json'))
+files=sorted(root.glob('batch00[0-2].json'))
 if len(files)!=3: raise SystemExit(1)
 for path in files:
  d=json.loads(path.read_text())
