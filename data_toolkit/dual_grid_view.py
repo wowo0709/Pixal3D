@@ -142,11 +142,16 @@ def _foreach_child(
     output_dir,
     func,
     desc,
+    requires_local_path=True,
 ):
     temporary = None
     try:
         result = process_single_metadata_row(
-            dataset_utils, metadata, output_dir, func
+            dataset_utils,
+            metadata,
+            output_dir,
+            func,
+            requires_local_path=requires_local_path,
         )
         result_path = Path(result_path)
         with tempfile.NamedTemporaryFile(
@@ -213,6 +218,7 @@ def _run_foreach_bounded(
     max_workers,
     desc,
     timeout_seconds,
+    requires_local_path=True,
 ):
     context = multiprocessing.get_context('fork')
     worker_limit = (
@@ -243,6 +249,7 @@ def _run_foreach_bounded(
                     output_dir,
                     func,
                     f'{desc}: {asset}',
+                    requires_local_path,
                 ),
             )
             process.start()
@@ -646,6 +653,7 @@ if __name__ == '__main__':
         max_workers=opt.max_workers,
         desc='Dual griding views',
         timeout_seconds=opt.timeout_seconds,
+        requires_local_path=False,
     )
     
     # Processing summary

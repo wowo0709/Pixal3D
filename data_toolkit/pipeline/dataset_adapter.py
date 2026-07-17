@@ -3,7 +3,14 @@ import os
 import pandas as pd
 
 
-def process_single_metadata_row(dataset_utils, metadata, output_dir, func):
+def process_single_metadata_row(
+    dataset_utils,
+    metadata,
+    output_dir,
+    func,
+    *,
+    requires_local_path=True,
+):
     """Run one adapter row directly without creating a nested executor."""
     records = metadata.to_dict("records")
     if len(records) != 1:
@@ -11,7 +18,9 @@ def process_single_metadata_row(dataset_utils, metadata, output_dir, func):
 
     metadatum = records[0]
     processor = getattr(dataset_utils, "_process_instance", None)
-    if processor is not None:
+    if not requires_local_path:
+        record = func(None, metadatum["sha256"])
+    elif processor is not None:
         record = processor((metadatum, output_dir, func))
     else:
         try:

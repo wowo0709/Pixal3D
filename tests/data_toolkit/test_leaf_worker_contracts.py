@@ -396,6 +396,41 @@ def test_dump_removes_final_when_post_replace_reopen_fails(
     "module_name",
     ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
 )
+def test_voxel_worker_does_not_require_unused_local_path(module_name):
+    worker = importlib.import_module(module_name)
+
+    class PathRequiringAdapter:
+        @staticmethod
+        def _process_instance(args):
+            metadatum, output_dir, func = args
+            return func(
+                str(Path(output_dir) / metadatum["local_path"]),
+                metadatum["sha256"],
+            )
+
+    result = worker._run_foreach_bounded(
+        PathRequiringAdapter,
+        pd.DataFrame([{"sha256": "asset"}]),
+        "/unused",
+        lambda file_path, sha256: {
+            "sha256": sha256,
+            "source_file_unused": file_path is None,
+        },
+        max_workers=1,
+        desc="fixture",
+        timeout_seconds=5,
+        requires_local_path=False,
+    )
+
+    assert result.to_dict("records") == [
+        {"sha256": "asset", "source_file_unused": True}
+    ]
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
 def test_vxz_writer_uses_native_thread_bound_and_native_temp_suffix(
     monkeypatch, tmp_path, module_name
 ):
