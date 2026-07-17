@@ -15,7 +15,7 @@
 - Run Python and pytest through `conda run -n pixal3d`.
 - Use `/root/data2/pixal3d` for raw downloads, control state, staging, reports, and prepared packs.
 - Use `/root/data3/pixal3d/archive` for verified raw archives, failed assets, and retired artifacts.
-- Use `/root/pixal3d-data` for local preprocessing scratch and training `active`/`next`. Never use `/root/data/pixal3d`.
+- Use `/root/node17/data/pixal3d` for local preprocessing scratch and training `active`/`next`. Never use `/root/data/pixal3d`.
 - Process ObjaverseXL Sketchfab, ObjaverseXL GitHub, ABO, HSSD, then 3D-FUTURE, sequentially.
 - Keep Toys4K evaluation-only. Exclude TexVerse until its source data is supplied.
 - Render exactly eight deterministic 512 by 512 RGBA conditions.
@@ -83,7 +83,7 @@ CONFIG = Path("data_toolkit/configs/multiview_preprocess.yaml")
 
 def test_fixed_contract():
     cfg = load_config(CONFIG)
-    assert cfg.paths.local_root == Path("/root/pixal3d-data")
+    assert cfg.paths.local_root == Path("/root/node17/data/pixal3d")
     assert cfg.paths.data2_root == Path("/root/data2/pixal3d")
     assert cfg.paths.data3_root == Path("/root/data3/pixal3d")
     assert cfg.sources == ("ObjaverseXL_sketchfab", "ObjaverseXL_github", "ABO", "HSSD", "3D-FUTURE")
@@ -242,7 +242,7 @@ pipeline_version: pixal3d-mv-v1
 sources: [ObjaverseXL_sketchfab, ObjaverseXL_github, ABO, HSSD, 3D-FUTURE]
 evaluation_sources: [Toys4k]
 shard_size: 5000
-paths: {data2_root: /root/data2/pixal3d, data3_root: /root/data3/pixal3d, local_root: /root/pixal3d-data}
+paths: {data2_root: /root/data2/pixal3d, data3_root: /root/data3/pixal3d, local_root: /root/node17/data/pixal3d}
 render: {num_views: 8, resolution: 512, fov_min_degrees: 10.0, fov_max_degrees: 70.0, camera_policy: pixal3d-mv-camera-v1, blender_version: 4.5.1, cycles_device: OPTIX}
 targets: {views: [0, 1], resolutions: [256, 512, 1024], ss_resolution: 64, latent_dtype: float32}
 workers: {cpu_threads: 32, dump_workers: 24, voxel_workers: 8, voxel_threads_per_worker: 4, render_workers: 7, encoder_ranks: 7, encoder_loader_threads: 2, encoder_saver_threads: 1}
@@ -2192,7 +2192,7 @@ data2, data3, and local usage inside configured limits
 
 - [ ] **Step 6: Materialize one handoff shard per Stage**
 
-Extract common+SS for Stage 1, common+shape for Stage 2, and common+shape+PBR for Stage 3 under `/root/pixal3d-data/train/active`. Load one sample per resolution and anchor with Pixal3D dataset classes.
+Extract common+SS for Stage 1, common+shape for Stage 2, and common+shape+PBR for Stage 3 under `/root/node17/data/pixal3d/train/active`. Load one sample per resolution and anchor with Pixal3D dataset classes.
 
 - [ ] **Step 7: Freeze handoff and stop preprocessing**
 

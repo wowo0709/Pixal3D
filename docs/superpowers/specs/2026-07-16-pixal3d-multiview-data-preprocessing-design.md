@@ -10,7 +10,7 @@
 
 Build a resumable preprocessing pipeline that prepares the complete public Pixal3D/TRELLIS-500K training pool before fine-tuning begins. The output must support independently training and validating Pixal3D Stage 1, Stage 2, and Stage 3 with known cameras and two view-aligned target anchors.
 
-The pipeline renders eight condition views per asset, generates target latents for `view00` and `view01`, retains only validated training-ready data on `/root/data2/pixal3d`, archives raw assets on `/root/data3/pixal3d`, and uses the local NVMe-backed root `/root/pixal3d-data` for bounded scratch work.
+The pipeline renders eight condition views per asset, generates target latents for `view00` and `view01`, retains only validated training-ready data on `/root/data2/pixal3d`, archives raw assets on `/root/data3/pixal3d`, and uses the local NVMe-backed root `/root/node17/data/pixal3d` for bounded scratch work.
 
 ## References
 
@@ -106,10 +106,10 @@ During multi-view training, the target anchor is selected from `view00` or `view
 
 Raw data moves to the archive only after every final pack for its shard passes validation. Because `/root/data2` and `/root/data3` are different NFS mounts, archival is copy, checksum verification, and source deletion rather than an unchecked cross-filesystem move.
 
-### Local Scratch: `/root/pixal3d-data`
+### Local Scratch: `/root/node17/data/pixal3d`
 
 ```text
-/root/pixal3d-data/
+/root/node17/data/pixal3d/
 ├── preprocess/
 │   ├── active/
 │   ├── output/
@@ -197,7 +197,7 @@ Sources run sequentially in this order: ObjaverseXL Sketchfab, ObjaverseXL GitHu
 
 For each logical shard:
 
-1. Stage a bounded raw work batch under `/root/pixal3d-data/preprocess/active`.
+1. Stage a bounded raw work batch under `/root/node17/data/pixal3d/preprocess/active`.
 2. Dump normalized mesh and PBR data and collect asset statistics.
 3. Render eight deterministic 512-pixel RGBA conditions and known cameras.
 4. Generate `view00` and `view01` dual-grid and PBR voxels at 256.
@@ -351,8 +351,8 @@ The preprocessing project is complete when:
 - The global split audit reports no SHA overlap.
 - Random decode and dataset-loader checks pass for all output families and resolutions.
 - Final data2, data3, and local storage usage remains within the defined limits.
-- An immutable training handoff manifest can materialize Stage 1, Stage 2, or Stage 3 shards independently under `/root/pixal3d-data/train`.
+- An immutable training handoff manifest can materialize Stage 1, Stage 2, or Stage 3 shards independently under `/root/node17/data/pixal3d/train`.
 
 ## Operational Handoff
 
-Fine-tuning starts only after preprocessing is stopped and the final audit passes. During training, data movement is one-way prefetch from `/root/data2/pixal3d/prepared` to `/root/pixal3d-data/train/next`. Training reads only `/root/pixal3d-data/train/active`; raw archival, Blender rendering, voxelization, and latent encoding remain disabled.
+Fine-tuning starts only after preprocessing is stopped and the final audit passes. During training, data movement is one-way prefetch from `/root/data2/pixal3d/prepared` to `/root/node17/data/pixal3d/train/next`. Training reads only `/root/node17/data/pixal3d/train/active`; raw archival, Blender rendering, voxelization, and latent encoding remain disabled.

@@ -2,7 +2,7 @@ pipeline_version: pixal3d-mv-v1
 sources: [ObjaverseXL_sketchfab, ObjaverseXL_github, ABO, HSSD, 3D-FUTURE]
 evaluation_sources: [Toys4k]
 shard_size: 5000
-paths: {data2_root: /root/data2/pixal3d, data3_root: /root/data3/pixal3d, local_root: /root/pixal3d-data}
+paths: {data2_root: /root/data2/pixal3d, data3_root: /root/data3/pixal3d, local_root: /root/node17/data/pixal3d}
 render: {num_views: 8, resolution: 512, fov_min_degrees: 10.0, fov_max_degrees: 70.0, camera_policy: pixal3d-mv-camera-v1, blender_version: 4.5.1, cycles_device: OPTIX}
 targets: {views: [0, 1], resolutions: [256, 512, 1024], ss_resolution: 64, latent_dtype: float32}
 workers: {cpu_threads: 32, dump_workers: 24, voxel_workers: 8, voxel_threads_per_worker: 4, render_workers: 7, encoder_ranks: 7, encoder_loader_threads: 2, encoder_saver_threads: 1}

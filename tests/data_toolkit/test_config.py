@@ -11,7 +11,7 @@ CONFIG = Path("data_toolkit/configs/multiview_preprocess.yaml")
 
 def test_fixed_contract():
     cfg = load_config(CONFIG)
-    assert cfg.paths.local_root == Path("/root/pixal3d-data")
+    assert cfg.paths.local_root == Path("/root/node17/data/pixal3d")
     assert cfg.paths.data2_root == Path("/root/data2/pixal3d")
     assert cfg.paths.data3_root == Path("/root/data3/pixal3d")
     assert cfg.sources == (
