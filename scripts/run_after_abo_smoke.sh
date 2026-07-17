@@ -35,14 +35,18 @@ PY
 echo "[$(date -Is)] waiting for ABO smoke completion" >> "$LOG_ROOT/after_abo_smoke.log"
 while ! abo_complete; do sleep 60; done
 echo "[$(date -Is)] ABO complete; resuming ObjaverseXL Sketchfab" >> "$LOG_ROOT/after_abo_smoke.log"
-run_cli resume --config "$CONFIG" --gate smoke \
+if ! run_cli resume --config "$CONFIG" --gate smoke \
   --source ObjaverseXL_sketchfab --shard ObjaverseXL_sketchfab-00000 \
-  >> "$LOG_ROOT/objaverse_sketchfab.log" 2>&1
+  >> "$LOG_ROOT/objaverse_sketchfab.log" 2>&1; then
+  echo "[$(date -Is)] ObjaverseXL Sketchfab stopped; continuing to GitHub" >> "$LOG_ROOT/after_abo_smoke.log"
+fi
 
 echo "[$(date -Is)] resuming ObjaverseXL GitHub" >> "$LOG_ROOT/after_abo_smoke.log"
-run_cli resume --config "$CONFIG" --gate smoke \
+if ! run_cli resume --config "$CONFIG" --gate smoke \
   --source ObjaverseXL_github --shard ObjaverseXL_github-00000 \
-  >> "$LOG_ROOT/objaverse_github.log" 2>&1
+  >> "$LOG_ROOT/objaverse_github.log" 2>&1; then
+  echo "[$(date -Is)] ObjaverseXL GitHub stopped; continuing to HSSD" >> "$LOG_ROOT/after_abo_smoke.log"
+fi
 
 echo "[$(date -Is)] starting HSSD smoke" >> "$LOG_ROOT/after_abo_smoke.log"
 run_cli run --config "$CONFIG" --gate smoke \
