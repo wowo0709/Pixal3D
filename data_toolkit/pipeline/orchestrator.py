@@ -1105,6 +1105,42 @@ class PipelineRunner:
 
                     prior_attempts = checkpoint.attempts.get(command.name, 0)
                     if prior_attempts >= MAX_COMMAND_ATTEMPTS:
+                        try:
+                            if self._valid_output(command.name):
+                                checkpoint.complete(command.name)
+                                try:
+                                    self.save_checkpoint(
+                                        checkpoint_path, checkpoint
+                                    )
+                                except BaseException as error:
+                                    self.stop(
+                                        context,
+                                        command.name,
+                                        f"completion checkpoint failed: {error}",
+                                        checkpoint,
+                                        category=EscalationCategory.INFRASTRUCTURE,
+                                        exit_code=2,
+                                        initial_persistence_errors=(
+                                            "completion checkpoint persistence failed: "
+                                            f"{error}",
+                                        ),
+                                    )
+                                break
+                        except PipelineStopped:
+                            raise
+                        except (
+                            CheckpointError,
+                            InfrastructureError,
+                            OSError,
+                        ) as error:
+                            self.stop(
+                                context,
+                                command.name,
+                                str(error),
+                                checkpoint,
+                                category=EscalationCategory.INFRASTRUCTURE,
+                                exit_code=2,
+                            )
                         self.stop(
                             context,
                             command.name,
@@ -2991,7 +3027,9 @@ class PipelineServices:
         return values
 
     @staticmethod
-    def _read_raw_records(path: Path, selected: tuple[str, ...]) -> tuple[dict, ...]:
+    def _read_raw_record_map(
+        path: Path, selected: tuple[str, ...]
+    ) -> dict[str, dict]:
         try:
             payload = _read_regular_bytes_nofollow(path)
             with io.StringIO(payload.decode("utf-8"), newline="") as stream:
@@ -3027,16 +3065,22 @@ class PipelineServices:
             raise
         except (UnicodeDecodeError, csv.Error, TypeError, ValueError) as error:
             raise ValidationError(f"invalid raw metadata: {path}: {error}") from error
+        paths = [item["local_path"] for item in by_sha.values()]
+        if len(paths) != len(set(paths)):
+            raise ValidationError("duplicate selected raw path")
+        return by_sha
+
+    @classmethod
+    def _read_raw_records(
+        cls, path: Path, selected: tuple[str, ...]
+    ) -> tuple[dict, ...]:
+        by_sha = cls._read_raw_record_map(path, selected)
         missing = set(selected) - set(by_sha)
         if missing:
             raise ValidationError(
                 f"raw metadata missing selected assets: {sorted(missing)}"
             )
-        records = tuple(by_sha[item] for item in selected)
-        paths = [item["local_path"] for item in records]
-        if len(paths) != len(set(paths)):
-            raise ValidationError("duplicate selected raw path")
-        return records
+        return tuple(by_sha[item] for item in selected)
 
     @staticmethod
     def _write_raw_records(path: Path, records: tuple[dict, ...]) -> None:
@@ -3064,7 +3108,7 @@ class PipelineServices:
         return zip_value[0] if zip_value is not None else relative
 
     def stage_raw(self, context: ShardContext) -> None:
-        selected = self._instances(context)
+        selected = self._eligible_assets(context)
         records = self._read_raw_records(
             context.source_root / "raw/metadata.csv", selected
         )
@@ -3117,7 +3161,7 @@ class PipelineServices:
     def _staged_records(self, context: ShardContext) -> tuple[dict, ...]:
         return self._read_raw_records(
             context.download_root / "raw/metadata.csv",
-            self._instances(context),
+            self._eligible_assets(context),
         )
 
     def _validate_staged_raw(self, context: ShardContext) -> None:
@@ -3865,7 +3909,7 @@ class PipelineServices:
                 f"invalid raw archive manifest: {manifest_path}: {error}"
             ) from error
         expected_records = self._read_raw_records(
-            context.source_root / "raw/metadata.csv", shas
+            context.source_root / "raw/metadata.csv", completed
         )
         expected_members = {
             record["local_path"]: record["sha256"]
@@ -3892,7 +3936,7 @@ class PipelineServices:
             or not manifest.get("validated_at")
             or tuple(manifest.get("asset_sha256s", ()))
             != shas
-            or len(manifest.get("members", ())) != len(shas)
+            or len(manifest.get("members", ())) != len(completed)
             or len(actual_members) != len(manifest.get("members", ()))
         ):
             raise ValidationError(
@@ -3905,7 +3949,10 @@ class PipelineServices:
 
     def archive_raw(self, context: ShardContext) -> None:
         self.published_batch_verifier(context)
-        records = self._staged_records(context)
+        _shas, completed, _quarantined = self._quality_state(context)
+        records = self._read_raw_records(
+            context.download_root / "raw/metadata.csv", completed
+        )
         members = [
             _safe_raw_relative(record["local_path"]) for record in records
         ]
@@ -4045,6 +4092,30 @@ class PipelineServices:
         except ValidationError:
             return False
 
+    def _validate_download_output(self, context: ShardContext) -> bool:
+        selected = self._eligible_assets(context)
+        by_sha = self._read_raw_record_map(
+            context.source_root / "raw/metadata.csv", selected
+        )
+        missing = tuple(asset for asset in selected if asset not in by_sha)
+        if not missing:
+            return True
+        if not by_sha:
+            raise OutputValidationError(
+                "download produced no verified selected assets"
+            )
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        attempts = 0
+        if checkpoint is not None:
+            attempts = checkpoint.attempts.get("download", 0)
+        if attempts < MAX_COMMAND_ATTEMPTS:
+            raise OutputValidationError(
+                f"download missing selected assets: {list(missing)}"
+            )
+        for asset_sha in missing:
+            self.runner.record_quality_outcome(asset_sha, "failure")
+        return True
+
     def _validate_command(self, name: str) -> bool:
         context = self._active_context()
         if name == "archive_raw":
@@ -4064,11 +4135,7 @@ class PipelineServices:
             return True
         try:
             if name == "download":
-                records = self._read_raw_records(
-                    context.source_root / "raw/metadata.csv",
-                    self._instances(context),
-                )
-                return len(records) == len(self._instances(context))
+                return self._validate_download_output(context)
             if name == "stage_raw":
                 self._validate_staged_raw(context)
                 return True

@@ -287,6 +287,21 @@ def test_resume_does_not_reset_failed_attempt_budget(
     assert caught.value.exit_code == 2
 
 
+def test_exhausted_download_checkpoint_validates_without_new_launch(
+    isolated_config, shard_context
+):
+    command = CommandSpec("download", ("worker",))
+    runner = RecordingRunner(isolated_config, (command,))
+    runner.checkpoint.attempts[command.name] = 3
+    runner.validators[command.name] = lambda: True
+
+    runner.resume_shard(shard_context)
+
+    assert runner.executed == []
+    assert runner.checkpoint.completed_commands == [command.name]
+    assert runner.checkpoint.attempts[command.name] == 3
+
+
 def test_infrastructure_error_escalates_without_retry(
     isolated_config, shard_context
 ):
@@ -1259,6 +1274,108 @@ def test_stage_raw_preserves_verified_adapter_relative_layout(
     staged = pd.read_csv(context.download_root / "raw/metadata.csv")
     assert staged.to_dict("records") == [
         {"sha256": asset_sha, "local_path": relative}
+    ]
+
+
+def _download_validation_service(isolated_config, context, attempts):
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        published_batch_verifier=lambda _context: (_ for _ in ()).throw(
+            ValidationError("published outputs are not present")
+        ),
+    )
+    checkpoint = PipelineCheckpoint(context.shard_id, gate=context.gate)
+    checkpoint.attempts["download"] = attempts
+    services.runner.active_context = context
+    services.runner.active_checkpoint = checkpoint
+    outcomes = []
+
+    def record(asset_sha, outcome):
+        outcomes.append((asset_sha, outcome))
+        checkpoint.quality_outcomes[asset_sha] = outcome
+
+    services.runner.record_quality_outcome = record
+    return services, checkpoint, outcomes
+
+
+def test_partial_download_waits_until_third_attempt_before_quarantine(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "partial-download", "ObjaverseXL_github", "ObjaverseXL_github-00000"
+    )
+    first = sha256(b"first").hexdigest()
+    missing = "b" * 64
+    write_instances(context, (first, missing))
+    write_raw_metadata(
+        context, ({"sha256": first, "local_path": "raw/first.glb"},)
+    )
+
+    services, checkpoint, outcomes = _download_validation_service(
+        isolated_config, context, 1
+    )
+    assert services.validators["download"]() is False
+    assert outcomes == []
+
+    checkpoint.attempts["download"] = 2
+    assert services.validators["download"]() is False
+    assert outcomes == []
+
+    checkpoint.attempts["download"] = 3
+    assert services.validators["download"]() is True
+    assert outcomes == [(missing, "failure")]
+
+
+def test_empty_partial_download_stays_fail_closed_at_terminal_attempt(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "empty-download", "ObjaverseXL_github", "ObjaverseXL_github-00000"
+    )
+    first = "a" * 64
+    second = "b" * 64
+    write_instances(context, (first, second))
+    metadata = context.source_root / "raw/metadata.csv"
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    metadata.write_text("sha256,local_path\n")
+
+    services, _checkpoint, outcomes = _download_validation_service(
+        isolated_config, context, 3
+    )
+    assert services.validators["download"]() is False
+    assert outcomes == []
+
+
+def test_stage_raw_uses_only_non_quarantined_assets(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "stage-eligible", "ObjaverseXL_github", "ObjaverseXL_github-00000"
+    )
+    contents = b"eligible raw"
+    completed = sha256(contents).hexdigest()
+    quarantined = "f" * 64
+    relative = "raw/models/item.glb"
+    source = context.source_root / relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(contents)
+    write_instances(context, tuple(sorted((completed, quarantined))))
+    write_raw_metadata(
+        context, ({"sha256": completed, "local_path": relative},)
+    )
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+    checkpoint = PipelineCheckpoint(context.shard_id, gate=context.gate)
+    checkpoint.quality_outcomes[quarantined] = "failure"
+    services.runner.active_checkpoint = checkpoint
+
+    services.stage_raw(context)
+
+    staged = pd.read_csv(context.download_root / "raw/metadata.csv")
+    assert staged.to_dict("records") == [
+        {"sha256": completed, "local_path": relative}
     ]
 
 
