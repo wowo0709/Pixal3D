@@ -54,7 +54,7 @@ def valid_hardware_payload(config_hash):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "software": {
             "cuda_version": "12.8",
-            "torch_version": "2.7.0",
+            "torch_version": "2.8.0+cu128",
             "blender_version": "4.5.1",
             "optix_enabled": True,
         },
@@ -571,6 +571,35 @@ def test_hardware_report_command_does_not_require_gate(tmp_config):
 
     assert args.gate is None
     assert args.hardware_check is True
+
+
+def test_hardware_preflight_collects_explicit_bootstrap_reservation(
+    tmp_config, monkeypatch, capsys
+):
+    calls = []
+    evidence = tmp_config.parent / "data2/control/report_inputs/hardware.json"
+
+    def collect(config, *, bootstrap_peak_local_bytes):
+        calls.append((config.config_hash(), bootstrap_peak_local_bytes))
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text("{}")
+        return evidence
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.collect_hardware_preflight", collect
+    )
+
+    assert main(
+        [
+            "hardware-preflight",
+            "--config",
+            str(tmp_config),
+            "--bootstrap-peak-local-gib",
+            "350",
+        ]
+    ) == 0
+    assert calls == [(load_config(tmp_config).config_hash(), 350 * 1024**3)]
+    assert str(evidence) in capsys.readouterr().out
 
 
 def test_cli_rejects_unknown_source_and_mismatched_shard(tmp_config):

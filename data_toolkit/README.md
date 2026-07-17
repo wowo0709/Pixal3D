@@ -16,7 +16,7 @@ and resumes only from validated checkpoints.
 - Config: `data_toolkit/configs/multiview_preprocess.yaml`
 - Project data and control: `/root/data2/pixal3d`
 - Verified raw archive: `/root/data3/pixal3d`
-- Local scratch and training materialization: `/root/pixal3d-data`
+- Local scratch and training materialization: `/root/node17/data/pixal3d`
 - Canonical registry: `/root/data2/pixal3d/control/assets.parquet`
 - Frozen batches: `/root/data2/pixal3d/control/shards/<source>/<shard>/`
 - Prepared packs: `/root/data2/pixal3d/prepared/`
@@ -119,6 +119,19 @@ The machine-produced candidate belongs at:
 ```text
 /root/data2/pixal3d/control/report_inputs/hardware.json
 ```
+
+Generate it with an explicit conservative per-asset bootstrap reservation. This
+reservation is used only for smoke batch admission until measured smoke and
+pilot peak-local-byte evidence replaces it:
+
+```bash
+$CLI hardware-preflight --config "$CONFIG" \
+  --bootstrap-peak-local-gib 350
+```
+
+The command renders on GPUs 0 through 6 sequentially, then benchmarks local,
+data2, and data3 sequentially. It also writes the reservation provenance to
+`control/report_inputs/hardware_sizing_provenance.json`.
 
 It must include the active config hash, exact typed CUDA/torch/Blender/OptiX
 evidence, seven isolated GPU cube-render checks, the three 10 GiB storage
@@ -349,7 +362,7 @@ SOURCE=ObjaverseXL_sketchfab
 SHARD=ObjaverseXL_sketchfab-00000
 BATCH=batch000
 PREPARED=/root/data2/pixal3d/prepared
-TRAIN=/root/pixal3d-data/train
+TRAIN=/root/node17/data/pixal3d/train
 
 mkdir -p "$TRAIN/stage1/active"
 tar -xf "$PREPARED/common/$SOURCE/$SHARD/$BATCH.tar" \

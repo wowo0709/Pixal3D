@@ -40,8 +40,8 @@ def _hardware_evidence(config):
         "config_hash": config.config_hash(),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "software": {
-            "cuda_version": "synthetic",
-            "torch_version": "synthetic",
+            "cuda_version": "12.8",
+            "torch_version": "2.8.0+cu128",
             "blender_version": config.render.blender_version,
             "optix_enabled": True,
         },

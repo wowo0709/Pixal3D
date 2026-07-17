@@ -555,6 +555,14 @@ def _finite(value, description: str, *, positive: bool = False) -> float:
     return float(value)
 
 
+def _major_minor_at_least(value: str, minimum: tuple[int, int]) -> bool:
+    try:
+        major, minor = value.split("+", 1)[0].split(".", 2)[:2]
+        return (int(major), int(minor)) >= minimum
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 def _fresh_timestamp(value, description: str, *, now=None) -> str:
     if not isinstance(value, str):
         raise ArtifactValidationError(f"{description} timestamp must be a string")
@@ -700,6 +708,8 @@ def derive_hardware_report(
 
     passed = all(
         (
+            software["cuda_version"] == "12.8",
+            _major_minor_at_least(software["torch_version"], (2, 8)),
             software["blender_version"] == config.render.blender_version,
             software["optix_enabled"],
             all(gpu["cycles_device"] == "OPTIX" for gpu in gpus),

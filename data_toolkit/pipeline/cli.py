@@ -7,6 +7,7 @@ import sys
 from typing import Sequence
 
 from .config import load_config
+from .hardware import HardwarePreflightError, collect_hardware_preflight
 from .orchestrator import (
     CheckpointError,
     EscalationCategory,
@@ -70,6 +71,7 @@ def parser() -> argparse.ArgumentParser:
     children = root.add_subparsers(dest="command", required=True)
     for name in (
         "preflight",
+        "hardware-preflight",
         "registry",
         "plan",
         "run",
@@ -100,6 +102,9 @@ def parser() -> argparse.ArgumentParser:
     )
     children.choices["report"].add_argument(
         "--hardware-check", action="store_true"
+    )
+    children.choices["hardware-preflight"].add_argument(
+        "--bootstrap-peak-local-gib", type=_positive_integer, required=True
     )
     return root
 
@@ -158,6 +163,16 @@ def _dispatch(args, config) -> int:
             return OPERATOR_BLOCKED
         return SUCCESS
 
+    if args.command == "hardware-preflight":
+        path = collect_hardware_preflight(
+            config,
+            bootstrap_peak_local_bytes=(
+                args.bootstrap_peak_local_gib * 1024**3
+            ),
+        )
+        print(path)
+        return SUCCESS
+
     _validate_scope(args, config)
     _required_gates(args, config)
 
@@ -212,6 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return DATA_QUALITY_STOP
     except (
         ArtifactValidationError,
+        HardwarePreflightError,
         IntegrationProviderRequired,
         InfrastructureError,
         ResourceAccountingError,

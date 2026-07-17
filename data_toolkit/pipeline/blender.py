@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import shutil
 import tarfile
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 BLENDER_URL = (
@@ -14,6 +14,7 @@ BLENDER_SHA256 = (
     "085a7ed4ed80c3cb66783bad76f236f39897de5d33884abd133e0c6db94c0f14"
 )
 BLENDER_DIR = "blender-4.5.1-linux-x64"
+DOWNLOAD_USER_AGENT = "Pixal3D-data-toolkit/1"
 
 
 def verify_archive(path: Path, expected: str) -> None:
@@ -33,7 +34,8 @@ def ensure_blender(tool_root: Path) -> Path:
     tool_root.mkdir(parents=True, exist_ok=True)
     archive = tool_root / Path(BLENDER_URL).name
     partial = archive.with_suffix(archive.suffix + ".part")
-    with urlopen(BLENDER_URL) as source, partial.open("wb") as target:
+    request = Request(BLENDER_URL, headers={"User-Agent": DOWNLOAD_USER_AGENT})
+    with urlopen(request) as source, partial.open("wb") as target:
         shutil.copyfileobj(source, target, 8 * 1024 * 1024)
     os.replace(partial, archive)
     verify_archive(archive, BLENDER_SHA256)

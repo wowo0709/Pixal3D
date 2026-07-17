@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tarfile
 from types import SimpleNamespace
+from urllib.request import Request
 
 import pandas as pd
 from PIL import Image
@@ -43,8 +44,8 @@ def test_installer_uses_pinned_verified_archive(monkeypatch, tmp_path):
     )
     requests = []
 
-    def open_fixture(url):
-        requests.append(url)
+    def open_fixture(request):
+        requests.append(request)
         return BytesIO(payload)
 
     monkeypatch.setattr(blender, "urlopen", open_fixture)
@@ -52,10 +53,27 @@ def test_installer_uses_pinned_verified_archive(monkeypatch, tmp_path):
 
     binary = ensure_blender(tmp_path)
 
-    assert requests == [blender.BLENDER_URL]
+    assert [request.full_url for request in requests] == [blender.BLENDER_URL]
     assert binary == tmp_path / blender.BLENDER_DIR / "blender"
     assert binary.read_bytes() == b"blender fixture"
     assert not list(tmp_path.glob("*.part"))
+
+
+def test_installer_sends_explicit_user_agent(monkeypatch, tmp_path):
+    payload = _blender_archive(
+        {f"{blender.BLENDER_DIR}/blender": b"blender fixture"}
+    )
+
+    def require_user_agent(request):
+        assert isinstance(request, Request)
+        assert request.full_url == blender.BLENDER_URL
+        assert request.get_header("User-agent") == "Pixal3D-data-toolkit/1"
+        return BytesIO(payload)
+
+    monkeypatch.setattr(blender, "urlopen", require_user_agent)
+    monkeypatch.setattr(blender, "BLENDER_SHA256", sha256(payload).hexdigest())
+
+    ensure_blender(tmp_path)
 
 
 def _write_render_fixture(
