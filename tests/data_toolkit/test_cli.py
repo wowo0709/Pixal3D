@@ -1322,7 +1322,14 @@ def test_registry_builder_uses_configured_source_order_and_no_network(
 
 def test_registry_builder_normalizes_adapter_raw_reference_paths(tmp_config):
     config = load_config(tmp_config)
-    sketchfab_uid = "18e8e405446849afb22b3760d3c73a31"
+    sketchfab_uid = "bGOGeXuHiDCTB33QjbQSBV6A2Fj"
+    smithsonian_url = (
+        "https://3d-api.si.edu/content/document/"
+        "3d_package:3fa90364-e4f4-4d36-ac0b-d6f42c69bb54/"
+        "2014_243_4_001-FlightSuitCharlesFBolden-"
+        "RENDER-150k-2048-medium.glb"
+    )
+    smithsonian_uid = "7083426f-1d5f-5901-8528-c5a12dcb0c85"
     frames = {
         "ObjaverseXL_sketchfab": pd.DataFrame(
             {
@@ -1334,10 +1341,11 @@ def test_registry_builder_normalizes_adapter_raw_reference_paths(tmp_config):
         ),
         "ObjaverseXL_github": pd.DataFrame(
             {
-                "sha256": [f"{2:064x}"],
+                "sha256": [f"{2:064x}", f"{7:064x}"],
                 "file_identifier": [
                     "https://github.com/example/repository/blob/"
-                    "0123456789abcdef/models/Model With Spaces.fbx"
+                    "0123456789abcdef/models/Model #636156 With Spaces.fbx",
+                    smithsonian_url,
                 ],
             }
         ),
@@ -1378,34 +1386,43 @@ def test_registry_builder_normalizes_adapter_raw_reference_paths(tmp_config):
     )["sources"]
     expected = {
         "ObjaverseXL_sketchfab": (
-            f"raw/hf-objaverse-v1/by-uid/{sketchfab_uid}.glb"
+            f"raw/hf-objaverse-v1/by-uid/{sketchfab_uid}.glb",
         ),
-        "ObjaverseXL_github": "raw/github/repos/example/repository.zip",
-        "ABO": "raw/3dmodels/original/3/B07YBH2SR3.glb",
-        "HSSD": "raw/objects/3/object.glb",
-        "3D-FUTURE": "raw/3D-FUTURE-model/object-id/raw_model.obj",
+        "ObjaverseXL_github": (
+            "raw/github/repos/example/repository.zip",
+            f"raw/smithsonian/objects/{smithsonian_uid}.glb",
+        ),
+        "ABO": ("raw/3dmodels/original/3/B07YBH2SR3.glb",),
+        "HSSD": ("raw/objects/3/object.glb",),
+        "3D-FUTURE": ("raw/3D-FUTURE-model/object-id/raw_model.obj",),
     }
     assert {
         source: tuple(paths) for source, paths in index.items()
-    } == {source: (path,) for source, path in expected.items()}
+    } == expected
 
-    runtime_paths = {
-        "ObjaverseXL_sketchfab": (
+    runtime_paths = (
+        (
+            "ObjaverseXL_sketchfab",
             "raw/hf-objaverse-v1/glbs/000-000/"
-            f"{sketchfab_uid}.glb"
+            f"{sketchfab_uid}.glb",
         ),
-        "ObjaverseXL_github": (
+        (
+            "ObjaverseXL_github",
             "raw/github/repos/example/repository.zip/"
-            "models/Model With Spaces.fbx"
+            "models/Model #636156 With Spaces.fbx",
         ),
-        **{
-            source: path
-            for source, path in expected.items()
+        (
+            "ObjaverseXL_github",
+            f"raw/smithsonian/objects/{smithsonian_uid}.glb",
+        ),
+        *(
+            (source, paths[0])
+            for source, paths in expected.items()
             if "Objaverse" not in source
-        },
-    }
+        ),
+    )
     counter = FrozenReferenceCounter(config)
-    for source, path in runtime_paths.items():
+    for source, path in runtime_paths:
         assert counter.pending_references(
             source,
             path,

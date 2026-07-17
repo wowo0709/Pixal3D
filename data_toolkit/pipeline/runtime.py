@@ -13,6 +13,7 @@ import tarfile
 import time
 from typing import Callable, Mapping
 from urllib.parse import urlsplit
+from uuid import NAMESPACE_DNS, uuid5
 
 import pandas as pd
 
@@ -820,24 +821,42 @@ def _raw_reference_path(value: str) -> str:
 
 def _canonical_raw_reference_path(source: str, value: str) -> str:
     if source == "ObjaverseXL_github" and isinstance(value, str):
-        parsed = urlsplit(value)
-        if parsed.scheme or parsed.netloc:
-            parts = parsed.path.split("/")
+        if value.startswith("https://github.com/"):
+            parts = value.split("/")
             if (
-                parsed.scheme != "https"
-                or parsed.netloc.lower() != "github.com"
-                or len(parts) < 6
-                or parts[0]
-                or parts[3] != "blob"
+                len(parts) < 8
+                or parts[:3] != ["https:", "", "github.com"]
+                or parts[5] != "blob"
             ):
                 raise ArtifactValidationError(
                     f"unsafe raw path: {value!r}"
                 )
-            organization = _component(parts[1], "GitHub organization")
-            repository = _component(parts[2], "GitHub repository")
+            organization = _component(parts[3], "GitHub organization")
+            repository = _component(parts[4], "GitHub repository")
+            _component(parts[6], "GitHub commit")
             return _raw_reference_path(
                 f"raw/github/repos/{organization}/{repository}.zip"
             )
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc:
+            parts = parsed.path.split("/")
+            if parsed.scheme != "https" or parsed.query or parsed.fragment:
+                raise ArtifactValidationError(
+                    f"unsafe raw path: {value!r}"
+                )
+            if parsed.netloc.lower() == "3d-api.si.edu":
+                if (
+                    len(parts) != 5
+                    or parts[:3] != ["", "content", "document"]
+                    or not parts[3].startswith("3d_package:")
+                    or not parts[4].endswith(".glb")
+                ):
+                    raise ArtifactValidationError(
+                        f"unsafe raw path: {value!r}"
+                    )
+                uid = uuid5(NAMESPACE_DNS, value)
+                return f"raw/smithsonian/objects/{uid}.glb"
+            raise ArtifactValidationError(f"unsafe raw path: {value!r}")
 
     if source == "ObjaverseXL_sketchfab" and isinstance(value, str):
         parsed = urlsplit(value)
@@ -858,14 +877,15 @@ def _canonical_raw_reference_path(source: str, value: str) -> str:
             safe = _raw_reference_path(value)
             candidate = PurePosixPath(safe).name
             uid = candidate[:-4] if candidate.endswith(".glb") else ""
-            if not (
-                len(uid) == 32
-                and all(character in "0123456789abcdef" for character in uid)
-            ):
+            if not uid:
                 return safe
         if not (
-            len(uid) == 32
-            and all(character in "0123456789abcdef" for character in uid)
+            uid
+            and all(
+                character.isascii()
+                and (character.isalnum() or character in "-_")
+                for character in uid
+            )
         ):
             raise ArtifactValidationError(f"unsafe raw path: {value!r}")
         return f"raw/hf-objaverse-v1/by-uid/{uid}.glb"
