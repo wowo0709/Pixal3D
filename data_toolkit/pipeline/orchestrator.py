@@ -3110,9 +3110,46 @@ class PipelineServices:
                             f"duplicate raw metadata SHA-256: {sha}"
                         )
                     relative = _safe_raw_relative(row.get("local_path", ""))
+                    content_sha = _validated_asset_sha(
+                        row.get("content_sha256") or sha
+                    )
+                    companion_value = row.get("companion_files") or "{}"
+
+                    def unique_companions(pairs):
+                        value = {}
+                        for companion_path, companion_sha in pairs:
+                            if companion_path in value:
+                                raise ValidationError(
+                                    "duplicate raw companion path: "
+                                    f"{companion_path}"
+                                )
+                            value[companion_path] = companion_sha
+                        return value
+
+                    companions = json.loads(
+                        companion_value, object_pairs_hook=unique_companions
+                    )
+                    if not isinstance(companions, dict):
+                        raise ValidationError(
+                            "invalid raw companion mapping"
+                        )
+                    normalized_companions = {}
+                    for companion_path, companion_sha in companions.items():
+                        companion_relative = _safe_raw_relative(
+                            companion_path
+                        ).as_posix()
+                        if companion_relative == relative.as_posix():
+                            raise ValidationError(
+                                "primary raw path repeated as companion"
+                            )
+                        normalized_companions[companion_relative] = (
+                            _validated_asset_sha(companion_sha)
+                        )
                     by_sha[sha] = {
                         "sha256": sha,
                         "local_path": relative.as_posix(),
+                        "content_sha256": content_sha,
+                        "companion_files": normalized_companions,
                     }
         except ValidationError:
             raise
@@ -3124,10 +3161,26 @@ class PipelineServices:
             raise
         except (UnicodeDecodeError, csv.Error, TypeError, ValueError) as error:
             raise ValidationError(f"invalid raw metadata: {path}: {error}") from error
-        paths = [item["local_path"] for item in by_sha.values()]
-        if len(paths) != len(set(paths)):
-            raise ValidationError("duplicate selected raw path")
+        PipelineServices._raw_file_map(tuple(by_sha.values()))
         return by_sha
+
+    @staticmethod
+    def _raw_file_map(
+        records: Sequence[Mapping[str, object]],
+    ) -> dict[str, str]:
+        files = {}
+        for record in records:
+            candidates = {
+                record["local_path"]: record["content_sha256"],
+                **record["companion_files"],
+            }
+            for path, digest in candidates.items():
+                if path in files:
+                    raise ValidationError(
+                        f"duplicate selected raw path: {path}"
+                    )
+                files[path] = digest
+        return files
 
     @classmethod
     def _read_raw_records(
@@ -3147,10 +3200,26 @@ class PipelineServices:
         stream = io.StringIO(newline="")
         try:
             writer = csv.DictWriter(
-                stream, fieldnames=("sha256", "local_path")
+                stream,
+                fieldnames=(
+                    "sha256",
+                    "local_path",
+                    "content_sha256",
+                    "companion_files",
+                ),
             )
             writer.writeheader()
-            writer.writerows(records)
+            for record in records:
+                writer.writerow(
+                    {
+                        **record,
+                        "companion_files": json.dumps(
+                            record["companion_files"],
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    }
+                )
             _atomic_write_bytes_nofollow(path, stream.getvalue().encode("utf-8"))
         except OSError as error:
             if error.errno in PATH_VALIDATION_ERRNOS:

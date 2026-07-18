@@ -1250,6 +1250,81 @@ def write_instances(context, shas):
     context.instances.write_text("".join(f"{sha}\n" for sha in shas))
 
 
+def test_read_raw_records_normalizes_content_and_companions(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "raw-contract", "3D-FUTURE", "3D-FUTURE-00000"
+    )
+    asset_sha = sha256(b"image identity").hexdigest()
+    content_sha = sha256(b"obj content").hexdigest()
+    companion = "raw/3D-FUTURE-model/item/model.mtl"
+    companion_sha = sha256(b"material").hexdigest()
+    write_raw_metadata(
+        context,
+        (
+            {
+                "sha256": asset_sha,
+                "local_path": "raw/3D-FUTURE-model/item/raw_model.obj",
+                "content_sha256": content_sha,
+                "companion_files": json.dumps({companion: companion_sha}),
+            },
+        ),
+    )
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+
+    records = services._read_raw_records(
+        context.source_root / "raw/metadata.csv", (asset_sha,)
+    )
+
+    assert records == (
+        {
+            "sha256": asset_sha,
+            "local_path": "raw/3D-FUTURE-model/item/raw_model.obj",
+            "content_sha256": content_sha,
+            "companion_files": {companion: companion_sha},
+        },
+    )
+
+
+def test_read_raw_records_rejects_duplicate_companion_json_keys(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "duplicate-companion",
+        "3D-FUTURE",
+        "3D-FUTURE-00000",
+    )
+    asset_sha = sha256(b"image identity").hexdigest()
+    companion = "raw/3D-FUTURE-model/item/model.mtl"
+    first_sha = sha256(b"first material").hexdigest()
+    second_sha = sha256(b"second material").hexdigest()
+    write_raw_metadata(
+        context,
+        (
+            {
+                "sha256": asset_sha,
+                "local_path": "raw/3D-FUTURE-model/item/raw_model.obj",
+                "content_sha256": sha256(b"obj content").hexdigest(),
+                "companion_files": (
+                    f'{{"{companion}":"{first_sha}",'
+                    f'"{companion}":"{second_sha}"}}'
+                ),
+            },
+        ),
+    )
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+
+    with pytest.raises(ValidationError, match="duplicate raw companion path"):
+        services._read_raw_records(
+            context.source_root / "raw/metadata.csv", (asset_sha,)
+        )
+
+
 def test_stage_raw_preserves_verified_adapter_relative_layout(
     isolated_config, tmp_path
 ):
@@ -1273,7 +1348,12 @@ def test_stage_raw_preserves_verified_adapter_relative_layout(
     assert (context.download_root / relative).read_bytes() == contents
     staged = pd.read_csv(context.download_root / "raw/metadata.csv")
     assert staged.to_dict("records") == [
-        {"sha256": asset_sha, "local_path": relative}
+        {
+            "sha256": asset_sha,
+            "local_path": relative,
+            "content_sha256": asset_sha,
+            "companion_files": "{}",
+        }
     ]
 
 
@@ -1375,7 +1455,12 @@ def test_stage_raw_uses_only_non_quarantined_assets(
 
     staged = pd.read_csv(context.download_root / "raw/metadata.csv")
     assert staged.to_dict("records") == [
-        {"sha256": completed, "local_path": relative}
+        {
+            "sha256": completed,
+            "local_path": relative,
+            "content_sha256": completed,
+            "companion_files": "{}",
+        }
     ]
 
 
