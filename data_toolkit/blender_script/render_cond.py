@@ -11,7 +11,7 @@ from PIL import Image
 """=============== BLENDER ==============="""
 
 IMPORT_FUNCTIONS: Dict[str, Callable] = {
-    "obj": bpy.ops.import_scene.obj,
+    "obj": bpy.ops.import_scene.obj if bpy.app.version[0] < 4 else bpy.ops.wm.obj_import,
     "glb": bpy.ops.import_scene.gltf,
     "gltf": bpy.ops.import_scene.gltf,
     "usd": bpy.ops.import_scene.usd,

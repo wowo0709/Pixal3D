@@ -480,6 +480,18 @@ def test_blender_script_selects_gpu_and_scales_boundary():
     assert 'parser.add_argument("--cycles_device"' in source
 
 
+def test_blender_render_script_uses_version_aware_obj_importer():
+    repository = Path(__file__).resolve().parents[2]
+    source = (
+        repository / "data_toolkit/blender_script/render_cond.py"
+    ).read_text()
+
+    assert (
+        '"obj": bpy.ops.import_scene.obj if bpy.app.version[0] < 4 '
+        'else bpy.ops.wm.obj_import'
+    ) in source
+
+
 @pytest.mark.parametrize(
     "invocation",
     [["data_toolkit/render_cond.py"], ["-m", "data_toolkit.render_cond"]],
