@@ -32,7 +32,7 @@
 - Consumes: held measurement/FP16/telemetry artifacts and `PipelineConfig.targets.latent_dtype`.
 - Produces: `fp16_gate_summary(measurements, latent_dtype) -> dict` and the approved 90% smoke admission rule.
 
-- [ ] **Step 1: Write failing FP32 tests**
+- [x] **Step 1: Write failing FP32 tests**
 
 Add this assertion and a float16 companion that still requires the existing six groups of 32 unique assets:
 
@@ -50,11 +50,11 @@ def test_fp32_gate_does_not_require_fp16_qualification():
     }
 ```
 
-- [ ] **Step 2: Write failing quality and telemetry tests**
+- [x] **Step 2: Write failing quality and telemetry tests**
 
 Build five-source smoke measurements with two provider failures among 20 GitHub assets and no schema failures; require a pass at exactly 90%. Change one row to `schema_failure` and require failure. Also require old timezone-aware telemetry to remain valid while a fresh evidence manifest binds it; reject naive or future telemetry.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 conda run --no-capture-output -n pixal3d \
@@ -62,7 +62,7 @@ conda run --no-capture-output -n pixal3d \
   -k 'fp32 or smoke_threshold or historical_telemetry' -v
 ```
 
-- [ ] **Step 4: Implement the minimal policy**
+- [x] **Step 4: Implement the minimal policy**
 
 ```python
 def fp16_gate_summary(measurements: pd.DataFrame, latent_dtype: str) -> dict:
@@ -89,7 +89,7 @@ def fp16_gate_summary(measurements: pd.DataFrame, latent_dtype: str) -> dict:
 
 Use `parity["passed"]` in the gate decision. For smoke require overall and per-source failure rate at most 10% and zero overall/per-source schema failures. Retain the current pilot/production thresholds. Telemetry rows must be timezone-aware and no more than five minutes in the future, but may be older than 24 hours; only the evidence manifest keeps the 24-hour freshness check.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 conda run --no-capture-output -n pixal3d \
@@ -114,15 +114,15 @@ git commit -m "fix: align gate admission with FP32 policy"
 - Consumes: frozen batches, validated publication manifests, schema-v3 quality ledgers, and `control/telemetry/resources.jsonl`.
 - Produces: `GateEvidenceCollector(config).collect(gate) -> tuple[Path, Path, Path, Path]`.
 
-- [ ] **Step 1: Write failing segmentation tests**
+- [x] **Step 1: Write failing segmentation tests**
 
 Create complete telemetry sequences beginning with `stage_raw` and ending with successful `cleanup_local`, containing `build_packs` and `archive_raw`. Require the latest exact number of complete segments and reject missing boundaries.
 
-- [ ] **Step 2: Write failing accounting tests**
+- [x] **Step 2: Write failing accounting tests**
 
 Use schema-v2 manifests with differing family membership. Require each tar's exact byte size to be allocated only over `included_asset_sha256s`, with allocations summing exactly to the tar size. Raw bytes are allocated only over `common` membership.
 
-- [ ] **Step 3: Write a failing integration test**
+- [x] **Step 3: Write a failing integration test**
 
 Require exactly these measurement fields, durable quarantine categories, `failure_category="none"` for completed assets, a header-only FP16 CSV for FP32, scope-bound telemetry, and correct SHA-256 values in the schema-v2 evidence manifest:
 
@@ -134,7 +134,7 @@ MEASUREMENT_COLUMNS = (
 )
 ```
 
-- [ ] **Step 4: Run RED**
+- [x] **Step 4: Run RED**
 
 ```bash
 conda run --no-capture-output -n pixal3d \
@@ -143,7 +143,7 @@ conda run --no-capture-output -n pixal3d \
 
 Expected: import failure because the collector does not exist.
 
-- [ ] **Step 5: Implement the collector**
+- [x] **Step 5: Implement the collector**
 
 ```python
 REQUIRED_SEGMENT_COMMANDS = frozenset({
@@ -171,11 +171,11 @@ Implementation rules:
 - Write a header-only FP16 CSV for FP32; reject float16 collection without real decoder evidence.
 - Atomically write measurements, FP16, and telemetry, compute SHA-256, and atomically publish the manifest last.
 
-- [ ] **Step 6: Add the CLI**
+- [x] **Step 6: Add the CLI**
 
 Add `evidence --config PATH --gate {smoke,pilot,production}`. It must not freeze scopes or initialize asset providers.
 
-- [ ] **Step 7: Run GREEN and commit**
+- [x] **Step 7: Run GREEN and commit**
 
 ```bash
 conda run --no-capture-output -n pixal3d \
@@ -201,7 +201,7 @@ git commit -m "feat: collect held preprocessing gate evidence"
 - Consumes: existing immutable frozen SHA lists and current commit.
 - Produces: schema-v2 publications/schema-v3 ledgers for every source and a passed smoke report.
 
-- [ ] **Step 1: Finish and audit the active 3D-FUTURE rerun**
+- [x] **Step 1: Finish and audit the active 3D-FUTURE rerun**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli audit \

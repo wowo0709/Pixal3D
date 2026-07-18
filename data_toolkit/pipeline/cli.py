@@ -7,6 +7,7 @@ import sys
 from typing import Sequence
 
 from .config import load_config
+from .evidence import GateEvidenceCollector
 from .hardware import HardwarePreflightError, collect_hardware_preflight
 from .orchestrator import (
     CheckpointError,
@@ -77,12 +78,13 @@ def parser() -> argparse.ArgumentParser:
         "run",
         "resume",
         "audit",
+        "evidence",
         "report",
     ):
         child = children.add_parser(name)
         child.add_argument("--config", type=Path, required=True)
 
-    for name in ("plan", "run", "resume", "audit"):
+    for name in ("plan", "run", "resume", "audit", "evidence"):
         children.choices[name].add_argument(
             "--gate", choices=GATES, required=True
         )
@@ -187,6 +189,11 @@ def _dispatch(args, config) -> int:
         )
         for line in lines:
             print(line)
+        return SUCCESS
+
+    if args.command == "evidence":
+        for path in GateEvidenceCollector(config).collect(args.gate):
+            print(path)
         return SUCCESS
 
     with build_mutating_services(config) as runtime:

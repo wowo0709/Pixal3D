@@ -788,6 +788,47 @@ def test_hardware_preflight_collects_explicit_bootstrap_reservation(
     assert str(evidence) in capsys.readouterr().out
 
 
+def test_evidence_command_does_not_initialize_mutating_runtime(
+    tmp_config, monkeypatch, capsys
+):
+    calls = []
+    paths = tuple(tmp_config.parent / f"evidence-{index}" for index in range(4))
+
+    class Collector:
+        def __init__(self, config):
+            calls.append(("init", config.config_hash()))
+
+        def collect(self, gate):
+            calls.append(("collect", gate))
+            return paths
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.GateEvidenceCollector", Collector
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: pytest.fail("evidence initialized mutating services"),
+    )
+
+    assert (
+        main(
+            [
+                "evidence",
+                "--config",
+                str(tmp_config),
+                "--gate",
+                "smoke",
+            ]
+        )
+        == 0
+    )
+    assert calls == [
+        ("init", load_config(tmp_config).config_hash()),
+        ("collect", "smoke"),
+    ]
+    assert capsys.readouterr().out.splitlines() == [str(path) for path in paths]
+
+
 def test_cli_rejects_unknown_source_and_mismatched_shard(tmp_config):
     assert (
         main(
