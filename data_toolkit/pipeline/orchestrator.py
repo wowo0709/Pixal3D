@@ -3240,8 +3240,8 @@ class PipelineServices:
         records = self._read_raw_records(
             context.source_root / "raw/metadata.csv", selected
         )
-        for record in records:
-            relative = _safe_raw_relative(record["local_path"])
+        for relative_value, expected_sha in self._raw_file_map(records).items():
+            relative = _safe_raw_relative(relative_value)
             zip_value = _zip_parts(relative)
             if zip_value is None:
                 with _open_regular_beneath(
@@ -3251,7 +3251,7 @@ class PipelineServices:
                         stream,
                         context.download_root,
                         relative,
-                        record["sha256"],
+                        expected_sha,
                     )
                 continue
 
@@ -3272,7 +3272,7 @@ class PipelineServices:
                                 member,
                                 context.download_root,
                                 relative,
-                                record["sha256"],
+                                expected_sha,
                             )
             except ValidationError:
                 raise
@@ -3293,12 +3293,13 @@ class PipelineServices:
         )
 
     def _validate_staged_raw(self, context: ShardContext) -> None:
-        for record in self._staged_records(context):
-            relative = _safe_raw_relative(record["local_path"])
+        records = self._staged_records(context)
+        for relative_value, expected_sha in self._raw_file_map(records).items():
+            relative = _safe_raw_relative(relative_value)
             with _open_regular_beneath(
                 context.download_root, relative
             ) as stream:
-                if _sha_stream(stream) != record["sha256"]:
+                if _sha_stream(stream) != expected_sha:
                     raise ValidationError(
                         f"staged raw checksum mismatch: {relative.as_posix()}"
                     )

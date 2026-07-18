@@ -1357,6 +1357,53 @@ def test_stage_raw_preserves_verified_adapter_relative_layout(
     ]
 
 
+def test_stage_raw_copies_full_declared_package_using_content_hashes(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "full-raw-package", "3D-FUTURE", "3D-FUTURE-00000"
+    )
+    asset_sha = sha256(b"image identity").hexdigest()
+    files = {
+        "raw/3D-FUTURE-model/item/raw_model.obj": b"mtllib model.mtl\nmesh",
+        "raw/3D-FUTURE-model/item/model.mtl": b"map_Kd texture.png\n",
+        "raw/3D-FUTURE-model/item/texture.png": b"texture",
+        "raw/3D-FUTURE-model/item/image.jpg": b"image identity",
+    }
+    for relative, contents in files.items():
+        source = context.source_root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(contents)
+    primary = "raw/3D-FUTURE-model/item/raw_model.obj"
+    companions = {
+        relative: sha256(contents).hexdigest()
+        for relative, contents in files.items()
+        if relative != primary
+    }
+    write_instances(context, (asset_sha,))
+    write_raw_metadata(
+        context,
+        (
+            {
+                "sha256": asset_sha,
+                "local_path": primary,
+                "content_sha256": sha256(files[primary]).hexdigest(),
+                "companion_files": json.dumps(companions),
+            },
+        ),
+    )
+    services = PipelineServices(
+        isolated_config, resource_guard=FakeResourceGuard()
+    )
+
+    services.stage_raw(context)
+
+    assert {
+        relative: (context.download_root / relative).read_bytes()
+        for relative in files
+    } == files
+
+
 def _download_validation_service(isolated_config, context, attempts):
     services = PipelineServices(
         isolated_config,
