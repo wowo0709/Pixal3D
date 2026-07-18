@@ -1524,6 +1524,33 @@ def test_terminal_validation_completes_geometry_only_asset(
     }
 
 
+def test_family_pack_membership_keeps_pbr_subset_of_matching_shape(
+    isolated_config, tmp_path
+):
+    services, _context, runner, assets = _family_services(
+        isolated_config, tmp_path
+    )
+    full_pbr, geometry_only = assets
+    runner.record_family_exclusion(
+        geometry_only,
+        ("PBR-256", "PBR-512", "PBR-1024"),
+        category="unsupported_shader",
+        stage="dump_pbr",
+        reason="Material is not supported",
+        attempts=1,
+    )
+
+    included = services._family_included_assets(assets)
+
+    assert included["common"] == assets
+    for resolution in isolated_config.targets.resolutions:
+        assert included[f"shape-{resolution}"] == assets
+        assert included[f"PBR-{resolution}"] == (full_pbr,)
+        assert set(included[f"PBR-{resolution}"]) <= set(
+            included[f"shape-{resolution}"]
+        )
+
+
 def test_corrupt_frozen_batch_manifest_fails_closed(isolated_config):
     gib = 1024**3
     sha = "a" * 64
@@ -2921,8 +2948,9 @@ def test_pack_publication_uses_frozen_quality_admission_counts(
 
     members, kwargs = published[0]
     assert kwargs["asset_sha256s"] == (completed, quarantined)
-    assert kwargs["completed_count"] == 1
-    assert kwargs["quarantined_count"] == 1
+    assert kwargs["included_asset_sha256s_by_family"] == {
+        family: (completed,) for family in PACK_FAMILIES
+    }
     assert all(
         quarantined not in relative.as_posix()
         for family_members in members.values()

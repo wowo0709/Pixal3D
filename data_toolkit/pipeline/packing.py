@@ -28,6 +28,8 @@ PACK_FAMILIES = (
     "PBR-1024",
 )
 
+PACK_MANIFEST_SCHEMA_VERSION = 2
+
 _FAMILY_DIRECTORIES = {
     "common": Path("common"),
     "SS-64": Path("ss", "64"),
@@ -56,12 +58,14 @@ class PackMember:
 
 @dataclass(frozen=True)
 class PackManifest:
+    schema_version: int
     shard_id: str
     batch_id: str
     family: str
     config_hash: str
     tool_commit: str
     asset_sha256s: tuple[str, ...]
+    included_asset_sha256s: tuple[str, ...]
     completed_count: int
     quarantined_count: int
     created_at: str
@@ -203,6 +207,53 @@ def _open_source_root(source_root: Path) -> int:
         raise ValueError(f"unsafe source root: {source_root}") from error
 
 
+def _canonical_asset_scope(
+    values: Sequence[str], field: str
+) -> tuple[str, ...]:
+    assets = tuple(values)
+    if not all(
+        isinstance(asset, str)
+        and len(asset) == 64
+        and all(character in "0123456789abcdef" for character in asset)
+        for asset in assets
+    ):
+        raise ValueError(f"invalid {field}")
+    if len(assets) != len(set(assets)):
+        raise ValueError(f"duplicate {field}")
+    return tuple(sorted(assets))
+
+
+def _resolve_manifest_scopes(
+    asset_sha256s: Sequence[str],
+    included_asset_sha256s: Sequence[str] | None,
+    completed_count: int | None,
+    quarantined_count: int | None,
+) -> tuple[tuple[str, ...], tuple[str, ...], int, int]:
+    frozen = _canonical_asset_scope(asset_sha256s, "asset_sha256s")
+    if included_asset_sha256s is None:
+        if completed_count != len(frozen) or quarantined_count != 0:
+            raise ValueError(
+                "included_asset_sha256s is required for a partial scope"
+            )
+        included = frozen
+    else:
+        included = _canonical_asset_scope(
+            included_asset_sha256s, "included_asset_sha256s"
+        )
+    if not set(included) <= set(frozen):
+        raise ValueError("included_asset_sha256s is not a frozen subset")
+    expected_completed = len(included)
+    expected_quarantined = len(frozen) - expected_completed
+    if completed_count is not None and completed_count != expected_completed:
+        raise ValueError("completed_count does not match included scope")
+    if (
+        quarantined_count is not None
+        and quarantined_count != expected_quarantined
+    ):
+        raise ValueError("quarantined_count does not match excluded scope")
+    return frozen, included, expected_completed, expected_quarantined
+
+
 def build_pack(
     source_root: Path,
     members: list[Path],
@@ -214,10 +265,22 @@ def build_pack(
     config_hash: str,
     tool_commit: str,
     asset_sha256s: tuple[str, ...],
-    completed_count: int,
-    quarantined_count: int,
+    included_asset_sha256s: tuple[str, ...] | None = None,
+    completed_count: int | None = None,
+    quarantined_count: int | None = None,
     gate: str = "production",
 ) -> PackManifest:
+    (
+        frozen_assets,
+        included_assets,
+        completed_count,
+        quarantined_count,
+    ) = _resolve_manifest_scopes(
+        asset_sha256s,
+        included_asset_sha256s,
+        completed_count,
+        quarantined_count,
+    )
     source_root = Path(source_root).resolve(strict=True)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -278,12 +341,14 @@ def build_pack(
         temporary = None
 
         manifest = PackManifest(
+            schema_version=PACK_MANIFEST_SCHEMA_VERSION,
             shard_id=shard_id,
             batch_id=batch_id,
             family=family,
             config_hash=config_hash,
             tool_commit=tool_commit,
-            asset_sha256s=tuple(sorted(asset_sha256s)),
+            asset_sha256s=frozen_assets,
+            included_asset_sha256s=included_assets,
             completed_count=completed_count,
             quarantined_count=quarantined_count,
             created_at=_utc_now(),
@@ -311,18 +376,69 @@ def _require_count(value, field: str) -> int:
     return value
 
 
+def _manifest_asset_scope(value, field: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not all(
+        isinstance(item, str) for item in value
+    ):
+        raise ValidationError(f"invalid pack manifest field: {field}")
+    try:
+        canonical = _canonical_asset_scope(value, field)
+    except ValueError as error:
+        raise ValidationError(
+            f"invalid pack manifest field: {field}"
+        ) from error
+    if tuple(value) != canonical:
+        raise ValidationError(
+            f"non-canonical pack manifest field: {field}"
+        )
+    return canonical
+
+
+def _legacy_included_scope(
+    frozen: tuple[str, ...], member_values: Sequence[object]
+) -> tuple[str, ...]:
+    frozen_set = set(frozen)
+    found = set()
+    for item in member_values:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if not isinstance(path, str):
+            continue
+        found.update(
+            component
+            for component in PurePosixPath(path).parts
+            if component in frozen_set
+        )
+    return tuple(asset for asset in frozen if asset in found)
+
+
 def _manifest_from_value(value, manifest_path: Path) -> PackManifest:
     if not isinstance(value, dict):
         raise ValidationError(f"invalid pack manifest: {manifest_path}")
     try:
         asset_values = value["asset_sha256s"]
         member_values = value["members"]
-        if not isinstance(asset_values, (list, tuple)) or not all(
-            isinstance(item, str) for item in asset_values
-        ):
-            raise ValidationError("invalid pack manifest field: asset_sha256s")
         if not isinstance(member_values, (list, tuple)):
             raise ValidationError("invalid pack manifest field: members")
+
+        schema_version = value.get("schema_version", 1)
+        if schema_version not in {1, PACK_MANIFEST_SCHEMA_VERSION}:
+            raise ValidationError(
+                "invalid pack manifest field: schema_version"
+            )
+        frozen = _manifest_asset_scope(asset_values, "asset_sha256s")
+        if schema_version == PACK_MANIFEST_SCHEMA_VERSION:
+            included = _manifest_asset_scope(
+                value["included_asset_sha256s"],
+                "included_asset_sha256s",
+            )
+            if not set(included) <= set(frozen):
+                raise ValidationError(
+                    "pack included scope is not a frozen subset"
+                )
+        else:
+            included = _legacy_included_scope(frozen, member_values)
 
         members = []
         for item in member_values:
@@ -335,19 +451,30 @@ def _manifest_from_value(value, manifest_path: Path) -> PackManifest:
                     sha256=_require_string(item["sha256"], "members.sha256"),
                 )
             )
+        completed_count = _require_count(
+            value["completed_count"], "completed_count"
+        )
+        quarantined_count = _require_count(
+            value["quarantined_count"], "quarantined_count"
+        )
+        if schema_version == PACK_MANIFEST_SCHEMA_VERSION and (
+            completed_count != len(included)
+            or quarantined_count != len(frozen) - len(included)
+        ):
+            raise ValidationError(
+                "pack manifest counts do not match included scope"
+            )
         return PackManifest(
+            schema_version=schema_version,
             shard_id=_require_string(value["shard_id"], "shard_id"),
             batch_id=_require_string(value["batch_id"], "batch_id"),
             family=_require_string(value["family"], "family"),
             config_hash=_require_string(value["config_hash"], "config_hash"),
             tool_commit=_require_string(value["tool_commit"], "tool_commit"),
-            asset_sha256s=tuple(asset_values),
-            completed_count=_require_count(
-                value["completed_count"], "completed_count"
-            ),
-            quarantined_count=_require_count(
-                value["quarantined_count"], "quarantined_count"
-            ),
+            asset_sha256s=frozen,
+            included_asset_sha256s=included,
+            completed_count=completed_count,
+            quarantined_count=quarantined_count,
             created_at=_require_string(value["created_at"], "created_at"),
             validated_at=_require_string(
                 value["validated_at"], "validated_at"
@@ -475,12 +602,14 @@ def _prepared_pack_relative(
 
 def _same_publication(first: PackManifest, second: PackManifest) -> bool:
     fields = (
+        "schema_version",
         "shard_id",
         "batch_id",
         "family",
         "config_hash",
         "tool_commit",
         "asset_sha256s",
+        "included_asset_sha256s",
         "completed_count",
         "quarantined_count",
         "pack_sha256",
@@ -633,13 +762,80 @@ def publish_pack(
     config_hash: str,
     tool_commit: str,
     asset_sha256s: tuple[str, ...],
-    completed_count: int,
-    quarantined_count: int,
+    included_asset_sha256s_by_family: Mapping[
+        str, tuple[str, ...]
+    ] | None = None,
+    completed_count: int | None = None,
+    quarantined_count: int | None = None,
     gate: str = "production",
 ) -> tuple[PackManifest, ...]:
     if set(members_by_family) != set(PACK_FAMILIES):
         expected = ", ".join(PACK_FAMILIES)
         raise ValueError(f"expected exactly these pack families: {expected}")
+    frozen_assets = _canonical_asset_scope(
+        asset_sha256s, "asset_sha256s"
+    )
+    if included_asset_sha256s_by_family is None:
+        if completed_count != len(frozen_assets) or quarantined_count != 0:
+            raise ValueError(
+                "included_asset_sha256s_by_family is required for partial scopes"
+            )
+        included_by_family = {
+            family: frozen_assets for family in PACK_FAMILIES
+        }
+    else:
+        if set(included_asset_sha256s_by_family) != set(PACK_FAMILIES):
+            expected = ", ".join(PACK_FAMILIES)
+            raise ValueError(
+                "expected included scopes for exactly these pack families: "
+                f"{expected}"
+            )
+        included_by_family = {
+            family: _canonical_asset_scope(
+                included_asset_sha256s_by_family[family],
+                f"{family} included_asset_sha256s",
+            )
+            for family in PACK_FAMILIES
+        }
+        for family, included in included_by_family.items():
+            if not set(included) <= set(frozen_assets):
+                raise ValueError(
+                    f"{family} included scope is not a frozen subset"
+                )
+        if completed_count is not None or quarantined_count is not None:
+            if any(
+                completed_count != len(included)
+                or quarantined_count
+                != len(frozen_assets) - len(included)
+                for included in included_by_family.values()
+            ):
+                raise ValueError(
+                    "legacy counts do not match every family scope"
+                )
+    for resolution in (256, 512, 1024):
+        pbr_family = f"PBR-{resolution}"
+        shape_family = f"shape-{resolution}"
+        if not set(included_by_family[pbr_family]) <= set(
+            included_by_family[shape_family]
+        ):
+            raise ValueError(
+                f"{pbr_family} included scope is not a {shape_family} subset"
+            )
+    if not set(included_by_family["SS-64"]) <= set(
+        included_by_family["shape-1024"]
+    ):
+        raise ValueError(
+            "SS-64 included scope is not a shape-1024 subset"
+        )
+    non_common_union = set().union(
+        *(
+            set(included_by_family[family])
+            for family in PACK_FAMILIES
+            if family != "common"
+        )
+    )
+    if set(included_by_family["common"]) != non_common_union:
+        raise ValueError("common included scope is not the family union")
     _validate_component(source, "source")
     _validate_component(shard_id, "shard id")
     _validate_component(batch_id, "batch id")
@@ -670,9 +866,8 @@ def publish_pack(
                 family=family,
                 config_hash=config_hash,
                 tool_commit=tool_commit,
-                asset_sha256s=asset_sha256s,
-                completed_count=completed_count,
-                quarantined_count=quarantined_count,
+                asset_sha256s=frozen_assets,
+                included_asset_sha256s=included_by_family[family],
                 gate=gate,
             )
             manifest_path = _manifest_path(pack_path)

@@ -56,12 +56,14 @@ def _write_manifest(path: Path, pack_path: Path, names: list[str]) -> None:
         PackMember(name, 1, sha256(b"x").hexdigest()) for name in names
     )
     manifest = PackManifest(
+        schema_version=2,
         shard_id="ABO-00000",
         batch_id="batch000",
         family="common",
         config_hash="c" * 64,
         tool_commit="abc123",
         asset_sha256s=("a" * 64,),
+        included_asset_sha256s=("a" * 64,),
         completed_count=1,
         quarantined_count=0,
         created_at="2026-07-16T00:00:00+00:00",
@@ -127,6 +129,99 @@ def _publish_worker(
         result_queue.put((name, "error", type(error).__name__, str(error)))
     else:
         result_queue.put((name, "ok", len(manifests)))
+
+
+def test_pack_manifest_records_frozen_and_included_scopes(tmp_path):
+    frozen = ("a" * 64, "b" * 64)
+
+    manifest = build_pack(
+        tmp_path,
+        [],
+        tmp_path / "pack.tar",
+        "shard",
+        batch_id="batch000",
+        family="PBR-256",
+        config_hash="c" * 64,
+        tool_commit="deadbeef",
+        asset_sha256s=frozen,
+        included_asset_sha256s=(frozen[0],),
+        completed_count=1,
+        quarantined_count=1,
+    )
+
+    assert manifest.schema_version == 2
+    assert manifest.asset_sha256s == frozen
+    assert manifest.included_asset_sha256s == (frozen[0],)
+
+
+def test_publish_pack_accepts_distinct_family_included_scopes(tmp_path):
+    source = tmp_path / "source"
+    members = _family_members(source)
+    first, second = "a" * 64, "b" * 64
+    included = {family: (first, second) for family in PACK_FAMILIES}
+    for family in ("PBR-256", "PBR-512", "PBR-1024"):
+        included[family] = (first,)
+
+    manifests = publish_pack(
+        tmp_path / "data2",
+        source,
+        members,
+        "ABO-00000",
+        source="ABO",
+        batch_id="batch000",
+        config_hash="c" * 64,
+        tool_commit="deadbeef",
+        asset_sha256s=(first, second),
+        included_asset_sha256s_by_family=included,
+    )
+
+    by_family = {manifest.family: manifest for manifest in manifests}
+    assert by_family["PBR-256"].included_asset_sha256s == (first,)
+    assert by_family["shape-256"].included_asset_sha256s == (first, second)
+
+
+def test_publish_pack_rejects_pbr_scope_outside_matching_shape(tmp_path):
+    source = tmp_path / "source"
+    members = _family_members(source)
+    first, second = "a" * 64, "b" * 64
+    included = {family: (first,) for family in PACK_FAMILIES}
+    included["common"] = (first, second)
+    included["PBR-256"] = (second,)
+
+    with pytest.raises(ValueError, match="PBR-256.*shape-256"):
+        publish_pack(
+            tmp_path / "data2",
+            source,
+            members,
+            "ABO-00000",
+            source="ABO",
+            batch_id="batch000",
+            config_hash="c" * 64,
+            tool_commit="deadbeef",
+            asset_sha256s=(first, second),
+            included_asset_sha256s_by_family=included,
+        )
+
+
+def test_schema_one_manifest_derives_included_scope_from_member_paths(
+    tmp_path,
+):
+    asset_sha = "a" * 64
+    member = f"renders_cond/{asset_sha}/000.png"
+    pack_path = tmp_path / "legacy.tar"
+    manifest_path = tmp_path / "legacy.tar.manifest.json"
+    _write_tar(pack_path, [(member, b"x", "file")])
+    _write_manifest(manifest_path, pack_path, [member])
+    payload = json.loads(manifest_path.read_text())
+    payload.pop("schema_version")
+    payload.pop("included_asset_sha256s")
+    manifest_path.write_text(json.dumps(payload))
+
+    verify_pack(pack_path, manifest_path)
+    manifest = packing._load_manifest(manifest_path)
+
+    assert manifest.schema_version == 1
+    assert manifest.included_asset_sha256s == (asset_sha,)
 
 
 def _run_interleaved_publishers(

@@ -4305,13 +4305,49 @@ class PipelineServices:
                     ) from error
                 raise
 
+    def _family_included_assets(
+        self, completed: Sequence[str]
+    ) -> Mapping[str, tuple[str, ...]]:
+        ordered = tuple(_validated_asset_sha(asset) for asset in completed)
+        included = {
+            family: tuple(
+                asset
+                for asset in ordered
+                if self.runner.family_is_eligible(asset, family)
+            )
+            for family in PACK_FAMILIES
+            if family != "common"
+        }
+        common_assets = set().union(
+            *(set(assets) for assets in included.values())
+        )
+        included["common"] = tuple(
+            asset for asset in ordered if asset in common_assets
+        )
+        dependencies = family_dependencies(self.config)
+        for family, required in dependencies.items():
+            for dependency in required:
+                if not set(included[family]) <= set(included[dependency]):
+                    raise ValidationError(
+                        f"{family} membership is not a {dependency} subset"
+                    )
+        return {
+            family: included[family] for family in PACK_FAMILIES
+        }
+
     def _pack_members_for_assets(
-        self, context: ShardContext, assets: Sequence[str]
+        self,
+        context: ShardContext,
+        included_by_family: Mapping[str, Sequence[str]],
     ) -> Mapping[str, Sequence[Path]]:
+        if set(included_by_family) != set(PACK_FAMILIES):
+            raise ValidationError(
+                "included asset mapping must contain exactly eight families"
+            )
         members: dict[str, list[Path]] = {
             family: [] for family in PACK_FAMILIES
         }
-        for asset_sha in assets:
+        for asset_sha in included_by_family["common"]:
             render_root = Path("renders_cond", asset_sha)
             members["common"].extend(
                 [
@@ -4320,17 +4356,18 @@ class PipelineServices:
                 ]
                 + [render_root / "transforms.json"]
             )
-            for family, relative in (
-                (f"SS-{self.config.targets.ss_resolution}", self._ss_directory()),
-                *(
-                    (f"shape-{resolution}", self._shape_directory(resolution))
-                    for resolution in self.config.targets.resolutions
-                ),
-                *(
-                    (f"PBR-{resolution}", self._pbr_directory(resolution))
-                    for resolution in self.config.targets.resolutions
-                ),
-            ):
+        for family, relative in (
+            (f"SS-{self.config.targets.ss_resolution}", self._ss_directory()),
+            *(
+                (f"shape-{resolution}", self._shape_directory(resolution))
+                for resolution in self.config.targets.resolutions
+            ),
+            *(
+                (f"PBR-{resolution}", self._pbr_directory(resolution))
+                for resolution in self.config.targets.resolutions
+            ),
+        ):
+            for asset_sha in included_by_family[family]:
                 for view in self.config.targets.views:
                     members[family].extend(
                         (
@@ -4346,7 +4383,8 @@ class PipelineServices:
         self, context: ShardContext
     ) -> Mapping[str, Sequence[Path]]:
         _, completed, _ = self._quality_state(context)
-        return self._pack_members_for_assets(context, completed)
+        included = self._family_included_assets(completed)
+        return self._pack_members_for_assets(context, included)
 
     @staticmethod
     def _path_size(path: Path) -> int:
@@ -4423,13 +4461,14 @@ class PipelineServices:
 
     def build_packs(self, context: ShardContext) -> None:
         self.output_validator(context)
-        shas, completed, quarantined = self._quality_state(context)
+        shas, completed, _quarantined = self._quality_state(context)
+        included = self._family_included_assets(completed)
         members = self.pack_member_builder(context)
         if set(members) != set(PACK_FAMILIES):
             raise ValidationError(
                 "pack member mapping must contain exactly eight families"
             )
-        expected_members = self._pack_members_for_assets(context, completed)
+        expected_members = self._pack_members_for_assets(context, included)
         if any(
             tuple(sorted(Path(item).as_posix() for item in members[family]))
             != tuple(
@@ -4453,8 +4492,7 @@ class PipelineServices:
             config_hash=self.config.config_hash(),
             tool_commit=self._resolved_tool_commit(),
             asset_sha256s=shas,
-            completed_count=len(completed),
-            quarantined_count=quarantined,
+            included_asset_sha256s_by_family=included,
             gate=context.gate,
         )
         if (
@@ -4467,8 +4505,9 @@ class PipelineServices:
             self._record_delta(path, self._path_size(path) - before[path])
 
     def _verify_published_batch(self, context: ShardContext) -> None:
-        shas, completed, quarantined = self._quality_state(context)
-        expected_members = self._pack_members_for_assets(context, completed)
+        shas, completed, _quarantined = self._quality_state(context)
+        included = self._family_included_assets(completed)
+        expected_members = self._pack_members_for_assets(context, included)
         tool_commit = self._resolved_tool_commit()
         prepared = self.config.paths.data2_root / "prepared"
         prefix = (
@@ -4543,7 +4582,12 @@ class PipelineServices:
                     raise ValidationError(
                         f"symlinked published pack: {family}"
                     )
-                verify_pack(pack_path, manifest_path)
+                try:
+                    verify_pack(pack_path, manifest_path)
+                except ValidationError as error:
+                    raise ValidationError(
+                        f"published pack identity mismatch: {family}: {error}"
+                    ) from error
                 manifest_payload = _read_regular_bytes_nofollow(manifest_path)
                 try:
                     manifest = json.loads(manifest_payload)
@@ -4559,8 +4603,13 @@ class PipelineServices:
                     or manifest["config_hash"] != self.config.config_hash()
                     or manifest["tool_commit"] != tool_commit
                     or tuple(manifest["asset_sha256s"]) != shas
-                    or manifest["completed_count"] != len(completed)
-                    or manifest["quarantined_count"] != quarantined
+                    or manifest.get("schema_version") != 2
+                    or tuple(manifest["included_asset_sha256s"])
+                    != included[family]
+                    or manifest["completed_count"]
+                    != len(included[family])
+                    or manifest["quarantined_count"]
+                    != len(shas) - len(included[family])
                     or {
                         item["path"] for item in manifest["members"]
                     }
@@ -4597,7 +4646,12 @@ class PipelineServices:
             raise ValidationError(
                 f"refusing symlinked raw archive output: {archive}"
         )
-        verify_pack(archive, manifest_path)
+        try:
+            verify_pack(archive, manifest_path)
+        except ValidationError as error:
+            raise ValidationError(
+                f"raw archive identity mismatch: {manifest_path}: {error}"
+            ) from error
         try:
             manifest = json.loads(
                 _read_regular_bytes_nofollow(manifest_path)
@@ -4634,6 +4688,9 @@ class PipelineServices:
             or manifest.get("tool_commit") != self._resolved_tool_commit()
             or manifest.get("completed_count") != len(completed)
             or manifest.get("quarantined_count") != quarantined
+            or manifest.get("schema_version") != 2
+            or tuple(manifest.get("included_asset_sha256s", ()))
+            != completed
             or not manifest.get("validated_at")
             or tuple(manifest.get("asset_sha256s", ()))
             != shas
@@ -4672,6 +4729,7 @@ class PipelineServices:
             config_hash=self.config.config_hash(),
             tool_commit=self._resolved_tool_commit(),
             asset_sha256s=shas,
+            included_asset_sha256s=completed,
             completed_count=len(completed),
             quarantined_count=quarantined,
             gate=context.gate,
