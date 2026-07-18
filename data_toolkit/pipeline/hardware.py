@@ -60,7 +60,7 @@ def _file_sha256(path: Path) -> str:
 def benchmark_storage(
     root: Path,
     *,
-    fixture_bytes: int = 10 * 1024**3,
+    fixture_bytes: int = 1 * 1024**3,
     chunk_bytes: int = 8 * 1024**2,
 ) -> dict:
     if fixture_bytes <= 0 or chunk_bytes <= 0:
