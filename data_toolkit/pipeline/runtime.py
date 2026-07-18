@@ -1497,6 +1497,48 @@ def _directory_names(path: Path, description: str) -> tuple[str, ...]:
         os.close(descriptor)
 
 
+def _frozen_shard_names(path: Path, description: str) -> tuple[str, ...]:
+    try:
+        descriptor = _open_directory_nofollow(path)
+    except (InfrastructureError, OSError) as error:
+        raise ArtifactValidationError(
+            f"missing or unsafe {description}: {path}: {error}"
+        ) from error
+    try:
+        result = []
+        locks = set()
+        suffix = ".freeze.lock"
+        for name in sorted(os.listdir(descriptor)):
+            _component(name, description)
+            details = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            if stat.S_ISDIR(details.st_mode):
+                result.append(name)
+                continue
+            if (
+                stat.S_ISREG(details.st_mode)
+                and name.startswith(".")
+                and name.endswith(suffix)
+            ):
+                shard = name[1 : -len(suffix)]
+                _component(shard, description)
+                locks.add(shard)
+                continue
+            raise ArtifactValidationError(
+                f"non-directory in {description}: {name}"
+            )
+        if not locks <= set(result):
+            raise ArtifactValidationError(
+                f"orphan freeze lock in {description}: {sorted(locks - set(result))[0]}"
+            )
+        return tuple(result)
+    except OSError as error:
+        raise ArtifactValidationError(
+            f"cannot inspect {description}: {path}: {error}"
+        ) from error
+    finally:
+        os.close(descriptor)
+
+
 def _held_pack_manifest(pack_path: Path, manifest_path: Path) -> tuple[dict, str, str]:
     try:
         pack_payload = _read_regular_bytes_nofollow(pack_path)
@@ -1889,7 +1931,9 @@ class RuntimeReportBuilder:
         assets = {}
         batches = {}
         for source in self.config.sources:
-            for shard in _directory_names(root / source, f"{gate} frozen shards"):
+            for shard in _frozen_shard_names(
+                root / source, f"{gate} frozen shards"
+            ):
                 canonical = tuple(
                     sorted(
                         registry.loc[

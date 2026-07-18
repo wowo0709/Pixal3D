@@ -282,6 +282,12 @@ def test_collects_checksum_bound_evidence_from_publications_and_ledger(
     ).load()
     assets = tuple(sorted(registry["sha256"]))
     _publish_smoke_fixture(config, assets)
+    lock = (
+        config.paths.data2_root
+        / "control/qualification/smoke/shards/Synthetic"
+        / ".Synthetic-00000.freeze.lock"
+    )
+    lock.touch()
 
     measurements_path, fp16_path, telemetry_path, manifest_path = (
         GateEvidenceCollector(config).collect("smoke")
