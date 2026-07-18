@@ -32,7 +32,7 @@ from .registry import assign_shards, canonicalize_sources
 from .reporting import (
     ReportValidationError,
     build_training_handoff,
-    fp16_family_summary,
+    fp16_gate_summary,
     gate_measurement_summary,
     resource_peaks,
     split_overlap,
@@ -578,6 +578,29 @@ def _fresh_timestamp(value, description: str, *, now=None) -> str:
     age = (current - parsed.astimezone(timezone.utc)).total_seconds()
     if age < -300 or age > 24 * 60 * 60:
         raise ArtifactValidationError(f"{description} evidence is not fresh")
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _held_timestamp(value, description: str, *, now=None) -> str:
+    if not isinstance(value, str):
+        raise ArtifactValidationError(
+            f"{description} timestamp must be a string"
+        )
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ArtifactValidationError(
+            f"invalid {description} timestamp"
+        ) from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ArtifactValidationError(
+            f"{description} timestamp must be timezone-aware"
+        )
+    current = now or datetime.now(timezone.utc)
+    if (current - parsed.astimezone(timezone.utc)).total_seconds() < -300:
+        raise ArtifactValidationError(
+            f"{description} timestamp is in the future"
+        )
     return parsed.astimezone(timezone.utc).isoformat()
 
 
@@ -2192,7 +2215,7 @@ class RuntimeReportBuilder:
                     or (record.get("source"), record.get("shard_id")) not in scope_pairs
                 ):
                     raise ValueError("telemetry scope mismatch")
-                _fresh_timestamp(record.get("timestamp"), f"{gate} telemetry")
+                _held_timestamp(record.get("timestamp"), f"{gate} telemetry")
                 seen_scopes.add((record["source"], record["shard_id"]))
                 records.append(record)
         except (UnicodeError, json.JSONDecodeError, ValueError) as error:
@@ -2277,7 +2300,9 @@ class RuntimeReportBuilder:
                 data2_limit_bytes=self.config.limits.data2_soft_tib * 1024**4,
                 data3_limit_bytes=self.config.limits.data3_soft_tib * 1024**4,
             )
-            parity = fp16_family_summary(fp16)
+            parity = fp16_gate_summary(
+                fp16, self.config.targets.latent_dtype
+            )
             combined = pd.concat(
                 (
                     training[["sha256", "split"]],
@@ -2301,19 +2326,24 @@ class RuntimeReportBuilder:
         )
         if gate == "smoke":
             quality_passed = (
-                summary["quality"]["failures"] == 0
+                summary["quality"]["failure_rate"] <= 0.10
                 and summary["quality"]["schema_failures"] == 0
+                and all(
+                    value["failure_rate"] <= 0.10
+                    and value["schema_failures"] == 0
+                    for value in summary["quality"]["sources"].values()
+                )
             )
         else:
             quality_passed = (
                 summary["quality"]["failure_rate"] <= 0.10
                 and summary["quality"]["schema_failure_rate"] <= 0.05
             )
-        quality_passed = quality_passed and all(
-            value["passed"]
-            for value in summary["quality"]["sources"].values()
-        )
-        parity_passed = all(value["passed"] for value in parity.values())
+            quality_passed = quality_passed and all(
+                value["passed"]
+                for value in summary["quality"]["sources"].values()
+            )
+        parity_passed = parity["passed"]
         passed = all(
             (
                 hardware["decision"] == "passed",

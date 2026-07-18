@@ -12,6 +12,7 @@ from data_toolkit.pipeline.reporting import (
     checksum_summary,
     failure_categories,
     fp16_parity,
+    fp16_gate_summary,
     resource_peaks,
     source_counts,
     split_overlap,
@@ -25,6 +26,27 @@ from data_toolkit.pipeline.reporting import (
 
 
 CONFIG_HASH = "a" * 64
+
+
+def test_fp32_gate_does_not_require_fp16_qualification():
+    frame = pd.DataFrame(
+        columns=(
+            "sha256",
+            "family",
+            "resolution",
+            "fp16_abs_error",
+            "coordinates_match",
+            "fp16_finite",
+            "decode_degradation_percent",
+        )
+    )
+
+    assert fp16_gate_summary(frame, "float32") == {
+        "dtype": "float32",
+        "required": False,
+        "passed": True,
+        "families": {},
+    }
 
 
 def valid_report_payload(gate="pilot"):

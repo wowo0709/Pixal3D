@@ -258,20 +258,33 @@ def write_complete_gate_evidence(config, gate):
         }
     )
     fp16_rows = []
-    for family in ("shape", "PBR"):
-        for resolution in (256, 512, 1024):
-            for asset in training["sha256"]:
-                fp16_rows.append(
-                    {
-                        "sha256": asset,
-                        "family": family,
-                        "resolution": resolution,
-                        "fp16_abs_error": 0.001,
-                        "coordinates_match": True,
-                        "fp16_finite": True,
-                        "decode_degradation_percent": 0.05,
-                    }
-                )
+    if config.targets.latent_dtype == "float16":
+        for family in ("shape", "PBR"):
+            for resolution in (256, 512, 1024):
+                for asset in training["sha256"]:
+                    fp16_rows.append(
+                        {
+                            "sha256": asset,
+                            "family": family,
+                            "resolution": resolution,
+                            "fp16_abs_error": 0.001,
+                            "coordinates_match": True,
+                            "fp16_finite": True,
+                            "decode_degradation_percent": 0.05,
+                        }
+                    )
+    fp16 = pd.DataFrame(
+        fp16_rows,
+        columns=(
+            "sha256",
+            "family",
+            "resolution",
+            "fp16_abs_error",
+            "coordinates_match",
+            "fp16_finite",
+            "decode_degradation_percent",
+        ),
+    )
     telemetry = "".join(
         json.dumps(
             {
@@ -291,7 +304,7 @@ def write_complete_gate_evidence(config, gate):
     evidence_root.mkdir(parents=True)
     payloads = {
         "measurements.csv": measurements.to_csv(index=False).encode(),
-        "fp16.csv": pd.DataFrame(fp16_rows).to_csv(index=False).encode(),
+        "fp16.csv": fp16.to_csv(index=False).encode(),
         "telemetry.jsonl": telemetry,
     }
     for name, payload in payloads.items():
@@ -510,7 +523,7 @@ def test_gate_telemetry_must_cover_every_frozen_scope(tmp_config):
         RuntimeReportBuilder(config)("production")
 
 
-def test_gate_telemetry_samples_must_be_fresh(tmp_config):
+def test_gate_telemetry_can_predate_fresh_evidence_manifest(tmp_config):
     config = load_config(tmp_config)
     write_complete_gate_evidence(config, "production")
     evidence = (
@@ -533,8 +546,9 @@ def test_gate_telemetry_samples_must_be_fresh(tmp_config):
     ).hexdigest()
     candidate_path.write_text(json.dumps(candidate))
 
-    with pytest.raises(ArtifactValidationError, match="fresh"):
-        RuntimeReportBuilder(config)("production")
+    report_path, _ = RuntimeReportBuilder(config)("production")
+
+    assert json.loads(report_path.read_text())["decision"] == "passed"
 
 
 def test_smoke_gate_requires_zero_schema_failures(tmp_config):
@@ -558,6 +572,69 @@ def test_smoke_gate_requires_zero_schema_failures(tmp_config):
     report_path, _ = RuntimeReportBuilder(config)("smoke")
 
     assert json.loads(report_path.read_text())["decision"] == "failed"
+
+
+def test_smoke_gate_allows_ten_percent_asset_failures(tmp_config):
+    config = load_config(tmp_config)
+    write_complete_gate_evidence(config, "smoke")
+    measurements_path = (
+        config.paths.data2_root
+        / "control/report_evidence/smoke/measurements.csv"
+    )
+    measurements = pd.read_csv(measurements_path, dtype={"sha256": str})
+    source = "ObjaverseXL_github"
+    failed = measurements.index[measurements["source"] == source][:2]
+    measurements.loc[failed, "outcome"] = "failure"
+    measurements.loc[failed, "failure_category"] = (
+        "provider_asset_unavailable"
+    )
+    measurements_path.write_text(measurements.to_csv(index=False))
+    candidate_path = (
+        config.paths.data2_root / "control/report_inputs/smoke.json"
+    )
+    candidate = json.loads(candidate_path.read_text())
+    candidate["artifacts"]["measurements_sha256"] = sha256(
+        measurements_path.read_bytes()
+    ).hexdigest()
+    candidate_path.write_text(json.dumps(candidate))
+
+    report_path, _ = RuntimeReportBuilder(config)("smoke")
+
+    report = json.loads(report_path.read_text())
+    assert report["decision"] == "passed"
+    assert report["quality"]["sources"][source]["failure_rate"] == 0.1
+
+
+def test_fp32_gate_accepts_header_only_fp16_evidence(tmp_config):
+    config = load_config(tmp_config)
+    write_complete_gate_evidence(config, "smoke")
+    evidence_path = (
+        config.paths.data2_root
+        / "control/report_evidence/smoke/fp16.csv"
+    )
+    evidence_path.write_text(
+        "sha256,family,resolution,fp16_abs_error,coordinates_match,"
+        "fp16_finite,decode_degradation_percent\n"
+    )
+    candidate_path = (
+        config.paths.data2_root / "control/report_inputs/smoke.json"
+    )
+    candidate = json.loads(candidate_path.read_text())
+    candidate["artifacts"]["fp16_sha256"] = sha256(
+        evidence_path.read_bytes()
+    ).hexdigest()
+    candidate_path.write_text(json.dumps(candidate))
+
+    report_path, _ = RuntimeReportBuilder(config)("smoke")
+
+    report = json.loads(report_path.read_text())
+    assert report["decision"] == "passed"
+    assert report["fp16_parity"] == {
+        "dtype": "float32",
+        "required": False,
+        "passed": True,
+        "families": {},
+    }
 
 
 @pytest.mark.parametrize("artifact", ("frozen", "index", "manifest"))

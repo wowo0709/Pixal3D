@@ -473,6 +473,38 @@ def fp16_family_summary(measurements: pd.DataFrame) -> dict[str, dict]:
     return result
 
 
+def fp16_gate_summary(
+    measurements: pd.DataFrame, latent_dtype: str
+) -> dict:
+    columns = {
+        "sha256",
+        "family",
+        "resolution",
+        "fp16_abs_error",
+        "coordinates_match",
+        "fp16_finite",
+        "decode_degradation_percent",
+    }
+    if latent_dtype == "float32":
+        if set(measurements.columns) != columns or not measurements.empty:
+            raise ReportValidationError(
+                "FP32 gate requires header-only FP16 evidence"
+            )
+        return {
+            "dtype": "float32",
+            "required": False,
+            "passed": True,
+            "families": {},
+        }
+    families = fp16_family_summary(measurements)
+    return {
+        "dtype": "float16",
+        "required": True,
+        "passed": all(value["passed"] for value in families.values()),
+        "families": families,
+    }
+
+
 def build_training_handoff(
     *,
     config_hash: str,
