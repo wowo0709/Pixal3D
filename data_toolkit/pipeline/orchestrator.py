@@ -3213,8 +3213,10 @@ class PipelineServices:
                 writer.writerow(
                     {
                         **record,
+                        "content_sha256": record.get("content_sha256")
+                        or record["sha256"],
                         "companion_files": json.dumps(
-                            record["companion_files"],
+                            record.get("companion_files", {}),
                             sort_keys=True,
                             separators=(",", ":"),
                         ),
@@ -4040,10 +4042,7 @@ class PipelineServices:
         expected_records = self._read_raw_records(
             context.source_root / "raw/metadata.csv", completed
         )
-        expected_members = {
-            record["local_path"]: record["sha256"]
-            for record in expected_records
-        }
+        expected_members = self._raw_file_map(expected_records)
         try:
             actual_members = {
                 item["path"]: item["sha256"]
@@ -4065,7 +4064,7 @@ class PipelineServices:
             or not manifest.get("validated_at")
             or tuple(manifest.get("asset_sha256s", ()))
             != shas
-            or len(manifest.get("members", ())) != len(completed)
+            or len(manifest.get("members", ())) != len(expected_members)
             or len(actual_members) != len(manifest.get("members", ()))
         ):
             raise ValidationError(
@@ -4082,8 +4081,9 @@ class PipelineServices:
         records = self._read_raw_records(
             context.download_root / "raw/metadata.csv", completed
         )
+        file_map = self._raw_file_map(records)
         members = [
-            _safe_raw_relative(record["local_path"]) for record in records
+            _safe_raw_relative(relative) for relative in sorted(file_map)
         ]
         local_archive = (
             context.work_root / "raw_archive" / f"{context.batch_id}.tar"
@@ -4117,13 +4117,11 @@ class PipelineServices:
         )
         verify_pack(local_archive, local_manifest)
         if (
-            len(manifest.members) != len(records)
+            len(manifest.members) != len(file_map)
             or sum(item.size for item in manifest.members)
             != sum((context.download_root / member).stat().st_size for member in members)
             or {item.path: item.sha256 for item in manifest.members}
-            != {
-                record["local_path"]: record["sha256"] for record in records
-            }
+            != file_map
         ):
             raise ValidationError("raw archive count, byte, or member hash mismatch")
 
@@ -4160,13 +4158,13 @@ class PipelineServices:
             self._path_size(archive_manifest) - before_manifest,
         )
 
-        source_paths = {
-            self._source_raw_relative(member).as_posix() for member in members
-        }
-        for relative_value in sorted(source_paths):
+        for record in records:
+            primary_value = self._source_raw_relative(
+                _safe_raw_relative(record["local_path"])
+            ).as_posix()
             pending = self.reference_counter.pending_references(
                 context.source,
-                relative_value,
+                primary_value,
                 excluding_shard_id=context.shard_id,
                 excluding_batch_id=context.batch_id,
                 gate=context.gate,
@@ -4178,17 +4176,25 @@ class PipelineServices:
             ):
                 raise IntegrationProviderRequired(
                     "raw reference counter must return a non-negative integer"
-                )
+            )
             if pending:
                 continue
-            relative = _safe_raw_relative(relative_value)
-            removed_bytes = _unlink_regular_beneath(
-                context.source_root, relative
-            )
-            if removed_bytes:
-                self._record_delta(
-                    context.source_root / relative, -removed_bytes
+            source_paths = {
+                self._source_raw_relative(_safe_raw_relative(relative)).as_posix()
+                for relative in (
+                    record["local_path"],
+                    *record["companion_files"],
                 )
+            }
+            for relative_value in sorted(source_paths):
+                relative = _safe_raw_relative(relative_value)
+                removed_bytes = _unlink_regular_beneath(
+                    context.source_root, relative
+                )
+                if removed_bytes:
+                    self._record_delta(
+                        context.source_root / relative, -removed_bytes
+                    )
 
     def cleanup_local(self, context: ShardContext) -> None:
         self.published_batch_verifier(context)

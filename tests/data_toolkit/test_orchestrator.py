@@ -1823,6 +1823,114 @@ def test_archive_verifies_before_zero_reference_deletion(isolated_config):
     assert not source.exists()
 
 
+def test_raw_archive_contains_primary_and_companion_content_hashes(
+    isolated_config
+):
+    context = configured_context(isolated_config, "3D-FUTURE")
+    asset_sha = sha256(b"image identity").hexdigest()
+    primary = "raw/3D-FUTURE-model/item/raw_model.obj"
+    files = {
+        primary: b"mtllib model.mtl\nmesh",
+        "raw/3D-FUTURE-model/item/model.mtl": b"map_Kd texture.png\n",
+        "raw/3D-FUTURE-model/item/texture.png": b"texture",
+    }
+    for relative, contents in files.items():
+        source = context.source_root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(contents)
+    write_instances(context, (asset_sha,))
+    write_raw_metadata(
+        context,
+        (
+            {
+                "sha256": asset_sha,
+                "local_path": primary,
+                "content_sha256": sha256(files[primary]).hexdigest(),
+                "companion_files": json.dumps(
+                    {
+                        relative: sha256(contents).hexdigest()
+                        for relative, contents in files.items()
+                        if relative != primary
+                    }
+                ),
+            },
+        ),
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        reference_counter=FakeReferenceCounter(1),
+        project_accounting=FakeAccounting(),
+        published_batch_verifier=lambda active_context: None,
+        tool_commit="test-commit",
+    )
+    write_quality_checkpoint(services, context, {asset_sha: "completed"})
+    services.stage_raw(context)
+
+    services.archive_raw(context)
+
+    _, manifest_path = services._raw_archive_paths(context)
+    manifest = json.loads(manifest_path.read_text())
+    assert {
+        item["path"]: item["sha256"] for item in manifest["members"]
+    } == {
+        relative: sha256(contents).hexdigest()
+        for relative, contents in files.items()
+    }
+
+
+def test_raw_archive_checks_primary_reference_before_companion_cleanup(
+    isolated_config
+):
+    context = configured_context(isolated_config, "3D-FUTURE")
+    asset_sha = sha256(b"image identity").hexdigest()
+    primary = "raw/3D-FUTURE-model/item/raw_model.obj"
+    companion = "raw/3D-FUTURE-model/item/model.mtl"
+    files = {primary: b"mesh", companion: b"material"}
+    for relative, contents in files.items():
+        source = context.source_root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(contents)
+    write_instances(context, (asset_sha,))
+    write_raw_metadata(
+        context,
+        (
+            {
+                "sha256": asset_sha,
+                "local_path": primary,
+                "content_sha256": sha256(files[primary]).hexdigest(),
+                "companion_files": json.dumps(
+                    {companion: sha256(files[companion]).hexdigest()}
+                ),
+            },
+        ),
+    )
+    counter = FakeReferenceCounter(0)
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        reference_counter=counter,
+        project_accounting=FakeAccounting(),
+        published_batch_verifier=lambda active_context: None,
+        tool_commit="test-commit",
+    )
+    write_quality_checkpoint(services, context, {asset_sha: "completed"})
+    services.stage_raw(context)
+
+    services.archive_raw(context)
+
+    assert counter.calls == [
+        (
+            "3D-FUTURE",
+            primary,
+            "3D-FUTURE-00000",
+            "batch000",
+            "production",
+        )
+    ]
+    assert all(not (context.source_root / relative).exists() for relative in files)
+
+
 def test_archive_fails_closed_without_reference_provider(isolated_config):
     context = configured_context(isolated_config)
     contents = b"raw archive payload"
