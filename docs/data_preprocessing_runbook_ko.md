@@ -17,6 +17,12 @@ export PYTHONPATH=.
 - data3: `/root/data3/pixal3d`
 - local preprocess: `/root/node17/data/pixal3d`
 
+검증된 실행 환경(2026-07-18):
+
+- PyTorch `2.8.0+cu128`
+- PyTorch CUDA `12.8`
+- CUDA 사용 가능, RTX PRO 6000 Blackwell GPU 7개
+
 ## 1. 시작 전 점검
 
 ```bash
@@ -41,9 +47,61 @@ conda run --no-capture-output -n pixal3d \
 경로별 SHA-256으로 검증한다. staging과 raw archive에는 이 전체 파일 묶음이
 포함되어야 한다.
 
+Blender 4.x에서는 OBJ condition render가 `bpy.ops.wm.obj_import`를 사용해야
+한다. 이 호환성 수정이 포함된 최초 commit은
+`b52edb16847b30a96933f8a043a59611dc2e832f`이다.
+
+### Frozen shard의 commit 규칙
+
+이미 pack이나 checkpoint가 생성된 frozen shard는 해당 산출물을 만든 정확한
+commit으로만 `resume`하고 `audit`한다. 현재 코드에서 과거 commit 문자열만
+덮어써서 실행하면 안 된다. producing commit을 사용할 수 없으면 기존 제어 상태와
+산출물을 먼저 백업한 뒤, 현재 commit으로 shard 전체를 처음부터 다시 만든다.
+
+과거 commit audit 예시:
+
+```bash
+SOURCE=ObjaverseXL_github
+SHARD=ObjaverseXL_github-00000
+COMMIT=480999ac1b2f77e751bf46b596283f300a7eaac7
+AUDIT_ROOT=$(mktemp -d /tmp/pixal3d-audit.XXXXXX)
+
+git clone --shared --quiet --no-checkout \
+  /root/dev/Pixal3D "$AUDIT_ROOT/repo"
+git -C "$AUDIT_ROOT/repo" checkout --quiet --detach "$COMMIT"
+
+cd "$AUDIT_ROOT/repo"
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli audit \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --gate smoke --source "$SOURCE" --shard "$SHARD"
+```
+
+### 2026-07-18 frozen smoke 복구 결과
+
+- `ObjaverseXL_sketchfab`: producing commit `db605ec3c9bf1d1b79d93d785e18518459a0f472`,
+  frozen 20개 중 completed 18개와 terminal failure 2개, exact-commit audit exit `0`.
+- `ObjaverseXL_github`: producing commit `480999ac1b2f77e751bf46b596283f300a7eaac7`,
+  7개 batch/20개 중 completed 12개와 quarantine 8개, exact-commit audit exit `0`.
+  이 중 clone 불가는 `kaktu5/Nascar`와 `RetroJohn86/Pogo-APK`에 대해 GitHub가
+  `Repository not found`를 반환한 경우다. 삭제·비공개·이름 변경 여부는 구분할 수
+  없지만, 다른 저장소는 정상 처리되었으므로 전역 GitHub 인증 문제는 아니다.
+- `3D-FUTURE`: producing commit `b52edb16847b30a96933f8a043a59611dc2e832f`,
+  3개 batch/9개 모두 completed, quarantine 0개, audit exit `0`.
+
+감사 로그와 백업 증거:
+
+- `/root/data2/pixal3d/control/recovery/objaversexl-20260718-xI6nPr`
+- `/root/data2/pixal3d/control/recovery/3d-future-20260718-e3Cv8D`
+- `/root/data3/pixal3d/recovery/3d-future-20260718-e3Cv8D`
+
+위 결과는 frozen smoke 범위에 대한 결과이며 전체 production 데이터 처리가 끝났다는
+뜻은 아니다.
+
 ## 2. Smoke 범위 계획
 
-Smoke는 source별 첫 9개 asset, 즉 3개 batch로 실행한다.
+새 smoke는 source별 첫 9개 asset, 즉 3개 batch로 실행한다. 단, 이미 frozen된
+ObjaverseXL historical smoke는 20개 범위를 그대로 유지하며 다시 계획하지 않는다.
 
 ```bash
 conda run --no-capture-output -n pixal3d \
@@ -92,7 +150,8 @@ conda run --no-capture-output -n pixal3d \
   --gate smoke --source "$SOURCE" --shard "$SHARD"
 ```
 
-ABO는 최초 실행 전에 전체 `abo-3dmodels.tar` 약 154GB를 다운로드한다. 부분 다운로드가 이미 있으면 삭제하지 말고 위 `resume`을 사용한다. 전체 archive 다운로드를 허용할 충분한 용량과 시간을 먼저 확인한다.
+ABO의 전체 `abo-3dmodels.tar` 약 154GB는 이미 다운로드되어 있다. 이후 실행이
+중단되더라도 archive를 삭제하지 말고 위 `resume`을 사용한다.
 
 ## 5. Source audit
 
@@ -130,8 +189,10 @@ conda run --no-capture-output -n pixal3d \
 quarantine ledger 확인:
 
 ```bash
-jq '.quarantine' \
-  /root/data2/pixal3d/control/qualification/smoke/quality/SOURCE/SOURCE-00000.json
+LEDGER=/root/data2/pixal3d/control/qualification/smoke/quality/SOURCE/SOURCE-00000.json
+conda run -n pixal3d python -c \
+  'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("quarantine", {}), indent=2, ensure_ascii=False))' \
+  "$LEDGER"
 ```
 
 ## 7. Smoke 통과 후
@@ -177,7 +238,9 @@ conda run --no-capture-output -n pixal3d \
 - pilot에서 관측한 p95 처리시간과 GPU/RAM peak
 - quarantine 예상량과 최종 training handoff asset 수
 
-ABO는 production 실행 시에도 최초 단계에서 약 154GB `abo-3dmodels.tar` 전체 archive를 다운로드한다. 현재 ABO는 이 archive 다운로드를 시작하다가 중단된 상태이므로, 사용자가 전체 다운로드를 허용한 뒤 production 또는 resume을 실행해야 한다.
+ABO의 약 154GB `abo-3dmodels.tar` 전체 archive는
+`/root/data2/pixal3d/raw/ABO/raw/abo-3dmodels.tar`에 다운로드가 완료되어 있다.
+ABO frozen smoke 9개도 completed 상태이므로 production에서 이 archive를 재사용한다.
 
 현재 source 상태상 전체 production을 아직 실행하지 않는 이유는 smoke/pilot gate를 통과하지 않은 source를 곧바로 대규모 처리하지 않기 위해서다. 이 조건을 충족한 source만 위 명령으로 전체 다운로드와 전처리를 진행한다.
 

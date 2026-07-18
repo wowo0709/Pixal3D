@@ -30,7 +30,7 @@
 - Consumes: canonical rows with `sha256` equal to the selected `image.jpg` SHA-256 and `file_identifier` equal to the archive directory.
 - Produces: download rows with `sha256: str`, `local_path: str`, `content_sha256: str`, and `companion_files: str` containing deterministic compact JSON `{relative_path: sha256}`.
 
-- [ ] **Step 1: Extend the adapter test with differing identity/content hashes and companion files**
+- [x] **Step 1: Extend the adapter test with differing identity/content hashes and companion files**
 
 Update `test_3d_future_extracts_only_selected_verified_directory` so the fixture contains `raw_model.obj`, `model.mtl`, `texture.png`, and `image.jpg`, and assert:
 
@@ -55,7 +55,7 @@ assert result.to_dict("records") == [{
 }]
 ```
 
-- [ ] **Step 2: Run the focused adapter test and confirm RED**
+- [x] **Step 2: Run the focused adapter test and confirm RED**
 
 Run:
 
@@ -66,7 +66,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: FAIL because the adapter does not publish `content_sha256` or `companion_files`.
 
-- [ ] **Step 3: Implement deterministic adapter metadata**
+- [x] **Step 3: Implement deterministic adapter metadata**
 
 In `data_toolkit/datasets/3D-FUTURE.py`, import `json`, hash the primary OBJ independently, and serialize every other selected regular archive member:
 
@@ -91,7 +91,7 @@ return {
 
 Return a DataFrame with all four columns even when no record succeeds.
 
-- [ ] **Step 4: Run adapter tests and confirm GREEN**
+- [x] **Step 4: Run adapter tests and confirm GREEN**
 
 Run:
 
@@ -102,7 +102,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: all adapter tests PASS.
 
-- [ ] **Step 5: Commit the adapter contract**
+- [x] **Step 5: Commit the adapter contract**
 
 ```bash
 git add data_toolkit/datasets/3D-FUTURE.py tests/data_toolkit/test_dataset_adapters.py
@@ -119,7 +119,7 @@ git commit -m "fix: separate 3D-FUTURE identity and content hashes"
 - Consumes: CSV rows with required `sha256`, `local_path` and optional `content_sha256`, `companion_files`.
 - Produces: normalized records `{"sha256": str, "local_path": str, "content_sha256": str, "companion_files": dict[str, str]}` and `_raw_file_map(records) -> dict[str, str]`.
 
-- [ ] **Step 1: Add normalization and backward-compatibility tests**
+- [x] **Step 1: Add normalization and backward-compatibility tests**
 
 Add tests that call `_read_raw_records` through `stage_raw`:
 
@@ -134,7 +134,7 @@ def test_stage_raw_rejects_invalid_companion_metadata(...):
 
 For valid extended metadata, write `companion_files` using compact JSON and assert the staged metadata contains all four columns.
 
-- [ ] **Step 2: Run focused orchestrator tests and confirm RED**
+- [x] **Step 2: Run focused orchestrator tests and confirm RED**
 
 Run:
 
@@ -146,7 +146,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: new tests FAIL because optional raw fields are not parsed.
 
-- [ ] **Step 3: Implement normalized records and a flattened file map**
+- [x] **Step 3: Implement normalized records and a flattened file map**
 
 In `PipelineServices._read_raw_record_map`:
 
@@ -185,11 +185,11 @@ def _raw_file_map(records: Sequence[Mapping[str, object]]) -> dict[str, str]:
 Make `_write_raw_records` serialize `companion_files` with sorted compact JSON
 and always write the four-column schema.
 
-- [ ] **Step 4: Run the focused tests and confirm GREEN**
+- [x] **Step 4: Run the focused tests and confirm GREEN**
 
 Run the command from Step 2. Expected: all selected tests PASS.
 
-- [ ] **Step 5: Commit metadata normalization**
+- [x] **Step 5: Commit metadata normalization**
 
 ```bash
 git add data_toolkit/pipeline/orchestrator.py tests/data_toolkit/test_orchestrator.py
@@ -206,7 +206,7 @@ git commit -m "feat: normalize raw content and companion hashes"
 - Consumes: normalized raw records and `_raw_file_map` from Task 2.
 - Produces: checksum-verified primary and companion files under `context.download_root`.
 
-- [ ] **Step 1: Add a failing full-package staging test**
+- [x] **Step 1: Add a failing full-package staging test**
 
 Create primary OBJ, MTL, texture, and image fixtures under `context.source_root`.
 Use an asset identity different from the OBJ hash, publish the extended raw
@@ -218,7 +218,7 @@ with pytest.raises(ValidationError, match="raw checksum mismatch: .*texture.png"
     services.stage_raw(context)
 ```
 
-- [ ] **Step 2: Run the new tests and confirm RED**
+- [x] **Step 2: Run the new tests and confirm RED**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m pytest \
@@ -228,7 +228,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: primary identity/content mismatch or missing companion output causes FAIL.
 
-- [ ] **Step 3: Stage all normalized files with their content hashes**
+- [x] **Step 3: Stage all normalized files with their content hashes**
 
 Replace the single-record copy loop in `stage_raw` with iteration over
 `_raw_file_map(records).items()`. Reuse the existing safe regular-file and ZIP
@@ -238,7 +238,7 @@ the original normalized records when writing staged metadata.
 Update `_validate_staged_raw` to iterate over the same flattened file map and
 compare each staged stream to its content checksum.
 
-- [ ] **Step 4: Run all stage_raw tests and confirm GREEN**
+- [x] **Step 4: Run all stage_raw tests and confirm GREEN**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m pytest \
@@ -247,7 +247,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: all stage_raw tests PASS.
 
-- [ ] **Step 5: Commit complete staging**
+- [x] **Step 5: Commit complete staging**
 
 ```bash
 git add data_toolkit/pipeline/orchestrator.py tests/data_toolkit/test_orchestrator.py
@@ -264,7 +264,7 @@ git commit -m "fix: stage complete checksum-bound raw packages"
 - Consumes: normalized `_read_raw_records` and `_raw_file_map`.
 - Produces: raw pack manifests whose member map contains every primary and companion path with its content hash.
 
-- [ ] **Step 1: Add failing archive manifest and cleanup tests**
+- [x] **Step 1: Add failing archive manifest and cleanup tests**
 
 Extend the raw archive test fixture with a primary and two companions. Assert:
 
@@ -280,7 +280,7 @@ Assert `pending_references` is called only with the primary canonical raw path,
 and when it returns zero all three source files are removed. When it returns a
 positive count, all three remain.
 
-- [ ] **Step 2: Run raw archive tests and confirm RED**
+- [x] **Step 2: Run raw archive tests and confirm RED**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m pytest \
@@ -290,7 +290,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: FAIL because only the primary path is archived and its identity hash is expected.
 
-- [ ] **Step 3: Flatten archive members and group cleanup by asset**
+- [x] **Step 3: Flatten archive members and group cleanup by asset**
 
 In `archive_raw`, build `file_map = self._raw_file_map(records)`, pass all
 sorted paths to `build_pack`, and compare manifest members to `file_map`.
@@ -303,7 +303,7 @@ For source cleanup, call `pending_references` once per record using its primary
 `local_path`. If zero, remove the primary and its declared companions; if
 positive, remove none of the group.
 
-- [ ] **Step 4: Run archive and orchestrator tests and confirm GREEN**
+- [x] **Step 4: Run archive and orchestrator tests and confirm GREEN**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m pytest \
@@ -312,7 +312,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: all orchestrator tests PASS.
 
-- [ ] **Step 5: Commit raw package archival**
+- [x] **Step 5: Commit raw package archival**
 
 ```bash
 git add data_toolkit/pipeline/orchestrator.py tests/data_toolkit/test_orchestrator.py
@@ -329,14 +329,14 @@ git commit -m "fix: archive complete raw asset packages"
 - Consumes: the completed raw metadata contract.
 - Produces: operator documentation and regression evidence.
 
-- [ ] **Step 1: Document canonical identity versus raw content hashes**
+- [x] **Step 1: Document canonical identity versus raw content hashes**
 
 Add a concise 3D-FUTURE section stating that `sha256` verifies `image.jpg`,
 `content_sha256` verifies `raw_model.obj`, and `companion_files` binds sibling
 dependencies. Document that no operator should rewrite the canonical registry
 SHA to the OBJ hash.
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m pytest \
@@ -346,7 +346,7 @@ conda run --no-capture-output -n pixal3d python -m pytest \
 
 Expected: PASS.
 
-- [ ] **Step 3: Run the complete data_toolkit suite**
+- [x] **Step 3: Run the complete data_toolkit suite**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m pytest tests/data_toolkit -v
@@ -354,7 +354,7 @@ conda run --no-capture-output -n pixal3d python -m pytest tests/data_toolkit -v
 
 Expected: all tests PASS.
 
-- [ ] **Step 4: Run static verification**
+- [x] **Step 4: Run static verification**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m compileall -q data_toolkit
@@ -364,7 +364,7 @@ git status --short
 
 Expected: compile and diff checks succeed; only intended documentation changes remain.
 
-- [ ] **Step 5: Commit documentation**
+- [x] **Step 5: Commit documentation**
 
 ```bash
 git add data_toolkit/README.md docs/data_preprocessing_runbook_ko.md
@@ -383,12 +383,12 @@ git commit -m "docs: explain 3D-FUTURE raw hash contract"
 - Consumes: the unchanged frozen nine-asset scope, canonical 3D-FUTURE ZIP, and the fixed current commit.
 - Produces: rebuilt raw metadata, terminal checkpoints, packs, raw archives, quarantine evidence, and a smoke audit result.
 
-- [ ] **Step 1: Verify the fixed code and frozen scope before mutation**
+- [x] **Step 1: Verify the fixed code and frozen scope before mutation**
 
 Run the focused/full tests from Task 5, record `git rev-parse HEAD`, and verify
 the three frozen batch files still contain the original nine sorted asset IDs.
 
-- [ ] **Step 2: Back up every mutable 3D-FUTURE smoke artifact**
+- [x] **Step 2: Back up every mutable 3D-FUTURE smoke artifact**
 
 Create a timestamped recovery directory. Copy the 3D-FUTURE checkpoint tree,
 schema-v2 quality ledger, prepared index, prepared tar manifests, raw archive
@@ -398,14 +398,14 @@ empty raw archives into the data3 recovery tree. Keep each move on its original
 filesystem so canonical publication paths become available without copying or
 deleting evidence.
 
-- [ ] **Step 3: Reset only false-quarantine execution state**
+- [x] **Step 3: Reset only false-quarantine execution state**
 
 Keep the frozen `batch000.txt` through `batch002.txt` and `batches.json`
 unchanged. Remove the backed-up live batch checkpoints and source quality
 ledger so the runner creates new durable state. Do not modify the canonical
 training registry or its SHA-256 identities.
 
-- [ ] **Step 4: Rebuild selected raw metadata with the fixed adapter**
+- [x] **Step 4: Rebuild selected raw metadata with the fixed adapter**
 
 Run:
 
@@ -421,7 +421,7 @@ Repeat for `batch001.txt` and `batch002.txt`. Verify each selected row has a
 canonical `sha256`, distinct `content_sha256`, and non-empty
 `companion_files`.
 
-- [ ] **Step 5: Run the complete frozen smoke shard**
+- [x] **Step 5: Run the complete frozen smoke shard**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli resume \
@@ -436,7 +436,7 @@ one terminal outcome per frozen asset. Newly reproducible asset failures are
 quarantined with their actual stage/reason; the previous checksum-mismatch
 records are not restored.
 
-- [ ] **Step 6: Audit 3D-FUTURE under the producing commit**
+- [x] **Step 6: Audit 3D-FUTURE under the producing commit**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli audit \
@@ -448,3 +448,17 @@ conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli aud
 
 Expected: exit 0. Record the command, current commit, UTC timestamp, completed
 count, quarantined count, and audit exit status in the recovery directory.
+
+## Execution Record (2026-07-18)
+
+- Contract and regression work completed in commits `c25b3f5`, `921973b`,
+  `9c6a6a8`, `7698541`, and `c93e7ab`.
+- Blender 4.x OBJ import compatibility was fixed in `b52edb1` after the first
+  rerun showed that all condition renders failed before writing transforms.
+- The complete `tests/data_toolkit` suite passed: 558 tests in 158.05 seconds.
+- The unchanged three-batch/nine-asset frozen shard completed with 9 completed,
+  0 quarantined, and audit exit 0 under
+  `b52edb16847b30a96933f8a043a59611dc2e832f`.
+- Recovery evidence is stored at
+  `/root/data2/pixal3d/control/recovery/3d-future-20260718-e3Cv8D` and
+  `/root/data3/pixal3d/recovery/3d-future-20260718-e3Cv8D`.

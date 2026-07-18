@@ -116,6 +116,11 @@ files such as `model.mtl` and `texture.png` in `companion_files`. Staging and
 raw archival verify and preserve the complete declared file set. Never rewrite
 the canonical registry identity to the OBJ content hash.
 
+Condition rendering supports Blender 4.x by using
+`bpy.ops.wm.obj_import` for OBJ assets. Do not restore the removed
+`bpy.ops.import_scene.obj` operator; doing so makes every 3D-FUTURE condition
+render fail before transform metadata is written.
+
 ## Hardware And Local-Space Preflight
 
 Hardware and local-space preflight must finish before the first actual smoke

@@ -32,14 +32,14 @@
 - Consumes: existing immutable pack manifests, raw manifests, checkpoints, and quality ledgers.
 - Produces: a recovery inventory and byte-for-byte backup of mutable control state.
 
-- [ ] **Step 1: Verify every existing batch uses one expected commit**
+- [x] **Step 1: Verify every existing batch uses one expected commit**
 
 Run a Python read-only inventory that loads every prepared and raw manifest and
 asserts all Sketchfab commits equal `db605ec...` and all GitHub commits equal
 `480999a...`. Print batch IDs, completed counts, quarantined counts, and manifest
 SHA-256 values.
 
-- [ ] **Step 2: Verify both historical commits exist**
+- [x] **Step 2: Verify both historical commits exist**
 
 ```bash
 git cat-file -e db605ec3c9bf1d1b79d93d785e18518459a0f472^{commit}
@@ -48,13 +48,13 @@ git cat-file -e 480999ac1b2f77e751bf46b596283f300a7eaac7^{commit}
 
 Expected: both commands exit 0.
 
-- [ ] **Step 3: Create a timestamped control-state backup**
+- [x] **Step 3: Create a timestamped control-state backup**
 
 Create a bounded recovery directory and copy only ObjaverseXL checkpoint,
 quality-ledger, frozen-shard, prepared-index, and escalation JSON files into it.
 Record `sha256sum` output for every copied file. Do not copy the large tar packs.
 
-- [ ] **Step 4: Confirm the backup matches live control files**
+- [x] **Step 4: Confirm the backup matches live control files**
 
 Run `sha256sum -c` against the recorded inventory. Expected: every entry reports `OK`.
 
@@ -68,7 +68,7 @@ Run `sha256sum -c` against the recorded inventory. Expected: every entry reports
 - Consumes: exact source tree at `db605ec...` and existing frozen smoke artifacts.
 - Produces: successful CLI audit exit status and an immutable audit log under the recovery directory.
 
-- [ ] **Step 1: Create and verify the detached historical clone**
+- [x] **Step 1: Create and verify the detached historical clone**
 
 ```bash
 audit_root=$(mktemp -d /tmp/pixal3d-sketchfab-audit.XXXXXX)
@@ -79,7 +79,7 @@ git -C "$audit_root/repo" rev-parse HEAD
 
 Expected: printed commit equals `db605ec...`.
 
-- [ ] **Step 2: Run the exact-commit audit**
+- [x] **Step 2: Run the exact-commit audit**
 
 From the detached clone run:
 
@@ -93,7 +93,7 @@ conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli aud
 
 Expected: exit 0.
 
-- [ ] **Step 3: Save audit evidence**
+- [x] **Step 3: Save audit evidence**
 
 Record the command, exact commit, UTC timestamp, and exit code in the recovery
 directory. Keep the detached clone until the GitHub recovery is complete.
@@ -110,19 +110,19 @@ directory. Keep the detached clone until the GitHub recovery is complete.
 - Consumes: frozen GitHub batches, existing commit-`480999a` outputs, and live ledger entries.
 - Produces: completed batch 3-6 checkpoints and historical-commit packs/archives.
 
-- [ ] **Step 1: Create and verify the GitHub historical clone**
+- [x] **Step 1: Create and verify the GitHub historical clone**
 
 Use the Task 2 clone procedure but check out
 `480999ac1b2f77e751bf46b596283f300a7eaac7`. Confirm `git rev-parse HEAD` matches.
 
-- [ ] **Step 2: Build a historical schema-v2 temporary ledger**
+- [x] **Step 2: Build a historical schema-v2 temporary ledger**
 
 Read the live schema-v2 ledger and copy only `schema_version`, `source`,
 `shard_id`, `gate`, `batches`, and `entries`. Keep `schema_version` set to `2`
 but omit the later `quarantine` field, then atomically write it under the
 recovery directory. Preserve the live ledger unchanged.
 
-- [ ] **Step 3: Run each incomplete context with the temporary ledger**
+- [x] **Step 3: Run each incomplete context with the temporary ledger**
 
 In a one-off Python driver imported from the historical clone:
 
@@ -146,7 +146,7 @@ The stale batch003 active download attempt is finalized by the existing runner
 before retry. If a provider asset remains unavailable after three attempts, the
 historical missing-download logic records an asset failure and continues.
 
-- [ ] **Step 4: Monitor each terminal batch checkpoint**
+- [x] **Step 4: Monitor each terminal batch checkpoint**
 
 For every batch require 26 completed commands, `active_attempt: null`, and one
 terminal outcome per frozen asset. Stop only for an infrastructure error or a
@@ -163,12 +163,12 @@ new non-asset-scoped data error.
   the unchanged live schema-v2 ledger.
 - Produces: one schema-v2 ledger with all batches/entries and quarantine details, plus a passing exact-commit audit.
 
-- [ ] **Step 1: Validate the temporary ledger before merging**
+- [x] **Step 1: Validate the temporary ledger before merging**
 
 Require ordered terminal entries to match every completed batch checkpoint and
 frozen instance order. Reject conflicting outcomes for an existing asset.
 
-- [ ] **Step 2: Merge only new durable batches and entries**
+- [x] **Step 2: Merge only new durable batches and entries**
 
 Atomically update the live schema-v2 ledger with new `batches` and `entries`.
 Retain every existing quarantine record. For each newly failed asset without a
@@ -183,7 +183,7 @@ detailed historical reason, add:
 }
 ```
 
-- [ ] **Step 3: Run the exact-commit GitHub audit**
+- [x] **Step 3: Run the exact-commit GitHub audit**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli audit \
@@ -195,7 +195,7 @@ conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli aud
 
 Run from the detached `480999a` clone. Expected: exit 0.
 
-- [ ] **Step 4: Verify final source counts and provenance**
+- [x] **Step 4: Verify final source counts and provenance**
 
 Print total completed/quarantined assets and confirm every GitHub pack/raw
 manifest uses `480999a`. Save audit command, commit, UTC timestamp, and exit code
@@ -210,21 +210,38 @@ beside the recovery inventory.
 - Consumes: exact-commit recovery results.
 - Produces: an operator rule preventing mixed-commit frozen shards.
 
-- [ ] **Step 1: Add the immutable-shard provenance rule**
+- [x] **Step 1: Add the immutable-shard provenance rule**
 
 Document that an interrupted frozen shard must be resumed with its producing
 commit or restarted from backed-up control state; passing a historical commit
 override to current code is forbidden.
 
-- [ ] **Step 2: Document the completed source status**
+- [x] **Step 2: Document the completed source status**
 
 Record Sketchfab and GitHub smoke audit results, exact commits, completed and
 quarantined counts, and recovery evidence location.
 
-- [ ] **Step 3: Verify documentation and commit**
+- [x] **Step 3: Verify documentation and commit**
 
 ```bash
 git diff --check
 git add docs/data_preprocessing_runbook_ko.md
 git commit -m "docs: record ObjaverseXL smoke recovery provenance"
 ```
+
+## Execution Record (2026-07-18)
+
+- Sketchfab exact-commit audit exited 0 under
+  `db605ec3c9bf1d1b79d93d785e18518459a0f472`; its frozen scope contains
+  18 completed assets and 2 terminal failures.
+- GitHub batches 003 through 006 were resumed under
+  `480999ac1b2f77e751bf46b596283f300a7eaac7`. All seven batches have 26
+  completed commands and no active attempt.
+- The atomically merged GitHub ledger contains 20 entries: 12 completed and 8
+  quarantined. The exact-commit audit exited 0.
+- Individual clone failures were limited to `kaktu5/Nascar` and
+  `RetroJohn86/Pogo-APK`, for which GitHub returned `Repository not found`;
+  this was not a global GitHub authentication or connectivity failure. Other
+  quarantines retain their asset-specific preprocessing outcomes.
+- Recovery evidence is stored at
+  `/root/data2/pixal3d/control/recovery/objaversexl-20260718-xI6nPr`.
