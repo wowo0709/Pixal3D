@@ -26,6 +26,7 @@ from data_toolkit.pipeline.runtime import (
     SafeRegistryStore,
     build_mutating_services,
     read_gate_report,
+    validate_family_memberships,
 )
 from test_reporting import CONFIG_HASH, valid_report_payload
 
@@ -44,6 +45,17 @@ def registry_source_inputs(config, *, partition="training"):
         }
         for index, source in enumerate(sources)
     }
+
+
+def test_audit_rejects_pbr_identity_missing_from_matching_shape(tmp_config):
+    config = load_config(tmp_config)
+    included = {family: set() for family in PACK_FAMILIES}
+    included["common"] = {"a" * 64, "b" * 64}
+    included["shape-256"] = {"a" * 64}
+    included["PBR-256"] = {"b" * 64}
+
+    with pytest.raises(ArtifactValidationError, match="PBR-256.*shape-256"):
+        validate_family_memberships(included, config)
 
 
 def valid_hardware_payload(config_hash):
@@ -319,6 +331,103 @@ def test_production_gate_derives_pass_and_complete_handoff(tmp_config):
     assert set(handoff["identities"]) == {"train", "validation", "evaluation"}
     assert handoff["families"] == list(PACK_FAMILIES)
     assert len(handoff["packs"]) == len(config.sources) * len(PACK_FAMILIES)
+
+
+def test_gate_audit_requires_ledger_evidence_for_family_exclusion(
+    tmp_config,
+):
+    config = load_config(tmp_config)
+    write_complete_gate_evidence(config, "production")
+    source = config.sources[0]
+    shard = f"{source}-00000"
+    prepared = config.paths.data2_root / "prepared"
+    index_path = prepared / "index" / source / f"{shard}.json"
+    index = json.loads(index_path.read_text())
+    entry = index["batches"]["batch000"]["PBR-256"]
+    manifest_path = prepared / entry["manifest"]
+    manifest = json.loads(manifest_path.read_text())
+    manifest["included_asset_sha256s"] = manifest[
+        "included_asset_sha256s"
+    ][:-1]
+    manifest["completed_count"] -= 1
+    manifest["quarantined_count"] += 1
+    manifest_path.write_text(json.dumps(manifest))
+    entry["manifest_sha256"] = sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+    index_path.write_text(json.dumps(index))
+
+    with pytest.raises(ArtifactValidationError, match="family exclusion evidence"):
+        RuntimeReportBuilder(config)("production", True)
+
+
+def test_gate_report_derives_family_counts_from_manifest_identities(
+    tmp_config,
+):
+    config = load_config(tmp_config)
+    write_complete_gate_evidence(config, "production")
+    source = config.sources[0]
+    shard = f"{source}-00000"
+    prepared = config.paths.data2_root / "prepared"
+    index_path = prepared / "index" / source / f"{shard}.json"
+    index = json.loads(index_path.read_text())
+    entry = index["batches"]["batch000"]["PBR-256"]
+    manifest_path = prepared / entry["manifest"]
+    manifest = json.loads(manifest_path.read_text())
+    excluded = manifest["included_asset_sha256s"][-1]
+    manifest["included_asset_sha256s"] = manifest[
+        "included_asset_sha256s"
+    ][:-1]
+    manifest["completed_count"] -= 1
+    manifest["quarantined_count"] += 1
+    manifest_path.write_text(json.dumps(manifest))
+    entry["manifest_sha256"] = sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+    index_path.write_text(json.dumps(index))
+    record = {
+        "category": "unsupported_shader",
+        "stage": "dump_pbr",
+        "reason": "Material is not supported",
+        "attempts": 1,
+    }
+    quality_path = (
+        config.paths.data2_root / "control/quality" / source / f"{shard}.json"
+    )
+    quality_path.parent.mkdir(parents=True)
+    quality_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "source": source,
+                "shard_id": shard,
+                "gate": "production",
+                "batches": {},
+                "entries": [],
+                "quarantine": {},
+                "family_exclusions": {
+                    excluded: {"PBR-256": record}
+                },
+            }
+        )
+    )
+
+    report_path, _ = RuntimeReportBuilder(config)("production", True)
+    report = json.loads(report_path.read_text())
+    handoff = json.loads(
+        (
+            config.paths.data2_root
+            / "control/splits/training_handoff.json"
+        ).read_text()
+    )
+
+    total_assets = len(config.sources) * 20
+    assert report["quality"]["failures"] == 0
+    assert report["handoff"]["family_counts"]["PBR-256"] == {
+        "included": total_assets - 1,
+        "excluded": 1,
+    }
+    assert handoff["family_counts"] == report["handoff"]["family_counts"]
 
 
 def test_failed_production_republication_revokes_previous_handoff(tmp_config):

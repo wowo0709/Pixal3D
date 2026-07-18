@@ -13,6 +13,7 @@ from .orchestrator import (
     _atomic_write_bytes_nofollow,
     _regular_file_stat_nofollow,
 )
+from .packing import PACK_FAMILIES
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -484,6 +485,7 @@ def build_training_handoff(
     validation_ids: Sequence[str],
     evaluation_ids: Sequence[str],
     created_at: str,
+    family_counts: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict:
     for value, name in (
         (config_hash, "config hash"),
@@ -520,7 +522,29 @@ def build_training_handoff(
         raise ReportValidationError("training handoff pack family coverage is incomplete")
     if not frozen_scopes or not archives:
         raise ReportValidationError("training handoff publication inventory is empty")
-    return {
+    validated_family_counts = None
+    if family_counts is not None:
+        family_counts = _mapping(
+            family_counts, set(families), "training handoff family counts"
+        )
+        validated_family_counts = {
+            family: {
+                "included": _count(
+                    _mapping(
+                        family_counts[family],
+                        {"included", "excluded"},
+                        f"{family} training handoff count",
+                    )["included"],
+                    f"{family} training handoff included count",
+                ),
+                "excluded": _count(
+                    family_counts[family]["excluded"],
+                    f"{family} training handoff excluded count",
+                ),
+            }
+            for family in families
+        }
+    result = {
         "schema_version": 1,
         "artifact_type": "training_handoff",
         "config_hash": config_hash,
@@ -545,6 +569,9 @@ def build_training_handoff(
             ],
         },
     }
+    if validated_family_counts is not None:
+        result["family_counts"] = validated_family_counts
+    return result
 
 
 def _validate_gate_sections(value: Mapping) -> None:
@@ -695,11 +722,11 @@ def _validate_gate_sections(value: Mapping) -> None:
             positive=True,
         )
 
-    handoff = _mapping(
-        value["handoff"],
-        {"ready", "pack_families", "stage_extractable"},
-        "handoff",
-    )
+    handoff_value = value["handoff"]
+    handoff_keys = {"ready", "pack_families", "stage_extractable"}
+    if isinstance(handoff_value, Mapping) and "family_counts" in handoff_value:
+        handoff_keys.add("family_counts")
+    handoff = _mapping(handoff_value, handoff_keys, "handoff")
     handoff_ready = _bool(handoff["ready"], "handoff decision")
     pack_families = _count(
         handoff["pack_families"], "pack families", positive=True
@@ -707,6 +734,28 @@ def _validate_gate_sections(value: Mapping) -> None:
     stage_extractable = _bool(
         handoff["stage_extractable"], "stage extraction decision"
     )
+    family_counts = None
+    if "family_counts" in handoff:
+        family_counts = _mapping(
+            handoff["family_counts"], set(PACK_FAMILIES), "family counts"
+        )
+        family_counts = {
+            family: {
+                "included": _count(
+                    _mapping(
+                        family_counts[family],
+                        {"included", "excluded"},
+                        f"{family} family count",
+                    )["included"],
+                    f"{family} included count",
+                ),
+                "excluded": _count(
+                    family_counts[family]["excluded"],
+                    f"{family} excluded count",
+                ),
+            }
+            for family in PACK_FAMILIES
+        }
 
     audits = _mapping(
         value["audits"],
@@ -729,6 +778,13 @@ def _validate_gate_sections(value: Mapping) -> None:
         "quality",
     )
     assets = _count(quality["assets"], "quality assets", positive=True)
+    if family_counts is not None and any(
+        counts["included"] + counts["excluded"] != assets
+        for counts in family_counts.values()
+    ):
+        raise ReportValidationError(
+            "family counts do not match quality assets"
+        )
     failures_count = _count(
         quality["end_to_end_failures"], "end-to-end failures"
     )

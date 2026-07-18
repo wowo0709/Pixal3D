@@ -100,6 +100,37 @@ def valid_report_payload(gate="pilot"):
     }
 
 
+def test_report_accepts_family_counts_separate_from_global_quality():
+    payload = valid_report_payload()
+    payload["quality"]["end_to_end_failures"] = 1
+    payload["quality"]["end_to_end_failure_rate"] = 0.5
+    payload["decision"] = "failed"
+    payload["handoff"]["family_counts"] = {
+        family: {
+            "included": 1 if family.startswith("PBR-") else 2,
+            "excluded": 1 if family.startswith("PBR-") else 0,
+        }
+        for family in (
+            "common",
+            "SS-64",
+            "shape-256",
+            "shape-512",
+            "shape-1024",
+            "PBR-256",
+            "PBR-512",
+            "PBR-1024",
+        )
+    }
+
+    validated = validate_gate_report(payload)
+
+    assert validated["quality"]["end_to_end_failures"] == 1
+    assert validated["handoff"]["family_counts"]["PBR-256"] == {
+        "included": 1,
+        "excluded": 1,
+    }
+
+
 def test_capacity_projection_uses_p95_and_headroom():
     result = capacity_projection(
         pd.DataFrame({"final_bytes": [100, 120, 140, 160]}),

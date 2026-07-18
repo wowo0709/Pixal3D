@@ -1484,7 +1484,7 @@ def _held_pack_manifest(pack_path: Path, manifest_path: Path) -> tuple[dict, str
         ) from error
     try:
         manifest = json.loads(manifest_payload)
-        if not isinstance(manifest, dict) or set(manifest) != {
+        legacy_fields = {
             "shard_id",
             "batch_id",
             "family",
@@ -1498,7 +1498,23 @@ def _held_pack_manifest(pack_path: Path, manifest_path: Path) -> tuple[dict, str
             "pack_sha256",
             "members",
             "gate",
-        }:
+        }
+        schema_version = (
+            manifest.get("schema_version", 1)
+            if isinstance(manifest, dict)
+            else None
+        )
+        expected_fields = (
+            legacy_fields
+            if schema_version == 1
+            else legacy_fields
+            | {"schema_version", "included_asset_sha256s"}
+        )
+        if (
+            not isinstance(manifest, dict)
+            or schema_version not in {1, 2}
+            or set(manifest) != expected_fields
+        ):
             raise ValueError("manifest is not an object")
         pack_digest = sha256(pack_payload).hexdigest()
         if _sha(manifest["pack_sha256"], "pack checksum") != pack_digest:
@@ -1515,7 +1531,7 @@ def _held_pack_manifest(pack_path: Path, manifest_path: Path) -> tuple[dict, str
         quarantined = _nonnegative_count(
             manifest["quarantined_count"], "pack quarantined count"
         )
-        if completed + quarantined != len(assets):
+        if schema_version == 1 and completed + quarantined != len(assets):
             raise ValueError("pack terminal counts do not match assets")
         for field in (
             "shard_id",
@@ -1555,6 +1571,33 @@ def _held_pack_manifest(pack_path: Path, manifest_path: Path) -> tuple[dict, str
                 size,
                 _sha(item["sha256"], "pack member checksum"),
             )
+        if schema_version == 2:
+            included_values = manifest["included_asset_sha256s"]
+            if not isinstance(included_values, list):
+                raise ValueError("invalid pack included identities")
+            included = tuple(
+                _sha(item, "pack included asset")
+                for item in included_values
+            )
+            if (
+                included != tuple(sorted(set(included)))
+                or not set(included) <= set(assets)
+                or completed != len(included)
+                or quarantined != len(assets) - len(included)
+            ):
+                raise ValueError("pack included scope mismatch")
+        else:
+            included_set = {
+                component
+                for name in expected_members
+                for component in PurePosixPath(name).parts
+                if component in set(assets)
+            }
+            included = tuple(
+                asset for asset in assets if asset in included_set
+            )
+            manifest["schema_version"] = 1
+            manifest["included_asset_sha256s"] = list(included)
         actual_members = {}
         with tarfile.open(fileobj=io.BytesIO(pack_payload), mode="r:") as bundle:
             for member in bundle:
@@ -1606,6 +1649,56 @@ def _family_root(family: str) -> Path:
     if family.startswith("PBR-"):
         return Path("pbr", family.removeprefix("PBR-"))
     raise ArtifactValidationError(f"unknown pack family: {family}")
+
+
+def validate_family_memberships(
+    included: Mapping[str, set[str]], config: PipelineConfig
+) -> None:
+    if not isinstance(included, Mapping) or set(included) != set(
+        PACK_FAMILIES
+    ):
+        raise ArtifactValidationError(
+            "family membership set is incomplete"
+        )
+    validated = {}
+    for family in PACK_FAMILIES:
+        values = included[family]
+        if not isinstance(values, set):
+            raise ArtifactValidationError(
+                f"invalid family membership: {family}"
+            )
+        try:
+            validated[family] = {
+                _sha(asset, f"{family} included asset") for asset in values
+            }
+        except (TypeError, ValueError) as error:
+            raise ArtifactValidationError(
+                f"invalid family membership: {family}"
+            ) from error
+    for resolution in config.targets.resolutions:
+        pbr_family = f"PBR-{resolution}"
+        shape_family = f"shape-{resolution}"
+        if not validated[pbr_family] <= validated[shape_family]:
+            raise ArtifactValidationError(
+                f"{pbr_family} membership is not a {shape_family} subset"
+            )
+    ss_family = f"SS-{config.targets.ss_resolution}"
+    highest_shape = f"shape-{max(config.targets.resolutions)}"
+    if not validated[ss_family] <= validated[highest_shape]:
+        raise ArtifactValidationError(
+            f"{ss_family} membership is not a {highest_shape} subset"
+        )
+    non_common_union = set().union(
+        *(
+            validated[family]
+            for family in PACK_FAMILIES
+            if family != "common"
+        )
+    )
+    if validated["common"] != non_common_union:
+        raise ArtifactValidationError(
+            "common membership is not the family union"
+        )
 
 
 def _gate_candidate(config: PipelineConfig, gate: str) -> tuple[dict, str, dict[str, bytes]]:
@@ -1663,6 +1756,100 @@ class RuntimeReportBuilder:
 
     def __init__(self, config: PipelineConfig):
         self.config = config
+
+    def _quality_exclusion_evidence(
+        self,
+        gate: str,
+        source: str,
+        shard: str,
+        frozen_assets: set[str],
+    ) -> tuple[set[str], Mapping[str, set[str]]]:
+        control = self.config.paths.data2_root / "control"
+        root = (
+            control / "quality"
+            if gate == "production"
+            else control / "qualification" / gate / "quality"
+        )
+        path = root / source / f"{shard}.json"
+        try:
+            value = json.loads(_read_regular_bytes_nofollow(path))
+        except (
+            InfrastructureError,
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            TypeError,
+        ) as error:
+            raise ArtifactValidationError(
+                f"family exclusion evidence is unavailable: {path}: {error}"
+            ) from error
+        required = {
+            "schema_version",
+            "source",
+            "shard_id",
+            "gate",
+            "batches",
+            "entries",
+            "quarantine",
+            "family_exclusions",
+        }
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != required
+            or value["schema_version"] != 3
+            or value["source"] != source
+            or value["shard_id"] != shard
+            or value["gate"] != gate
+            or not isinstance(value["quarantine"], Mapping)
+            or not isinstance(value["family_exclusions"], Mapping)
+        ):
+            raise ArtifactValidationError(
+                f"invalid family exclusion evidence: {path}"
+            )
+
+        def validate_record(record, description: str) -> None:
+            if (
+                not isinstance(record, Mapping)
+                or set(record)
+                != {"category", "stage", "reason", "attempts"}
+                or not all(
+                    isinstance(record[field], str) and record[field]
+                    for field in ("category", "stage", "reason")
+                )
+                or not isinstance(record["attempts"], int)
+                or isinstance(record["attempts"], bool)
+                or record["attempts"] < 0
+            ):
+                raise ArtifactValidationError(
+                    f"invalid {description}: {path}"
+                )
+
+        quarantine = set()
+        for asset, record in value["quarantine"].items():
+            _sha(asset, "quarantined asset")
+            validate_record(record, "global quarantine evidence")
+            quarantine.add(asset)
+        exclusions = {}
+        for asset, records in value["family_exclusions"].items():
+            _sha(asset, "family-excluded asset")
+            if not isinstance(records, Mapping) or not records:
+                raise ArtifactValidationError(
+                    f"invalid family exclusion evidence: {path}"
+                )
+            families = set()
+            for family, record in records.items():
+                if family not in set(PACK_FAMILIES) - {"common"}:
+                    raise ArtifactValidationError(
+                        f"invalid family exclusion evidence: {path}"
+                    )
+                validate_record(record, "family exclusion evidence")
+                families.add(family)
+            exclusions[asset] = families
+        if not (quarantine | set(exclusions)) <= frozen_assets:
+            raise ArtifactValidationError(
+                f"family exclusion evidence contains an unfrozen asset: {path}"
+            )
+        return quarantine, exclusions
 
     def _frozen_scopes(self, gate: str, registry: pd.DataFrame):
         control = self.config.paths.data2_root / "control"
@@ -1819,6 +2006,10 @@ class RuntimeReportBuilder:
         pack_inventory = []
         archive_inventory = []
         grouped = {}
+        shard_assets = {}
+        for (source, shard, _batch), assets in batches.items():
+            shard_assets.setdefault((source, shard), set()).update(assets)
+        exclusion_evidence = {}
         expected_batches = {}
         for source, shard, batch in batches:
             expected_batches.setdefault((source, shard), set()).add(batch)
@@ -1857,6 +2048,7 @@ class RuntimeReportBuilder:
             entries = indexes[index_key]["batches"][batch]
             if not isinstance(entries, Mapping) or set(entries) != set(PACK_FAMILIES):
                 raise ArtifactValidationError("published pack family set mismatch")
+            batch_included = {}
             for family in PACK_FAMILIES:
                 relative = prefix / _family_root(family) / source / shard / f"{batch}.tar"
                 manifest_relative = relative.with_suffix(".tar.manifest.json")
@@ -1884,6 +2076,10 @@ class RuntimeReportBuilder:
                     or entry.get("manifest_sha256") != manifest_sha
                 ):
                     raise ArtifactValidationError("pack publication identity mismatch")
+                included_assets = tuple(
+                    manifest.get("included_asset_sha256s", ())
+                )
+                batch_included[family] = set(included_assets)
                 pack_inventory.append(
                     {
                         "source": source,
@@ -1893,9 +2089,53 @@ class RuntimeReportBuilder:
                         "path": (prepared / relative).as_posix(),
                         "pack_sha256": pack_sha,
                         "manifest_sha256": manifest_sha,
+                        "included_count": len(included_assets),
+                        "excluded_count": len(batch_assets)
+                        - len(included_assets),
                     }
                 )
                 grouped.setdefault((source, shard, batch), set()).add(family)
+            validate_family_memberships(batch_included, self.config)
+            excluded_by_family = {
+                family: set(batch_assets) - batch_included[family]
+                for family in PACK_FAMILIES
+            }
+            if any(excluded_by_family.values()):
+                evidence_key = (source, shard)
+                if evidence_key not in exclusion_evidence:
+                    exclusion_evidence[evidence_key] = (
+                        self._quality_exclusion_evidence(
+                            gate,
+                            source,
+                            shard,
+                            shard_assets[evidence_key],
+                        )
+                    )
+                quarantine, family_exclusions = exclusion_evidence[
+                    evidence_key
+                ]
+                for family in PACK_FAMILIES:
+                    for asset in excluded_by_family[family]:
+                        if asset in quarantine:
+                            continue
+                        if (
+                            family != "common"
+                            and family
+                            in family_exclusions.get(asset, set())
+                        ):
+                            continue
+                        raise ArtifactValidationError(
+                            "family exclusion evidence is missing: "
+                            f"{source}/{shard}/{batch}/{family}/{asset}"
+                        )
+                    for asset in batch_included[family]:
+                        if asset in quarantine or family in family_exclusions.get(
+                            asset, set()
+                        ):
+                            raise ArtifactValidationError(
+                                "family exclusion evidence conflicts with "
+                                f"published membership: {family}/{asset}"
+                            )
 
             archive_root = self.config.paths.data3_root / "archive"
             if gate == "production":
@@ -1913,6 +2153,13 @@ class RuntimeReportBuilder:
                 or manifest.get("family") != "raw"
                 or manifest.get("config_hash") != self.config.config_hash()
                 or tuple(manifest.get("asset_sha256s", ())) != batch_assets
+                or manifest.get("schema_version") != 2
+                or tuple(manifest.get("included_asset_sha256s", ()))
+                != tuple(
+                    asset
+                    for asset in batch_assets
+                    if asset in batch_included["common"]
+                )
                 or not manifest.get("validated_at")
             ):
                 raise ArtifactValidationError("raw archive publication identity mismatch")
@@ -1979,6 +2226,21 @@ class RuntimeReportBuilder:
         )
         scopes, frozen_assets, batches = self._frozen_scopes(gate, training)
         packs, archives = self._publications(gate, batches)
+        family_counts = {
+            family: {
+                "included": sum(
+                    pack["included_count"]
+                    for pack in packs
+                    if pack["family"] == family
+                ),
+                "excluded": sum(
+                    pack["excluded_count"]
+                    for pack in packs
+                    if pack["family"] == family
+                ),
+            }
+            for family in PACK_FAMILIES
+        }
 
         try:
             measurements = pd.read_csv(
@@ -2077,6 +2339,7 @@ class RuntimeReportBuilder:
                 validation_ids=sorted(training.loc[training["split"] == "validation", "sha256"]),
                 evaluation_ids=sorted(evaluation["sha256"]),
                 created_at=candidate["created_at"],
+                family_counts=family_counts,
             )
         handoff_payload = (
             json.dumps(handoff, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -2130,6 +2393,7 @@ class RuntimeReportBuilder:
                 "sha256": sha256(handoff_payload).hexdigest() if handoff_payload is not None else "",
                 "pack_families": len(PACK_FAMILIES),
                 "stage_extractable": bool(packs),
+                "family_counts": family_counts,
             },
         }
         return report, handoff, handoff_payload
