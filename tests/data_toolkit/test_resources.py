@@ -10,6 +10,7 @@ import pytest
 
 from data_toolkit.pipeline import resources
 from data_toolkit.pipeline.resources import (
+    GpuMetric,
     ProjectStorageAccounting,
     ResourceAction,
     ResourceDecision,
@@ -208,11 +209,70 @@ def test_nfs_free_space_floors_stop(config):
     )
 
 
-def test_swap_activity_pauses_new_work(config):
+def test_small_swap_activity_does_not_pause_new_work(config):
     decision = ResourcePolicy(config.limits).evaluate(
         sample(datetime.now(timezone.utc), swap_in_bytes=4096)
     )
-    assert decision.action == ResourceAction.PAUSE
+    assert decision.action == ResourceAction.RUN
+
+
+def test_sustained_swap_activity_pauses_new_work(config):
+    policy = ResourcePolicy(config.limits)
+    start = datetime(2026, 7, 16, tzinfo=timezone.utc)
+    for index in range(2):
+        assert (
+            policy.evaluate(
+                sample(
+                    start,
+                    swap_in_bytes=128 * 1024**2,
+                    monotonic_seconds=index * 20.0,
+                )
+            ).action
+            == ResourceAction.RUN
+        )
+    assert (
+        policy.evaluate(
+            sample(
+                start,
+                swap_in_bytes=128 * 1024**2,
+                monotonic_seconds=40.0,
+            )
+        ).action
+        == ResourceAction.PAUSE
+    )
+
+
+def test_cpu_temperature_requires_sustained_soft_threshold(config):
+    policy = ResourcePolicy(config.limits)
+    start = datetime(2026, 7, 16, tzinfo=timezone.utc)
+    assert (
+        policy.evaluate(
+            sample(start, cpu_max_temperature_celsius=86, monotonic_seconds=0)
+        ).action
+        == ResourceAction.RUN
+    )
+    assert (
+        policy.evaluate(
+            sample(start, cpu_max_temperature_celsius=86, monotonic_seconds=29)
+        ).action
+        == ResourceAction.RUN
+    )
+    assert (
+        policy.evaluate(
+            sample(start, cpu_max_temperature_celsius=86, monotonic_seconds=30)
+        ).action
+        == ResourceAction.PAUSE
+    )
+
+
+def test_gpu_temperature_hard_threshold_stops_immediately(config):
+    decision = ResourcePolicy(config.limits).evaluate(
+        sample(
+            datetime.now(timezone.utc),
+            gpu_metrics=(GpuMetric(0, 0, 0, 88, 0),),
+        )
+    )
+    assert decision.action == ResourceAction.STOP
 
 
 class FakePsutil:
@@ -570,6 +630,7 @@ class SequencePolicy:
     def __init__(self, *actions):
         self.actions = iter(actions)
         self.last = actions[-1]
+        self.limits = SimpleNamespace(recovery_stable_seconds=30)
 
     def evaluate(self, snapshot):
         try:
@@ -607,7 +668,7 @@ def test_telemetry_serializes_iso_timestamp_and_syncs_every_thirty_seconds(
         sample(now + timedelta(days=30)), decision, "ABO-00000", "download"
     )
     assert fsync_calls == []
-    monotonic.advance(1)
+    monotonic.advance(6)
     writer.write(
         sample(now - timedelta(days=30)), decision, "ABO-00000", "download"
     )
@@ -658,17 +719,12 @@ def test_telemetry_context_keeps_body_error_primary_when_close_fails(
     assert writer._stream.closed
 
 
-def test_guard_requires_five_uninterrupted_stable_minutes_after_pause():
+def test_guard_requires_thirty_uninterrupted_stable_seconds_after_pause():
     start = datetime(2026, 7, 16, tzinfo=timezone.utc)
     monotonic = FakeClock(0.0)
     telemetry = RecordingTelemetry()
     policy = SequencePolicy(
         ResourceAction.PAUSE,
-        ResourceAction.RUN,
-        ResourceAction.RUN,
-        ResourceAction.PAUSE,
-        ResourceAction.RUN,
-        ResourceAction.RUN,
         ResourceAction.RUN,
     )
     guard = ResourceGuard(
@@ -678,15 +734,9 @@ def test_guard_requires_five_uninterrupted_stable_minutes_after_pause():
     assert guard.check("shard", "command").action == ResourceAction.PAUSE
     monotonic.advance(5)
     assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(299)
+    monotonic.advance(24)
     assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(1)
-    assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(5)
-    assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(299)
-    assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(1)
+    monotonic.advance(6)
     assert guard.check("shard", "command").action == ResourceAction.RUN
     assert telemetry.records[-1][2:] == ("shard", "command")
 
@@ -706,10 +756,10 @@ def test_guard_recovery_ignores_forward_and_backward_wall_clock_jumps():
     monotonic.advance(5)
     wall.advance(30 * 24 * 60 * 60)
     assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(299)
+    monotonic.advance(24)
     wall.advance(-60 * 24 * 60 * 60)
     assert guard.check("shard", "command").action == ResourceAction.PAUSE
-    monotonic.advance(1)
+    monotonic.advance(6)
     assert guard.check("shard", "command").action == ResourceAction.RUN
 
 
@@ -730,7 +780,7 @@ def test_wait_for_admission_polls_every_five_seconds_and_initial_run_is_immediat
         sleep,
     )
     assert guard.wait_for_admission("shard", "download").action == ResourceAction.RUN
-    assert sleeps == [5] * 61
+    assert sleeps == [5] * 7
 
     sleeps.clear()
     immediate = ResourceGuard(

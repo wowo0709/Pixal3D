@@ -70,6 +70,14 @@ class LimitConfig:
     data2_fs_free_tib: int
     data3_soft_tib: int
     data3_fs_free_tib: int
+    swap_soft_mib_per_minute: int
+    swap_soft_samples: int
+    cpu_temp_soft_celsius: int
+    cpu_temp_hard_celsius: int
+    gpu_temp_soft_celsius: int
+    gpu_temp_hard_celsius: int
+    temperature_soft_seconds: int
+    recovery_stable_seconds: int
 
 
 @dataclass(frozen=True)
@@ -140,6 +148,14 @@ SECTION_KEYS = {
         "data2_fs_free_tib",
         "data3_soft_tib",
         "data3_fs_free_tib",
+        "swap_soft_mib_per_minute",
+        "swap_soft_samples",
+        "cpu_temp_soft_celsius",
+        "cpu_temp_hard_celsius",
+        "gpu_temp_soft_celsius",
+        "gpu_temp_hard_celsius",
+        "temperature_soft_seconds",
+        "recovery_stable_seconds",
     },
 }
 
@@ -363,6 +379,10 @@ def _limits(value: Mapping) -> LimitConfig:
         raise ValueError("limits RAM soft threshold must exceed hard threshold")
     if integers["data2_soft_tib"] >= integers["data2_hard_tib"]:
         raise ValueError("limits data2 soft threshold must be below hard threshold")
+    if integers["cpu_temp_soft_celsius"] >= integers["cpu_temp_hard_celsius"]:
+        raise ValueError("limits CPU temperature soft threshold must be below hard threshold")
+    if integers["gpu_temp_soft_celsius"] >= integers["gpu_temp_hard_celsius"]:
+        raise ValueError("limits GPU temperature soft threshold must be below hard threshold")
     return LimitConfig(**float_values, **integers)
 
 

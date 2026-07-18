@@ -49,6 +49,7 @@ class ResourceSnapshot:
     gpu_metrics: tuple[GpuMetric, ...] = ()
     gpu_query_error: str | None = None
     monotonic_seconds: float | None = None
+    cpu_max_temperature_celsius: float | None = None
 
 
 class ResourceAccountingError(RuntimeError):
@@ -202,6 +203,22 @@ class ResourceSampler:
         except Exception as error:
             return (), str(error) or type(error).__name__
 
+    def _cpu_max_temperature(self) -> float | None:
+        sensors = getattr(self.psutil, "sensors_temperatures", None)
+        if sensors is None:
+            return None
+        try:
+            readings = sensors()
+        except Exception:
+            return None
+        values = []
+        for entries in readings.values():
+            for entry in entries:
+                current = getattr(entry, "current", None)
+                if isinstance(current, (int, float)) and current == current:
+                    values.append(float(current))
+        return max(values) if values else None
+
     def reconcile_at_shard_boundary(self) -> tuple[int, int]:
         return self.project_accounting.reconcile_at_shard_boundary()
 
@@ -243,6 +260,7 @@ class ResourceSampler:
             gpu_metrics=gpu_metrics,
             gpu_query_error=gpu_error,
             monotonic_seconds=self.monotonic_clock(),
+            cpu_max_temperature_celsius=self._cpu_max_temperature(),
         )
 
 
@@ -382,7 +400,12 @@ class ResourceGuard:
             if self._recovery_required:
                 if self._stable_since is None:
                     self._stable_since = now
-                if now - self._stable_since < 5 * 60:
+                recovery_seconds = getattr(
+                    getattr(self.policy, "limits", None),
+                    "recovery_stable_seconds",
+                    30,
+                )
+                if now - self._stable_since < recovery_seconds:
                     decision = ResourceDecision(
                         ResourceAction.PAUSE, ("resource recovery period",)
                     )
@@ -420,6 +443,7 @@ class ResourcePolicy:
         self.limits = limits
         self.monotonic_clock = monotonic_clock
         self.first_seen: dict[str, float] = {}
+        self.swap_window: deque[tuple[float, int]] = deque()
 
     def duration(self, key: str, active: bool, now: float) -> float:
         if not active:
@@ -436,6 +460,11 @@ class ResourcePolicy:
         )
         hard = []
         soft = []
+        self.swap_window.append((now, max(0, value.swap_in_bytes)))
+        while self.swap_window and self.swap_window[0][0] < now - 60.0:
+            self.swap_window.popleft()
+        swap_total = sum(item[1] for item in self.swap_window)
+        swap_threshold = self.limits.swap_soft_mib_per_minute * 1024**2
         if (
             value.local_free_gib < self.limits.local_free_gib
             or value.local_free_percent < self.limits.local_free_percent
@@ -449,6 +478,17 @@ class ResourcePolicy:
             hard.append("data3 filesystem free-space floor")
         if value.available_ram_gib < self.limits.ram_hard_available_gib:
             hard.append("RAM hard floor")
+        if (
+            value.cpu_max_temperature_celsius is not None
+            and value.cpu_max_temperature_celsius >= self.limits.cpu_temp_hard_celsius
+        ):
+            hard.append("CPU temperature hard threshold")
+        gpu_temperature = max(
+            (metric.temperature_celsius for metric in value.gpu_metrics),
+            default=None,
+        )
+        if gpu_temperature is not None and gpu_temperature >= self.limits.gpu_temp_hard_celsius:
+            hard.append("GPU temperature hard threshold")
         if self.duration(
             "cpu_hard", value.cpu_percent > self.limits.cpu_hard_percent, now
         ) >= 5 * 60:
@@ -465,8 +505,31 @@ class ResourcePolicy:
             soft.append("I/O wait")
         if value.available_ram_gib < self.limits.ram_soft_available_gib:
             soft.append("RAM soft floor")
-        if value.swap_in_bytes > 0:
+        if (
+            len(self.swap_window) >= self.limits.swap_soft_samples
+            and swap_total >= swap_threshold
+        ):
             soft.append("swap-in activity")
+        if (
+            value.cpu_max_temperature_celsius is not None
+            and self.duration(
+                "cpu_temperature",
+                value.cpu_max_temperature_celsius >= self.limits.cpu_temp_soft_celsius,
+                now,
+            )
+            >= self.limits.temperature_soft_seconds
+        ):
+            soft.append("CPU temperature soft duration")
+        if (
+            gpu_temperature is not None
+            and self.duration(
+                "gpu_temperature",
+                gpu_temperature >= self.limits.gpu_temp_soft_celsius,
+                now,
+            )
+            >= self.limits.temperature_soft_seconds
+        ):
+            soft.append("GPU temperature soft duration")
         if (
             value.data2_project_tib >= self.limits.data2_soft_tib
             or value.data3_project_tib >= self.limits.data3_soft_tib
