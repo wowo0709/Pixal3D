@@ -6,7 +6,9 @@ import pytest
 from data_toolkit.pipeline.commands import (
     CommandSpec,
     ShardContext,
+    WorkerProfile,
     build_preprocessing_dag,
+    choose_worker_profile,
     expand_ranked,
 )
 
@@ -29,6 +31,32 @@ def _by_name(dag, name):
 
 def _python_command(script, *args):
     return ("python", f"data_toolkit/{script}", *args)
+
+
+def test_worker_profile_ramps_after_stable_telemetry(config):
+    first = choose_worker_profile((), config)
+    stable = [
+        {"cpu_percent": 60, "io_wait_percent": 2, "available_ram_gib": 200, "reasons": []}
+    ] * 3
+    second = choose_worker_profile(stable, config, first)
+    assert second.dump_workers == 36
+    assert (second.voxel_workers, second.voxel_threads_per_worker) == (10, 4)
+
+
+def test_worker_profile_steps_down_on_pressure(config):
+    previous = WorkerProfile(40, 10, 4, 7, 7)
+    pressure = [{"cpu_percent": 70, "io_wait_percent": 12, "available_ram_gib": 100, "reasons": ["I/O wait"]}]
+    selected = choose_worker_profile(pressure, config, previous)
+    assert selected.dump_workers == 36
+    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (8, 4)
+
+
+def test_dag_accepts_worker_profile(config, tmp_path):
+    context = ShardContext.for_test(tmp_path, "ABO", "ABO-00000")
+    profile = WorkerProfile(44, 11, 4, 7, 7)
+    dag = build_preprocessing_dag(context, config, profile)
+    assert str(profile.dump_workers) in _by_name(dag, "dump_mesh").argv
+    assert str(profile.voxel_workers) in _by_name(dag, "dual_grid_256").argv
 
 
 def test_dag_has_exact_order_for_all_configured_resolutions(config, tmp_path):

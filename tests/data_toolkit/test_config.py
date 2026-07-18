@@ -31,6 +31,8 @@ def test_fixed_contract():
         cfg.batching.pilot_max_assets,
         cfg.batching.production_max_assets,
     ) == (3, 64, 256)
+    assert cfg.worker_tuning.dump_steps == (32, 36, 40, 44)
+    assert cfg.worker_tuning.voxel_profiles == ((8, 4), (10, 4), (11, 4))
 
 
 def test_unknown_root_key_is_rejected(tmp_path: Path):

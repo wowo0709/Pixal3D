@@ -1,8 +1,68 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from typing import Mapping, Sequence
 
 from .config import PipelineConfig
+
+
+@dataclass(frozen=True)
+class WorkerProfile:
+    dump_workers: int
+    voxel_workers: int
+    voxel_threads_per_worker: int
+    render_workers: int
+    encoder_ranks: int
+
+
+def choose_worker_profile(
+    recent_snapshots: Sequence[Mapping[str, object]],
+    config: PipelineConfig,
+    previous: WorkerProfile | None = None,
+) -> WorkerProfile:
+    profiles = config.worker_tuning.voxel_profiles
+    dump_steps = config.worker_tuning.dump_steps
+    if previous is None:
+        return WorkerProfile(
+            dump_workers=dump_steps[0],
+            voxel_workers=profiles[0][0],
+            voxel_threads_per_worker=profiles[0][1],
+            render_workers=config.worker_tuning.render_workers,
+            encoder_ranks=config.worker_tuning.encoder_ranks,
+        )
+    if not recent_snapshots:
+        return previous
+    pressure = any(
+        snapshot.get("reasons")
+        or float(snapshot.get("available_ram_gib", 10**9)) < 128
+        or float(snapshot.get("io_wait_percent", 0)) >= 10
+        for snapshot in recent_snapshots
+    )
+    stable = all(
+        not snapshot.get("reasons")
+        and float(snapshot.get("cpu_percent", 100)) < 70
+        and float(snapshot.get("io_wait_percent", 100)) < 5
+        and float(snapshot.get("available_ram_gib", 0)) >= 128
+        for snapshot in recent_snapshots[-3:]
+    )
+    current_dump = dump_steps.index(previous.dump_workers)
+    current_voxel = profiles.index(
+        (previous.voxel_workers, previous.voxel_threads_per_worker)
+    )
+    if pressure:
+        current_dump = max(0, current_dump - 1)
+        current_voxel = max(0, current_voxel - 1)
+    elif stable:
+        current_dump = min(len(dump_steps) - 1, current_dump + 1)
+        current_voxel = min(len(profiles) - 1, current_voxel + 1)
+    voxel_workers, native_threads = profiles[current_voxel]
+    return WorkerProfile(
+        dump_workers=dump_steps[current_dump],
+        voxel_workers=voxel_workers,
+        voxel_threads_per_worker=native_threads,
+        render_workers=previous.render_workers,
+        encoder_ranks=previous.encoder_ranks,
+    )
 
 
 @dataclass(frozen=True)
@@ -157,8 +217,17 @@ def expand_ranked(
 
 
 def build_preprocessing_dag(
-    context: ShardContext, config: PipelineConfig
+    context: ShardContext,
+    config: PipelineConfig,
+    profile: WorkerProfile | None = None,
 ) -> tuple[CommandSpec, ...]:
+    profile = profile or WorkerProfile(
+        dump_workers=config.workers.dump_workers,
+        voxel_workers=config.workers.voxel_workers,
+        voxel_threads_per_worker=config.workers.voxel_threads_per_worker,
+        render_workers=config.workers.render_workers,
+        encoder_ranks=config.workers.encoder_ranks,
+    )
     dataset = dataset_args(context.source)
     base = (
         *dataset,
@@ -197,7 +266,7 @@ def build_preprocessing_dag(
                 "--mesh_dump_root",
                 str(context.work_root),
                 "--max_workers",
-                str(config.workers.dump_workers),
+                str(profile.dump_workers),
             ),
             CPU_ENV,
         ),
@@ -211,7 +280,7 @@ def build_preprocessing_dag(
                 "--pbr_dump_root",
                 str(context.work_root),
                 "--max_workers",
-                str(config.workers.dump_workers),
+                str(profile.dump_workers),
             ),
             CPU_ENV,
         ),
@@ -228,7 +297,7 @@ def build_preprocessing_dag(
                 "--pbr_dump_root",
                 str(context.work_root),
                 "--max_workers",
-                str(config.workers.dump_workers),
+                str(profile.dump_workers),
             ),
             CPU_ENV,
         ),
@@ -253,7 +322,7 @@ def build_preprocessing_dag(
                 "1",
             ),
             RENDER_ENV,
-            gpu_ranks=config.workers.render_workers,
+            gpu_ranks=profile.render_workers,
         ),
     ]
 
@@ -279,9 +348,9 @@ def build_preprocessing_dag(
                         str(context.work_root),
                         *common,
                         "--max_workers",
-                        str(config.workers.voxel_workers),
+                        str(profile.voxel_workers),
                         "--native_threads",
-                        str(config.workers.voxel_threads_per_worker),
+                        str(profile.voxel_threads_per_worker),
                     ),
                     CPU_ENV,
                 ),
@@ -298,9 +367,9 @@ def build_preprocessing_dag(
                         str(context.work_root),
                         *common,
                         "--max_workers",
-                        str(config.workers.voxel_workers),
+                        str(profile.voxel_workers),
                         "--native_threads",
-                        str(config.workers.voxel_threads_per_worker),
+                        str(profile.voxel_threads_per_worker),
                     ),
                     CPU_ENV,
                 ),
@@ -325,7 +394,7 @@ def build_preprocessing_dag(
                         config.targets.latent_dtype,
                     ),
                     CPU_ENV,
-                    gpu_ranks=config.workers.encoder_ranks,
+                    gpu_ranks=profile.encoder_ranks,
                 ),
                 CommandSpec(
                     f"encode_pbr_{resolution}",
@@ -348,7 +417,7 @@ def build_preprocessing_dag(
                         config.targets.latent_dtype,
                     ),
                     CPU_ENV,
-                    gpu_ranks=config.workers.encoder_ranks,
+                    gpu_ranks=profile.encoder_ranks,
                 ),
                 CommandSpec(
                     f"cleanup_voxels_{resolution}",
@@ -385,7 +454,7 @@ def build_preprocessing_dag(
                     str(config.workers.encoder_saver_threads),
                 ),
                 CPU_ENV,
-                gpu_ranks=config.workers.encoder_ranks,
+                gpu_ranks=profile.encoder_ranks,
             ),
             CommandSpec("validate_outputs", ("internal:validate_outputs",)),
             CommandSpec("build_packs", ("internal:build_packs",)),

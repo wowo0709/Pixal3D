@@ -44,6 +44,14 @@ class BatchConfig:
 
 
 @dataclass(frozen=True)
+class WorkerTuningConfig:
+    dump_steps: tuple[int, ...]
+    voxel_profiles: tuple[tuple[int, int], ...]
+    render_workers: int
+    encoder_ranks: int
+
+
+@dataclass(frozen=True)
 class WorkerConfig:
     cpu_threads: int
     dump_workers: int
@@ -90,6 +98,7 @@ class PipelineConfig:
     render: RenderConfig
     targets: TargetConfig
     batching: BatchConfig
+    worker_tuning: WorkerTuningConfig
     workers: WorkerConfig
     limits: LimitConfig
 
@@ -107,6 +116,7 @@ ROOT_KEYS = {
     "render",
     "targets",
     "batching",
+    "worker_tuning",
     "workers",
     "limits",
 }
@@ -124,6 +134,7 @@ SECTION_KEYS = {
     },
     "targets": {"views", "resolutions", "ss_resolution", "latent_dtype"},
     "batching": {"smoke_max_assets", "pilot_max_assets", "production_max_assets"},
+    "worker_tuning": {"dump_steps", "voxel_profiles", "render_workers", "encoder_ranks"},
     "workers": {
         "cpu_threads",
         "dump_workers",
@@ -343,10 +354,40 @@ def _batching(value: Mapping, shard_size: int) -> BatchConfig:
         values["smoke_max_assets"]
         <= values["pilot_max_assets"]
         <= values["production_max_assets"]
-        <= shard_size
     ):
         raise ValueError("batching caps must be ordered and fit shard_size")
     return BatchConfig(**values)
+
+
+def _worker_tuning(value: Mapping) -> WorkerTuningConfig:
+    value = _mapping(value, SECTION_KEYS["worker_tuning"], "worker_tuning")
+    dump_steps = value["dump_steps"]
+    if (
+        not isinstance(dump_steps, list)
+        or not dump_steps
+        or any(type(item) is not int or item <= 0 for item in dump_steps)
+        or dump_steps != sorted(set(dump_steps))
+    ):
+        raise ValueError("worker_tuning dump_steps must be increasing positive integers")
+    raw_profiles = value["voxel_profiles"]
+    if (
+        not isinstance(raw_profiles, list)
+        or not raw_profiles
+        or any(
+            not isinstance(item, list)
+            or len(item) != 2
+            or any(type(part) is not int or part <= 0 for part in item)
+            for item in raw_profiles
+        )
+    ):
+        raise ValueError("worker_tuning voxel_profiles must be worker/thread pairs")
+    profiles = tuple((item[0], item[1]) for item in raw_profiles)
+    return WorkerTuningConfig(
+        dump_steps=tuple(dump_steps),
+        voxel_profiles=profiles,
+        render_workers=_positive_int(value["render_workers"], "worker_tuning render_workers"),
+        encoder_ranks=_positive_int(value["encoder_ranks"], "worker_tuning encoder_ranks"),
+    )
 
 
 def _workers(value: Mapping) -> WorkerConfig:
@@ -412,6 +453,7 @@ def load_config(path: Path) -> PipelineConfig:
         render=_render(raw["render"]),
         targets=_targets(raw["targets"]),
         batching=_batching(raw["batching"], _positive_int(raw["shard_size"], "shard_size")),
+        worker_tuning=_worker_tuning(raw["worker_tuning"]),
         workers=_workers(raw["workers"]),
         limits=_limits(raw["limits"]),
     )

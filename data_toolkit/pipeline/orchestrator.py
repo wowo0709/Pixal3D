@@ -8,6 +8,7 @@ import errno
 import fcntl
 from hashlib import sha256
 import io
+import inspect
 import json
 import math
 import os
@@ -29,7 +30,9 @@ from .atomic_io import atomic_copy
 from .commands import (
     CommandSpec,
     ShardContext,
+    WorkerProfile,
     build_preprocessing_dag,
+    choose_worker_profile,
     expand_ranked,
 )
 from .config import PipelineConfig
@@ -1002,6 +1005,22 @@ class PipelineRunner:
         self._active_quality_ledger_path: Path | None = None
         self._active_quality_assets: tuple[str, ...] | None = None
         self._active_instances_sha256: str | None = None
+        self.worker_profile: WorkerProfile | None = None
+
+    def _build_commands(self, context: ShardContext) -> Sequence[CommandSpec]:
+        try:
+            recent = self.resource_guard.last_five_minutes()
+        except (OSError, RuntimeError, ValueError):
+            recent = ()
+        self.worker_profile = choose_worker_profile(
+            recent, self.config, self.worker_profile
+        )
+        parameters = inspect.signature(self.command_builder).parameters
+        if len(parameters) >= 3:
+            return self.command_builder(
+                context, self.config, self.worker_profile
+            )
+        return self.command_builder(context, self.config)
 
     def _validator(self, command_name: str) -> Callable[[], bool]:
         try:
@@ -1218,7 +1237,7 @@ class PipelineRunner:
                         ),
                     )
 
-            for command in self.command_builder(context, self.config):
+            for command in self._build_commands(context):
                 if command.name in checkpoint.completed_commands:
                     try:
                         if self._valid_output(command.name):
