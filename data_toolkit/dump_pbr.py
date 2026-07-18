@@ -126,8 +126,11 @@ def _dump_pbr(file_path, sha256, root, timeout_seconds=900):
             _read_pickle(temporary)
         except Exception:
             if error_path.exists():
+                reason = error_path.read_text().strip()
+                if 'Material is not supported' not in reason:
+                    reason = f'Material is not supported: {reason}'
                 return _pbr_failure_record(
-                    sha256, error_path.read_text()
+                    sha256, reason
                 )
             return _pbr_failure_record(
                 sha256, f'Failed to dump PBR. File {file_path}.'

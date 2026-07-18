@@ -378,7 +378,8 @@ def test_pbr_dump_returns_parser_evidence_without_publishing_output(
     def reject_material(args, **kwargs):
         temporary = Path(args[args.index("--output_path") + 1])
         Path(f"{temporary}_error.txt").write_text(
-            "Material is not supported"
+            "[['Principled BSDF'], ['Material Output'], "
+            "['Normal Map'], ['Image Texture']]"
         )
         return SimpleNamespace(returncode=1)
 
@@ -389,7 +390,8 @@ def test_pbr_dump_returns_parser_evidence_without_publishing_output(
     )
 
     assert record["error_category"] == "unsupported_shader"
-    assert record["error_reason"] == "Material is not supported"
+    assert record["error_reason"].startswith("Material is not supported: ")
+    assert "Normal Map" in record["error_reason"]
     output_dir = tmp_path / "pbr_dumps"
     assert not (output_dir / f"{asset_sha}.pickle").exists()
     assert not list(output_dir.glob(f".{asset_sha}.pickle.*"))
