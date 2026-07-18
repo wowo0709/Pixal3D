@@ -106,6 +106,16 @@ Registry publication is source-order deterministic, globally deduplicated,
 checksummed, bound to the config hash, and accompanied by compatible per-source
 metadata. Treat a changed count or checksum on an unchanged input as a stop.
 
+### 3D-FUTURE raw identity
+
+For 3D-FUTURE, the canonical `sha256` from TRELLIS-500K is the hash of
+`image.jpg` and remains the asset identity used by the registry and frozen
+shards. It is not the hash of `raw_model.obj`. Download metadata records the
+OBJ hash separately as `content_sha256` and stores a checksum map for sibling
+files such as `model.mtl` and `texture.png` in `companion_files`. Staging and
+raw archival verify and preserve the complete declared file set. Never rewrite
+the canonical registry identity to the OBJ content hash.
+
 ## Hardware And Local-Space Preflight
 
 Hardware and local-space preflight must finish before the first actual smoke

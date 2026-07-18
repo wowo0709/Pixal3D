@@ -32,6 +32,15 @@ conda run --no-capture-output -n pixal3d \
 
 모든 source가 `ready`인지 확인한다. `not ready`가 있으면 해당 source만 보류하고 원인을 해결한다.
 
+### 3D-FUTURE 해시 규칙
+
+3D-FUTURE의 canonical `sha256`은 `image.jpg`의 SHA-256이며 asset identity로
+사용한다. `raw_model.obj`의 해시로 canonical registry를 변경하면 안 된다.
+다운로드 metadata의 `content_sha256`은 OBJ 자체를 검증하고,
+`companion_files`는 `model.mtl`, texture 및 같은 asset directory의 동반 파일을
+경로별 SHA-256으로 검증한다. staging과 raw archive에는 이 전체 파일 묶음이
+포함되어야 한다.
+
 ## 2. Smoke 범위 계획
 
 Smoke는 source별 첫 9개 asset, 즉 3개 batch로 실행한다.
