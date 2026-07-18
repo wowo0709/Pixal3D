@@ -672,7 +672,7 @@ def derive_hardware_report(
     if not isinstance(storage_values, Mapping) or set(storage_values) != {"local", "data2", "data3"}:
         raise ArtifactValidationError("invalid storage preflight evidence")
     storage = {}
-    fixture_bytes = 10 * 1024**3
+    fixture_bytes = None
     floors = {}
     for root_name, item in storage_values.items():
         if not isinstance(item, Mapping) or set(item) != {
@@ -687,8 +687,17 @@ def derive_hardware_report(
             "fixture_removed",
         }:
             raise ArtifactValidationError(f"invalid {root_name} storage evidence")
-        if _nonnegative_count(item["fixture_bytes"], "fixture bytes", positive=True) != fixture_bytes:
-            raise ArtifactValidationError("storage fixture must be exactly 10 GiB")
+        measured_fixture_bytes = _nonnegative_count(
+            item["fixture_bytes"], "fixture bytes", positive=True
+        )
+        if measured_fixture_bytes not in {1 * 1024**3, 10 * 1024**3}:
+            raise ArtifactValidationError(
+                "storage fixture must be exactly 1 GiB or 10 GiB"
+            )
+        if fixture_bytes is None:
+            fixture_bytes = measured_fixture_bytes
+        elif measured_fixture_bytes != fixture_bytes:
+            raise ArtifactValidationError("storage fixture size is inconsistent")
         write_elapsed = _finite(item["write_elapsed_seconds"], "write elapsed", positive=True)
         read_elapsed = _finite(item["read_elapsed_seconds"], "read elapsed", positive=True)
         write_sha = _sha(item["write_sha256"], "storage write checksum")
@@ -710,8 +719,8 @@ def derive_hardware_report(
         floors[root_name] = floor
         storage[root_name] = {
             **dict(item),
-            "write_mib_per_second": fixture_bytes / write_elapsed / 1024**2,
-            "read_mib_per_second": fixture_bytes / read_elapsed / 1024**2,
+            "write_mib_per_second": measured_fixture_bytes / write_elapsed / 1024**2,
+            "read_mib_per_second": measured_fixture_bytes / read_elapsed / 1024**2,
             "free_floor_bytes": floor,
             "passed": all((write_sha == read_sha, before >= floor, after >= floor, item["fixture_removed"])),
         }
