@@ -176,6 +176,58 @@ def throughput_quantiles(measurements: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def performance_summary(
+    telemetry: Sequence[Mapping],
+    *,
+    completed_assets: int,
+    total_assets: int,
+) -> dict[str, object]:
+    if (
+        not isinstance(telemetry, Sequence)
+        or isinstance(telemetry, (str, bytes))
+        or not telemetry
+    ):
+        raise ReportValidationError("performance telemetry must not be empty")
+    completed = _count(completed_assets, "completed assets")
+    total = _count(total_assets, "total assets", positive=True)
+    if completed > total:
+        raise ReportValidationError("completed assets exceed total assets")
+    timestamps = []
+    pauses = 0
+    for index, record in enumerate(telemetry):
+        if not isinstance(record, Mapping):
+            raise ReportValidationError(f"invalid performance telemetry {index}")
+        raw_timestamp = record.get("timestamp")
+        if not isinstance(raw_timestamp, str):
+            raise ReportValidationError("performance timestamp must be a string")
+        try:
+            timestamp = datetime.fromisoformat(raw_timestamp)
+        except ValueError as error:
+            raise ReportValidationError("invalid performance timestamp") from error
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ReportValidationError("performance timestamp must be timezone-aware")
+        timestamps.append(timestamp.astimezone(timezone.utc))
+        action = record.get("action", "run")
+        if action == "pause":
+            pauses += 1
+        elif action != "run":
+            raise ReportValidationError("invalid performance action")
+    if timestamps != sorted(timestamps):
+        raise ReportValidationError("performance timestamps must be ordered")
+    elapsed = max((timestamps[-1] - timestamps[0]).total_seconds(), 1.0)
+    assets_per_hour = completed * 3600.0 / elapsed
+    remaining = total - completed
+    return {
+        "assets_completed": completed,
+        "assets_total": total,
+        "elapsed_seconds": elapsed,
+        "assets_per_hour": assets_per_hour,
+        "eta_hours": remaining / assets_per_hour if assets_per_hour else None,
+        "pause_fraction": pauses / len(telemetry),
+        "resource_peaks": resource_peaks(telemetry),
+    }
+
+
 def byte_quantiles(measurements: pd.DataFrame) -> dict[str, float]:
     frame = _frame(measurements, {"final_bytes"}, "measurements")
     values = _numeric_series(

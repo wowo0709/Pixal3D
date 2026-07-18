@@ -22,6 +22,7 @@ from data_toolkit.pipeline.reporting import (
     gate_measurement_summary,
     fp16_family_summary,
     build_training_handoff,
+    performance_summary,
 )
 
 
@@ -47,6 +48,31 @@ def test_fp32_gate_does_not_require_fp16_qualification():
         "passed": True,
         "families": {},
     }
+
+
+def test_performance_summary_uses_wall_time_and_reports_pause_fraction():
+    telemetry = [
+        {
+            "timestamp": "2026-07-18T00:00:00+00:00",
+            "action": "run",
+            "cpu_percent": 30,
+            "available_ram_gib": 200,
+            "gpu_metrics": [],
+        },
+        {
+            "timestamp": "2026-07-18T01:00:00+00:00",
+            "action": "pause",
+            "cpu_percent": 10,
+            "available_ram_gib": 190,
+            "gpu_metrics": [],
+        },
+    ]
+    result = performance_summary(
+        telemetry, completed_assets=100, total_assets=200
+    )
+    assert result["assets_per_hour"] == 100
+    assert result["eta_hours"] == 1
+    assert result["pause_fraction"] == 0.5
 
 
 def valid_report_payload(gate="pilot"):
