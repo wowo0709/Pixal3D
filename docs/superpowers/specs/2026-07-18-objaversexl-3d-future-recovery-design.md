@@ -89,8 +89,8 @@ introduced.
    evidence.
 2. Audit Sketchfab with the exact producing commit; retain the passing result.
 3. Execute GitHub's remaining frozen batches using the exact `480999a` source
-   tree. Use a temporary schema-v1 quality ledger compatible with that commit,
-   initialized from the durable live ledger.
+   tree. Use a temporary historical schema-v2 quality ledger without the later
+   `quarantine` field, initialized from the durable live ledger.
 4. Merge new terminal outcomes back into the schema-v2 live ledger. Add
    quarantine details for newly failed assets without altering existing
    records.

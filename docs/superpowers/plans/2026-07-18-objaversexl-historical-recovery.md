@@ -102,7 +102,8 @@ directory. Keep the detached clone until the GitHub recovery is complete.
 
 **Files:**
 - Create: a temporary detached shared clone at commit `480999a...`
-- Create: a temporary schema-v1 quality ledger initialized from the live schema-v2 ledger.
+- Create: a temporary historical schema-v2 quality ledger, without the later
+  `quarantine` field, initialized from the live schema-v2 ledger.
 - Modify: GitHub batch 3-6 checkpoints and new prepared/raw artifacts through the historical pipeline only.
 
 **Interfaces:**
@@ -114,12 +115,12 @@ directory. Keep the detached clone until the GitHub recovery is complete.
 Use the Task 2 clone procedure but check out
 `480999ac1b2f77e751bf46b596283f300a7eaac7`. Confirm `git rev-parse HEAD` matches.
 
-- [ ] **Step 2: Build a schema-v1 temporary ledger**
+- [ ] **Step 2: Build a historical schema-v2 temporary ledger**
 
-Read the live schema-v2 ledger, copy only `schema_version`, `source`,
-`shard_id`, `gate`, `batches`, and `entries`, set `schema_version` to `1`, and
-atomically write it under the recovery directory. Preserve the live ledger
-unchanged.
+Read the live schema-v2 ledger and copy only `schema_version`, `source`,
+`shard_id`, `gate`, `batches`, and `entries`. Keep `schema_version` set to `2`
+but omit the later `quarantine` field, then atomically write it under the
+recovery directory. Preserve the live ledger unchanged.
 
 - [ ] **Step 3: Run each incomplete context with the temporary ledger**
 
@@ -158,7 +159,8 @@ new non-asset-scoped data error.
 - Read: all GitHub checkpoints, prepared manifests, and raw manifests.
 
 **Interfaces:**
-- Consumes: completed temporary schema-v1 ledger and unchanged live schema-v2 ledger.
+- Consumes: completed historical schema-v2 ledger without `quarantine`, and
+  the unchanged live schema-v2 ledger.
 - Produces: one schema-v2 ledger with all batches/entries and quarantine details, plus a passing exact-commit audit.
 
 - [ ] **Step 1: Validate the temporary ledger before merging**
