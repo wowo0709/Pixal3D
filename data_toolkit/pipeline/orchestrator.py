@@ -81,6 +81,27 @@ def family_dependencies(
     return dependencies
 
 
+def command_families(
+    config: PipelineConfig, command_name: str
+) -> tuple[str, ...]:
+    if command_name == "dump_pbr":
+        return tuple(
+            f"PBR-{resolution}"
+            for resolution in config.targets.resolutions
+        )
+    for prefix, family_prefix in (
+        ("voxelize_pbr_", "PBR"),
+        ("encode_pbr_", "PBR"),
+        ("dual_grid_", "shape"),
+        ("encode_shape_", "shape"),
+    ):
+        if command_name.startswith(prefix):
+            return (f"{family_prefix}-{command_name.removeprefix(prefix)}",)
+    if command_name == f"encode_ss_{config.targets.ss_resolution}":
+        return (f"SS-{config.targets.ss_resolution}",)
+    return ()
+
+
 _SUPERVISOR_PROGRAM = r"""
 import ctypes
 import os
@@ -1415,12 +1436,32 @@ class PipelineRunner:
         asset_sha = _validated_asset_sha(asset_sha)
         ledger = self._active_quality_ledger
         if ledger is None:
-            raise InfrastructureError("quality ledger is not active")
+            return {}
         exclusions = ledger["family_exclusions"].get(asset_sha, {})
         return {
             family: dict(record)
             for family, record in exclusions.items()
         }
+
+    def family_is_eligible(self, asset_sha: str, family: str) -> bool:
+        if family not in PACK_FAMILIES:
+            raise ValueError(f"unknown pack family: {family}")
+        excluded = set(self.family_exclusions(asset_sha))
+        dependencies = family_dependencies(self.config)
+
+        def eligible(candidate: str, visiting: frozenset[str]) -> bool:
+            if candidate in excluded:
+                return False
+            if candidate in visiting:
+                raise InfrastructureError(
+                    f"cyclic family dependency: {candidate}"
+                )
+            return all(
+                eligible(dependency, visiting | {candidate})
+                for dependency in dependencies[candidate]
+            )
+
+        return eligible(family, frozenset())
 
     def record_family_exclusion(
         self,
@@ -1568,7 +1609,16 @@ class PipelineRunner:
         context: ShardContext,
         checkpoint: PipelineCheckpoint,
     ) -> CommandSpec:
-        if not checkpoint.quality_outcomes or "--instances" not in command.argv:
+        if "--instances" not in command.argv:
+            return command
+        families = command_families(self.config, command.name)
+        ledger = self._active_quality_ledger
+        has_family_exclusions = bool(
+            ledger is not None and ledger.get("family_exclusions")
+        )
+        if not checkpoint.quality_outcomes and not (
+            families and has_family_exclusions
+        ):
             return command
         payload = _read_regular_bytes_nofollow(context.instances)
         assets = tuple(
@@ -1579,6 +1629,13 @@ class PipelineRunner:
             asset
             for asset in assets
             if asset not in checkpoint.quality_outcomes
+            and (
+                not families
+                or any(
+                    self.family_is_eligible(asset, family)
+                    for family in families
+                )
+            )
         )
         eligible_path = (
             context.work_root
@@ -2706,6 +2763,8 @@ class PipelineServices:
         output_validator: Callable[[ShardContext], None] | None = None,
         asset_output_validator: Callable[[ShardContext, str], None]
         | None = None,
+        family_output_validator: Callable[[ShardContext, str, str], None]
+        | None = None,
         shape_resolution_validator: Callable[[ShardContext, int], None]
         | None = None,
         pbr_resolution_validator: Callable[[ShardContext, int], None]
@@ -2748,6 +2807,13 @@ class PipelineServices:
         self.disk_usage = disk_usage
         self.asset_output_validator = (
             asset_output_validator or self._validate_asset_outputs
+        )
+        self.family_output_validator = (
+            family_output_validator or self._validate_family_output
+        )
+        self._legacy_asset_output_validation = (
+            asset_output_validator is not None
+            and family_output_validator is None
         )
         self.output_validator = (
             output_validator or self._validate_terminal_outputs
@@ -3496,6 +3562,128 @@ class PipelineServices:
                 f"invalid PBR dump structure: {relative.as_posix()}"
             )
 
+    def _pbr_dump_records(
+        self, context: ShardContext
+    ) -> Mapping[str, Mapping[str, object]]:
+        root = context.work_root / "pbr_dumps/new_records"
+        try:
+            directory_fd = _open_directory_nofollow(root)
+        except OSError as error:
+            if error.errno in {errno.ENOENT, errno.ENOTDIR}:
+                return {}
+            if error.errno == errno.ELOOP:
+                raise ValidationError(
+                    f"unsafe PBR dump records: {root}"
+                ) from error
+            raise
+        try:
+            names = sorted(
+                name
+                for name in os.listdir(directory_fd)
+                if name.startswith("part_") and name.endswith(".csv")
+            )
+        finally:
+            os.close(directory_fd)
+
+        records = {}
+        required = {"sha256", "pbr_dumped"}
+        for name in names:
+            path = root / name
+            try:
+                reader = csv.DictReader(
+                    io.StringIO(
+                        _read_regular_bytes_nofollow(path).decode("utf-8"),
+                        newline="",
+                    )
+                )
+                if reader.fieldnames is None or not required.issubset(
+                    reader.fieldnames
+                ):
+                    raise ValidationError(
+                        f"PBR dump CSV missing required columns: {path}"
+                    )
+                rows = tuple(reader)
+            except (UnicodeDecodeError, csv.Error) as error:
+                raise ValidationError(
+                    f"invalid PBR dump CSV: {path}: {error}"
+                ) from error
+            for row in rows:
+                try:
+                    asset_sha = _validated_asset_sha(row.get("sha256"))
+                except (TypeError, ValueError) as error:
+                    raise ValidationError(
+                        f"invalid PBR dump SHA: {path}"
+                    ) from error
+                if asset_sha in records:
+                    raise ValidationError(
+                        f"duplicate PBR dump SHA: {asset_sha}"
+                    )
+                dumped_value = str(row.get("pbr_dumped", "")).lower()
+                if dumped_value not in {"true", "false"}:
+                    raise ValidationError(
+                        f"invalid PBR dump outcome: {asset_sha}"
+                    )
+                records[asset_sha] = {
+                    "pbr_dumped": dumped_value == "true",
+                    "error_category": str(
+                        row.get("error_category", "")
+                    ).strip(),
+                    "error_reason": str(
+                        row.get("error_reason", "")
+                    ).strip(),
+                }
+        return records
+
+    def _validate_pbr_dump_stage(self, context: ShardContext) -> None:
+        pbr_families = tuple(
+            f"PBR-{resolution}"
+            for resolution in self.config.targets.resolutions
+        )
+        assets = tuple(
+            asset
+            for asset in self._eligible_assets(context)
+            if any(
+                self.runner.family_is_eligible(asset, family)
+                for family in pbr_families
+            )
+        )
+        records = self._pbr_dump_records(context)
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        attempts = (
+            checkpoint.attempts.get("dump_pbr", 0)
+            if checkpoint is not None
+            else 0
+        )
+        for asset_sha in assets:
+            try:
+                self._validate_dump_output(
+                    context, "pbr_dumps", asset_sha
+                )
+                continue
+            except OutputValidationError as error:
+                missing_error = error
+            record = records.get(asset_sha, {})
+            if record.get("pbr_dumped") is True:
+                raise ValidationError(
+                    f"PBR record claims missing output is complete: {asset_sha}"
+                )
+            category = str(
+                record.get("error_category", "pbr_dump_failure")
+            )
+            reason = str(record.get("error_reason", "")).strip()
+            if not reason:
+                reason = str(missing_error)
+            if category == "unsupported_shader" or attempts >= MAX_COMMAND_ATTEMPTS:
+                self._exclude_stage_failure(
+                    context,
+                    asset_sha,
+                    "dump_pbr",
+                    category=category,
+                    reason=reason,
+                )
+                continue
+            raise OutputValidationError(reason)
+
     @staticmethod
     def _validate_asset_stats_record(asset_sha: str, row: dict | None) -> None:
         if row is None:
@@ -3746,6 +3934,65 @@ class PipelineServices:
                 output, self.config.targets.ss_resolution, ss=True
             )
 
+    def _validate_family_output(
+        self, context: ShardContext, asset_sha: str, family: str
+    ) -> None:
+        if family == "common":
+            self._validate_render_output(context, asset_sha)
+            return
+        if family == f"SS-{self.config.targets.ss_resolution}":
+            for view in self.config.targets.views:
+                output = (
+                    context.output_root
+                    / self._ss_directory()
+                    / asset_sha
+                    / f"view{view:02d}.npz"
+                )
+                self._validate_sparse_output(
+                    output,
+                    self.config.targets.ss_resolution,
+                    ss=True,
+                )
+            return
+        prefix, resolution_value = family.split("-", 1)
+        resolution = int(resolution_value)
+        if resolution not in self.config.targets.resolutions:
+            raise ValidationError(f"unexpected family: {family}")
+        if prefix == "shape":
+            relative = self._shape_directory(resolution)
+        elif prefix == "PBR":
+            relative = self._pbr_directory(resolution)
+        else:
+            raise ValidationError(f"unexpected family: {family}")
+        self._validate_resolution_asset(
+            context, resolution, relative, asset_sha
+        )
+
+    def _exclude_family_output(
+        self,
+        context: ShardContext,
+        asset_sha: str,
+        family: str,
+        reason: str,
+    ) -> None:
+        if family.startswith("shape-"):
+            command_name = f"encode_shape_{family.removeprefix('shape-')}"
+        elif family.startswith("PBR-"):
+            command_name = f"encode_pbr_{family.removeprefix('PBR-')}"
+        elif family == f"SS-{self.config.targets.ss_resolution}":
+            command_name = f"encode_ss_{self.config.targets.ss_resolution}"
+        else:
+            raise InfrastructureError(
+                f"cannot exclude family output: {family}"
+            )
+        self._exclude_stage_failure(
+            context,
+            asset_sha,
+            command_name,
+            category="missing_output",
+            reason=reason,
+        )
+
     def _eligible_assets(self, context: ShardContext) -> tuple[str, ...]:
         assets = self._instances(context)
         checkpoint = getattr(self.runner, "active_checkpoint", None)
@@ -3757,19 +4004,93 @@ class PipelineServices:
             if asset not in checkpoint.quality_outcomes
         )
 
+    def _candidate_assets(
+        self, context: ShardContext, family: str | None = None
+    ) -> tuple[str, ...]:
+        assets = self._eligible_assets(context)
+        if family is None:
+            return assets
+        return tuple(
+            asset
+            for asset in assets
+            if self.runner.family_is_eligible(asset, family)
+        )
+
+    def _exclude_stage_failure(
+        self,
+        context: ShardContext,
+        asset_sha: str,
+        command_name: str,
+        *,
+        category: str,
+        reason: str,
+    ) -> None:
+        families = set(command_families(self.config, command_name))
+        for family in tuple(families):
+            if family.startswith("shape-"):
+                resolution = family.removeprefix("shape-")
+                families.add(f"PBR-{resolution}")
+                if int(resolution) == max(self.config.targets.resolutions):
+                    families.add(f"SS-{self.config.targets.ss_resolution}")
+        if not families:
+            raise InfrastructureError(
+                f"command has no family-scoped failure: {command_name}"
+            )
+        checkpoint = getattr(self.runner, "active_checkpoint", None)
+        attempts = (
+            checkpoint.attempts.get(command_name, 0)
+            if checkpoint is not None
+            else 0
+        )
+        self.runner.record_family_exclusion(
+            asset_sha,
+            tuple(sorted(families)),
+            category=category,
+            stage=command_name,
+            reason=reason,
+            attempts=attempts,
+        )
+
     def _validate_stage_assets(
         self,
         context: ShardContext,
         validator: Callable[[str], None],
+        *,
+        command_name: str | None = None,
     ) -> None:
         checkpoint = getattr(self.runner, "active_checkpoint", None)
-        for asset_sha in self._eligible_assets(context):
+        families = (
+            command_families(self.config, command_name)
+            if command_name is not None
+            else ()
+        )
+        assets = tuple(
+            asset
+            for asset in self._eligible_assets(context)
+            if not families
+            or any(
+                self.runner.family_is_eligible(asset, family)
+                for family in families
+            )
+        )
+        for asset_sha in assets:
             try:
                 validator(asset_sha)
-            except OutputValidationError:
+            except OutputValidationError as error:
                 if checkpoint is None:
                     raise
-                self.runner.record_quality_outcome(asset_sha, "failure")
+                if command_name is None:
+                    self.runner.record_quality_outcome(
+                        asset_sha, "failure"
+                    )
+                else:
+                    self._exclude_stage_failure(
+                        context,
+                        asset_sha,
+                        command_name,
+                        category="missing_output",
+                        reason=str(error),
+                    )
             except ValidationError:
                 if checkpoint is None:
                     raise
@@ -3834,6 +4155,20 @@ class PipelineServices:
 
     def _validate_terminal_outputs(self, context: ShardContext) -> None:
         _, completed, _ = self._quality_state(context)
+        if not self._legacy_asset_output_validation:
+            for asset_sha in completed:
+                self.family_output_validator(
+                    context, asset_sha, "common"
+                )
+                for family in PACK_FAMILIES:
+                    if family == "common" or not self.runner.family_is_eligible(
+                        asset_sha, family
+                    ):
+                        continue
+                    self.family_output_validator(
+                        context, asset_sha, family
+                    )
+            return
         for asset_sha in completed:
             self.asset_output_validator(context, asset_sha)
 
@@ -3843,18 +4178,91 @@ class PipelineServices:
             raise InfrastructureError(
                 "output validation has no active durable checkpoint"
             )
+        if self._legacy_asset_output_validation:
+            for asset_sha in self._instances(context):
+                if asset_sha in checkpoint.quality_outcomes:
+                    continue
+                try:
+                    self.asset_output_validator(context, asset_sha)
+                except OutputValidationError:
+                    outcome = "failure"
+                except ValidationError:
+                    outcome = "schema_failure"
+                else:
+                    outcome = "completed"
+                self.runner.record_quality_outcome(asset_sha, outcome)
+            return
+
         for asset_sha in self._instances(context):
             if asset_sha in checkpoint.quality_outcomes:
                 continue
             try:
-                self.asset_output_validator(context, asset_sha)
-            except OutputValidationError:
-                outcome = "failure"
+                self.family_output_validator(
+                    context, asset_sha, "common"
+                )
+            except OutputValidationError as error:
+                self.runner.record_asset_outcome(
+                    asset_sha,
+                    "failure",
+                    category="missing_render_output",
+                    stage="validate_outputs",
+                    reason=str(error),
+                )
+                continue
             except ValidationError as error:
-                outcome = "schema_failure"
+                self.runner.record_asset_outcome(
+                    asset_sha,
+                    "schema_failure",
+                    category="schema_failure",
+                    stage="validate_outputs",
+                    reason=str(error),
+                )
+                continue
+
+            schema_failure = None
+            for family in PACK_FAMILIES:
+                if family == "common" or not self.runner.family_is_eligible(
+                    asset_sha, family
+                ):
+                    continue
+                try:
+                    self.family_output_validator(
+                        context, asset_sha, family
+                    )
+                except OutputValidationError as error:
+                    self._exclude_family_output(
+                        context, asset_sha, family, str(error)
+                    )
+                except ValidationError as error:
+                    schema_failure = error
+                    break
+            if schema_failure is not None:
+                self.runner.record_asset_outcome(
+                    asset_sha,
+                    "schema_failure",
+                    category="schema_failure",
+                    stage="validate_outputs",
+                    reason=str(schema_failure),
+                )
+                continue
+            included = tuple(
+                family
+                for family in PACK_FAMILIES
+                if family != "common"
+                and self.runner.family_is_eligible(asset_sha, family)
+            )
+            if included:
+                self.runner.record_asset_outcome(
+                    asset_sha, "completed"
+                )
             else:
-                outcome = "completed"
-            self.runner.record_quality_outcome(asset_sha, outcome)
+                self.runner.record_asset_outcome(
+                    asset_sha,
+                    "failure",
+                    category="no_eligible_training_family",
+                    stage="validate_outputs",
+                    reason="asset has no validated training family",
+                )
 
     def cleanup_voxels(
         self, context: ShardContext, resolution: int
@@ -3872,6 +4280,7 @@ class PipelineServices:
                     self._shape_directory(resolution),
                     asset_sha,
                 ),
+                command_name=f"encode_shape_{resolution}",
             )
             self._validate_stage_assets(
                 context,
@@ -3881,6 +4290,7 @@ class PipelineServices:
                     self._pbr_directory(resolution),
                     asset_sha,
                 ),
+                command_name=f"encode_pbr_{resolution}",
             )
         for path in (
             context.work_root / f"dual_grid_view_{resolution}",
@@ -4453,14 +4863,16 @@ class PipelineServices:
             if name == "stage_raw":
                 self._validate_staged_raw(context)
                 return True
-            if name in {"dump_mesh", "dump_pbr"}:
-                directory = "mesh_dumps" if name == "dump_mesh" else "pbr_dumps"
+            if name == "dump_mesh":
                 self._validate_stage_assets(
                     context,
                     lambda asset: self._validate_dump_output(
-                        context, directory, asset
+                        context, "mesh_dumps", asset
                     ),
                 )
+                return True
+            if name == "dump_pbr":
+                self._validate_pbr_dump_stage(context)
                 return True
             if name == "asset_stats":
                 self._validate_asset_stats_stage(context)
@@ -4491,6 +4903,7 @@ class PipelineServices:
                                     self._shape_directory(resolution),
                                     asset,
                                 ),
+                                command_name=name,
                             )
                     elif name == f"encode_pbr_{resolution}":
                         if getattr(self.runner, "active_checkpoint", None) is None:
@@ -4504,6 +4917,7 @@ class PipelineServices:
                                     self._pbr_directory(resolution),
                                     asset,
                                 ),
+                                command_name=name,
                             )
                     else:
                         if getattr(self.runner, "active_checkpoint", None) is None:
@@ -4537,6 +4951,7 @@ class PipelineServices:
                             )
                             for view in self.config.targets.views
                         ],
+                        command_name=name,
                     )
                     return True
             if name == f"encode_ss_{self.config.targets.ss_resolution}":
@@ -4554,7 +4969,9 @@ class PipelineServices:
                             ss=True,
                         )
 
-                self._validate_stage_assets(context, validate_ss_asset)
+                self._validate_stage_assets(
+                    context, validate_ss_asset, command_name=name
+                )
                 return True
             if name == "validate_outputs":
                 self._validate_terminal_outputs(context)

@@ -1299,6 +1299,231 @@ def test_schema_two_quality_ledger_loads_with_empty_family_exclusions(
     assert ledger["family_exclusions"] == {}
 
 
+def _family_services(isolated_config, tmp_path, **service_kwargs):
+    context = ShardContext.for_test(
+        tmp_path / "family-routing", "ABO", "ABO-00000"
+    )
+    assets = ("a" * 64, "b" * 64)
+    write_instances(context, assets)
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        **service_kwargs,
+    )
+    runner = services.runner
+    runner.active_context = context
+    runner.active_checkpoint = PipelineCheckpoint(context.shard_id)
+    runner.active_checkpoint_path = tmp_path / "checkpoint.json"
+    runner._active_quality_assets = assets
+    runner._active_instances_sha256 = sha256(
+        context.instances.read_bytes()
+    ).hexdigest()
+    runner._active_quality_ledger = orchestrator_module._empty_quality_ledger(
+        context
+    )
+    runner._active_quality_ledger_path = tmp_path / "quality.json"
+    orchestrator_module._save_quality_ledger(
+        runner._active_quality_ledger_path, runner._active_quality_ledger
+    )
+    return services, context, runner, assets
+
+
+def test_pbr_exclusion_keeps_geometry_command_instances(
+    isolated_config, tmp_path
+):
+    services, context, runner, assets = _family_services(
+        isolated_config, tmp_path
+    )
+    full_pbr, geometry_only = assets
+    runner.record_family_exclusion(
+        geometry_only,
+        ("PBR-256", "PBR-512", "PBR-1024"),
+        category="unsupported_shader",
+        stage="dump_pbr",
+        reason="Material is not supported",
+        attempts=1,
+    )
+    pbr = CommandSpec(
+        "encode_pbr_256",
+        ("python", "worker.py", "--instances", str(context.instances)),
+    )
+    shape = replace(pbr, name="encode_shape_256")
+
+    pbr_launch = runner._command_for_eligible_assets(
+        pbr, context, runner.active_checkpoint
+    )
+    shape_launch = runner._command_for_eligible_assets(
+        shape, context, runner.active_checkpoint
+    )
+
+    pbr_instances = Path(
+        pbr_launch.argv[pbr_launch.argv.index("--instances") + 1]
+    )
+    shape_instances = Path(
+        shape_launch.argv[shape_launch.argv.index("--instances") + 1]
+    )
+    assert pbr_instances.read_text().splitlines() == [full_pbr]
+    assert shape_instances.read_text().splitlines() == list(assets)
+    assert services._candidate_assets(context, "SS-64") == assets
+
+
+def test_shape_resolution_exclusion_cascades_only_to_dependents(
+    isolated_config, tmp_path
+):
+    services, context, runner, assets = _family_services(
+        isolated_config, tmp_path
+    )
+    asset = assets[0]
+
+    services._exclude_stage_failure(
+        context,
+        asset,
+        "encode_shape_256",
+        category="missing_output",
+        reason="missing shape latent",
+    )
+
+    assert asset not in services._candidate_assets(context, "shape-256")
+    assert asset not in services._candidate_assets(context, "PBR-256")
+    assert asset in services._candidate_assets(context, "shape-512")
+    assert asset in services._candidate_assets(context, "SS-64")
+    assert asset not in runner.active_checkpoint.quality_outcomes
+
+
+def _write_pbr_stage_records(context, rows):
+    path = context.work_root / "pbr_dumps/new_records/part_0.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame.from_records(rows).to_csv(path, index=False)
+
+
+def test_dump_pbr_validator_excludes_unsupported_material_only(
+    isolated_config, tmp_path
+):
+    services, context, runner, assets = _family_services(
+        isolated_config, tmp_path
+    )
+    full_pbr, geometry_only = assets
+    output = context.work_root / "pbr_dumps" / f"{full_pbr}.pickle"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("wb") as stream:
+        pickle.dump({"objects": [], "materials": []}, stream)
+    _write_pbr_stage_records(
+        context,
+        (
+            {"sha256": full_pbr, "pbr_dumped": True},
+            {
+                "sha256": geometry_only,
+                "pbr_dumped": False,
+                "error_category": "unsupported_shader",
+                "error_reason": "Material is not supported",
+            },
+        ),
+    )
+    runner.active_checkpoint.attempts["dump_pbr"] = 1
+
+    assert services.validators["dump_pbr"]() is True
+
+    assert set(runner.family_exclusions(geometry_only)) == {
+        "PBR-256",
+        "PBR-512",
+        "PBR-1024",
+    }
+    assert geometry_only in services._candidate_assets(
+        context, "shape-256"
+    )
+    assert geometry_only not in runner.active_checkpoint.quality_outcomes
+
+
+def test_dump_pbr_validator_retries_transient_failure_before_exclusion(
+    isolated_config, tmp_path
+):
+    services, context, runner, assets = _family_services(
+        isolated_config, tmp_path
+    )
+    asset = assets[0]
+    _write_pbr_stage_records(
+        context,
+        (
+            {
+                "sha256": asset,
+                "pbr_dumped": False,
+                "error_category": "timeout",
+                "error_reason": "PBR dump timed out after 17 seconds",
+            },
+        ),
+    )
+    runner.active_checkpoint.attempts["dump_pbr"] = 1
+
+    assert services.validators["dump_pbr"]() is False
+
+    assert runner.family_exclusions(asset) == {}
+    assert asset not in runner.active_checkpoint.quality_outcomes
+
+
+@pytest.mark.parametrize(
+    ("command_name", "expected_exclusions"),
+    (
+        ("dual_grid_256", {"shape-256", "PBR-256"}),
+        ("voxelize_pbr_256", {"PBR-256"}),
+        ("encode_ss_64", {"SS-64"}),
+    ),
+)
+def test_family_stage_validator_does_not_globally_quarantine_missing_output(
+    isolated_config, tmp_path, command_name, expected_exclusions
+):
+    services, context, runner, assets = _family_services(
+        isolated_config, tmp_path
+    )
+    runner.active_checkpoint.attempts[command_name] = 1
+
+    assert services.validators[command_name]() is True
+
+    for asset in assets:
+        assert set(runner.family_exclusions(asset)) == expected_exclusions
+        assert asset not in runner.active_checkpoint.quality_outcomes
+
+
+def test_terminal_validation_completes_geometry_only_asset(
+    isolated_config, tmp_path
+):
+    calls = []
+
+    def validate_family(context, asset_sha, family):
+        calls.append((asset_sha, family))
+
+    services, context, runner, assets = _family_services(
+        isolated_config,
+        tmp_path,
+        family_output_validator=validate_family,
+    )
+    full_pbr, geometry_only = assets
+    runner.record_family_exclusion(
+        geometry_only,
+        ("PBR-256", "PBR-512", "PBR-1024"),
+        category="unsupported_shader",
+        stage="dump_pbr",
+        reason="Material is not supported",
+        attempts=1,
+    )
+
+    services.validate_outputs(context)
+
+    assert runner.active_checkpoint.quality_outcomes == {
+        full_pbr: "completed",
+        geometry_only: "completed",
+    }
+    geometry_families = {
+        family for asset, family in calls if asset == geometry_only
+    }
+    assert geometry_families == {
+        "common",
+        "SS-64",
+        "shape-256",
+        "shape-512",
+        "shape-1024",
+    }
+
+
 def test_corrupt_frozen_batch_manifest_fails_closed(isolated_config):
     gib = 1024**3
     sha = "a" * 64
