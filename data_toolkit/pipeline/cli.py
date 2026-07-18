@@ -8,6 +8,7 @@ from typing import Sequence
 
 from .config import load_config
 from .evidence import GateEvidenceCollector
+from .full_run import FullProductionRunner
 from .hardware import HardwarePreflightError, collect_hardware_preflight
 from .orchestrator import (
     CheckpointError,
@@ -79,6 +80,7 @@ def parser() -> argparse.ArgumentParser:
         "resume",
         "audit",
         "evidence",
+        "full-run",
         "report",
     ):
         child = children.add_parser(name)
@@ -207,6 +209,8 @@ def _dispatch(args, config) -> int:
             services.resume(args.gate, args.source, args.shard)
         elif args.command == "audit":
             services.audit(args.gate, args.source, args.shard)
+        elif args.command == "full-run":
+            FullProductionRunner(config, services).run()
         elif args.command == "report":
             result = services.report(args.gate, args.hardware_check)
             for path in result:

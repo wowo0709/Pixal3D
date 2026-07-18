@@ -209,7 +209,7 @@ conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli aud
   --gate smoke --source 3D-FUTURE --shard 3D-FUTURE-00000
 ```
 
-- [ ] **Step 2: Recover and rerun HSSD, ABO, and Sketchfab sequentially**
+- [x] **Step 2: Recover and rerun HSSD, ABO, and Sketchfab sequentially**
 
 Preserve each frozen `shards/<source>/<shard>` directory. Move only checkpoints, ledger, packs/index, archives, and scratch into timestamped recovery roots. Run HSSD and ABO with frozen count 9 and Sketchfab with frozen count 20, then audit each immediately:
 
@@ -228,7 +228,7 @@ for source in HSSD ABO ObjaverseXL_sketchfab; do
 done
 ```
 
-- [ ] **Step 3: Refresh hardware evidence and produce the report**
+- [x] **Step 3: Refresh hardware evidence and produce the report**
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli hardware-preflight \
@@ -240,7 +240,7 @@ conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli rep
   --config data_toolkit/configs/multiview_preprocess.yaml --gate smoke
 ```
 
-- [ ] **Step 4: Record current commit, counts, recovery paths, report hashes, and commands in the Korean runbook; commit**
+- [x] **Step 4: Record current commit, counts, recovery paths, report hashes, and commands in the Korean runbook; commit**
 
 ---
 
@@ -300,11 +300,11 @@ Stop if projected data2 exceeds 16 TiB, data3 exceeds 26 TiB, any source is belo
 - Consumes: passed smoke/pilot reports and canonical training registry.
 - Produces: `FullProductionRunner.run()`, processing all canonical shards in audited source order.
 
-- [ ] **Step 1: Write failing ordering and resume tests**
+- [x] **Step 1: Write failing ordering and resume tests**
 
 Use two Sketchfab shards and one per remaining source. Require `run` then `audit` for each shard, all Sketchfab before GitHub, then ABO, HSSD, 3D-FUTURE. Require `count=None`. Simulate interruption and require the same frozen shard to be revalidated before advancement.
 
-- [ ] **Step 2: Implement the runner**
+- [x] **Step 2: Implement the runner**
 
 ```python
 SOURCE_ORDER = (

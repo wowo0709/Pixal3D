@@ -935,6 +935,40 @@ def test_resume_and_audit_dispatch_explicit_gate(tmp_config, monkeypatch):
     ]
 
 
+def test_full_run_dispatches_inside_mutating_runtime(tmp_config, monkeypatch):
+    calls = []
+
+    class Runtime:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        @property
+        def services(self):
+            return "held-services"
+
+    class Runner:
+        def __init__(self, config, services):
+            calls.append(("init", config.config_hash(), services))
+
+        def run(self):
+            calls.append(("run",))
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: Runtime(),
+    )
+    monkeypatch.setattr("data_toolkit.pipeline.cli.FullProductionRunner", Runner)
+
+    assert main(["full-run", "--config", str(tmp_config)]) == 0
+    assert calls == [
+        ("init", load_config(tmp_config).config_hash(), "held-services"),
+        ("run",),
+    ]
+
+
 @pytest.mark.parametrize(
     ("gate", "expected_reports"),
     [("pilot", ["smoke"]), ("production", ["smoke", "pilot"])],

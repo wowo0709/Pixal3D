@@ -33,7 +33,12 @@ conda run --no-capture-output -n pixal3d \
 conda run --no-capture-output -n pixal3d \
   python -m data_toolkit.pipeline.cli hardware-preflight \
   --config data_toolkit/configs/multiview_preprocess.yaml \
-  --bootstrap-peak-local-gib 120
+  --bootstrap-peak-local-gib 350
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli report \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --hardware-check
 ```
 
 모든 source가 `ready`인지 확인한다. `not ready`가 있으면 해당 source만 보류하고 원인을 해결한다.
@@ -99,6 +104,36 @@ conda run --no-capture-output -n pixal3d \
 뜻은 아니다. 또한 위 수치는 family-scoped eligibility 도입 전 old-contract 결과다.
 새 실행에서는 unsupported standard-PBR asset을 전역 quarantine으로 세지 않고 PBR
 family에서만 제외하므로, 같은 asset을 재실행한 결과와 직접 비교하면 안 된다.
+
+### 2026-07-18 current-contract smoke 결과
+
+- frozen 범위: `3D-FUTURE` 9, `ABO` 9, `HSSD` 9,
+  `ObjaverseXL_github` 20, `ObjaverseXL_sketchfab` 20, 총 67개.
+- global completed: 65개. GitHub provider에서 사라진 2개만 durable quarantine.
+- common/SS/shape 포함: 65개. PBR 포함: 60개. 나머지 PBR 5개는
+  `unsupported_shader` family-only 제외이며 geometry family는 유지한다.
+- schema failure 0, 전체 failure rate 2.99%, source별 최저 성공률 90%.
+- hardware report: PyTorch `2.8.0+cu128`, CUDA `12.8`, OPTIX GPU 7개,
+  CPU fallback 없음, decision `passed`.
+- smoke report: decision `passed`, checksum 215개 검증/실패 0.
+- smoke report SHA-256:
+  `adda2930b80154f82eecd6ee06065cbe2103b7c81fdccc51dce6d33ebab8880d`.
+- evidence manifest SHA-256:
+  `aaf7d8c8cefd6d294403d6cb5ee8805ce1b9a567a3ce835d890a571549f56142`.
+- hardware report SHA-256:
+  `4d13dc2f3b6c40ca48408eba9746af0bd9523f035ddb5634a2d75cf7051a4a8a`.
+
+current-contract recovery root:
+
+- `/root/data2/pixal3d/control/recovery/hssd-current-contract-20260718T131131Z-74cee4e`
+- `/root/data2/pixal3d/control/recovery/abo-current-contract-20260718T133134Z-74cee4e`
+- `/root/data2/pixal3d/control/recovery/objaversexl-sketchfab-current-contract-20260718T135201Z-74cee4e`
+- `/root/data3/pixal3d/recovery/hssd-current-contract-20260718T131131Z-74cee4e`
+- `/root/data3/pixal3d/recovery/abo-current-contract-20260718T133134Z-74cee4e`
+- `/root/data3/pixal3d/recovery/objaversexl-sketchfab-current-contract-20260718T135201Z-74cee4e`
+- `/root/node17/data/pixal3d/recovery/hssd-current-contract-20260718T131131Z-74cee4e`
+- `/root/node17/data/pixal3d/recovery/abo-current-contract-20260718T133134Z-74cee4e`
+- `/root/node17/data/pixal3d/recovery/objaversexl-sketchfab-current-contract-20260718T135201Z-74cee4e`
 
 ## 2. Smoke 범위 계획
 
@@ -213,36 +248,80 @@ conda run -n pixal3d python -c \
   "$LEDGER"
 ```
 
-## 7. Smoke 통과 후
+## 7. Smoke evidence/report와 1,000개 pilot
 
-source 성공률이 90% 미만이면 production으로 진행하지 말고 source를 `non-admitted`로 기록한다. 90% 이상인 source만 pilot으로 올린다.
+모든 smoke source의 run/audit가 끝나면 다음 순서를 지킨다. FP32 설정에서는
+`fp16.csv`가 header-only인 것이 정상이다.
 
 ```bash
 conda run --no-capture-output -n pixal3d \
-  python -m data_toolkit.pipeline.cli run \
-  --config data_toolkit/configs/multiview_preprocess.yaml \
-  --gate pilot --source "$SOURCE" --shard "$SHARD"
+  python -m data_toolkit.pipeline.cli evidence \
+  --config data_toolkit/configs/multiview_preprocess.yaml --gate smoke
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli report \
+  --config data_toolkit/configs/multiview_preprocess.yaml --gate smoke
 ```
 
-pilot audit가 통과한 뒤에만 전체 production preprocessing을 검토한다.
+smoke report가 `passed`일 때 source당 200개, 총 1,000개 pilot을 순차 실행한다.
+`plan`은 preview이고, 실제 frozen scope는 첫 `run --count 200`이 만든다.
+
+```bash
+for SOURCE in \
+  ObjaverseXL_sketchfab ObjaverseXL_github ABO HSSD 3D-FUTURE
+do
+  SHARD="${SOURCE}-00000"
+  conda run --no-capture-output -n pixal3d \
+    python -m data_toolkit.pipeline.cli plan \
+    --config data_toolkit/configs/multiview_preprocess.yaml \
+    --gate pilot --source "$SOURCE" --shard "$SHARD" --count 200
+  conda run --no-capture-output -n pixal3d \
+    python -m data_toolkit.pipeline.cli run \
+    --config data_toolkit/configs/multiview_preprocess.yaml \
+    --gate pilot --source "$SOURCE" --shard "$SHARD" --count 200
+  conda run --no-capture-output -n pixal3d \
+    python -m data_toolkit.pipeline.cli audit \
+    --config data_toolkit/configs/multiview_preprocess.yaml \
+    --gate pilot --source "$SOURCE" --shard "$SHARD"
+done
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli evidence \
+  --config data_toolkit/configs/multiview_preprocess.yaml --gate pilot
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli report \
+  --config data_toolkit/configs/multiview_preprocess.yaml --gate pilot
+```
+
+중단된 pilot source는 같은 `run --count 200` 명령 또는 `resume --gate pilot`로
+동일 frozen scope를 재사용한다. source 성공률 90% 미만, schema failure 5% 초과,
+capacity/checksum/hardware/audit 실패가 있으면 production을 시작하지 않는다.
 
 ## 7-1. 전체 데이터 다운로드/전처리
 
-전체 처리는 smoke와 pilot audit가 통과한 source에 대해서만 실행한다. 전체 실행에서는 `--count`를 절대 사용하지 않는다.
+전체 처리는 smoke와 pilot report가 모두 `passed`인 경우에만 실행한다. 전체
+실행에서는 `--count`를 절대 사용하지 않는다. 권장 명령은 전체 canonical shard를
+고정 순서로 run/audit하는 resumable runner 하나다.
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli full-run \
+  --config data_toolkit/configs/multiview_preprocess.yaml
+```
+
+중단 후에도 위의 동일한 `full-run` 명령을 다시 실행한다. runner는
+`ObjaverseXL_sketchfab -> ObjaverseXL_github -> ABO -> HSSD -> 3D-FUTURE`
+순서로 각 canonical shard에 대해 `run(production, count=None)` 직후 audit한다.
+이미 frozen/completed된 shard는 재검증하고, 실패한 shard보다 뒤의 작업은 예약하지
+않는다.
+
+특정 shard를 수동 복구해야 할 때만 다음 명령을 사용한다.
 
 ```bash
 SOURCE=3D-FUTURE
 SHARD=3D-FUTURE-00000
 
-conda run --no-capture-output -n pixal3d \
-  python -m data_toolkit.pipeline.cli run \
-  --config data_toolkit/configs/multiview_preprocess.yaml \
-  --gate production --source "$SOURCE" --shard "$SHARD"
-```
-
-중단 후 전체 production을 재개할 때:
-
-```bash
 conda run --no-capture-output -n pixal3d \
   python -m data_toolkit.pipeline.cli resume \
   --config data_toolkit/configs/multiview_preprocess.yaml \
@@ -261,7 +340,9 @@ ABO의 약 154GB `abo-3dmodels.tar` 전체 archive는
 `/root/data2/pixal3d/raw/ABO/raw/abo-3dmodels.tar`에 다운로드가 완료되어 있다.
 ABO frozen smoke 9개도 completed 상태이므로 production에서 이 archive를 재사용한다.
 
-현재 source 상태상 전체 production을 아직 실행하지 않는 이유는 smoke/pilot gate를 통과하지 않은 source를 곧바로 대규모 처리하지 않기 위해서다. 이 조건을 충족한 source만 위 명령으로 전체 다운로드와 전처리를 진행한다.
+full runner는 source별 다운로드를 필요할 때 시작한다. ABO는 기존 tar를 재사용하며,
+ObjaverseXL/HSSD/3D-FUTURE는 canonical registry reference에 따라 다운로드와 전처리를
+같은 shard 실행 안에서 이어간다.
 
 ## 8. 모델 구현 시점
 
