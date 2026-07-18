@@ -315,10 +315,18 @@ batch/shard boundaries.
 - Resume only after five uninterrupted stable minutes.
 - Stop when recent-500 end-to-end failure is strictly above 10% or schema failure is strictly above 5%.
 
-An asset receives at most three total command launches. Ordinary sub-threshold
-asset failures quarantine the asset; authentication, provider, checksum,
-checkpoint, process-control, telemetry, accounting, and resource failures stop
-the shard immediately.
+An asset receives at most three total command launches. Geometry, render, or
+source-availability failures that leave no usable training family quarantine
+the asset globally. Authentication, provider, checksum, checkpoint,
+process-control, telemetry, accounting, and resource failures stop the shard
+immediately.
+
+Failure to parse a material with TRELLIS.2's standard metallic-roughness PBR
+parser is family-scoped, not a global quarantine. It excludes only the affected
+PBR families. Shape and SS outputs remain eligible when their own validators
+pass; the toolkit does not bake, rewrite, or silently convert the unsupported
+shader graph. `PBR-R` membership must be a subset of `shape-R`, `SS-64` must be
+a subset of `shape-1024`, and `common` is the union of all non-common families.
 
 ## Pause, Stop, And Escalation
 
@@ -343,9 +351,13 @@ after the failed dependency or capacity condition is corrected.
 
 Every work batch publishes exactly eight prepared families: `common`, `SS-64`,
 `shape-256`, `shape-512`, `shape-1024`, `PBR-256`, `PBR-512`, and `PBR-1024`.
-The logical shard index binds all pack and manifest checksums. The raw tar under
-data3 is separately bound to frozen SHAs, member sizes and SHA-256 values, tool
-commit, config hash, completed count, and quarantined count.
+Each schema-2 pack manifest records both the immutable frozen scope in
+`asset_sha256s` and that family's exact admitted scope in
+`included_asset_sha256s`. Its completed/excluded counts are family-specific.
+Never infer a global quarantine count from a PBR pack's excluded count. The
+logical shard index binds all pack and manifest checksums. The raw tar under
+data3 is separately bound to frozen SHAs, its exact included SHAs, member sizes
+and SHA-256 values, tool commit, and config hash.
 
 Run `audit` before manual extraction or cleanup. Cleanup order is fixed:
 
@@ -411,5 +423,6 @@ directory. The final immutable handoff at
 `/root/data2/pixal3d/control/splits/training_handoff.json` records config hash,
 training/evaluation registry checksums, frozen scopes, pack/archive checksums,
 train/validation/evaluation identities, resolutions, anchors, and these path
-mappings. Stop all preprocessing processes before fine-tuning reads
-`train/active`.
+mappings. It also records per-family included/excluded counts separately from
+global quality failures. Stop all preprocessing processes before fine-tuning
+reads `train/active`.

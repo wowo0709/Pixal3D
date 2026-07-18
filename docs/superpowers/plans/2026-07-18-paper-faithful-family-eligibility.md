@@ -18,6 +18,14 @@
 - Do not mix artifacts produced by different tool commits.
 - Write production behavior only after the corresponding test has failed for the expected reason.
 
+## Execution Status (2026-07-18)
+
+- Tasks 1-5 are implemented in commits `b300e30`, `64a484a`, `5b85e3c`,
+  `e07702b`, and `21fa97f`.
+- The complete automated preprocessing suite passes: `581 passed`.
+- Task 6 documentation is updated. Old-contract state preservation and the
+  clean 20-asset ObjaverseXL GitHub smoke rerun remain in progress.
+
 ---
 
 ### Task 1: Define family dependencies and durable exclusions
