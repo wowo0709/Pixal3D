@@ -4306,14 +4306,55 @@ class PipelineServices:
                 raise
 
     def _family_included_assets(
-        self, completed: Sequence[str]
+        self,
+        completed: Sequence[str],
+        *,
+        context: ShardContext | None = None,
     ) -> Mapping[str, tuple[str, ...]]:
         ordered = tuple(_validated_asset_sha(asset) for asset in completed)
+        if (
+            context is None
+            or getattr(self.runner, "active_context", None) == context
+            and getattr(self.runner, "_active_quality_ledger", None)
+            is not None
+        ):
+            family_is_eligible = self.runner.family_is_eligible
+        else:
+            try:
+                ledger = _load_quality_ledger(
+                    self._quality_ledger_path(context), context
+                )
+            except CheckpointError as error:
+                raise InfrastructureError(
+                    f"cannot restore family eligibility: {error}"
+                ) from error
+            exclusions = ledger["family_exclusions"]
+            dependencies = family_dependencies(self.config)
+
+            def family_is_eligible(asset: str, family: str) -> bool:
+                excluded = set(exclusions.get(asset, ()))
+
+                def eligible(
+                    candidate: str, visiting: frozenset[str]
+                ) -> bool:
+                    if candidate in excluded:
+                        return False
+                    if candidate in visiting:
+                        raise InfrastructureError(
+                            f"cyclic family dependency: {candidate}"
+                        )
+                    return all(
+                        eligible(dependency, visiting | {candidate})
+                        for dependency in dependencies[candidate]
+                    )
+
+                return eligible(family, frozenset())
+
         included = {
             family: tuple(
                 asset
                 for asset in ordered
-                if self.runner.family_is_eligible(asset, family)
+                if family_is_eligible(asset, family)
             )
             for family in PACK_FAMILIES
             if family != "common"
@@ -4383,7 +4424,7 @@ class PipelineServices:
         self, context: ShardContext
     ) -> Mapping[str, Sequence[Path]]:
         _, completed, _ = self._quality_state(context)
-        included = self._family_included_assets(completed)
+        included = self._family_included_assets(completed, context=context)
         return self._pack_members_for_assets(context, included)
 
     @staticmethod
@@ -4462,7 +4503,7 @@ class PipelineServices:
     def build_packs(self, context: ShardContext) -> None:
         self.output_validator(context)
         shas, completed, _quarantined = self._quality_state(context)
-        included = self._family_included_assets(completed)
+        included = self._family_included_assets(completed, context=context)
         members = self.pack_member_builder(context)
         if set(members) != set(PACK_FAMILIES):
             raise ValidationError(
@@ -4506,7 +4547,7 @@ class PipelineServices:
 
     def _verify_published_batch(self, context: ShardContext) -> None:
         shas, completed, _quarantined = self._quality_state(context)
-        included = self._family_included_assets(completed)
+        included = self._family_included_assets(completed, context=context)
         expected_members = self._pack_members_for_assets(context, included)
         tool_commit = self._resolved_tool_commit()
         prepared = self.config.paths.data2_root / "prepared"

@@ -1551,6 +1551,59 @@ def test_family_pack_membership_keeps_pbr_subset_of_matching_shape(
         )
 
 
+def test_published_pack_audit_restores_durable_family_exclusions(
+    isolated_config, tmp_path
+):
+    services, context, runner, assets = _family_services(
+        isolated_config, tmp_path, tool_commit="test-commit"
+    )
+    full_pbr, geometry_only = assets
+    ledger_path = services._quality_ledger_path(context)
+    runner._active_quality_ledger_path = ledger_path
+    orchestrator_module._save_quality_ledger(
+        ledger_path, runner._active_quality_ledger
+    )
+    runner.record_family_exclusion(
+        geometry_only,
+        ("PBR-256", "PBR-512", "PBR-1024"),
+        category="unsupported_shader",
+        stage="dump_pbr",
+        reason="Material is not supported",
+        attempts=1,
+    )
+    included = services._family_included_assets(assets)
+    members = services._pack_members_for_assets(context, included)
+    for family_members in members.values():
+        for relative in family_members:
+            path = context.output_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(relative.as_posix().encode())
+    publish_pack(
+        isolated_config.paths.data2_root,
+        context.output_root,
+        members,
+        context.shard_id,
+        source=context.source,
+        batch_id=context.batch_id,
+        config_hash=isolated_config.config_hash(),
+        tool_commit="test-commit",
+        asset_sha256s=assets,
+        included_asset_sha256s_by_family=included,
+    )
+    write_quality_checkpoint(
+        services,
+        context,
+        {asset: "completed" for asset in assets},
+    )
+    runner.active_context = None
+    runner.active_checkpoint = None
+    runner.active_checkpoint_path = None
+    runner._active_quality_ledger = None
+    runner._active_quality_ledger_path = None
+
+    services._verify_published_batch(context)
+
+
 def test_corrupt_frozen_batch_manifest_fails_closed(isolated_config):
     gib = 1024**3
     sha = "a" * 64
