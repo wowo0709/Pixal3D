@@ -148,6 +148,19 @@ def test_work_batches_reject_capacity_that_cannot_fit_one_asset():
         )
 
 
+def test_work_batches_respect_explicit_gate_cap():
+    shas = tuple(f"{index:064x}" for index in range(200))
+    batches = plan_work_batches(
+        shas,
+        local_usable_bytes=100_000_000_000,
+        p95_peak_bytes=115 * 1024**2,
+        shard_size=5000,
+        max_batch_assets=64,
+    )
+    assert len(batches) == 4
+    assert [len(batch) for batch in batches] == [64, 64, 64, 8]
+
+
 def test_resume_skips_only_valid_outputs(isolated_config, shard_context):
     fake_runner = RecordingRunner(isolated_config)
     fake_runner.checkpoint.complete("dump_mesh")

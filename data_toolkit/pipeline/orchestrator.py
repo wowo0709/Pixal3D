@@ -404,6 +404,11 @@ class PilotReader(Protocol):
         """Return a validated, positive pilot p95 for one asset."""
 
 
+class GateSizingReader(Protocol):
+    def p95_peak_local_bytes_for_gate(self, source: str, gate: str) -> int:
+        """Return a validated source p95 for the requested admission gate."""
+
+
 class RawReferenceCounter(Protocol):
     def pending_references(
         self,
@@ -598,6 +603,7 @@ def plan_work_batches(
     local_usable_bytes: int,
     p95_peak_bytes: int,
     shard_size: int,
+    max_batch_assets: int | None = None,
 ) -> tuple[tuple[str, ...], ...]:
     for name, value in (
         ("local_usable_bytes", local_usable_bytes),
@@ -612,6 +618,12 @@ def plan_work_batches(
         raise ValueError("p95_peak_bytes must be positive")
     if shard_size <= 0:
         raise ValueError("shard_size must be positive")
+    if max_batch_assets is not None and (
+        not isinstance(max_batch_assets, int)
+        or isinstance(max_batch_assets, bool)
+        or max_batch_assets <= 0
+    ):
+        raise ValueError("max_batch_assets must be positive")
 
     ordered = tuple(sorted(_validated_asset_sha(item) for item in asset_sha256s))
     if len(ordered) != len(set(ordered)):
@@ -621,7 +633,11 @@ def plan_work_batches(
 
     per_asset = (p95_peak_bytes * 5 + 3) // 4
     budget = local_usable_bytes * 4 // 5
-    batch_size = min(shard_size, budget // per_asset)
+    batch_size = min(
+        shard_size,
+        budget // per_asset,
+        max_batch_assets if max_batch_assets is not None else shard_size,
+    )
     if batch_size < 1:
         raise ValueError("local budget cannot fit one p95 asset")
     return tuple(
@@ -3234,7 +3250,13 @@ class PipelineServices:
             return existing
         if not freeze and self._batch_root(gate, source, shard_id).exists():
             raise InfrastructureError("incomplete frozen batch publication")
-        p95 = self.pilot_reader.p95_peak_local_bytes(source)
+        gate_reader = getattr(
+            self.pilot_reader, "p95_peak_local_bytes_for_gate", None
+        )
+        if gate_reader is None:
+            p95 = self.pilot_reader.p95_peak_local_bytes(source)
+        else:
+            p95 = gate_reader(source, gate)
         if not isinstance(p95, int) or isinstance(p95, bool) or p95 <= 0:
             raise IntegrationProviderRequired(
                 "pilot reader must return a validated positive integer p95"
@@ -3254,7 +3276,14 @@ class PipelineServices:
             raise InfrastructureError("invalid local filesystem usage")
         reserve = max((total * 15 + 99) // 100, 120 * 1024**3)
         usable = max(0, free - reserve)
-        batches = plan_work_batches(shas, usable, p95, self.config.shard_size)
+        cap = {
+            "smoke": self.config.batching.smoke_max_assets,
+            "pilot": self.config.batching.pilot_max_assets,
+            "production": self.config.batching.production_max_assets,
+        }[gate]
+        batches = plan_work_batches(
+            shas, usable, p95, self.config.shard_size, cap
+        )
         return (
             self._freeze_batches(gate, source, shard_id, batches, canonical_shas)
             if freeze

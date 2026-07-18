@@ -1302,6 +1302,41 @@ def test_pilot_reader_prefers_recomputed_pilot_measurement(
     assert PilotArtifactReader(config).p95_peak_local_bytes("ABO") == 300
 
 
+def test_pilot_reader_uses_the_previous_gate_for_sizing(
+    tmp_config, monkeypatch
+):
+    config = load_config(tmp_config)
+    root = config.paths.data2_root / "control/report_inputs"
+    root.mkdir(parents=True)
+    (root / "hardware.json").write_text(
+        json.dumps(valid_hardware_payload(config.config_hash()))
+    )
+    RuntimeReportBuilder(config)(None, True)
+    reader = PilotArtifactReader(config)
+
+    def gate_report(config, gate):
+        return {
+            "capacity": {
+                "sources": {
+                    "ABO": {
+                        "p95_peak_local_bytes":
+                        {"smoke": 115, "pilot": 180}[gate]
+                    }
+                }
+            }
+        }
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.runtime.read_gate_report", gate_report
+    )
+    gate_root = config.paths.data2_root / "control/reports/gates"
+    gate_root.mkdir(parents=True)
+    (gate_root / "pilot.json").write_text("{}")
+    assert reader.p95_peak_local_bytes_for_gate("ABO", "smoke") == 243
+    assert reader.p95_peak_local_bytes_for_gate("ABO", "pilot") == 115
+    assert reader.p95_peak_local_bytes_for_gate("ABO", "production") == 180
+
+
 def test_gate_admission_recomputes_and_rejects_legacy_pass(
     tmp_config, monkeypatch
 ):

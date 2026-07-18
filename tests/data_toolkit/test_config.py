@@ -26,6 +26,11 @@ def test_fixed_contract():
     assert cfg.targets.resolutions == (256, 512, 1024)
     assert cfg.limits.cpu_soft_percent == 80.0
     assert cfg.limits.ram_soft_available_gib == 96
+    assert (
+        cfg.batching.smoke_max_assets,
+        cfg.batching.pilot_max_assets,
+        cfg.batching.production_max_assets,
+    ) == (3, 64, 256)
 
 
 def test_unknown_root_key_is_rejected(tmp_path: Path):
@@ -97,6 +102,21 @@ def test_config_rejects_invalid_nested_contract(tmp_path, section, mutation):
 
     with pytest.raises(ValueError, match=section):
         load_config(_write_config(tmp_path, mutate))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value.update(pilot_max_assets=0),
+        lambda value: value.update(production_max_assets=True),
+        lambda value: value.update(smoke_max_assets=65),
+    ],
+)
+def test_config_rejects_invalid_batch_caps(tmp_path, mutation):
+    with pytest.raises(ValueError, match="batch"):
+        load_config(
+            _write_config(tmp_path, lambda raw: mutation(raw["batching"]))
+        )
 
 
 @pytest.mark.parametrize(

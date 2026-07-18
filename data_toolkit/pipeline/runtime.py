@@ -808,19 +808,34 @@ class PilotArtifactReader:
         self.config = config
 
     def p95_peak_local_bytes(self, source: str) -> int:
+        return self.p95_peak_local_bytes_for_gate(source, "production")
+
+    def p95_peak_local_bytes_for_gate(self, source: str, gate: str) -> int:
         _component(source, "pilot source")
-        pilot_path = (
-            self.config.paths.data2_root
-            / "control/reports/gates/pilot.json"
-        )
-        pilot_value = _optional_json(pilot_path, "pilot gate report")
-        if pilot_value is not None:
-            report = read_gate_report(self.config, "pilot")
-            sources = report["capacity"]["sources"]
-        else:
+        if gate == "smoke":
             sources = read_hardware_report(self.config)["pilot_sizing"][
                 "sources"
             ]
+        elif gate == "pilot":
+            sources = read_gate_report(self.config, "smoke")["capacity"][
+                "sources"
+            ]
+        elif gate == "production":
+            pilot_path = (
+                self.config.paths.data2_root
+                / "control/reports/gates/pilot.json"
+            )
+            pilot_value = _optional_json(pilot_path, "pilot gate report")
+            if pilot_value is not None:
+                sources = read_gate_report(self.config, "pilot")["capacity"][
+                    "sources"
+                ]
+            else:
+                sources = read_hardware_report(self.config)["pilot_sizing"][
+                    "sources"
+                ]
+        else:
+            raise ValueError(f"unknown sizing gate: {gate}")
         try:
             value = sources[source]["p95_peak_local_bytes"]
         except (KeyError, TypeError) as error:

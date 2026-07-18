@@ -37,6 +37,13 @@ class TargetConfig:
 
 
 @dataclass(frozen=True)
+class BatchConfig:
+    smoke_max_assets: int
+    pilot_max_assets: int
+    production_max_assets: int
+
+
+@dataclass(frozen=True)
 class WorkerConfig:
     cpu_threads: int
     dump_workers: int
@@ -74,6 +81,7 @@ class PipelineConfig:
     paths: PathConfig
     render: RenderConfig
     targets: TargetConfig
+    batching: BatchConfig
     workers: WorkerConfig
     limits: LimitConfig
 
@@ -90,6 +98,7 @@ ROOT_KEYS = {
     "paths",
     "render",
     "targets",
+    "batching",
     "workers",
     "limits",
 }
@@ -106,6 +115,7 @@ SECTION_KEYS = {
         "cycles_device",
     },
     "targets": {"views", "resolutions", "ss_resolution", "latent_dtype"},
+    "batching": {"smoke_max_assets", "pilot_max_assets", "production_max_assets"},
     "workers": {
         "cpu_threads",
         "dump_workers",
@@ -307,6 +317,22 @@ def _targets(value: Mapping) -> TargetConfig:
     return TargetConfig((0, 1), (256, 512, 1024), 64, latent_dtype)
 
 
+def _batching(value: Mapping, shard_size: int) -> BatchConfig:
+    value = _mapping(value, SECTION_KEYS["batching"], "batching")
+    values = {
+        name: _positive_int(value[name], f"batching {name}")
+        for name in SECTION_KEYS["batching"]
+    }
+    if not (
+        values["smoke_max_assets"]
+        <= values["pilot_max_assets"]
+        <= values["production_max_assets"]
+        <= shard_size
+    ):
+        raise ValueError("batching caps must be ordered and fit shard_size")
+    return BatchConfig(**values)
+
+
 def _workers(value: Mapping) -> WorkerConfig:
     value = _mapping(value, SECTION_KEYS["workers"], "workers")
     return WorkerConfig(
@@ -365,6 +391,7 @@ def load_config(path: Path) -> PipelineConfig:
         paths=_paths(raw["paths"]),
         render=_render(raw["render"]),
         targets=_targets(raw["targets"]),
+        batching=_batching(raw["batching"], _positive_int(raw["shard_size"], "shard_size")),
         workers=_workers(raw["workers"]),
         limits=_limits(raw["limits"]),
     )
