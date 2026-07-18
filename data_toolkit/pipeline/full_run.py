@@ -6,11 +6,11 @@ from .runtime import ArtifactValidationError, SafeRegistryStore, read_gate_repor
 
 
 SOURCE_ORDER = (
-    "ObjaverseXL_sketchfab",
-    "ObjaverseXL_github",
     "ABO",
     "HSSD",
     "3D-FUTURE",
+    "ObjaverseXL_sketchfab",
+    "ObjaverseXL_github",
 )
 
 

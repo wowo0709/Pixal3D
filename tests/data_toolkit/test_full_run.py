@@ -72,12 +72,12 @@ def test_full_runner_uses_fixed_source_order_and_audits_each_shard(
 
     assert [gate for _, gate in gates] == ["smoke", "pilot"]
     expected_shards = [
-        ("ObjaverseXL_sketchfab", "ObjaverseXL_sketchfab-00000"),
-        ("ObjaverseXL_sketchfab", "ObjaverseXL_sketchfab-00001"),
-        ("ObjaverseXL_github", "ObjaverseXL_github-00000"),
         ("ABO", "ABO-00000"),
         ("HSSD", "HSSD-00000"),
         ("3D-FUTURE", "3D-FUTURE-00000"),
+        ("ObjaverseXL_sketchfab", "ObjaverseXL_sketchfab-00000"),
+        ("ObjaverseXL_sketchfab", "ObjaverseXL_sketchfab-00001"),
+        ("ObjaverseXL_github", "ObjaverseXL_github-00000"),
     ]
     assert services.calls == [
         call
@@ -104,8 +104,8 @@ def test_full_runner_restart_revalidates_interrupted_shard_before_advancing(
     first = (
         "run",
         "production",
-        "ObjaverseXL_sketchfab",
-        "ObjaverseXL_sketchfab-00000",
+        "ABO",
+        "ABO-00000",
         None,
     )
     assert services.calls[:3] == [
@@ -114,7 +114,7 @@ def test_full_runner_restart_revalidates_interrupted_shard_before_advancing(
         (
             "audit",
             "production",
-            "ObjaverseXL_sketchfab",
-            "ObjaverseXL_sketchfab-00000",
+            "ABO",
+            "ABO-00000",
         ),
     ]
