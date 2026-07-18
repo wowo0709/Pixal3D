@@ -353,6 +353,69 @@ def test_dump_worker_propagates_timeout_and_reopens_pickle(
     assert not list(output.parent.glob(".abc123.pickle.*"))
 
 
+def test_pbr_failure_record_classifies_official_unsupported_marker():
+    worker = importlib.import_module("data_toolkit.dump_pbr")
+    asset_sha = "a" * 64
+
+    record = worker._pbr_failure_record(
+        asset_sha, "Material is not supported"
+    )
+
+    assert record == {
+        "sha256": asset_sha,
+        "pbr_dumped": False,
+        "error_category": "unsupported_shader",
+        "error_reason": "Material is not supported",
+    }
+
+
+def test_pbr_dump_returns_parser_evidence_without_publishing_output(
+    monkeypatch, tmp_path
+):
+    worker = importlib.import_module("data_toolkit.dump_pbr")
+    asset_sha = "b" * 64
+
+    def reject_material(args, **kwargs):
+        temporary = Path(args[args.index("--output_path") + 1])
+        Path(f"{temporary}_error.txt").write_text(
+            "Material is not supported"
+        )
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(worker.subprocess, "run", reject_material)
+
+    record = worker._dump_pbr(
+        "fixture.glb", asset_sha, tmp_path, timeout_seconds=17
+    )
+
+    assert record["error_category"] == "unsupported_shader"
+    assert record["error_reason"] == "Material is not supported"
+    output_dir = tmp_path / "pbr_dumps"
+    assert not (output_dir / f"{asset_sha}.pickle").exists()
+    assert not list(output_dir.glob(f".{asset_sha}.pickle.*"))
+
+
+def test_pbr_dump_returns_timeout_evidence(monkeypatch, tmp_path):
+    worker = importlib.import_module("data_toolkit.dump_pbr")
+    asset_sha = "c" * 64
+
+    def time_out(args, **kwargs):
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr(worker.subprocess, "run", time_out)
+
+    record = worker._dump_pbr(
+        "fixture.glb", asset_sha, tmp_path, timeout_seconds=17
+    )
+
+    assert record == {
+        "sha256": asset_sha,
+        "pbr_dumped": False,
+        "error_category": "timeout",
+        "error_reason": "PBR dump timed out after 17 seconds",
+    }
+
+
 @pytest.mark.parametrize(
     ("module_name", "function_name", "directory"),
     (

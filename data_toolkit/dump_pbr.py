@@ -39,6 +39,22 @@ def _read_pickle(path):
         return pickle.load(stream)
 
 
+def _pbr_failure_record(sha256, reason):
+    reason = str(reason).strip() or 'Failed to dump PBR'
+    if 'Material is not supported' in reason:
+        category = 'unsupported_shader'
+    elif reason.startswith('PBR dump timed out'):
+        category = 'timeout'
+    else:
+        category = 'pbr_dump_failure'
+    return {
+        'sha256': sha256,
+        'pbr_dumped': False,
+        'error_category': category,
+        'error_reason': reason,
+    }
+
+
 def _atomic_write_csv(frame, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,23 +108,30 @@ def _dump_pbr(file_path, sha256, root, timeout_seconds=900):
         if file_path.endswith('.blend'):
             args.insert(1, file_path)
 
-        subprocess.run(
-            args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout_seconds,
-            check=False,
-        )
+        try:
+            subprocess.run(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return _pbr_failure_record(
+                sha256,
+                f'PBR dump timed out after {timeout_seconds} seconds',
+            )
 
         try:
             _read_pickle(temporary)
-        except Exception as error:
+        except Exception:
             if error_path.exists():
-                error_msg = error_path.read_text()
-                raise ValueError(
-                    f'Failed to dump PBR. File {file_path}. Error message: {error_msg}'
-                ) from error
-            raise ValueError(f'Failed to dump PBR. File {file_path}.') from error
+                return _pbr_failure_record(
+                    sha256, error_path.read_text()
+                )
+            return _pbr_failure_record(
+                sha256, f'Failed to dump PBR. File {file_path}.'
+            )
 
         with temporary.open('rb') as stream:
             os.fsync(stream.fileno())
