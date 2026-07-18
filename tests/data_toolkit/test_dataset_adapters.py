@@ -3,6 +3,7 @@ import importlib
 from hashlib import sha256
 import inspect
 from io import BytesIO
+import json
 from pathlib import Path
 import stat
 import subprocess
@@ -95,12 +96,17 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
 def test_3d_future_extracts_only_selected_verified_directory(tmp_path):
     module = importlib.import_module("data_toolkit.datasets.3D-FUTURE")
     selected_image = b"selected image"
+    mesh = b"mtllib model.mtl\nmesh"
+    material = b"map_Kd texture.png\n"
+    texture = b"texture"
     archive_path = tmp_path / "3D-FUTURE-model.zip"
     _write_zip(
         archive_path,
         {
             "3D-FUTURE-model/selected/image.jpg": selected_image,
-            "3D-FUTURE-model/selected/raw_model.obj": b"mesh",
+            "3D-FUTURE-model/selected/model.mtl": material,
+            "3D-FUTURE-model/selected/raw_model.obj": mesh,
+            "3D-FUTURE-model/selected/texture.png": texture,
             "3D-FUTURE-model/ignored/image.jpg": b"ignored",
             "3D-FUTURE-model/ignored/raw_model.obj": b"ignored mesh",
         },
@@ -120,6 +126,22 @@ def test_3d_future_extracts_only_selected_verified_directory(tmp_path):
         {
             "sha256": sha256(selected_image).hexdigest(),
             "local_path": "raw/3D-FUTURE-model/selected/raw_model.obj",
+            "content_sha256": sha256(mesh).hexdigest(),
+            "companion_files": json.dumps(
+                {
+                    "raw/3D-FUTURE-model/selected/image.jpg": sha256(
+                        selected_image
+                    ).hexdigest(),
+                    "raw/3D-FUTURE-model/selected/model.mtl": sha256(
+                        material
+                    ).hexdigest(),
+                    "raw/3D-FUTURE-model/selected/texture.png": sha256(
+                        texture
+                    ).hexdigest(),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
         }
     ]
     assert not (tmp_path / "raw/3D-FUTURE-model/ignored").exists()

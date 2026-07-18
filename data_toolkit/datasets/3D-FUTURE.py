@@ -1,5 +1,6 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import json
 import os
 from pathlib import Path, PurePosixPath
 import stat
@@ -81,9 +82,21 @@ def download(
             actual_sha256 = get_file_hash(str(image_path))
             if actual_sha256 != record["sha256"]:
                 return None
+            primary_relative = f"raw/{identifier}/raw_model.obj"
+            companion_files = {}
+            for member in selected:
+                relative = f"raw/{member.filename}"
+                if relative == primary_relative:
+                    continue
+                destination = _safe_destination(raw_dir, member.filename)
+                companion_files[relative] = get_file_hash(str(destination))
             return {
                 "sha256": actual_sha256,
-                "local_path": f"raw/{identifier}/raw_model.obj",
+                "local_path": primary_relative,
+                "content_sha256": get_file_hash(str(model_path)),
+                "companion_files": json.dumps(
+                    companion_files, sort_keys=True, separators=(",", ":")
+                ),
             }
 
         records = metadata.to_dict("records")
@@ -92,7 +105,12 @@ def download(
 
     return pd.DataFrame(
         [record for record in downloaded if record is not None],
-        columns=["sha256", "local_path"],
+        columns=[
+            "sha256",
+            "local_path",
+            "content_sha256",
+            "companion_files",
+        ],
     )
 
 
