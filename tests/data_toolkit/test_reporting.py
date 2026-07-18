@@ -407,6 +407,7 @@ def test_gate_measurement_summary_recomputes_projection_eta_and_source_gates():
 
     assert summary["quality"]["sources"]["HSSD"]["failure_rate"] == 0.15
     assert summary["quality"]["sources"]["HSSD"]["passed"] is False
+    assert summary["capacity"]["projections"]["local"]["projected_bytes"] == 250
     assert summary["capacity"]["projections"]["data2"]["projected_bytes"] == 100_000
     assert summary["eta_hours"] == pytest.approx(100.0)
 

@@ -369,7 +369,8 @@ def gate_measurement_summary(
     projections = {}
     for name, column in projection_columns.items():
         p95 = byte_values[column]["p95_bytes"]
-        projected = math.ceil(p95 * assets * multiplier)
+        retained_assets = 1 if name == "local" else assets
+        projected = math.ceil(p95 * retained_assets * multiplier)
         projections[name] = {
             "p95_bytes": p95,
             "headroom": multiplier,
