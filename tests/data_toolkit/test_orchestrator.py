@@ -1206,6 +1206,99 @@ def test_gate_identity_isolates_runtime_and_publication_paths(isolated_config):
     assert services._raw_archive_paths(smoke) != services._raw_archive_paths(production)
 
 
+def test_family_dependencies_make_pbr_and_ss_depend_on_shape(config):
+    dependencies = orchestrator_module.family_dependencies(config)
+
+    assert dependencies["PBR-256"] == frozenset({"shape-256"})
+    assert dependencies["PBR-512"] == frozenset({"shape-512"})
+    assert dependencies["PBR-1024"] == frozenset({"shape-1024"})
+    assert dependencies["SS-64"] == frozenset({"shape-1024"})
+
+
+def test_record_family_exclusion_round_trips_without_terminal_outcome(
+    isolated_config, tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "family-ledger", "ABO", "ABO-00000"
+    )
+    asset_sha = "a" * 64
+    write_instances(context, (asset_sha,))
+    runner = PipelineRunner(
+        isolated_config,
+        FakeResourceGuard(),
+        {},
+        {},
+        command_builder=lambda _context, _config: (),
+    )
+    checkpoint_path = tmp_path / "checkpoint.json"
+    ledger_path = tmp_path / "quality.json"
+    runner.active_context = context
+    runner.active_checkpoint = PipelineCheckpoint(context.shard_id)
+    runner.active_checkpoint_path = checkpoint_path
+    runner._active_quality_assets = (asset_sha,)
+    runner._active_instances_sha256 = sha256(
+        context.instances.read_bytes()
+    ).hexdigest()
+    runner._active_quality_ledger = orchestrator_module._empty_quality_ledger(
+        context
+    )
+    runner._active_quality_ledger_path = ledger_path
+    orchestrator_module._save_quality_ledger(
+        ledger_path, runner._active_quality_ledger
+    )
+
+    runner.record_family_exclusion(
+        asset_sha,
+        ("PBR-256", "PBR-512", "PBR-1024"),
+        category="unsupported_shader",
+        stage="dump_pbr",
+        reason="Material is not supported",
+        attempts=1,
+    )
+
+    ledger = json.loads(ledger_path.read_text())
+    assert ledger["schema_version"] == 3
+    assert set(ledger["family_exclusions"][asset_sha]) == {
+        "PBR-256",
+        "PBR-512",
+        "PBR-1024",
+    }
+    assert runner.family_exclusions(asset_sha)["PBR-256"] == {
+        "category": "unsupported_shader",
+        "stage": "dump_pbr",
+        "reason": "Material is not supported",
+        "attempts": 1,
+    }
+    assert asset_sha not in runner.active_checkpoint.quality_outcomes
+
+
+def test_schema_two_quality_ledger_loads_with_empty_family_exclusions(
+    tmp_path
+):
+    context = ShardContext.for_test(
+        tmp_path / "legacy-family-ledger", "ABO", "ABO-00000"
+    )
+    path = tmp_path / "legacy-quality.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "source": context.source,
+                "shard_id": context.shard_id,
+                "gate": context.gate,
+                "batches": {},
+                "entries": [],
+                "quarantine": {},
+            }
+        )
+    )
+
+    ledger = orchestrator_module._load_quality_ledger(path, context)
+
+    assert ledger["schema_version"] == 3
+    assert ledger["family_exclusions"] == {}
+
+
 def test_corrupt_frozen_batch_manifest_fails_closed(isolated_config):
     gib = 1024**3
     sha = "a" * 64

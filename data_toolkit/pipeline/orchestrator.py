@@ -56,11 +56,29 @@ from .validation import (
 
 
 CHECKPOINT_SCHEMA_VERSION = 3
-QUALITY_LEDGER_SCHEMA_VERSION = 2
+QUALITY_LEDGER_SCHEMA_VERSION = 3
 MAX_COMMAND_ATTEMPTS = 3
 QUALITY_WINDOW_SIZE = 500
 QUALITY_OUTCOMES = {"completed", "failure", "schema_failure"}
 PATH_VALIDATION_ERRNOS = {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+
+
+def family_dependencies(
+    config: PipelineConfig,
+) -> Mapping[str, frozenset[str]]:
+    highest_resolution = max(config.targets.resolutions)
+    dependencies = {
+        "common": frozenset(),
+        f"SS-{config.targets.ss_resolution}": frozenset(
+            {f"shape-{highest_resolution}"}
+        ),
+    }
+    for resolution in config.targets.resolutions:
+        dependencies[f"shape-{resolution}"] = frozenset()
+        dependencies[f"PBR-{resolution}"] = frozenset(
+            {f"shape-{resolution}"}
+        )
+    return dependencies
 
 
 _SUPERVISOR_PROGRAM = r"""
@@ -688,6 +706,7 @@ def _empty_quality_ledger(context: ShardContext) -> dict[str, object]:
         "batches": {},
         "entries": [],
         "quarantine": {},
+        "family_exclusions": {},
     }
 
 
@@ -699,25 +718,33 @@ def _load_quality_ledger(path: Path, context: ShardContext) -> dict[str, object]
         value = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise CheckpointError(f"invalid quality ledger JSON: {path}") from error
-    if not isinstance(value, dict) or set(value) not in ({
-        "schema_version",
-        "source",
-        "shard_id",
-        "gate",
-        "batches",
-        "entries",
-    }, {
-        "schema_version",
-        "source",
-        "shard_id",
-        "gate",
-        "batches",
-        "entries",
-        "quarantine",
-    }):
+    if not isinstance(value, dict):
         raise CheckpointError(f"invalid quality ledger schema: {path}")
-    if value["schema_version"] != QUALITY_LEDGER_SCHEMA_VERSION:
+    schema_version = value.get("schema_version")
+    common_fields = {
+        "schema_version",
+        "source",
+        "shard_id",
+        "gate",
+        "batches",
+        "entries",
+    }
+    legacy_fields = (common_fields, common_fields | {"quarantine"})
+    current_fields = common_fields | {"quarantine", "family_exclusions"}
+    if (
+        schema_version == 2
+        and set(value) not in legacy_fields
+        or schema_version == QUALITY_LEDGER_SCHEMA_VERSION
+        and set(value) != current_fields
+    ):
+        raise CheckpointError(f"invalid quality ledger schema: {path}")
+    if schema_version not in {2, QUALITY_LEDGER_SCHEMA_VERSION}:
         raise CheckpointError(f"unsupported quality ledger schema: {path}")
+    if schema_version == 2:
+        value = dict(value)
+        value["schema_version"] = QUALITY_LEDGER_SCHEMA_VERSION
+        value.setdefault("quarantine", {})
+        value["family_exclusions"] = {}
     if (
         value["source"] != context.source
         or value["shard_id"] != context.shard_id
@@ -800,6 +827,52 @@ def _load_quality_ledger(path: Path, context: ShardContext) -> dict[str, object]
             raise CheckpointError(f"invalid quarantine record: {path}")
         if not isinstance(record["attempts"], int) or isinstance(record["attempts"], bool) or record["attempts"] < 0:
             raise CheckpointError(f"invalid quarantine attempts: {path}")
+    family_exclusions = value["family_exclusions"]
+    if not isinstance(family_exclusions, dict):
+        raise CheckpointError(
+            f"invalid quality ledger family exclusions: {path}"
+        )
+    valid_families = set(PACK_FAMILIES) - {"common"}
+    for asset_sha, exclusions in family_exclusions.items():
+        try:
+            _validated_asset_sha(asset_sha)
+        except (TypeError, ValueError) as error:
+            raise CheckpointError(
+                f"invalid family exclusion asset: {path}"
+            ) from error
+        if not isinstance(exclusions, dict) or not exclusions:
+            raise CheckpointError(
+                f"invalid family exclusion mapping: {path}"
+            )
+        for family, record in exclusions.items():
+            if family not in valid_families:
+                raise CheckpointError(
+                    f"invalid excluded family: {path}"
+                )
+            if not isinstance(record, dict) or set(record) != {
+                "category",
+                "stage",
+                "reason",
+                "attempts",
+            }:
+                raise CheckpointError(
+                    f"invalid family exclusion record: {path}"
+                )
+            if not all(
+                isinstance(record[key], str) and record[key]
+                for key in ("category", "stage", "reason")
+            ):
+                raise CheckpointError(
+                    f"invalid family exclusion record: {path}"
+                )
+            if (
+                not isinstance(record["attempts"], int)
+                or isinstance(record["attempts"], bool)
+                or record["attempts"] < 0
+            ):
+                raise CheckpointError(
+                    f"invalid family exclusion attempts: {path}"
+                )
     return value
 
 
@@ -989,6 +1062,15 @@ class PipelineRunner:
             "quarantine": {
                 asset: dict(record)
                 for asset, record in ledger.get("quarantine", {}).items()
+            },
+            "family_exclusions": {
+                asset: {
+                    family: dict(record)
+                    for family, record in exclusions.items()
+                }
+                for asset, exclusions in ledger[
+                    "family_exclusions"
+                ].items()
             },
         }
         next_ledger["batches"][context.batch_id] = {
@@ -1326,6 +1408,87 @@ class PipelineRunner:
 
     def record_quality_outcome(self, asset_sha: str, outcome: str) -> None:
         self.record_asset_outcome(asset_sha, outcome)
+
+    def family_exclusions(
+        self, asset_sha: str
+    ) -> Mapping[str, Mapping[str, object]]:
+        asset_sha = _validated_asset_sha(asset_sha)
+        ledger = self._active_quality_ledger
+        if ledger is None:
+            raise InfrastructureError("quality ledger is not active")
+        exclusions = ledger["family_exclusions"].get(asset_sha, {})
+        return {
+            family: dict(record)
+            for family, record in exclusions.items()
+        }
+
+    def record_family_exclusion(
+        self,
+        asset_sha: str,
+        families: Sequence[str],
+        *,
+        category: str,
+        stage: str,
+        reason: str,
+        attempts: int = 0,
+    ) -> None:
+        context = self.active_context
+        ledger = self._active_quality_ledger
+        ledger_path = self._active_quality_ledger_path
+        if context is None or ledger is None or ledger_path is None:
+            raise InfrastructureError(
+                "family exclusion has no active quality ledger"
+            )
+        asset_sha = _validated_asset_sha(asset_sha)
+        if asset_sha not in self._load_frozen_quality_assets(context):
+            raise InfrastructureError(
+                f"family exclusion asset is not frozen: {asset_sha}"
+            )
+        valid_families = set(PACK_FAMILIES) - {"common"}
+        requested = tuple(sorted(set(families)))
+        if not requested or not set(requested) <= valid_families:
+            raise ValueError("invalid excluded family")
+        if not all(
+            isinstance(value, str) and value
+            for value in (category, stage, reason)
+        ):
+            raise ValueError("invalid family exclusion record")
+        if (
+            not isinstance(attempts, int)
+            or isinstance(attempts, bool)
+            or attempts < 0
+        ):
+            raise ValueError("invalid family exclusion attempts")
+        record = {
+            "category": category,
+            "stage": stage,
+            "reason": reason,
+            "attempts": attempts,
+        }
+        next_ledger = {
+            **ledger,
+            "family_exclusions": {
+                asset: {
+                    family: dict(existing_record)
+                    for family, existing_record in exclusions.items()
+                }
+                for asset, exclusions in ledger[
+                    "family_exclusions"
+                ].items()
+            },
+        }
+        by_family = next_ledger["family_exclusions"].setdefault(
+            asset_sha, {}
+        )
+        for family in requested:
+            existing = by_family.get(family)
+            if existing is not None and existing != record:
+                raise InfrastructureError(
+                    f"conflicting family exclusion: {asset_sha}: {family}"
+                )
+            by_family[family] = dict(record)
+        _save_quality_ledger(ledger_path, next_ledger)
+        self._active_quality_ledger = next_ledger
 
     def record_asset_outcome(
         self,
