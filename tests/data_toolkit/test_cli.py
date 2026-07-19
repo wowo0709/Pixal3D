@@ -574,7 +574,7 @@ def test_smoke_gate_requires_zero_schema_failures(tmp_config):
     assert json.loads(report_path.read_text())["decision"] == "failed"
 
 
-def test_smoke_gate_allows_ten_percent_asset_failures(tmp_config):
+def test_smoke_gate_excludes_provider_unavailable_assets_from_source_rate(tmp_config):
     config = load_config(tmp_config)
     write_complete_gate_evidence(config, "smoke")
     measurements_path = (
@@ -601,8 +601,13 @@ def test_smoke_gate_allows_ten_percent_asset_failures(tmp_config):
     report_path, _ = RuntimeReportBuilder(config)("smoke")
 
     report = json.loads(report_path.read_text())
+    source_quality = report["quality"]["sources"][source]
     assert report["decision"] == "passed"
-    assert report["quality"]["sources"][source]["failure_rate"] == 0.1
+    assert source_quality["assets"] == 20
+    assert source_quality["eligible_assets"] == 18
+    assert source_quality["provider_unavailable"] == 2
+    assert source_quality["failures"] == 0
+    assert source_quality["failure_rate"] == 0.0
 
 
 def test_fp32_gate_accepts_header_only_fp16_evidence(tmp_config):
