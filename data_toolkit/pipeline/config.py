@@ -64,6 +64,26 @@ class WorkerConfig:
 
 
 @dataclass(frozen=True)
+class ParallelismConfig:
+    gpu_count: int
+    gpu_memory_target_percent: int
+    gpu_memory_hard_percent: int
+    cpu_physical_cores: int
+    chunk_assets: int
+    max_chunks_in_flight: int
+    render_workers_per_gpu_steps: tuple[int, ...]
+    encoder_micro_batches: tuple[tuple[int, int], ...]
+
+    def micro_batch(self, resolution: int) -> int:
+        try:
+            return dict(self.encoder_micro_batches)[resolution]
+        except KeyError as error:
+            raise ValueError(
+                f"missing encoder micro-batch for {resolution}"
+            ) from error
+
+
+@dataclass(frozen=True)
 class LimitConfig:
     cpu_soft_percent: float
     cpu_hard_percent: float
@@ -100,6 +120,7 @@ class PipelineConfig:
     batching: BatchConfig
     worker_tuning: WorkerTuningConfig
     workers: WorkerConfig
+    parallelism: ParallelismConfig
     limits: LimitConfig
 
     def config_hash(self) -> str:
@@ -118,6 +139,7 @@ ROOT_KEYS = {
     "batching",
     "worker_tuning",
     "workers",
+    "parallelism",
     "limits",
 }
 
@@ -144,6 +166,16 @@ SECTION_KEYS = {
         "encoder_ranks",
         "encoder_loader_threads",
         "encoder_saver_threads",
+    },
+    "parallelism": {
+        "gpu_count",
+        "gpu_memory_target_percent",
+        "gpu_memory_hard_percent",
+        "cpu_physical_cores",
+        "chunk_assets",
+        "max_chunks_in_flight",
+        "render_workers_per_gpu_steps",
+        "encoder_micro_batches",
     },
     "limits": {
         "cpu_soft_percent",
@@ -400,6 +432,91 @@ def _workers(value: Mapping) -> WorkerConfig:
     )
 
 
+def _parallelism(value: Mapping) -> ParallelismConfig:
+    value = _mapping(value, SECTION_KEYS["parallelism"], "parallelism")
+    gpu_count = _positive_int(value["gpu_count"], "parallelism gpu_count")
+    target = _positive_int(
+        value["gpu_memory_target_percent"],
+        "parallelism gpu_memory_target_percent",
+    )
+    hard = _positive_int(
+        value["gpu_memory_hard_percent"],
+        "parallelism gpu_memory_hard_percent",
+    )
+    if target >= hard:
+        raise ValueError(
+            "parallelism GPU memory target must be below the hard limit"
+        )
+    if hard > 95:
+        raise ValueError("parallelism GPU memory hard limit must be at most 95")
+
+    cpu_physical_cores = _positive_int(
+        value["cpu_physical_cores"], "parallelism cpu_physical_cores"
+    )
+    if cpu_physical_cores > 44:
+        raise ValueError("parallelism CPU physical cores must be at most 44")
+
+    chunk_assets = _positive_int(
+        value["chunk_assets"], "parallelism chunk_assets"
+    )
+    if chunk_assets not in {32, 64}:
+        raise ValueError("parallelism chunk_assets must be 32 or 64")
+    max_chunks_in_flight = _positive_int(
+        value["max_chunks_in_flight"],
+        "parallelism max_chunks_in_flight",
+    )
+    if max_chunks_in_flight > 3:
+        raise ValueError(
+            "parallelism max_chunks_in_flight must be at most 3"
+        )
+
+    render_steps = value["render_workers_per_gpu_steps"]
+    if (
+        not isinstance(render_steps, list)
+        or not render_steps
+        or any(type(item) is not int or item <= 0 for item in render_steps)
+        or render_steps != sorted(set(render_steps))
+    ):
+        raise ValueError(
+            "parallelism render_workers_per_gpu_steps must be increasing "
+            "positive integers"
+        )
+
+    raw_micro_batches = value["encoder_micro_batches"]
+    if (
+        not isinstance(raw_micro_batches, list)
+        or any(
+            not isinstance(item, list)
+            or len(item) != 2
+            or any(type(part) is not int or part <= 0 for part in item)
+            for item in raw_micro_batches
+        )
+    ):
+        raise ValueError(
+            "parallelism encoder_micro_batches must be resolution/size pairs"
+        )
+    encoder_micro_batches = tuple(
+        (item[0], item[1]) for item in raw_micro_batches
+    )
+    expected_resolutions = (256, 512, 1024, 64)
+    if tuple(item[0] for item in encoder_micro_batches) != expected_resolutions:
+        raise ValueError(
+            "parallelism encoder_micro_batches must contain ordered unique "
+            "resolutions 256, 512, 1024, and 64"
+        )
+
+    return ParallelismConfig(
+        gpu_count=gpu_count,
+        gpu_memory_target_percent=target,
+        gpu_memory_hard_percent=hard,
+        cpu_physical_cores=cpu_physical_cores,
+        chunk_assets=chunk_assets,
+        max_chunks_in_flight=max_chunks_in_flight,
+        render_workers_per_gpu_steps=tuple(render_steps),
+        encoder_micro_batches=encoder_micro_batches,
+    )
+
+
 def _limits(value: Mapping) -> LimitConfig:
     value = _mapping(value, SECTION_KEYS["limits"], "limits")
     float_values = {
@@ -444,6 +561,12 @@ def load_config(path: Path) -> PipelineConfig:
     evaluation_sources = _sources(raw["evaluation_sources"], "evaluation")
     if set(sources) & set(evaluation_sources):
         raise ValueError("training and evaluation sources must be disjoint")
+    workers = _workers(raw["workers"])
+    parallelism = _parallelism(raw["parallelism"])
+    if parallelism.gpu_count != workers.encoder_ranks:
+        raise ValueError(
+            "parallelism gpu_count must match workers encoder_ranks"
+        )
     return PipelineConfig(
         pipeline_version=_string(raw["pipeline_version"], "pipeline_version"),
         sources=sources,
@@ -454,6 +577,7 @@ def load_config(path: Path) -> PipelineConfig:
         targets=_targets(raw["targets"]),
         batching=_batching(raw["batching"], _positive_int(raw["shard_size"], "shard_size")),
         worker_tuning=_worker_tuning(raw["worker_tuning"]),
-        workers=_workers(raw["workers"]),
+        workers=workers,
+        parallelism=parallelism,
         limits=_limits(raw["limits"]),
     )

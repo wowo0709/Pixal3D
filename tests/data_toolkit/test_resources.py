@@ -269,7 +269,7 @@ def test_gpu_temperature_hard_threshold_stops_immediately(config):
     decision = ResourcePolicy(config.limits).evaluate(
         sample(
             datetime.now(timezone.utc),
-            gpu_metrics=(GpuMetric(0, 0, 0, 88, 0),),
+            gpu_metrics=(GpuMetric(0, 0, 0, 97_887, 88, 0),),
         )
     )
     assert decision.action == ResourceAction.STOP
@@ -338,7 +338,7 @@ def test_sampler_uses_cached_project_bytes_and_swap_delta(config, tmp_path):
 
     def gpu_runner(argv, **kwargs):
         runner_calls.append((argv, kwargs))
-        return SimpleNamespace(stdout="0, 75, 1234, 55, 210.5\n")
+        return SimpleNamespace(stdout="0, 75, 1234, 97887, 55, 210.5\n")
 
     now = datetime(2026, 7, 16, tzinfo=timezone(timedelta(hours=5, minutes=30)))
     monotonic_values = iter((100.0, 105.0))
@@ -362,12 +362,13 @@ def test_sampler_uses_cached_project_bytes_and_swap_delta(config, tmp_path):
     assert first.data2_project_tib == 1.0
     assert first.data3_project_tib == 2.0
     assert first.gpu_metrics[0].power_watts == 210.5
+    assert first.gpu_metrics[0].memory_total_mib == 97887
     assert first.gpu_query_error is None
     assert walk_calls == []
     assert runner_calls[0] == (
         [
             "nvidia-smi",
-            "--query-gpu=index,utilization.gpu,memory.used,temperature.gpu,power.draw",
+            "--query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
             "--format=csv,noheader,nounits",
         ],
         {"capture_output": True, "text": True, "check": True, "timeout": 5.0},

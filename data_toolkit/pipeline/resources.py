@@ -28,6 +28,7 @@ class GpuMetric:
     index: int
     utilization_percent: float
     memory_used_mib: float
+    memory_total_mib: float
     temperature_celsius: float
     power_watts: float
 
@@ -152,7 +153,7 @@ class ResourceSampler:
     GPU_QUERY_TIMEOUT_SECONDS = 5.0
     GPU_QUERY = (
         "nvidia-smi",
-        "--query-gpu=index,utilization.gpu,memory.used,temperature.gpu,power.draw",
+        "--query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
         "--format=csv,noheader,nounits",
     )
 
@@ -188,15 +189,16 @@ class ResourceSampler:
                 if not line.strip():
                     continue
                 fields = [field.strip() for field in line.split(",")]
-                if len(fields) != 5:
+                if len(fields) != 6:
                     raise ValueError(f"unexpected nvidia-smi row: {line!r}")
                 metrics.append(
                     GpuMetric(
                         index=int(fields[0]),
                         utilization_percent=float(fields[1]),
                         memory_used_mib=float(fields[2]),
-                        temperature_celsius=float(fields[3]),
-                        power_watts=float(fields[4]),
+                        memory_total_mib=float(fields[3]),
+                        temperature_celsius=float(fields[4]),
+                        power_watts=float(fields[5]),
                     )
                 )
             return tuple(metrics), None

@@ -33,6 +33,18 @@ def test_fixed_contract():
     ) == (3, 64, 256)
     assert cfg.worker_tuning.dump_steps == (32, 36, 40, 44)
     assert cfg.worker_tuning.voxel_profiles == ((8, 4), (10, 4), (11, 4))
+    assert cfg.parallelism.gpu_memory_target_percent == 80
+    assert cfg.parallelism.gpu_memory_hard_percent == 90
+    assert cfg.parallelism.cpu_physical_cores == 44
+    assert cfg.parallelism.chunk_assets == 64
+    assert cfg.parallelism.max_chunks_in_flight == 3
+    assert cfg.parallelism.render_workers_per_gpu_steps == (2, 3, 4)
+    assert cfg.parallelism.encoder_micro_batches == (
+        (256, 16),
+        (512, 8),
+        (1024, 4),
+        (64, 16),
+    )
 
 
 def test_unknown_root_key_is_rejected(tmp_path: Path):
@@ -170,3 +182,22 @@ def test_config_rejects_unsafe_root_relationships(tmp_path, paths):
 def test_config_rejects_fixed_pipeline_invariant_changes(tmp_path, mutator):
     with pytest.raises(ValueError):
         load_config(_write_config(tmp_path, mutator))
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda value: value.update(gpu_count=True),
+        lambda value: value.update(gpu_memory_target_percent=90),
+        lambda value: value.update(gpu_memory_hard_percent=96),
+        lambda value: value.update(cpu_physical_cores=45),
+        lambda value: value.update(render_workers_per_gpu_steps=[3, 2, 4]),
+        lambda value: value.update(encoder_micro_batches=[[256, 16], [256, 8]]),
+        lambda value: value.update(extra=True),
+    ],
+)
+def test_config_rejects_invalid_parallelism_contract(tmp_path, mutator):
+    with pytest.raises(ValueError, match="parallelism"):
+        load_config(
+            _write_config(tmp_path, lambda raw: mutator(raw["parallelism"]))
+        )
