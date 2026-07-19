@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .config import PipelineConfig
+from .parallelism import geometry_profile
 
 
 @dataclass(frozen=True)
@@ -93,10 +94,11 @@ def choose_worker_profile(
     profiles = config.worker_tuning.voxel_profiles
     dump_steps = config.worker_tuning.dump_steps
     if previous is None:
+        geometry = geometry_profile(config.parallelism)
         return WorkerProfile(
-            dump_workers=dump_steps[0],
-            voxel_workers=profiles[0][0],
-            voxel_threads_per_worker=profiles[0][1],
+            dump_workers=dump_steps[-1],
+            voxel_workers=geometry.processes,
+            voxel_threads_per_worker=geometry.native_threads,
             render_workers=config.worker_tuning.render_workers,
             encoder_ranks=config.worker_tuning.encoder_ranks,
             render_workers_per_gpu=(
@@ -106,16 +108,23 @@ def choose_worker_profile(
     if not recent_snapshots:
         return previous
     pressure = any(
-        snapshot.get("reasons")
-        or float(snapshot.get("available_ram_gib", 10**9)) < 128
+        float(snapshot.get("cpu_percent", 0)) >= 80
+        or float(snapshot.get("available_ram_gib", 10**9))
+        < config.limits.ram_soft_available_gib
         or float(snapshot.get("io_wait_percent", 0)) >= 10
+        or any(
+            "temp" in str(reason).lower()
+            or "thermal" in str(reason).lower()
+            for reason in snapshot.get("reasons", ())
+        )
         for snapshot in recent_snapshots
     )
-    stable = all(
+    stable = len(recent_snapshots) >= 3 and all(
         not snapshot.get("reasons")
         and float(snapshot.get("cpu_percent", 100)) < 70
         and float(snapshot.get("io_wait_percent", 100)) < 5
-        and float(snapshot.get("available_ram_gib", 0)) >= 128
+        and float(snapshot.get("available_ram_gib", 0))
+        >= config.limits.ram_soft_available_gib
         for snapshot in recent_snapshots[-3:]
     )
     current_dump = dump_steps.index(previous.dump_workers)
@@ -322,16 +331,18 @@ def build_preprocessing_dag(
     config: PipelineConfig,
     profile: WorkerProfile | None = None,
 ) -> tuple[CommandSpec, ...]:
-    profile = profile or WorkerProfile(
-        dump_workers=config.workers.dump_workers,
-        voxel_workers=config.workers.voxel_workers,
-        voxel_threads_per_worker=config.workers.voxel_threads_per_worker,
-        render_workers=config.workers.render_workers,
-        encoder_ranks=config.workers.encoder_ranks,
-        render_workers_per_gpu=(
-            config.parallelism.render_workers_per_gpu_steps[0]
-        ),
-    )
+    if profile is None:
+        geometry = geometry_profile(config.parallelism)
+        profile = WorkerProfile(
+            dump_workers=config.workers.dump_workers,
+            voxel_workers=geometry.processes,
+            voxel_threads_per_worker=geometry.native_threads,
+            render_workers=config.workers.render_workers,
+            encoder_ranks=config.workers.encoder_ranks,
+            render_workers_per_gpu=(
+                config.parallelism.render_workers_per_gpu_steps[0]
+            ),
+        )
     dataset = dataset_args(context.source)
     base = (
         *dataset,

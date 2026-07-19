@@ -12,6 +12,7 @@ from data_toolkit.pipeline.commands import (
     expand_ranked,
     select_render_workers,
 )
+from data_toolkit.pipeline.parallelism import geometry_profile
 
 
 CPU_ENV = (
@@ -35,7 +36,7 @@ def _python_command(script, *args):
 
 
 def test_worker_profile_ramps_after_stable_telemetry(config):
-    first = choose_worker_profile((), config)
+    first = WorkerProfile(32, 8, 4, 7, 7, 2)
     stable = [
         {"cpu_percent": 60, "io_wait_percent": 2, "available_ram_gib": 200, "reasons": []}
     ] * 3
@@ -44,12 +45,33 @@ def test_worker_profile_ramps_after_stable_telemetry(config):
     assert (second.voxel_workers, second.voxel_threads_per_worker) == (10, 4)
 
 
+def test_initial_worker_profile_owns_full_geometry_lane(config):
+    selected = choose_worker_profile((), config)
+
+    assert selected.dump_workers == 44
+    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (11, 4)
+
+
 def test_worker_profile_steps_down_on_pressure(config):
     previous = WorkerProfile(40, 10, 4, 7, 7)
     pressure = [{"cpu_percent": 70, "io_wait_percent": 12, "available_ram_gib": 100, "reasons": ["I/O wait"]}]
     selected = choose_worker_profile(pressure, config, previous)
     assert selected.dump_workers == 36
     assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (8, 4)
+
+
+def test_geometry_profile_steps_up_only_after_three_stable_boundaries(config):
+    previous = WorkerProfile(32, 8, 4, 7, 7, 2)
+    stable = {
+        "cpu_percent": 60,
+        "io_wait_percent": 2,
+        "available_ram_gib": 200,
+        "reasons": [],
+    }
+
+    assert choose_worker_profile([stable] * 2, config, previous) == previous
+    selected = choose_worker_profile([stable] * 3, config, previous)
+    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (10, 4)
 
 
 def test_worker_profile_applies_render_step_at_next_dag_boundary(config):
@@ -195,6 +217,7 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
         "1",
     )
 
+    geometry = geometry_profile(config.parallelism)
     for resolution in config.targets.resolutions:
         common = (
             "--resolution",
@@ -213,9 +236,9 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
             str(context.work_root),
             *common,
             "--max_workers",
-            str(config.workers.voxel_workers),
+            str(geometry.processes),
             "--native_threads",
-            str(config.workers.voxel_threads_per_worker),
+            str(geometry.native_threads),
         )
         assert _by_name(
             dag, f"voxelize_pbr_{resolution}"
@@ -230,9 +253,9 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
             str(context.work_root),
             *common,
             "--max_workers",
-            str(config.workers.voxel_workers),
+            str(geometry.processes),
             "--native_threads",
-            str(config.workers.voxel_threads_per_worker),
+            str(geometry.native_threads),
         )
         assert _by_name(
             dag, f"encode_shape_{resolution}"

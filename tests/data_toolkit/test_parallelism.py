@@ -3,6 +3,8 @@ import pytest
 from data_toolkit.pipeline.parallelism import (
     GpuMemoryState,
     NodeResourceBroker,
+    geometry_affinity_sets,
+    geometry_profile,
     select_micro_batch,
 )
 
@@ -95,3 +97,28 @@ def test_broker_rejects_invalid_requests(kwargs):
 
     with pytest.raises(ValueError):
         broker.try_acquire(**kwargs)
+
+
+def test_geometry_profile_uses_44_physical_cores(config):
+    profile = geometry_profile(config.parallelism)
+
+    assert profile.processes == 11
+    assert profile.native_threads == 4
+    assert profile.processes * profile.native_threads == 44
+
+
+def test_geometry_affinity_sets_are_disjoint_and_reserve_four_cores(config):
+    profile = geometry_profile(config.parallelism)
+    affinity_sets = geometry_affinity_sets(profile)
+
+    assert len(affinity_sets) == 11
+    assert all(len(value) == 4 for value in affinity_sets)
+    assert all(
+        set(left).isdisjoint(right)
+        for index, left in enumerate(affinity_sets)
+        for right in affinity_sets[index + 1 :]
+    )
+    assigned = set().union(*(set(value) for value in affinity_sets))
+    assert len(assigned) == 44
+    assert assigned == set(range(20)) | set(range(24, 48))
+    assert assigned.isdisjoint(range(20, 24))

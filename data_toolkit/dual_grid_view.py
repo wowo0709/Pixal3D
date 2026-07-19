@@ -27,11 +27,15 @@ if __package__:
     from .utils import get_new_camera_matrix, transform_mesh, sphere_normalize_torch
     from .pipeline.atomic_io import atomic_write_json
     from .pipeline.dataset_adapter import process_single_metadata_row
+    from .pipeline.parallelism import GeometryProfile, geometry_affinity_sets
+    from .pipeline.sparse_batching import validate_record_prefix
     from .pipeline.validation import validate_scale
 else:
     from utils import get_new_camera_matrix, transform_mesh, sphere_normalize_torch
     from pipeline.atomic_io import atomic_write_json
     from pipeline.dataset_adapter import process_single_metadata_row
+    from pipeline.parallelism import GeometryProfile, geometry_affinity_sets
+    from pipeline.sparse_batching import validate_record_prefix
     from pipeline.validation import validate_scale
 
 
@@ -143,9 +147,12 @@ def _foreach_child(
     func,
     desc,
     requires_local_path=True,
+    affinity=None,
 ):
     temporary = None
     try:
+        if affinity is not None:
+            os.sched_setaffinity(0, set(affinity))
         result = process_single_metadata_row(
             dataset_utils,
             metadata,
@@ -219,6 +226,7 @@ def _run_foreach_bounded(
     desc,
     timeout_seconds,
     requires_local_path=True,
+    affinity_sets=None,
 ):
     context = multiprocessing.get_context('fork')
     worker_limit = (
@@ -228,13 +236,21 @@ def _run_foreach_bounded(
     )
     results = {}
     failures = []
+    if affinity_sets is not None:
+        affinity_sets = tuple(tuple(value) for value in affinity_sets)
+        if len(affinity_sets) < worker_limit:
+            raise ValueError("not enough geometry affinity sets")
+        if any(not value for value in affinity_sets[:worker_limit]):
+            raise ValueError("geometry affinity sets must be nonempty")
 
     with tempfile.TemporaryDirectory() as temporary_dir:
         temporary_dir = Path(temporary_dir)
         active = {}
         next_position = 0
+        free_affinity_slots = list(range(worker_limit))
 
         def launch(position):
+            affinity_slot = free_affinity_slots.pop(0)
             result_path = temporary_dir / f'{position:08d}.result.pickle'
             error_path = temporary_dir / f'{position:08d}.error.txt'
             row = metadata.iloc[[position]].copy()
@@ -250,6 +266,11 @@ def _run_foreach_bounded(
                     func,
                     f'{desc}: {asset}',
                     requires_local_path,
+                    (
+                        affinity_sets[affinity_slot]
+                        if affinity_sets is not None
+                        else None
+                    ),
                 ),
             )
             process.start()
@@ -259,6 +280,7 @@ def _run_foreach_bounded(
                 'result_path': result_path,
                 'error_path': error_path,
                 'deadline': time.monotonic() + timeout_seconds,
+                'affinity_slot': affinity_slot,
             }
 
         try:
@@ -278,6 +300,8 @@ def _run_foreach_bounded(
                     if not process.is_alive():
                         exit_code = process.exitcode
                         process.close()
+                        free_affinity_slots.append(state['affinity_slot'])
+                        free_affinity_slots.sort()
                         del active[position]
                         progressed = True
                         if state['error_path'].exists():
@@ -565,16 +589,20 @@ if __name__ == '__main__':
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--resolution', type=str, default='256')
     parser.add_argument('--world_size', type=int, default=1)
-    parser.add_argument('--max_workers', type=int, default=0)
+    parser.add_argument('--max_workers', type=int, default=11)
     parser.add_argument('--native_threads', type=int, default=4)
     parser.add_argument('--timeout_seconds', type=int, default=900)
+    parser.add_argument('--record_prefix', default='')
     opt = parser.parse_args(sys.argv[2:] if dataset_name is not None else sys.argv[1:])
     if dataset_utils is None:
         parser.error('dataset name is required')
     if opt.native_threads <= 0:
         parser.error('--native_threads must be positive')
+    if opt.max_workers <= 0 or opt.max_workers * opt.native_threads > 44:
+        parser.error('--max_workers times --native_threads must fit 44 cores')
     if opt.timeout_seconds <= 0:
         parser.error('--timeout_seconds must be positive')
+    opt.record_prefix = validate_record_prefix(opt.record_prefix)
     opt = edict(vars(opt))
     opt.resolution = [int(x) for x in opt.resolution.split(',')]
     opt.mesh_dump_root = opt.mesh_dump_root or opt.root
@@ -654,6 +682,9 @@ if __name__ == '__main__':
         desc='Dual griding views',
         timeout_seconds=opt.timeout_seconds,
         requires_local_path=False,
+        affinity_sets=geometry_affinity_sets(
+            GeometryProfile(opt.max_workers, opt.native_threads)
+        ),
     )
     
     # Processing summary
@@ -685,7 +716,7 @@ if __name__ == '__main__':
                 cols_to_save = [col for col in cols_to_save if col in dual_grids.columns]
                 _atomic_write_csv(
                     dual_grid_metadata[cols_to_save],
-                    Path(opt.dual_grid_root) / f'dual_grid_view_{res}' / 'new_records' / f'part_{opt.rank}.csv',
+                    Path(opt.dual_grid_root) / f'dual_grid_view_{res}' / 'new_records' / f'{opt.record_prefix}part_{opt.rank}.csv',
                 )
     
     print('Done!')

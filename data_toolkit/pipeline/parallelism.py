@@ -8,6 +8,48 @@ from .config import ParallelismConfig
 
 
 @dataclass(frozen=True)
+class GeometryProfile:
+    processes: int
+    native_threads: int
+
+    def __post_init__(self) -> None:
+        if type(self.processes) is not int or self.processes <= 0:
+            raise ValueError("geometry processes must be a positive integer")
+        if type(self.native_threads) is not int or self.native_threads <= 0:
+            raise ValueError(
+                "geometry native threads must be a positive integer"
+            )
+
+
+def geometry_profile(config: ParallelismConfig) -> GeometryProfile:
+    native_threads = 4
+    if config.cpu_physical_cores % native_threads:
+        raise ValueError(
+            "parallelism CPU cores must divide into four-core geometry workers"
+        )
+    profile = GeometryProfile(
+        processes=config.cpu_physical_cores // native_threads,
+        native_threads=native_threads,
+    )
+    if profile.processes > 11:
+        raise ValueError("geometry profile exceeds the 11-process node cap")
+    return profile
+
+
+def geometry_affinity_sets(
+    profile: GeometryProfile,
+) -> tuple[tuple[int, ...], ...]:
+    if profile.native_threads != 4 or profile.processes > 11:
+        raise ValueError("unsupported geometry affinity profile")
+    physical_cores = (*range(0, 20), *range(24, 48))
+    groups = tuple(
+        tuple(physical_cores[index : index + profile.native_threads])
+        for index in range(0, len(physical_cores), profile.native_threads)
+    )
+    return groups[: profile.processes]
+
+
+@dataclass(frozen=True)
 class GpuMemoryState:
     index: int
     used_mib: float

@@ -68,6 +68,7 @@ def test_voxel_native_thread_bound(script):
 
     assert result.returncode == 0, result.stderr
     assert "--native_threads" in result.stdout
+    assert "--record_prefix" in result.stdout
 
 
 def test_build_metadata_help_does_not_import_help_as_a_dataset():
