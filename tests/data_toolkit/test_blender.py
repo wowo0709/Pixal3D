@@ -324,6 +324,8 @@ def test_render_main_passes_download_root_to_adapter(
             "OPTIX",
             "--timeout_seconds",
             "41",
+            "--record_prefix",
+            "chunk007_",
         ]
     )
 
@@ -335,6 +337,38 @@ def test_render_main_passes_download_root_to_adapter(
     assert func.keywords["blender_path"] == Path("/tools/blender")
     assert func.keywords["timeout_seconds"] == 41
     assert kwargs["max_workers"] == 8
+    assert (
+        render_root
+        / "renders_cond/new_records/chunk007_part_0.csv"
+    ).is_file()
+
+
+def test_render_main_rejects_record_prefix_path_separators(
+    monkeypatch, tmp_path
+):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    pd.DataFrame(
+        [{"sha256": "e" * 64, "local_path": "raw/fixture.glb"}]
+    ).to_csv(source_root / "metadata.csv", index=False)
+    adapter = SimpleNamespace(
+        add_args=lambda parser: None,
+        foreach_instance=lambda *args, **kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(render_cond, "_import_adapter", lambda name: adapter)
+
+    with pytest.raises(ValueError, match="record prefix"):
+        render_cond.main(
+            [
+                "fixture",
+                "--root",
+                str(source_root),
+                "--blender_path",
+                "/tools/blender",
+                "--record_prefix",
+                "../chunk",
+            ]
+        )
 
 
 def test_render_main_defaults_to_eight_deterministic_views(

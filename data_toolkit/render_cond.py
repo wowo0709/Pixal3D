@@ -284,11 +284,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--blender_path", type=str, default=None)
     parser.add_argument("--cycles_device", type=str, default="OPTIX")
     parser.add_argument("--timeout_seconds", type=int, default=900)
+    parser.add_argument("--record_prefix", default="")
     dataset_utils.add_args(parser)
     parser.add_argument("--rank", type=int, default=0)
     parser.add_argument("--world_size", type=int, default=1)
     parser.add_argument("--max_workers", type=int, default=8)
     opt = edict(vars(parser.parse_args(argv[1:])))
+    if any(separator in opt.record_prefix for separator in ("/", "\\", "\0")):
+        raise ValueError("record prefix must not contain path separators")
     if canonical_source is not None:
         opt.source = canonical_source
     opt.download_root = opt.download_root or opt.root
@@ -412,7 +415,7 @@ def main(argv: list[str] | None = None) -> None:
             opt.render_cond_root,
             "renders_cond",
             "new_records",
-            f"part_{opt.rank}.csv",
+            f"{opt.record_prefix}part_{opt.rank}.csv",
         ),
         index=False,
     )

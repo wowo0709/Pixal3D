@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -13,6 +14,75 @@ class WorkerProfile:
     voxel_threads_per_worker: int
     render_workers: int
     encoder_ranks: int
+    render_workers_per_gpu: int = 2
+
+
+def select_render_workers(
+    *,
+    current: int,
+    peak_percent: float,
+    temperature_celsius: float,
+    failed: bool,
+    steps: tuple[int, ...] = (2, 3, 4),
+) -> int:
+    if (
+        not steps
+        or any(type(step) is not int or step <= 0 for step in steps)
+        or tuple(sorted(set(steps))) != tuple(steps)
+    ):
+        raise ValueError(
+            "render worker steps must be increasing positive integers"
+        )
+    if current not in steps:
+        raise ValueError("current render workers must be a configured step")
+    for name, value in (
+        ("peak percent", peak_percent),
+        ("temperature", temperature_celsius),
+    ):
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            raise ValueError(f"render {name} must be finite")
+    if type(failed) is not bool:
+        raise ValueError("render failed flag must be boolean")
+
+    index = steps.index(current)
+    if failed or peak_percent > 80 or temperature_celsius >= 80:
+        return steps[max(0, index - 1)]
+    if peak_percent < 70 and temperature_celsius < 75:
+        return steps[min(len(steps) - 1, index + 1)]
+    return current
+
+
+def _render_gpu_state(
+    recent_snapshots: Sequence[Mapping[str, object]],
+) -> tuple[float, float] | None:
+    states = []
+    for snapshot in recent_snapshots:
+        metrics = snapshot.get("gpu_metrics", ())
+        if not isinstance(metrics, (list, tuple)):
+            continue
+        for metric in metrics:
+            if not isinstance(metric, Mapping):
+                continue
+            used = metric.get("memory_used_mib")
+            total = metric.get("memory_total_mib")
+            temperature = metric.get("temperature_celsius")
+            if not all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                for value in (used, total, temperature)
+            ):
+                continue
+            if total <= 0 or used < 0:
+                continue
+            states.append((100.0 * used / total, float(temperature)))
+    if not states:
+        return None
+    return max(value[0] for value in states), max(value[1] for value in states)
 
 
 def choose_worker_profile(
@@ -29,6 +99,9 @@ def choose_worker_profile(
             voxel_threads_per_worker=profiles[0][1],
             render_workers=config.worker_tuning.render_workers,
             encoder_ranks=config.worker_tuning.encoder_ranks,
+            render_workers_per_gpu=(
+                config.parallelism.render_workers_per_gpu_steps[0]
+            ),
         )
     if not recent_snapshots:
         return previous
@@ -56,12 +129,24 @@ def choose_worker_profile(
         current_dump = min(len(dump_steps) - 1, current_dump + 1)
         current_voxel = min(len(profiles) - 1, current_voxel + 1)
     voxel_workers, native_threads = profiles[current_voxel]
+    render_workers_per_gpu = previous.render_workers_per_gpu
+    render_state = _render_gpu_state(recent_snapshots)
+    if render_state is not None:
+        peak_percent, temperature_celsius = render_state
+        render_workers_per_gpu = select_render_workers(
+            current=render_workers_per_gpu,
+            peak_percent=peak_percent,
+            temperature_celsius=temperature_celsius,
+            failed=False,
+            steps=config.parallelism.render_workers_per_gpu_steps,
+        )
     return WorkerProfile(
         dump_workers=dump_steps[current_dump],
         voxel_workers=voxel_workers,
         voxel_threads_per_worker=native_threads,
         render_workers=previous.render_workers,
         encoder_ranks=previous.encoder_ranks,
+        render_workers_per_gpu=render_workers_per_gpu,
     )
 
 
@@ -150,6 +235,7 @@ class CommandSpec:
     argv: tuple[str, ...]
     env: tuple[tuple[str, str], ...] = ()
     gpu_ranks: int = 0
+    workers_per_gpu: int = 1
 
 
 CPU_ENV = (
@@ -199,8 +285,20 @@ def dataset_args(source: str) -> tuple[str, ...]:
 def expand_ranked(
     command: CommandSpec,
 ) -> tuple[tuple[tuple[str, ...], tuple[tuple[str, str], ...]], ...]:
+    if type(command.gpu_ranks) is not int or command.gpu_ranks < 0:
+        raise ValueError("GPU rank count must be a nonnegative integer")
+    if (
+        type(command.workers_per_gpu) is not int
+        or command.workers_per_gpu <= 0
+    ):
+        raise ValueError("workers per GPU must be a positive integer")
     if not command.gpu_ranks:
+        if command.workers_per_gpu != 1:
+            raise ValueError("workers per GPU requires GPU ranks")
         return ((command.argv, command.env),)
+    total = command.gpu_ranks * command.workers_per_gpu
+    if total > 28:
+        raise ValueError("ranked command exceeds the 28-process cap")
     return tuple(
         (
             (
@@ -208,11 +306,14 @@ def expand_ranked(
                 "--rank",
                 str(rank),
                 "--world_size",
-                str(command.gpu_ranks),
+                str(total),
             ),
-            (*command.env, ("CUDA_VISIBLE_DEVICES", str(rank))),
+            (
+                *command.env,
+                ("CUDA_VISIBLE_DEVICES", str(rank % command.gpu_ranks)),
+            ),
         )
-        for rank in range(command.gpu_ranks)
+        for rank in range(total)
     )
 
 
@@ -227,6 +328,9 @@ def build_preprocessing_dag(
         voxel_threads_per_worker=config.workers.voxel_threads_per_worker,
         render_workers=config.workers.render_workers,
         encoder_ranks=config.workers.encoder_ranks,
+        render_workers_per_gpu=(
+            config.parallelism.render_workers_per_gpu_steps[0]
+        ),
     )
     dataset = dataset_args(context.source)
     base = (
@@ -323,6 +427,7 @@ def build_preprocessing_dag(
             ),
             RENDER_ENV,
             gpu_ranks=profile.render_workers,
+            workers_per_gpu=profile.render_workers_per_gpu,
         ),
     ]
 

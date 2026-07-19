@@ -284,6 +284,31 @@ def test_recoverable_command_gets_at_most_three_total_attempts(
     assert runner.checkpoint.completed_commands == [command.name]
 
 
+def test_failed_render_retry_steps_down_workers_at_retry_boundary(
+    isolated_config, shard_context
+):
+    command = CommandSpec(
+        "render_cond",
+        ("worker",),
+        gpu_ranks=7,
+        workers_per_gpu=4,
+    )
+    runner = RecordingRunner(isolated_config, (command,))
+    launched_workers = []
+
+    def execute(candidate, shard_id):
+        launched_workers.append(candidate.workers_per_gpu)
+        if len(launched_workers) == 1:
+            raise subprocess.CalledProcessError(1, candidate.argv)
+        runner.validators[candidate.name] = lambda: True
+
+    runner.execute = execute
+
+    runner.run_shard(shard_context)
+
+    assert launched_workers == [4, 3]
+
+
 def test_resume_does_not_reset_failed_attempt_budget(
     isolated_config, shard_context
 ):
@@ -688,6 +713,32 @@ def test_failed_rank_terminates_and_reaps_its_siblings(isolated_config):
     assert (202, signal.SIGTERM) in signals
     assert (202, signal.SIGKILL) in signals
     assert all(process.waited == 1 for process in processes)
+
+
+def test_failed_blender_worker_terminates_and_reaps_all_fourteen_workers(
+    isolated_config,
+):
+    processes = [FakeProcess(220, [7])] + [
+        FakeProcess(221 + index, [None, None, None]) for index in range(13)
+    ]
+    runner, created, signals = process_runner(
+        isolated_config, FakeResourceGuard(), processes
+    )
+    command = CommandSpec(
+        "render_cond",
+        ("worker",),
+        gpu_ranks=7,
+        workers_per_gpu=2,
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        runner.execute(command, "shard")
+
+    assert len(created) == 14
+    assert all(process.waited == 1 for process in processes)
+    assert all(
+        (process.pid, signal.SIGTERM) in signals for process in processes[1:]
+    )
 
 
 def test_paused_groups_resume_before_term_and_all_are_reaped(isolated_config):

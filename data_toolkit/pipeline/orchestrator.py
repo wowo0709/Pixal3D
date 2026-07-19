@@ -34,6 +34,7 @@ from .commands import (
     build_preprocessing_dag,
     choose_worker_profile,
     expand_ranked,
+    select_render_workers,
 )
 from .config import PipelineConfig
 from .packing import (
@@ -1430,6 +1431,26 @@ class PipelineRunner:
                                 if persistence_error is not None
                                 else (),
                             )
+                        if command.name == "render_cond":
+                            stepped_workers = select_render_workers(
+                                current=command.workers_per_gpu,
+                                peak_percent=0.0,
+                                temperature_celsius=0.0,
+                                failed=True,
+                                steps=(
+                                    self.config.parallelism
+                                    .render_workers_per_gpu_steps
+                                ),
+                            )
+                            command = replace(
+                                command,
+                                workers_per_gpu=stepped_workers,
+                            )
+                            if self.worker_profile is not None:
+                                self.worker_profile = replace(
+                                    self.worker_profile,
+                                    render_workers_per_gpu=stepped_workers,
+                                )
                         continue
 
                     checkpoint.active_attempt = None
@@ -1688,11 +1709,13 @@ class PipelineRunner:
     def execute(self, command: CommandSpec, shard_id: str) -> None:
         if not command.argv:
             raise InfrastructureError(f"empty command argv: {command.name}")
-        if command.gpu_ranks < 0:
+        try:
+            expanded_commands = expand_ranked(command)
+        except (TypeError, ValueError) as error:
             raise InfrastructureError(
-                f"invalid rank count for command {command.name}: "
-                f"{command.gpu_ranks}"
-            )
+                f"invalid rank count or worker count for command "
+                f"{command.name}: {error}"
+            ) from error
         if (
             command.name in INTERNAL_COMMANDS
             or command.argv[0].startswith("internal:")
@@ -1713,7 +1736,7 @@ class PipelineRunner:
         processes = []
         paused_groups: set[int] = set()
         try:
-            for argv, additions in expand_ranked(command):
+            for argv, additions in expanded_commands:
                 environment = dict(self.environment)
                 environment.update(dict(additions))
                 process = self.supervisor_factory(argv, environment)

@@ -10,6 +10,7 @@ from data_toolkit.pipeline.commands import (
     build_preprocessing_dag,
     choose_worker_profile,
     expand_ranked,
+    select_render_workers,
 )
 
 
@@ -49,6 +50,30 @@ def test_worker_profile_steps_down_on_pressure(config):
     selected = choose_worker_profile(pressure, config, previous)
     assert selected.dump_workers == 36
     assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (8, 4)
+
+
+def test_worker_profile_applies_render_step_at_next_dag_boundary(config):
+    previous = choose_worker_profile((), config)
+    stable_gpu = [
+        {
+            "cpu_percent": 60,
+            "io_wait_percent": 2,
+            "available_ram_gib": 200,
+            "reasons": [],
+            "gpu_metrics": [
+                {
+                    "memory_used_mib": 60_000,
+                    "memory_total_mib": 97_887,
+                    "temperature_celsius": 70,
+                }
+            ],
+        }
+    ] * 3
+
+    selected = choose_worker_profile(stable_gpu, config, previous)
+
+    assert previous.render_workers_per_gpu == 2
+    assert selected.render_workers_per_gpu == 3
 
 
 def test_dag_accepts_worker_profile(config, tmp_path):
@@ -329,6 +354,7 @@ def test_render_and_cpu_stages_apply_thread_and_worker_caps(config, tmp_path):
 
     assert render.env == RENDER_ENV
     assert render.gpu_ranks == config.workers.render_workers
+    assert render.workers_per_gpu == 2
     assert render.argv[render.argv.index("--max_workers") + 1] == "1"
     assert render.argv[render.argv.index("--num_cond_views") + 1] == "8"
     assert render.argv[render.argv.index("--cond_resolution") + 1] == "512"
@@ -381,25 +407,41 @@ def test_all_voxel_and_encoder_commands_use_anchor_views(config, tmp_path):
     )
 
 
-def test_rank_expansion_adds_world_and_unique_gpu_per_rank(config, tmp_path):
+def test_render_workers_map_round_robin_to_seven_gpus(config, tmp_path):
     context = ShardContext.for_test(tmp_path, "ABO", "ABO-00000")
     render = _by_name(build_preprocessing_dag(context, config), "render_cond")
 
     expanded = expand_ranked(render)
 
-    assert len(expanded) == config.workers.render_workers
+    assert len(expanded) == 14
+    assert [dict(env)["CUDA_VISIBLE_DEVICES"] for _, env in expanded] == [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+    ]
     for rank, (argv, env) in enumerate(expanded):
         assert argv == (
             *render.argv,
             "--rank",
             str(rank),
             "--world_size",
-            str(config.workers.render_workers),
+            "14",
         )
-        assert env == (*RENDER_ENV, ("CUDA_VISIBLE_DEVICES", str(rank)))
-    assert len({dict(env)["CUDA_VISIBLE_DEVICES"] for _, env in expanded}) == len(
-        expanded
-    )
+        assert env == (
+            *RENDER_ENV,
+            ("CUDA_VISIBLE_DEVICES", str(rank % config.workers.render_workers)),
+        )
 
 
 def test_unranked_command_expands_once_without_mutation():
@@ -407,6 +449,55 @@ def test_unranked_command_expands_once_without_mutation():
 
     assert expand_ranked(command) == ((command.argv, command.env),)
     assert command == CommandSpec("cpu", ("python", "script.py"), CPU_ENV)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        CommandSpec("negative", ("worker",), gpu_ranks=-1),
+        CommandSpec(
+            "zero-workers", ("worker",), gpu_ranks=7, workers_per_gpu=0
+        ),
+        CommandSpec("too-many", ("worker",), gpu_ranks=7, workers_per_gpu=5),
+        CommandSpec("cpu-multiplier", ("worker",), workers_per_gpu=2),
+    ],
+)
+def test_rank_expansion_rejects_invalid_worker_counts(command):
+    with pytest.raises(ValueError):
+        expand_ranked(command)
+
+
+def test_render_worker_selector_steps_only_at_profile_boundaries():
+    steps = (2, 3, 4)
+
+    assert select_render_workers(
+        current=2,
+        peak_percent=65.0,
+        temperature_celsius=70.0,
+        failed=False,
+        steps=steps,
+    ) == 3
+    assert select_render_workers(
+        current=3,
+        peak_percent=81.0,
+        temperature_celsius=70.0,
+        failed=False,
+        steps=steps,
+    ) == 2
+    assert select_render_workers(
+        current=4,
+        peak_percent=75.0,
+        temperature_celsius=80.0,
+        failed=False,
+        steps=steps,
+    ) == 3
+    assert select_render_workers(
+        current=3,
+        peak_percent=75.0,
+        temperature_celsius=70.0,
+        failed=True,
+        steps=steps,
+    ) == 2
 
 
 def test_context_from_config_builds_paths_under_trusted_roots(config):
