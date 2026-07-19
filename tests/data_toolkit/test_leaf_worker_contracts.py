@@ -57,6 +57,9 @@ def test_encoder_bounds_and_dtype(script):
     assert "--loader_workers" in result.stdout
     assert "--saver_workers" in result.stdout
     assert "--latent_dtype" in result.stdout
+    assert "--micro_batch_size" in result.stdout
+    assert "--gpu_memory_target_percent" in result.stdout
+    assert "--record_prefix" in result.stdout
 
 
 @pytest.mark.parametrize("script", ("dual_grid_view.py", "voxelize_pbr_view.py"))

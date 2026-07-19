@@ -16,6 +16,10 @@ else:
     from utils import parse_view_indices
 
 from data_toolkit.pipeline.atomic_io import atomic_copy, atomic_save_npz
+from data_toolkit.pipeline.sparse_batching import (
+    run_encoder_tasks,
+    validate_record_prefix,
+)
 from data_toolkit.pipeline.validation import (
     validate_scale,
     validate_sparse_latent,
@@ -189,6 +193,9 @@ if __name__ == '__main__':
     parser.add_argument('--saver_workers', type=int, default=1)
     parser.add_argument('--latent_dtype', choices=('float32', 'float16'), default='float32')
     parser.add_argument('--timeout_seconds', type=int, default=900)
+    parser.add_argument('--micro_batch_size', type=int, required=True)
+    parser.add_argument('--gpu_memory_target_percent', type=float, default=80.0)
+    parser.add_argument('--record_prefix', default='')
     opt = parser.parse_args()
     if opt.loader_workers <= 0:
         parser.error('--loader_workers must be positive')
@@ -196,6 +203,11 @@ if __name__ == '__main__':
         parser.error('--saver_workers must be positive')
     if opt.timeout_seconds <= 0:
         parser.error('--timeout_seconds must be positive')
+    if opt.micro_batch_size <= 0:
+        parser.error('--micro_batch_size must be positive')
+    if not 0 < opt.gpu_memory_target_percent < 100:
+        parser.error('--gpu_memory_target_percent must be in (0, 100)')
+    opt.record_prefix = validate_record_prefix(opt.record_prefix)
     opt = edict(vars(opt))
     opt.shape_latent_root = opt.shape_latent_root or opt.root
     opt.ss_latent_root = opt.ss_latent_root or opt.root
@@ -332,15 +344,17 @@ if __name__ == '__main__':
         ss[:, coords[:, 0], coords[:, 1], coords[:, 2]] = 1
         return ss, None
 
-    def process(task, ss):
-        sha256, view_idx = task
-        z = encoder(ss.cuda()[None].float(), sample_posterior=False)
+    def process_batch(values):
+        batch = torch.stack(values, dim=0).cuda().float()
+        z = encoder(batch, sample_posterior=False)
         torch.cuda.synchronize()
         if not torch.isfinite(z).all():
-            print(f'[Skip] {sha256}/view{view_idx:02d}: non-finite latent')
             clear_cuda_error()
-            return None
-        return z
+            return [
+                value if torch.isfinite(value).all() else None
+                for value in z.split(1, dim=0)
+            ]
+        return list(z.split(1, dim=0))
 
     def save(task, z, cancel_event):
         sha256, view_idx = task
@@ -363,15 +377,16 @@ if __name__ == '__main__':
         output_path.unlink(missing_ok=True)
         destination_scale.unlink(missing_ok=True)
 
-    records = _run_bounded_pipeline(
-        tasks,
+    records = run_encoder_tasks(
+        tasks=tasks,
+        micro_batch_size=opt.micro_batch_size,
         load=load,
-        process=process,
+        process_batch=process_batch,
         save=save,
-        cleanup=cleanup,
         loader_workers=opt.loader_workers,
         saver_workers=opt.saver_workers,
         timeout_seconds=opt.timeout_seconds,
+        gpu_memory_target_percent=opt.gpu_memory_target_percent,
     )
 
     records = pd.DataFrame.from_records(records)
@@ -379,5 +394,5 @@ if __name__ == '__main__':
         records = pd.DataFrame(columns=['sha256'])
     _atomic_write_csv(
         records,
-        Path(opt.ss_latent_root) / 'ss_latents' / ss_latent_view_name / 'new_records' / f'part_{opt.rank}.csv',
+        Path(opt.ss_latent_root) / 'ss_latents' / ss_latent_view_name / 'new_records' / f'{opt.record_prefix}part_{opt.rank}.csv',
     )

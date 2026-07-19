@@ -38,7 +38,12 @@ def _expected_leaf_counts(context, config):
         if "--original-script" not in command.argv:
             continue
         index = command.argv.index("--original-script")
-        counts[command.argv[index + 1]] += command.gpu_ranks or 1
+        workers = (
+            command.gpu_ranks * command.workers_per_gpu
+            if command.gpu_ranks
+            else 1
+        )
+        counts[command.argv[index + 1]] += workers
     return dict(counts)
 
 

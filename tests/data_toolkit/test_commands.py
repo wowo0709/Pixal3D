@@ -253,6 +253,10 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
             str(config.workers.encoder_saver_threads),
             "--latent_dtype",
             config.targets.latent_dtype,
+            "--micro_batch_size",
+            str(config.parallelism.micro_batch(resolution)),
+            "--gpu_memory_target_percent",
+            str(config.parallelism.gpu_memory_target_percent),
         )
         assert _by_name(dag, f"encode_pbr_{resolution}").argv == _python_command(
             "encode_pbr_latent_view.py",
@@ -271,6 +275,10 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
             str(config.workers.encoder_saver_threads),
             "--latent_dtype",
             config.targets.latent_dtype,
+            "--micro_batch_size",
+            str(config.parallelism.micro_batch(resolution)),
+            "--gpu_memory_target_percent",
+            str(config.parallelism.gpu_memory_target_percent),
         )
 
     ss_resolution = config.targets.ss_resolution
@@ -295,6 +303,10 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
         str(config.workers.encoder_loader_threads),
         "--saver_workers",
         str(config.workers.encoder_saver_threads),
+        "--micro_batch_size",
+        str(config.parallelism.micro_batch(ss_resolution)),
+        "--gpu_memory_target_percent",
+        str(config.parallelism.gpu_memory_target_percent),
     )
 
 
