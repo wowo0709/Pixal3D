@@ -307,7 +307,8 @@ batch/shard boundaries.
 - Exit `2`: operator/provider/infrastructure block.
 - Exit `3`: resource stop.
 - Exit `4`: data-quality stop.
-- Pause after CPU above 80%, load above 72, or I/O wait above 10% for two minutes.
+- Pause after CPU above 80% or I/O wait above 10% for two minutes. Load above
+  72 remains telemetry only and does not pause an otherwise healthy node.
 - Pause immediately below 96 GiB available RAM, on swap-in, or at data2/data3 soft limits.
 - Stop after CPU above 90% for five minutes or immediately below 64 GiB RAM.
 - Stop below local `max(15%, 120 GiB)`, below 2 TiB free on data2, or below 4 TiB free on data3.

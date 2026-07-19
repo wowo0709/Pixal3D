@@ -1,8 +1,10 @@
 import time
+import threading
 
 import pytest
 import torch
 
+from data_toolkit.pipeline import sparse_batching
 from data_toolkit.pipeline.sparse_batching import (
     batch_sparse_tensors,
     run_encoder_tasks,
@@ -94,6 +96,35 @@ def test_records_remain_in_task_order_with_out_of_order_io():
     )
 
     assert records == [0, 1, 2, 3]
+
+
+def test_encoder_workers_are_joined_before_return(monkeypatch):
+    original_thread = threading.Thread
+    created_threads = []
+
+    class RecordingThread(original_thread):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.was_joined = False
+            created_threads.append(self)
+
+        def join(self, *args, **kwargs):
+            self.was_joined = True
+            return super().join(*args, **kwargs)
+
+    monkeypatch.setattr(sparse_batching.threading, "Thread", RecordingThread)
+
+    assert run_encoder_tasks(
+        tasks=[0, 1],
+        micro_batch_size=2,
+        load=lambda task, cancel: (task, None),
+        process_batch=lambda payloads: list(payloads),
+        save=lambda task, payload, cancel: task,
+    ) == [0, 1]
+
+    assert created_threads
+    assert all(thread.was_joined for thread in created_threads)
+    assert not any(thread.is_alive() for thread in created_threads)
 
 
 @pytest.mark.parametrize("value", ["../chunk", "chunk/", "chunk\\", "bad\0"])

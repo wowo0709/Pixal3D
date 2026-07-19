@@ -507,8 +507,10 @@ class ResourcePolicy:
             "cpu_soft", value.cpu_percent > self.limits.cpu_soft_percent, now
         ) >= 2 * 60:
             soft.append("CPU soft duration")
-        if self.duration("load", value.load_1m > self.limits.load_soft, now) >= 2 * 60:
-            soft.append("load soft duration")
+        # Linux load includes runnable work and uninterruptible kernel waits. It
+        # is useful telemetry, but by itself it does not prove CPU, memory, I/O,
+        # or thermal pressure. Those signals have their own bounded guards
+        # below, so a healthy high-load node must not be paused on load alone.
         if self.duration(
             "iowait", value.io_wait_percent > self.limits.io_wait_soft_percent, now
         ) >= 2 * 60:

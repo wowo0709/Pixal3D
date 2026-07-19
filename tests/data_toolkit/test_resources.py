@@ -173,7 +173,6 @@ def test_policy_soft_duration_resets_after_stable_sample(config):
     ("field", "high", "reason"),
     [
         ("cpu_percent", 85.0, "CPU soft duration"),
-        ("load_1m", 73.0, "load soft duration"),
         ("io_wait_percent", 11.0, "I/O wait"),
     ],
 )
@@ -196,6 +195,24 @@ def test_duration_soft_policies_require_continuous_violation(
     assert (
         policy.evaluate(
             sample(wall, monotonic_seconds=1_000.0, **{field: high})
+        ).action
+        == ResourceAction.RUN
+    )
+
+
+def test_sustained_high_load_alone_does_not_pause_healthy_node(config):
+    wall = datetime(2026, 7, 16, tzinfo=timezone.utc)
+    policy = ResourcePolicy(config.limits)
+
+    assert (
+        policy.evaluate(
+            sample(wall, load_1m=96.0, monotonic_seconds=0.0)
+        ).action
+        == ResourceAction.RUN
+    )
+    assert (
+        policy.evaluate(
+            sample(wall, load_1m=96.0, monotonic_seconds=120.0)
         ).action
         == ResourceAction.RUN
     )

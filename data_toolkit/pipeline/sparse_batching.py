@@ -362,6 +362,7 @@ def run_encoder_tasks(
                 if output is not None:
                     enqueue_save(index, task, output)
 
+    completed = False
     try:
         while received_loads < len(indexed_tasks):
             drain_savers()
@@ -394,9 +395,13 @@ def run_encoder_tasks(
             pending_saves.remove(index)
             if record is not None:
                 records_by_index[index] = record
-        return [
+        records = [
             records_by_index[index]
             for index in sorted(records_by_index)
         ]
+        completed = True
+        return records
     finally:
         cancel_event.set()
+        for thread in threads:
+            thread.join(timeout=None if completed else 0.25)
