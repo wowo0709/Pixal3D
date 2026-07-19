@@ -5,6 +5,7 @@ from pathlib import Path
 import tarfile
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -394,3 +395,77 @@ def test_65_asset_production_batch_runs_as_two_restartable_chunks(
     assert {
         path: json.loads(path.read_text()) for path in command_counts
     } == command_counts
+
+
+@pytest.mark.integration
+def test_parallelism_benchmark_executes_frozen_64_asset_scope(
+    parallel_synthetic_config, monkeypatch
+):
+    config = parallel_synthetic_config
+    worker = Path("tests/data_toolkit/fixtures/fake_leaf_worker.py").resolve()
+    monkeypatch.setenv("PIXAL3D_LEAF_WORKER", str(worker))
+    monkeypatch.setenv("PIXAL3D_FAKE_FAST", "1")
+    monkeypatch.setenv(
+        "PIXAL3D_FAKE_VXZ_TEMPLATE",
+        str(config.paths.local_root / "fake-template.vxz"),
+    )
+    registry = SafeRegistryStore(
+        config.paths.data2_root / "control/assets.parquet", config
+    )
+    assets = tuple(
+        sorted(
+            registry.load().loc[
+                lambda frame: frame["owner_source"] == SOURCE, "sha256"
+            ]
+        )[:64]
+    )
+    metadata = pd.read_csv(
+        config.paths.data2_root / f"control/metadata/{SOURCE}/metadata.csv"
+    ).set_index("sha256")
+    raw_root = config.paths.data2_root / f"raw/{SOURCE}"
+    raw_records = []
+    for asset in assets:
+        record = metadata.loc[asset]
+        relative = Path(record["file_identifier"])
+        destination = raw_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(record["fixture_payload"].encode("ascii"))
+        raw_records.append({"sha256": asset, "local_path": relative.as_posix()})
+    raw_metadata = raw_root / "raw/metadata.csv"
+    raw_metadata.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(raw_records).to_csv(raw_metadata, index=False)
+
+    services = PipelineServices(
+        config,
+        resource_guard=_AlwaysRunGuard(),
+        pilot_reader=_OneMiBPilot(),
+        registry_store=registry,
+        tool_commit="parallel-benchmark-integration-test",
+    )
+    services.runner.monitor_interval_seconds = 0.01
+    report_paths = services.benchmark_parallelism(
+        SOURCE, SHARD, 64, dry_run=False
+    )
+
+    report = json.loads(report_paths[0].read_text())
+    assert report["report_type"] == "parallelism_benchmark"
+    assert report["count"] == 64
+    assert report["quality"] == {
+        "terminal_assets": 64,
+        "completed_assets": 64,
+        "quarantined_assets": 0,
+    }
+    assert report["audit"]["passed"] is True
+    assert report["measurement_valid"] is False
+    assert report["decision"] == "held"
+    assert set(report["stage_seconds"]) == {
+        command.name
+        for command in build_preprocessing_dag(
+            ShardContext.from_config(
+                config, SOURCE, SHARD, "benchmark064", gate="pilot"
+            ),
+            config,
+        )
+        if command.name
+        not in {"download", "build_packs", "archive_raw", "cleanup_local"}
+    }

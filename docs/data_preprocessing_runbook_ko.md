@@ -298,7 +298,83 @@ conda run --no-capture-output -n pixal3d \
 동일 frozen scope를 재사용한다. source 성공률 90% 미만, schema failure 5% 초과,
 capacity/checksum/hardware/audit 실패가 있으면 production을 시작하지 않는다.
 
-## 7-1. 전체 데이터 다운로드/전처리
+## 7-1. 병렬 처리 성능 gate
+
+production 전에는 기존 single-worker ABO 기준 `119.46 assets/hour` 대비 최소
+`1.8x`, 즉 `215.03 assets/hour`를 64개 고정 범위에서 통과해야 한다. 벤치마크는
+condition image를 기존 계약 그대로 asset당 8장, `512 x 512`로 렌더링하며,
+aligned view `0/1`, `256/512/1024`, `SS-64`, FP32 latent를 변경하지 않는다.
+
+먼저 범위와 출력 경로만 읽기 전용으로 확인한다.
+
+```bash
+cd /root/dev/Pixal3D/.worktrees/parallel-preprocessing
+
+PYTHONPATH=. conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli benchmark-parallelism \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --source ABO --shard ABO-00000 --count 64 --dry-run
+```
+
+실제 벤치마크를 한 번 실행한다. 재시작된 측정은 정확한 처리율 증거로 인정하지
+않으므로, 중단되면 checkpoint는 보존하되 원인을 해결한 뒤 새로운 held 범위를
+사용한다.
+
+```bash
+PYTHONPATH=. conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli benchmark-parallelism \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --source ABO --shard ABO-00000 --count 64
+
+PYTHONPATH=. conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli report \
+  --config data_toolkit/configs/multiview_preprocess.yaml \
+  --parallelism-check
+```
+
+증거는 다음 두 파일에 원자적으로 기록된다.
+
+- `/root/data2/pixal3d/control/reports/parallelism.json`
+- `/root/data2/pixal3d/control/reports/parallelism.md`
+
+`decision`이 `passed`가 되려면 처리율과 1.8x 기준 외에도 audit 통과, GPU peak
+90% 이하, GPU 평균 메모리 80% 이하, CPU 할당 44 physical core 이하, 유효한
+7-GPU telemetry가 모두 필요하다. `held`이면 production을 시작하지 않는다.
+
+production 전체 계획은 다음 읽기 전용 명령으로 확인한다. 각 publication batch는
+최대 256개, 실행 chunk는 최대 64개이며 이 명령은 scope를 freeze하거나 worker를
+실행하지 않는다.
+
+```bash
+PYTHONPATH=. conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli full-run \
+  --config data_toolkit/configs/multiview_preprocess.yaml --dry-run
+```
+
+성능 저하나 resource stop이 나면 checkpoint, pack, raw archive를 삭제하지 않는다.
+새 admission을 중단하고 마지막으로 audit된 worker profile로 되돌린 뒤 동일 frozen
+scope를 `resume`한다.
+
+### 다른 노드로 분산할 때
+
+추가 노드의 CPU와 GPU를 모두 사용할 수 있다. `dual_grid`와 `voxelize_pbr`는
+추가 CPU 노드로, Blender condition render는 추가 GPU 노드로 분배할 수 있다.
+가장 안전한 단위는 stage 중간 파일을 매번 네트워크로 전송하는 방식이 아니라,
+64개 이하의 완전한 asset chunk를 한 노드에 배정해 그 노드의 local scratch에서
+render/geometry/encode를 진행하고 검증된 최종 chunk만 canonical parent로
+promotion하는 방식이다. 이렇게 해야 1024 voxel과 latent의 큰 중간 I/O가 병목이
+되지 않는다.
+
+모든 노드는 동일한 Git commit, config hash, `pixal3d` conda 환경(CUDA 12.8,
+PyTorch 2.8 이상), Blender 4.5.1/OptiX, canonical raw 접근 권한을 가져야 한다.
+노드 추가 전에는 hostname/SSH, physical core와 RAM, GPU 수·모델·VRAM·driver,
+노드 local NVMe 경로, data2/data3 공유 여부, 노드 간 실효 네트워크 대역폭을
+기록한다. CPU만 추가하면 geometry 구간은 크게 줄지만 전체 속도는 render/encode와
+I/O에 제한된다. CPU와 GPU가 모두 비슷한 노드를 하나 더 추가하면 전체 chunk를
+두 노드에 분산할 수 있어 이상적으로 2배에 접근하되, publication과 공유 스토리지
+경합 때문에 실제 증가는 그보다 작다.
+
+## 7-2. 전체 데이터 다운로드/전처리
 
 전체 처리는 smoke와 pilot report가 모두 `passed`인 경우에만 실행한다. 전체
 실행에서는 `--count`를 절대 사용하지 않는다. 권장 명령은 전체 canonical shard를

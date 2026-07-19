@@ -544,6 +544,110 @@ def read_gate_report(
     return derived
 
 
+def read_parallelism_report(
+    config: PipelineConfig, *, require_passed: bool = True
+) -> tuple[Path, Path]:
+    report_root = config.paths.data2_root / "control/reports"
+    json_path = report_root / "parallelism.json"
+    markdown_path = report_root / "parallelism.md"
+    published = _safe_json(json_path, "parallelism report")
+    required = {
+        "schema_version",
+        "report_type",
+        "decision",
+        "config_hash",
+        "tool_commit",
+        "source",
+        "shard_id",
+        "count",
+        "scope_sha256",
+        "created_at",
+        "measurement_valid",
+        "resumed",
+        "summary",
+        "stage_seconds",
+        "resources",
+        "retries",
+        "quality",
+        "audit",
+    }
+    if set(published) != required:
+        raise ArtifactValidationError("invalid parallelism report schema")
+    if published["schema_version"] != 1:
+        raise ArtifactValidationError("unsupported parallelism report schema")
+    if published["report_type"] != "parallelism_benchmark":
+        raise ArtifactValidationError("invalid parallelism report type")
+    if published["config_hash"] != config.config_hash():
+        raise ArtifactValidationError("parallelism report config hash mismatch")
+    if published["source"] not in config.sources:
+        raise ArtifactValidationError("parallelism report source mismatch")
+    source = _component(published["source"], "parallelism source")
+    shard = _component(published["shard_id"], "parallelism shard")
+    suffix = shard.removeprefix(f"{source}-")
+    if not shard.startswith(f"{source}-") or len(suffix) != 5 or not suffix.isdigit():
+        raise ArtifactValidationError("parallelism report shard mismatch")
+    if (
+        _nonnegative_count(published["count"], "parallelism asset count", positive=True)
+        != config.parallelism.chunk_assets
+    ):
+        raise ArtifactValidationError("parallelism report asset count mismatch")
+    _sha(published["scope_sha256"], "parallelism scope checksum")
+    if not isinstance(published["measurement_valid"], bool) or not isinstance(
+        published["resumed"], bool
+    ):
+        raise ArtifactValidationError("invalid parallelism measurement state")
+    summary = published["summary"]
+    quality = published["quality"]
+    audit = published["audit"]
+    resources = published["resources"]
+    if not all(
+        isinstance(value, Mapping)
+        for value in (summary, quality, audit, resources)
+    ):
+        raise ArtifactValidationError("invalid parallelism report sections")
+    if not isinstance(summary.get("passed"), bool) or not isinstance(
+        audit.get("passed"), bool
+    ):
+        raise ArtifactValidationError("invalid parallelism report decision inputs")
+    terminal = _nonnegative_count(
+        quality.get("terminal_assets"), "parallelism terminal assets"
+    )
+    completed = _nonnegative_count(
+        quality.get("completed_assets"), "parallelism completed assets"
+    )
+    quarantined = _nonnegative_count(
+        quality.get("quarantined_assets"), "parallelism quarantined assets"
+    )
+    if terminal != completed + quarantined or terminal != published["count"]:
+        raise ArtifactValidationError("parallelism quality counts do not match scope")
+    if summary.get("completed_assets") != terminal:
+        raise ArtifactValidationError("parallelism summary count mismatch")
+    decision_passed = (
+        published["measurement_valid"]
+        and summary["passed"]
+        and audit["passed"]
+    )
+    expected_decision = "passed" if decision_passed else "held"
+    if published["decision"] != expected_decision:
+        raise ArtifactValidationError("parallelism report decision mismatch")
+    try:
+        markdown = _read_regular_bytes_nofollow(markdown_path)
+        rendered = json.dumps(
+            published, indent=2, sort_keys=True, allow_nan=False
+        ).encode("utf-8")
+    except (InfrastructureError, OSError, TypeError, ValueError) as error:
+        raise ArtifactValidationError(
+            f"missing or unsafe parallelism markdown report: {error}"
+        ) from error
+    if rendered not in markdown:
+        raise ArtifactValidationError(
+            "parallelism markdown does not match JSON evidence"
+        )
+    if require_passed and published["decision"] != "passed":
+        raise ArtifactValidationError("parallelism benchmark has not passed")
+    return json_path, markdown_path
+
+
 def _finite(value, description: str, *, positive: bool = False) -> float:
     if (
         not isinstance(value, (int, float))
@@ -1480,6 +1584,11 @@ class NoFollowTelemetryWriter:
             raise sync_error
         if close_error is not None:
             raise close_error
+
+    def flush(self) -> None:
+        if self._closed:
+            raise ValueError("telemetry writer is closed")
+        self._sync()
 
 
 def _read_bound_artifact(path: Path, expected_sha: str, description: str) -> bytes:
@@ -2638,6 +2747,7 @@ class MutatingRuntime:
                     self.config, store=registry
                 ),
                 report_builder=RuntimeReportBuilder(self.config),
+                telemetry_flush=telemetry.flush,
             )
         except BaseException as error:
             try:

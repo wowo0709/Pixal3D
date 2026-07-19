@@ -21,6 +21,8 @@ GATE_REPORT_TYPE = "pipeline_gate"
 GATES = frozenset(("smoke", "pilot", "production"))
 FAILURE_RATE_LIMIT = 0.10
 SCHEMA_FAILURE_RATE_LIMIT = 0.05
+PARALLEL_BASELINE_ASSETS_PER_HOUR = 119.46
+PARALLEL_ACCEPTANCE_ASSETS_PER_HOUR = 215.03
 
 
 class ReportValidationError(ValueError):
@@ -225,6 +227,71 @@ def performance_summary(
         "eta_hours": remaining / assets_per_hour if assets_per_hour else None,
         "pause_fraction": pauses / len(telemetry),
         "resource_peaks": resource_peaks(telemetry),
+    }
+
+
+def parallelism_summary(
+    *,
+    completed_assets: int,
+    elapsed_seconds: float,
+    baseline_assets_per_hour: float = PARALLEL_BASELINE_ASSETS_PER_HOUR,
+    gpu_peak_percent: float,
+    cpu_assigned_cores: int,
+    audit_passed: bool,
+    gpu_steady_state_percent: float | None = None,
+) -> dict[str, object]:
+    completed = _count(
+        completed_assets, "parallel completed assets", positive=True
+    )
+    elapsed = _finite_number(
+        elapsed_seconds, "parallel elapsed seconds", positive=True
+    )
+    baseline = _finite_number(
+        baseline_assets_per_hour,
+        "parallel baseline assets per hour",
+        positive=True,
+    )
+    peak = _finite_number(
+        gpu_peak_percent, "parallel GPU peak percent", nonnegative=True
+    )
+    steady = _finite_number(
+        peak
+        if gpu_steady_state_percent is None
+        else gpu_steady_state_percent,
+        "parallel GPU steady-state percent",
+        nonnegative=True,
+    )
+    cores = _count(cpu_assigned_cores, "parallel CPU assigned cores")
+    audited = _bool(audit_passed, "parallel audit status")
+    assets_per_hour = completed * 3600.0 / elapsed
+    speedup = assets_per_hour / baseline
+    criteria = {
+        "throughput": assets_per_hour
+        >= PARALLEL_ACCEPTANCE_ASSETS_PER_HOUR,
+        "speedup": speedup >= 1.8,
+        "audit": audited,
+        "gpu_peak": peak <= 90.0,
+        "gpu_steady_state": steady <= 80.0,
+        "cpu_assignment": cores <= 44,
+    }
+    return {
+        "completed_assets": completed,
+        "elapsed_seconds": elapsed,
+        "assets_per_hour": assets_per_hour,
+        "baseline_assets_per_hour": baseline,
+        "acceptance_assets_per_hour": (
+            PARALLEL_ACCEPTANCE_ASSETS_PER_HOUR
+        ),
+        "speedup": speedup,
+        "gpu_peak_percent": peak,
+        "gpu_steady_state_percent": steady,
+        "cpu_assigned_cores": cores,
+        "audit_passed": audited,
+        "criteria": criteria,
+        "failed_criteria": tuple(
+            name for name, passed in criteria.items() if not passed
+        ),
+        "passed": all(criteria.values()),
     }
 
 

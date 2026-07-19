@@ -23,10 +23,52 @@ from data_toolkit.pipeline.reporting import (
     fp16_family_summary,
     build_training_handoff,
     performance_summary,
+    parallelism_summary,
 )
 
 
 CONFIG_HASH = "a" * 64
+
+
+def test_parallelism_summary_enforces_acceptance_target():
+    value = parallelism_summary(
+        completed_assets=64,
+        elapsed_seconds=900.0,
+        baseline_assets_per_hour=119.46,
+        gpu_peak_percent=79.0,
+        cpu_assigned_cores=44,
+        audit_passed=True,
+    )
+
+    assert value["assets_per_hour"] == 256.0
+    assert value["speedup"] > 1.8
+    assert value["acceptance_assets_per_hour"] == pytest.approx(215.03)
+    assert value["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"elapsed_seconds": 1200.0},
+        {"gpu_peak_percent": 90.1},
+        {"gpu_steady_state_percent": 80.1},
+        {"cpu_assigned_cores": 45},
+        {"audit_passed": False},
+    ],
+)
+def test_parallelism_summary_holds_any_unsafe_or_slow_profile(override):
+    values = {
+        "completed_assets": 64,
+        "elapsed_seconds": 900.0,
+        "baseline_assets_per_hour": 119.46,
+        "gpu_peak_percent": 79.0,
+        "gpu_steady_state_percent": 79.0,
+        "cpu_assigned_cores": 44,
+        "audit_passed": True,
+    }
+    values.update(override)
+
+    assert parallelism_summary(**values)["passed"] is False
 
 
 def test_fp32_gate_does_not_require_fp16_qualification():

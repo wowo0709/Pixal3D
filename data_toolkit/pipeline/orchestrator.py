@@ -1026,6 +1026,7 @@ class PipelineRunner:
         self._active_quality_assets: tuple[str, ...] | None = None
         self._active_instances_sha256: str | None = None
         self.worker_profile: WorkerProfile | None = None
+        self.last_command_timings: dict[str, float] = {}
 
     def _build_commands(self, context: ShardContext) -> Sequence[CommandSpec]:
         try:
@@ -1203,6 +1204,7 @@ class PipelineRunner:
     def run_shard(self, context: ShardContext) -> None:
         if self.active_context is not None:
             raise RuntimeError("pipeline runner is already active")
+        self.last_command_timings = {}
         self.active_context = context
         checkpoint_path = self.checkpoint_path(context)
         try:
@@ -1379,6 +1381,7 @@ class PipelineRunner:
                                 f"prelaunch checkpoint persistence failed: {error}",
                             ),
                         )
+                    attempt_started = self.monotonic_clock()
                     try:
                         launch_command = self._command_for_eligible_assets(
                             command, context, checkpoint
@@ -1471,6 +1474,14 @@ class PipelineRunner:
                                     render_workers_per_gpu=stepped_workers,
                                 )
                         continue
+                    finally:
+                        elapsed = max(
+                            0.0, self.monotonic_clock() - attempt_started
+                        )
+                        self.last_command_timings[command.name] = (
+                            self.last_command_timings.get(command.name, 0.0)
+                            + elapsed
+                        )
 
                     checkpoint.active_attempt = None
                     checkpoint.complete(command.name)
@@ -3095,6 +3106,7 @@ class PipelineServices:
         tool_commit: str | None = None,
         parallel_scheduler_factory: Callable[[ShardContext], object]
         | None = None,
+        telemetry_flush: Callable[[], None] | None = None,
     ):
         self.config = config
         self.registry = registry_store or RegistryStore(
@@ -3154,6 +3166,9 @@ class PipelineServices:
         self.parallel_scheduler_factory = (
             parallel_scheduler_factory or self._build_parallel_scheduler
         )
+        if telemetry_flush is not None and not callable(telemetry_flush):
+            raise ValueError("telemetry flush provider must be callable")
+        self.telemetry_flush = telemetry_flush
         if tool_commit is not None and (
             not isinstance(tool_commit, str) or not tool_commit
         ):
@@ -6090,6 +6105,442 @@ class PipelineServices:
             self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches, gate=gate)
         self._reconcile_accounting(context, "shard")
+
+    def _benchmark_scope(
+        self, source: str, shard: str, count: int
+    ) -> tuple[str, ...]:
+        if type(count) is not int or count <= 0:
+            raise ValueError("parallelism benchmark count must be positive")
+        if count != self.config.parallelism.chunk_assets:
+            raise ValueError(
+                "parallelism benchmark count must equal configured chunk assets"
+            )
+        assets = self._registry_shas(source, shard, count)
+        if len(assets) != count:
+            raise InfrastructureError(
+                f"benchmark shard has fewer than {count} assets: {source}/{shard}"
+            )
+        return assets
+
+    def _benchmark_context(
+        self,
+        source: str,
+        shard: str,
+        count: int,
+        instances: Path,
+    ) -> ShardContext:
+        local = (
+            self.config.paths.local_root
+            / "preprocess/benchmark"
+            / source
+            / shard
+            / f"count{count:03d}"
+        )
+        return ShardContext(
+            source=source,
+            shard_id=f"{shard}-benchmark{count:03d}",
+            instances=instances,
+            metadata_root=(
+                self.config.paths.data2_root / "control/metadata" / source
+            ),
+            source_root=self.config.paths.data2_root / "raw" / source,
+            download_root=local / "source",
+            work_root=local / "work",
+            output_root=local / "output",
+            batch_id=f"benchmark{count:03d}",
+            gate="pilot",
+        )
+
+    @staticmethod
+    def _benchmark_telemetry(
+        path: Path,
+        shard_id: str,
+        started_at: datetime,
+        finished_at: datetime,
+    ) -> tuple[dict, ...]:
+        try:
+            descriptor = os.open(
+                path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+            )
+        except FileNotFoundError:
+            return ()
+        except OSError as error:
+            raise InfrastructureError(
+                f"cannot read benchmark telemetry: {path}: {error}"
+            ) from error
+        records = []
+        try:
+            with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+                descriptor = -1
+                for line_number, line in enumerate(stream, start=1):
+                    try:
+                        record = json.loads(line)
+                        timestamp = datetime.fromisoformat(
+                            record["timestamp"]
+                        )
+                    except (
+                        KeyError,
+                        TypeError,
+                        ValueError,
+                        json.JSONDecodeError,
+                    ) as error:
+                        raise InfrastructureError(
+                            f"invalid benchmark telemetry line {line_number}: {error}"
+                        ) from error
+                    if (
+                        record.get("shard_id") == shard_id
+                        and timestamp.tzinfo is not None
+                        and timestamp.utcoffset() is not None
+                        and started_at <= timestamp <= finished_at
+                    ):
+                        records.append(record)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        return tuple(records)
+
+    @staticmethod
+    def _benchmark_resource_summary(
+        telemetry: Sequence[Mapping[str, object]], expected_gpus: int
+    ) -> dict[str, object]:
+        cpu = []
+        gpu_memory = []
+        gpu_utilization = []
+        gpu_temperature = []
+        gpu_indices = set()
+        pauses = 0
+        for record in telemetry:
+            try:
+                cpu.append(float(record["cpu_percent"]))
+                if record.get("action") == "pause":
+                    pauses += 1
+                metrics = record["gpu_metrics"]
+                if not isinstance(metrics, list):
+                    raise TypeError("GPU metrics are not a list")
+                sample_memory = []
+                sample_utilization = []
+                sample_temperature = []
+                for metric in metrics:
+                    if not isinstance(metric, Mapping):
+                        raise TypeError("GPU metric is not an object")
+                    used = float(metric["memory_used_mib"])
+                    total = float(metric["memory_total_mib"])
+                    if total <= 0 or used < 0:
+                        raise ValueError("invalid GPU memory")
+                    sample_memory.append(100.0 * used / total)
+                    sample_utilization.append(
+                        float(metric["utilization_percent"])
+                    )
+                    sample_temperature.append(
+                        float(metric["temperature_celsius"])
+                    )
+                    gpu_indices.add(int(metric["index"]))
+                if sample_memory:
+                    gpu_memory.append(max(sample_memory))
+                    gpu_utilization.append(
+                        sum(sample_utilization) / len(sample_utilization)
+                    )
+                    gpu_temperature.append(max(sample_temperature))
+            except (KeyError, TypeError, ValueError) as error:
+                raise InfrastructureError(
+                    f"invalid parallelism telemetry record: {error}"
+                ) from error
+        finite = (
+            *cpu,
+            *gpu_memory,
+            *gpu_utilization,
+            *gpu_temperature,
+        )
+        if any(not math.isfinite(value) or value < 0 for value in finite):
+            raise InfrastructureError("non-finite parallelism telemetry")
+        return {
+            "samples": len(telemetry),
+            "gpu_count_observed": len(gpu_indices),
+            "telemetry_valid": (
+                bool(telemetry)
+                and len(gpu_indices) == expected_gpus
+                and bool(gpu_memory)
+            ),
+            "gpu_memory_peak_percent": max(gpu_memory, default=0.0),
+            "gpu_memory_mean_percent": (
+                sum(gpu_memory) / len(gpu_memory) if gpu_memory else 0.0
+            ),
+            "gpu_utilization_mean_percent": (
+                sum(gpu_utilization) / len(gpu_utilization)
+                if gpu_utilization
+                else 0.0
+            ),
+            "gpu_temperature_peak_celsius": max(
+                gpu_temperature, default=0.0
+            ),
+            "cpu_observed_peak_percent": max(cpu, default=0.0),
+            "cpu_observed_mean_percent": (
+                sum(cpu) / len(cpu) if cpu else 0.0
+            ),
+            "pauses": pauses,
+        }
+
+    def benchmark_parallelism(
+        self,
+        source: str,
+        shard: str,
+        count: int,
+        *,
+        dry_run: bool,
+    ):
+        if type(dry_run) is not bool:
+            raise ValueError("parallelism benchmark dry-run flag must be boolean")
+        assets = self._benchmark_scope(source, shard, count)
+        scope_payload = self._batch_file_payload(assets).encode("ascii")
+        scope_sha = sha256(scope_payload).hexdigest()
+        control = (
+            self.config.paths.data2_root
+            / "control/benchmarks/parallelism"
+            / source
+            / shard
+            / f"count{count:03d}"
+        )
+        report_root = self.config.paths.data2_root / "control/reports"
+        report_paths = (
+            report_root / "parallelism.json",
+            report_root / "parallelism.md",
+        )
+        if dry_run:
+            return {
+                "decision": "dry_run",
+                "source": source,
+                "shard_id": shard,
+                "assets": count,
+                "scope_sha256": scope_sha,
+                "render_resolution": self.config.render.resolution,
+                "condition_views": self.config.render.num_views,
+                "aligned_views": list(self.config.targets.views),
+                "resolutions": list(self.config.targets.resolutions),
+                "chunk_assets": self.config.parallelism.chunk_assets,
+                "max_chunks_in_flight": (
+                    self.config.parallelism.max_chunks_in_flight
+                ),
+                "evidence_paths": [str(path) for path in report_paths],
+            }
+
+        existing_json = _read_regular_bytes_nofollow(
+            report_paths[0], missing_ok=True
+        )
+        existing_markdown = _read_regular_bytes_nofollow(
+            report_paths[1], missing_ok=True
+        )
+        if existing_json is not None or existing_markdown is not None:
+            if existing_json is None or existing_markdown is None:
+                raise InfrastructureError(
+                    "incomplete parallelism benchmark report publication"
+                )
+            try:
+                existing = json.loads(existing_json)
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise InfrastructureError(
+                    f"invalid parallelism benchmark report: {error}"
+                ) from error
+            if (
+                not isinstance(existing, dict)
+                or existing.get("report_type")
+                != "parallelism_benchmark"
+                or existing.get("config_hash")
+                != self.config.config_hash()
+                or existing.get("scope_sha256") != scope_sha
+            ):
+                raise InfrastructureError(
+                    "existing parallelism report belongs to another benchmark scope"
+                )
+            return report_paths
+
+        instances = control / "instances.txt"
+        manifest_path = control / "manifest.json"
+        manifest = {
+            "schema_version": 1,
+            "artifact_type": "parallelism_benchmark_scope",
+            "config_hash": self.config.config_hash(),
+            "source": source,
+            "shard_id": shard,
+            "count": count,
+            "scope_sha256": scope_sha,
+        }
+        existing_manifest = _read_regular_bytes_nofollow(
+            manifest_path, missing_ok=True
+        )
+        if existing_manifest is not None:
+            try:
+                decoded_manifest = json.loads(existing_manifest)
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise InfrastructureError(
+                    f"invalid benchmark scope manifest: {error}"
+                ) from error
+            if decoded_manifest != manifest:
+                raise InfrastructureError(
+                    "benchmark scope manifest identity changed"
+                )
+            if _read_regular_bytes_nofollow(instances) != scope_payload:
+                raise InfrastructureError(
+                    "benchmark frozen instance identity changed"
+                )
+        else:
+            existing_instances = _read_regular_bytes_nofollow(
+                instances, missing_ok=True
+            )
+            if existing_instances is not None and existing_instances != scope_payload:
+                raise InfrastructureError(
+                    "orphan benchmark instance identity changed"
+                )
+            _atomic_write_bytes_nofollow(instances, scope_payload)
+            _atomic_write_bytes_nofollow(
+                manifest_path,
+                json.dumps(
+                    manifest, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8"),
+            )
+
+        context = self._benchmark_context(
+            source, shard, count, instances
+        )
+        self._read_raw_records(
+            context.source_root / "raw/metadata.csv", assets
+        )
+        benchmark = PipelineServices(
+            self.config,
+            resource_guard=self.resource_guard,
+            pilot_reader=self.pilot_reader,
+            reference_counter=self.reference_counter,
+            project_accounting=self.project_accounting,
+            registry_store=self.registry,
+            disk_usage=self.disk_usage,
+            tool_commit=self._tool_commit,
+        )
+        benchmark.runner.checkpoint_path = (
+            lambda _context: control / "checkpoint.json"
+        )
+        benchmark.runner.quality_ledger_path = (
+            lambda _context: control / "quality.json"
+        )
+        for attribute in (
+            "process_factory",
+            "supervisor_factory",
+            "monotonic_clock",
+            "sleeper",
+            "killpg",
+            "getpgid",
+            "termination_grace_seconds",
+            "reap_timeout_seconds",
+            "monitor_interval_seconds",
+            "process_poll_interval_seconds",
+            "environment",
+            "utc_clock",
+        ):
+            if hasattr(self.runner, attribute):
+                value = getattr(self.runner, attribute)
+                if attribute == "environment":
+                    value = dict(value)
+                setattr(benchmark.runner, attribute, value)
+        benchmark_commands = frozenset(
+            command.name
+            for command in build_preprocessing_dag(
+                context, self.config
+            )
+            if command.name
+            not in {"download", "build_packs", "archive_raw", "cleanup_local"}
+        )
+
+        def command_builder(candidate, config, profile):
+            return tuple(
+                command
+                for command in build_preprocessing_dag(
+                    candidate, config, profile
+                )
+                if command.name in benchmark_commands
+            )
+
+        benchmark.runner.command_builder = command_builder
+        before = benchmark.runner.load_checkpoint(
+            control / "checkpoint.json", context.shard_id, context.gate
+        )
+        resumed = bool(before.completed_commands or before.attempts)
+        started_at = datetime.now(timezone.utc)
+        started = time.monotonic()
+        benchmark.runner.run_shard(context)
+        elapsed = time.monotonic() - started
+        finished_at = datetime.now(timezone.utc)
+        audit_passed = benchmark.runner.validate_completed_commands(
+            context, ("validate_outputs",)
+        )
+        checkpoint = benchmark.runner.load_checkpoint(
+            control / "checkpoint.json", context.shard_id, context.gate
+        )
+        if self.telemetry_flush is not None:
+            self.telemetry_flush()
+        telemetry = self._benchmark_telemetry(
+            self.config.paths.data2_root
+            / "control/telemetry/resources.jsonl",
+            context.shard_id,
+            started_at,
+            finished_at,
+        )
+        resources = self._benchmark_resource_summary(
+            telemetry, self.config.parallelism.gpu_count
+        )
+        from .reporting import parallelism_summary, write_report
+
+        summary = parallelism_summary(
+            completed_assets=len(checkpoint.quality_outcomes),
+            elapsed_seconds=elapsed,
+            gpu_peak_percent=resources["gpu_memory_peak_percent"],
+            gpu_steady_state_percent=(
+                resources["gpu_memory_mean_percent"]
+            ),
+            cpu_assigned_cores=(
+                self.config.parallelism.cpu_physical_cores
+            ),
+            audit_passed=audit_passed,
+        )
+        measurement_valid = not resumed and resources["telemetry_valid"]
+        decision_passed = summary["passed"] and measurement_valid
+        report = {
+            "schema_version": 1,
+            "report_type": "parallelism_benchmark",
+            "decision": "passed" if decision_passed else "held",
+            "config_hash": self.config.config_hash(),
+            "tool_commit": self._resolved_tool_commit(),
+            "source": source,
+            "shard_id": shard,
+            "count": count,
+            "scope_sha256": scope_sha,
+            "created_at": finished_at.isoformat(),
+            "measurement_valid": measurement_valid,
+            "resumed": resumed,
+            "summary": summary,
+            "stage_seconds": dict(
+                sorted(benchmark.runner.last_command_timings.items())
+            ),
+            "resources": resources,
+            "retries": sum(
+                max(0, attempts - 1)
+                for attempts in checkpoint.attempts.values()
+            ),
+            "quality": {
+                "terminal_assets": len(checkpoint.quality_outcomes),
+                "completed_assets": sum(
+                    outcome == "completed"
+                    for outcome in checkpoint.quality_outcomes.values()
+                ),
+                "quarantined_assets": sum(
+                    outcome != "completed"
+                    for outcome in checkpoint.quality_outcomes.values()
+                ),
+            },
+            "audit": {
+                "passed": audit_passed,
+                "families_validated": len(PACK_FAMILIES),
+                "raw_staging_validated": True,
+            },
+        }
+        return write_report(report_root, "parallelism", report)
 
     def report(self, gate: str | None, hardware_check: bool = False):
         if self.report_builder is None:

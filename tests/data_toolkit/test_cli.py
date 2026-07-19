@@ -26,6 +26,7 @@ from data_toolkit.pipeline.runtime import (
     SafeRegistryStore,
     build_mutating_services,
     read_gate_report,
+    read_parallelism_report,
     validate_family_memberships,
 )
 from test_reporting import CONFIG_HASH, valid_report_payload
@@ -45,6 +46,61 @@ def registry_source_inputs(config, *, partition="training"):
         }
         for index, source in enumerate(sources)
     }
+
+
+def valid_parallelism_report(config, *, decision="passed"):
+    passed = decision == "passed"
+    return {
+        "schema_version": 1,
+        "report_type": "parallelism_benchmark",
+        "decision": decision,
+        "config_hash": config.config_hash(),
+        "tool_commit": "a" * 40,
+        "source": "ABO",
+        "shard_id": "ABO-00000",
+        "count": config.parallelism.chunk_assets,
+        "scope_sha256": "b" * 64,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "measurement_valid": passed,
+        "resumed": False,
+        "summary": {
+            "passed": passed,
+            "completed_assets": config.parallelism.chunk_assets,
+        },
+        "stage_seconds": {"render_cond": 1.0},
+        "resources": {"telemetry_valid": passed},
+        "retries": 0,
+        "quality": {
+            "terminal_assets": config.parallelism.chunk_assets,
+            "completed_assets": config.parallelism.chunk_assets,
+            "quarantined_assets": 0,
+        },
+        "audit": {"passed": True},
+    }
+
+
+def test_parallelism_report_reader_requires_passed_bound_evidence(tmp_config):
+    config = load_config(tmp_config)
+    report_root = config.paths.data2_root / "control/reports"
+    write_report(report_root, "parallelism", valid_parallelism_report(config))
+
+    assert read_parallelism_report(config) == (
+        report_root / "parallelism.json",
+        report_root / "parallelism.md",
+    )
+
+
+def test_parallelism_report_reader_rejects_held_rollout(tmp_config):
+    config = load_config(tmp_config)
+    report_root = config.paths.data2_root / "control/reports"
+    write_report(
+        report_root,
+        "parallelism",
+        valid_parallelism_report(config, decision="held"),
+    )
+
+    with pytest.raises(ArtifactValidationError, match="has not passed"):
+        read_parallelism_report(config)
 
 
 def test_audit_rejects_pbr_identity_missing_from_matching_shape(tmp_config):
@@ -725,6 +781,161 @@ def test_plan_calls_service_with_explicit_freeze_false(
     assert calls == [(('smoke', None, None, None), {"freeze": False})]
 
 
+def test_parallelism_benchmark_dry_run_is_read_only(
+    tmp_config, monkeypatch, capsys
+):
+    calls = []
+
+    class Services:
+        def benchmark_parallelism(self, source, shard, count, *, dry_run):
+            calls.append((source, shard, count, dry_run))
+            return {
+                "decision": "dry_run",
+                "source": source,
+                "shard_id": shard,
+                "assets": count,
+            }
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_read_only_services",
+        lambda config: Services(),
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: pytest.fail("dry-run initialized mutating runtime"),
+    )
+
+    assert main(
+        [
+            "benchmark-parallelism",
+            "--config",
+            str(tmp_config),
+            "--source",
+            "ABO",
+            "--shard",
+            "ABO-00000",
+            "--count",
+            "64",
+            "--dry-run",
+        ]
+    ) == 0
+    assert calls == [("ABO", "ABO-00000", 64, True)]
+    assert json.loads(capsys.readouterr().out)["decision"] == "dry_run"
+
+
+def test_parallelism_benchmark_dispatches_and_prints_evidence_paths(
+    tmp_config, monkeypatch, capsys
+):
+    calls = []
+    paths = (
+        tmp_config.parent / "parallelism.json",
+        tmp_config.parent / "parallelism.md",
+    )
+
+    class Runtime:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        @property
+        def services(self):
+            return self
+
+        def benchmark_parallelism(self, source, shard, count, *, dry_run):
+            calls.append((source, shard, count, dry_run))
+            return paths
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: Runtime(),
+    )
+
+    assert main(
+        [
+            "benchmark-parallelism",
+            "--config",
+            str(tmp_config),
+            "--source",
+            "ABO",
+            "--shard",
+            "ABO-00000",
+            "--count",
+            "64",
+        ]
+    ) == 0
+    assert calls == [("ABO", "ABO-00000", 64, False)]
+    assert capsys.readouterr().out.splitlines() == [str(path) for path in paths]
+
+
+def test_parallelism_report_check_is_read_only(
+    tmp_config, monkeypatch, capsys
+):
+    paths = (
+        tmp_config.parent / "parallelism.json",
+        tmp_config.parent / "parallelism.md",
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.read_parallelism_report",
+        lambda config: calls.append(config) or paths,
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: pytest.fail("parallelism report check mutated state"),
+    )
+
+    assert main(
+        [
+            "report",
+            "--config",
+            str(tmp_config),
+            "--parallelism-check",
+        ]
+    ) == 0
+    assert len(calls) == 1
+    assert capsys.readouterr().out.splitlines() == [str(path) for path in paths]
+
+
+def test_full_run_dry_run_uses_read_only_plan(
+    tmp_config, monkeypatch, capsys
+):
+    read_only = object()
+    calls = []
+
+    class Runner:
+        def __init__(self, config, services):
+            calls.append((config, services))
+
+        def plan(self):
+            return ("ABO/ABO-00000/batch000: 256 assets, 4 chunks (max 64)",)
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_read_only_services",
+        lambda config: read_only,
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.FullProductionRunner", Runner,
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: pytest.fail("full-run dry-run mutated state"),
+    )
+
+    assert main(
+        [
+            "full-run",
+            "--config",
+            str(tmp_config),
+            "--dry-run",
+        ]
+    ) == 0
+    assert len(calls) == 1 and calls[0][1] is read_only
+    assert "4 chunks" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     "argv",
     [
@@ -746,6 +957,8 @@ def test_plan_calls_service_with_explicit_freeze_false(
         ["resume", "--source", "ABO", "--shard", "ABO-00000"],
         ["audit", "--source", "ABO", "--shard", "ABO-00000"],
         ["report"],
+        ["report", "--parallelism-check", "--hardware-check"],
+        ["report", "--parallelism-check", "--gate", "pilot"],
     ],
 )
 def test_cli_rejects_invalid_command_combinations(tmp_config, argv):
@@ -2270,6 +2483,9 @@ def test_mutating_runtime_closes_telemetry_after_lazy_init_failure(
 
         def close(self):
             self.closed = True
+
+        def flush(self):
+            return None
 
     monkeypatch.setattr(
         "data_toolkit.pipeline.runtime._ensure_runtime_roots", lambda config: None

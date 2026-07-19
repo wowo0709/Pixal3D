@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import re
 import sys
@@ -25,6 +26,7 @@ from .runtime import (
     build_mutating_services,
     build_read_only_services,
     read_gate_report,
+    read_parallelism_report,
 )
 from .validation import ValidationError
 
@@ -64,8 +66,18 @@ class PipelineArgumentParser(argparse.ArgumentParser):
                 self.error("plan --count requires --source and --shard")
         if command == "run" and args.gate == "production" and count is not None:
             self.error("production run cannot be restricted with --count")
-        if command == "report" and args.gate is None and not args.hardware_check:
-            self.error("report requires --gate or --hardware-check")
+        if command == "report":
+            checks = (
+                args.gate is not None,
+                args.hardware_check,
+                args.parallelism_check,
+            )
+            if not any(checks):
+                self.error(
+                    "report requires --gate, --hardware-check, or --parallelism-check"
+                )
+            if args.parallelism_check and sum(checks) != 1:
+                self.error("--parallelism-check cannot be combined with another report")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -82,6 +94,7 @@ def parser() -> argparse.ArgumentParser:
         "evidence",
         "full-run",
         "report",
+        "benchmark-parallelism",
     ):
         child = children.add_parser(name)
         child.add_argument("--config", type=Path, required=True)
@@ -107,9 +120,20 @@ def parser() -> argparse.ArgumentParser:
     children.choices["report"].add_argument(
         "--hardware-check", action="store_true"
     )
+    children.choices["report"].add_argument(
+        "--parallelism-check", action="store_true"
+    )
+    children.choices["full-run"].add_argument(
+        "--dry-run", action="store_true"
+    )
     children.choices["hardware-preflight"].add_argument(
         "--bootstrap-peak-local-gib", type=_positive_integer, required=True
     )
+    benchmark = children.choices["benchmark-parallelism"]
+    benchmark.add_argument("--source", required=True)
+    benchmark.add_argument("--shard", required=True)
+    benchmark.add_argument("--count", type=_positive_integer, required=True)
+    benchmark.add_argument("--dry-run", action="store_true")
     return root
 
 
@@ -198,6 +222,24 @@ def _dispatch(args, config) -> int:
             print(path)
         return SUCCESS
 
+    if args.command == "benchmark-parallelism" and args.dry_run:
+        result = build_read_only_services(config).benchmark_parallelism(
+            args.source, args.shard, args.count, dry_run=True
+        )
+        print(json.dumps(result, sort_keys=True))
+        return SUCCESS
+
+    if args.command == "report" and args.parallelism_check:
+        for path in read_parallelism_report(config):
+            print(path)
+        return SUCCESS
+
+    if args.command == "full-run" and args.dry_run:
+        services = build_read_only_services(config)
+        for line in FullProductionRunner(config, services).plan():
+            print(line)
+        return SUCCESS
+
     with build_mutating_services(config) as runtime:
         services = runtime.services
         if args.command == "registry":
@@ -213,6 +255,12 @@ def _dispatch(args, config) -> int:
             FullProductionRunner(config, services).run()
         elif args.command == "report":
             result = services.report(args.gate, args.hardware_check)
+            for path in result:
+                print(path)
+        elif args.command == "benchmark-parallelism":
+            result = services.benchmark_parallelism(
+                args.source, args.shard, args.count, dry_run=False
+            )
             for path in result:
                 print(path)
         else:

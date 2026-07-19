@@ -350,6 +350,19 @@ def test_recoverable_command_gets_at_most_three_total_attempts(
     assert runner.checkpoint.completed_commands == [command.name]
 
 
+def test_runner_records_per_command_wall_seconds(
+    isolated_config, shard_context
+):
+    command = CommandSpec("timed", ("worker",))
+    runner = RecordingRunner(isolated_config, (command,))
+    ticks = iter((10.0, 12.5))
+    runner.monotonic_clock = lambda: next(ticks)
+
+    runner.run_shard(shard_context)
+
+    assert runner.last_command_timings == {"timed": pytest.approx(2.5)}
+
+
 def test_failed_render_retry_steps_down_workers_at_retry_boundary(
     isolated_config, shard_context
 ):

@@ -40,13 +40,21 @@ class _Services:
         self.calls.append(("audit", gate, source, shard))
 
 
-def _install_inputs(monkeypatch, config, gate_calls):
+def _install_inputs(monkeypatch, config, gate_calls, parallelism_calls=None):
     import data_toolkit.pipeline.full_run as module
+
+    if parallelism_calls is None:
+        parallelism_calls = []
 
     monkeypatch.setattr(
         module,
         "read_gate_report",
         lambda held_config, gate: gate_calls.append((held_config, gate)),
+    )
+    monkeypatch.setattr(
+        module,
+        "read_parallelism_report",
+        lambda held_config: parallelism_calls.append(held_config),
     )
 
     class Store:
@@ -65,12 +73,14 @@ def test_full_runner_uses_fixed_source_order_and_audits_each_shard(
 ):
     config = load_config(tmp_config)
     gates = []
-    _install_inputs(monkeypatch, config, gates)
+    parallelism = []
+    _install_inputs(monkeypatch, config, gates, parallelism)
     services = _Services()
 
     FullProductionRunner(config, services).run()
 
     assert [gate for _, gate in gates] == ["smoke", "pilot"]
+    assert parallelism == [config]
     expected_shards = [
         ("ABO", "ABO-00000"),
         ("HSSD", "HSSD-00000"),
@@ -118,3 +128,28 @@ def test_full_runner_restart_revalidates_interrupted_shard_before_advancing(
             "ABO-00000",
         ),
     ]
+
+
+def test_full_runner_dry_run_is_ordered_and_does_not_mutate(
+    tmp_config, monkeypatch
+):
+    config = load_config(tmp_config)
+    _install_inputs(monkeypatch, config, [])
+
+    class Services(_Services):
+        def plan(self, gate, source, shard, count, *, freeze):
+            assert gate == "production"
+            assert count is None
+            assert freeze is False
+            return ("batch000: 256 assets", "batch001: 17 assets")
+
+    services = Services()
+
+    lines = FullProductionRunner(config, services).plan()
+
+    assert lines[0] == "ABO/ABO-00000/batch000: 256 assets, 4 chunks (max 64)"
+    assert lines[1] == "ABO/ABO-00000/batch001: 17 assets, 1 chunks (max 64)"
+    assert lines[-1].startswith(
+        "ObjaverseXL_github/ObjaverseXL_github-00000/"
+    )
+    assert services.calls == []
