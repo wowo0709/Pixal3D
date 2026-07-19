@@ -50,6 +50,7 @@ def test_initial_worker_profile_owns_full_geometry_lane(config):
 
     assert selected.dump_workers == 44
     assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (44, 1)
+    assert selected.render_workers_per_gpu == 3
 
 
 def test_worker_profile_steps_down_on_pressure(config):
@@ -94,8 +95,8 @@ def test_worker_profile_applies_render_step_at_next_dag_boundary(config):
 
     selected = choose_worker_profile(stable_gpu, config, previous)
 
-    assert previous.render_workers_per_gpu == 2
-    assert selected.render_workers_per_gpu == 3
+    assert previous.render_workers_per_gpu == 3
+    assert selected.render_workers_per_gpu == 4
     assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (44, 1)
 
 
@@ -404,7 +405,7 @@ def test_render_and_cpu_stages_apply_thread_and_worker_caps(config, tmp_path):
 
     assert render.env == RENDER_ENV
     assert render.gpu_ranks == config.workers.render_workers
-    assert render.workers_per_gpu == 2
+    assert render.workers_per_gpu == 3
     assert render.argv[render.argv.index("--max_workers") + 1] == "1"
     assert render.argv[render.argv.index("--num_cond_views") + 1] == "8"
     assert render.argv[render.argv.index("--cond_resolution") + 1] == "512"
@@ -463,22 +464,9 @@ def test_render_workers_map_round_robin_to_seven_gpus(config, tmp_path):
 
     expanded = expand_ranked(render)
 
-    assert len(expanded) == 14
+    assert len(expanded) == 21
     assert [dict(env)["CUDA_VISIBLE_DEVICES"] for _, env in expanded] == [
-        "0",
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "0",
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
+        str(gpu) for _ in range(3) for gpu in range(7)
     ]
     for rank, (argv, env) in enumerate(expanded):
         assert argv == (
@@ -486,7 +474,7 @@ def test_render_workers_map_round_robin_to_seven_gpus(config, tmp_path):
             "--rank",
             str(rank),
             "--world_size",
-            "14",
+            "21",
         )
         assert env == (
             *RENDER_ENV,

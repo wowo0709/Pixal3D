@@ -102,7 +102,9 @@ def choose_worker_profile(
             render_workers=config.worker_tuning.render_workers,
             encoder_ranks=config.worker_tuning.encoder_ranks,
             render_workers_per_gpu=(
-                config.parallelism.render_workers_per_gpu_steps[0]
+                config.parallelism.render_workers_per_gpu_steps[
+                    min(1, len(config.parallelism.render_workers_per_gpu_steps) - 1)
+                ]
             ),
         )
     if not recent_snapshots:
@@ -354,7 +356,9 @@ def build_preprocessing_dag(
             render_workers=config.workers.render_workers,
             encoder_ranks=config.workers.encoder_ranks,
             render_workers_per_gpu=(
-                config.parallelism.render_workers_per_gpu_steps[0]
+                config.parallelism.render_workers_per_gpu_steps[
+                    min(1, len(config.parallelism.render_workers_per_gpu_steps) - 1)
+                ]
             ),
         )
     dataset = dataset_args(context.source)
