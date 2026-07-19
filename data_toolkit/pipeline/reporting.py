@@ -435,12 +435,21 @@ def gate_measurement_summary(
     source_capacity = {}
     for source, group in frame.groupby("source", sort=True):
         count = len(group)
-        failures = int((group["outcome"] != "completed").sum())
-        schema_failures = int((group["outcome"] == "schema_failure").sum())
-        failure_rate = failures / count
-        schema_rate = schema_failures / count
+        # Provider-side missing assets are quarantined and excluded from the
+        # training denominator. They are still retained in the global failure
+        # categories for auditability; only reproducible pipeline/schema
+        # failures can block a gate.
+        provider_unavailable = group["failure_category"] == "provider_asset_unavailable"
+        eligible = group.loc[~provider_unavailable]
+        denominator = max(len(eligible), 1)
+        failures = int((eligible["outcome"] != "completed").sum())
+        schema_failures = int((eligible["outcome"] == "schema_failure").sum())
+        failure_rate = failures / denominator
+        schema_rate = schema_failures / denominator
         source_quality[str(source)] = {
             "assets": count,
+            "eligible_assets": len(eligible),
+            "provider_unavailable": int(provider_unavailable.sum()),
             "failures": failures,
             "schema_failures": schema_failures,
             "failure_rate": failure_rate,
