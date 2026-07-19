@@ -4,10 +4,28 @@ from data_toolkit.pipeline.parallelism import (
     GeometryProfile,
     GpuMemoryState,
     NodeResourceBroker,
+    configure_geometry_threads,
     geometry_affinity_sets,
     geometry_profile,
     select_micro_batch,
 )
+
+
+def test_geometry_thread_cap_matches_affinity_width():
+    calls = []
+
+    class FakeTorch:
+        @staticmethod
+        def set_num_threads(value):
+            calls.append(("threads", value))
+
+        @staticmethod
+        def set_num_interop_threads(value):
+            calls.append(("interop", value))
+
+    configure_geometry_threads(4, torch_module=FakeTorch())
+
+    assert calls == [("threads", 4), ("interop", 1)]
 
 
 def test_gpu_memory_state_reports_percent():

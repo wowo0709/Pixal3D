@@ -21,6 +21,20 @@ class GeometryProfile:
             )
 
 
+def configure_geometry_threads(native_threads: int, *, torch_module=None) -> None:
+    if type(native_threads) is not int or native_threads <= 0:
+        raise ValueError("geometry native threads must be a positive integer")
+    if torch_module is None:
+        import torch as torch_module
+    torch_module.set_num_threads(native_threads)
+    try:
+        torch_module.set_num_interop_threads(1)
+    except RuntimeError:
+        # A reused interpreter may already have initialized inter-op workers.
+        # The intra-op cap above still bounds the compute kernels in this child.
+        pass
+
+
 def geometry_profile(config: ParallelismConfig) -> GeometryProfile:
     return GeometryProfile(
         processes=config.cpu_physical_cores,

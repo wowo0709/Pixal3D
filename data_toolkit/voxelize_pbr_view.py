@@ -29,14 +29,22 @@ if __package__:
     from .utils import get_new_camera_matrix, sphere_normalize_torch
     from .pipeline.atomic_io import atomic_write_json
     from .pipeline.dataset_adapter import process_single_metadata_row
-    from .pipeline.parallelism import GeometryProfile, geometry_affinity_sets
+    from .pipeline.parallelism import (
+        GeometryProfile,
+        configure_geometry_threads,
+        geometry_affinity_sets,
+    )
     from .pipeline.sparse_batching import validate_record_prefix
     from .pipeline.validation import validate_scale
 else:
     from utils import get_new_camera_matrix, sphere_normalize_torch
     from pipeline.atomic_io import atomic_write_json
     from pipeline.dataset_adapter import process_single_metadata_row
-    from pipeline.parallelism import GeometryProfile, geometry_affinity_sets
+    from pipeline.parallelism import (
+        GeometryProfile,
+        configure_geometry_threads,
+        geometry_affinity_sets,
+    )
     from pipeline.sparse_batching import validate_record_prefix
     from pipeline.validation import validate_scale
 
@@ -155,6 +163,7 @@ def _foreach_child(
     try:
         if affinity is not None:
             os.sched_setaffinity(0, set(affinity))
+            configure_geometry_threads(len(affinity))
         result = process_single_metadata_row(
             dataset_utils,
             metadata,
