@@ -126,6 +126,72 @@ def isolated_config(config, tmp_path):
     )
 
 
+def test_production_batches_above_64_use_parallel_chunk_scheduler(
+    isolated_config, shard_context
+):
+    class Runner:
+        def __init__(self):
+            self.calls = []
+            self.command_builder = "original"
+
+        def run_shard(self, context):
+            self.calls.append(("run", context.batch_id))
+
+        def resume_shard(self, context):
+            self.calls.append(("resume", context.batch_id))
+
+    class Scheduler:
+        def __init__(self):
+            self.calls = []
+
+        def run_batch(self, context, assets):
+            self.calls.append((context.batch_id, tuple(assets)))
+
+    runner = Runner()
+    scheduler = Scheduler()
+    services = PipelineServices(
+        isolated_config,
+        runner=runner,
+        parallel_scheduler_factory=lambda _context: scheduler,
+    )
+    context = replace(shard_context, gate="production")
+    assets = tuple(f"{index:064x}" for index in range(65))
+
+    services._execute_batch(context, assets, resume=False)
+
+    assert scheduler.calls == [("batch000", assets)]
+    assert runner.calls == [("run", "batch000")]
+    assert runner.command_builder == "original"
+
+
+@pytest.mark.parametrize("gate", ["smoke", "pilot"])
+def test_qualification_batches_keep_sequential_reference_path(
+    isolated_config, shard_context, gate
+):
+    class Runner:
+        def __init__(self):
+            self.calls = []
+
+        def run_shard(self, context):
+            self.calls.append(context.gate)
+
+    runner = Runner()
+    services = PipelineServices(
+        isolated_config,
+        runner=runner,
+        parallel_scheduler_factory=lambda _context: pytest.fail(
+            "qualification must not construct a parallel scheduler"
+        ),
+    )
+    context = replace(shard_context, gate=gate)
+
+    services._execute_batch(
+        context, tuple(f"{index:064x}" for index in range(65)), resume=False
+    )
+
+    assert runner.calls == [gate]
+
+
 def test_work_batches_fit_reserved_local_budget():
     shas = tuple(f"{index:064x}" for index in range(10))
     batches = plan_work_batches(
@@ -699,6 +765,19 @@ def test_external_ranks_are_reaped_after_normal_completion(isolated_config):
     ]
     assert all(process.waited == 1 for process in processes)
     assert signals == []
+
+
+def test_short_leaf_completion_is_polled_without_five_second_tail_latency(
+    isolated_config,
+):
+    process = FakeProcess(103, [None, 0])
+    runner, _, _ = process_runner(
+        isolated_config, FakeResourceGuard(), [process]
+    )
+
+    runner.execute(CommandSpec("worker", ("worker",)), "ABO-00000")
+
+    assert runner.monotonic_clock() == pytest.approx(0.1)
 
 
 def test_failed_rank_terminates_and_reaps_its_siblings(isolated_config):

@@ -7,6 +7,11 @@ import pandas as pd
 from easydict import EasyDict as edict
 from concurrent.futures import ThreadPoolExecutor
 
+try:
+    from .pipeline.sparse_batching import validate_record_prefix
+except ImportError:  # pragma: no cover - direct script execution
+    from pipeline.sparse_batching import validate_record_prefix
+
 
 def _merge_new_records(metadata, stage_root):
     new_records = Path(stage_root) / 'new_records'
@@ -38,8 +43,10 @@ if __name__ == '__main__':
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--max_workers', type=int, default=0)
+    parser.add_argument('--record_prefix', default='')
     opt = parser.parse_args()
     opt = edict(vars(opt))
+    opt.record_prefix = validate_record_prefix(opt.record_prefix)
     opt.mesh_dump_root = opt.mesh_dump_root or opt.root
     opt.pbr_dump_root = opt.pbr_dump_root or opt.root
 
@@ -153,4 +160,12 @@ if __name__ == '__main__':
 
     # save records
     records = pd.DataFrame.from_records(records)
-    records.to_csv(os.path.join(opt.root, 'asset_stats', 'new_records', f'part_{opt.rank}.csv'), index=False)
+    records.to_csv(
+        os.path.join(
+            opt.root,
+            'asset_stats',
+            'new_records',
+            f'part_{opt.record_prefix}{opt.rank}.csv',
+        ),
+        index=False,
+    )

@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import Callable, Mapping, Protocol, Sequence
 import zipfile
@@ -43,12 +44,21 @@ from .packing import (
     publish_pack,
     verify_pack,
 )
+from .parallelism import NodeResourceBroker
 from .registry import RegistryStore
 from .resources import (
     ResourceAccountingError,
     ResourceAction,
     ResourceDecision,
     ResourceLimitExceeded,
+)
+from .scheduler import (
+    ChunkContext,
+    Lane,
+    ParallelChunkScheduler,
+    StageSpec,
+    choose_chunk_assets,
+    promote_chunk_outputs,
 )
 from .validation import (
     ValidationError,
@@ -950,6 +960,7 @@ class PipelineRunner:
         termination_grace_seconds: float = 60.0,
         reap_timeout_seconds: float = 30.0,
         monitor_interval_seconds: float = 5.0,
+        process_poll_interval_seconds: float = 0.1,
         environment: Mapping[str, str] | None = None,
         quality_gate: RollingQualityGate | None = None,
         utc_clock: Callable[[], datetime] | None = None,
@@ -960,6 +971,13 @@ class PipelineRunner:
             raise ValueError("reap timeout must be positive")
         if monitor_interval_seconds <= 0:
             raise ValueError("monitor interval must be positive")
+        if (
+            process_poll_interval_seconds <= 0
+            or process_poll_interval_seconds > monitor_interval_seconds
+        ):
+            raise ValueError(
+                "process poll interval must be positive and no greater than the monitor interval"
+            )
         self.config = config
         self.resource_guard = resource_guard
         self.validators = validators
@@ -995,6 +1013,7 @@ class PipelineRunner:
         self.termination_grace_seconds = termination_grace_seconds
         self.reap_timeout_seconds = reap_timeout_seconds
         self.monitor_interval_seconds = monitor_interval_seconds
+        self.process_poll_interval_seconds = process_poll_interval_seconds
         self.environment = dict(os.environ if environment is None else environment)
         self.quality_gate = quality_gate or RollingQualityGate()
         self._quality_prefix_length = 0
@@ -1483,6 +1502,52 @@ class PipelineRunner:
     def resume_shard(self, context: ShardContext) -> None:
         self.run_shard(context)
 
+    def validate_completed_commands(
+        self, context: ShardContext, command_names: Sequence[str]
+    ) -> bool:
+        """Validate a durable command frontier without executing leaf work."""
+
+        if self.active_context is not None:
+            raise RuntimeError("pipeline runner is already active")
+        requested = tuple(command_names)
+        if (
+            not requested
+            or any(not isinstance(name, str) or not name for name in requested)
+            or len(requested) != len(set(requested))
+        ):
+            raise ValueError("completed command names must be unique")
+        self.active_context = context
+        checkpoint_path = self.checkpoint_path(context)
+        try:
+            checkpoint = self.load_checkpoint(
+                checkpoint_path, context.shard_id, context.gate
+            )
+            self.active_checkpoint = checkpoint
+            self.active_checkpoint_path = checkpoint_path
+            self._restore_quality_state(context, checkpoint)
+            commands = {
+                command.name: command for command in self._build_commands(context)
+            }
+            if any(name not in commands for name in requested):
+                raise InfrastructureError(
+                    "completed command validation requested an unknown command"
+                )
+            for name in requested:
+                if name not in checkpoint.completed_commands:
+                    return False
+                if not self._valid_output(name):
+                    return False
+            return True
+        finally:
+            self.active_context = None
+            self.active_checkpoint = None
+            self.active_checkpoint_path = None
+            self._quality_prefix_length = 0
+            self._active_quality_ledger = None
+            self._active_quality_ledger_path = None
+            self._active_quality_assets = None
+            self._active_instances_sha256 = None
+
     def record_quality_outcome(self, asset_sha: str, outcome: str) -> None:
         self.record_asset_outcome(asset_sha, outcome)
 
@@ -1770,6 +1835,7 @@ class PipelineRunner:
         shard_id: str,
         command: CommandSpec,
     ) -> None:
+        next_resource_check = self.monotonic_clock()
         while True:
             statuses = [process.poll() for process in processes]
             failed_index = next(
@@ -1787,34 +1853,51 @@ class PipelineRunner:
             if all(status is not None for status in statuses):
                 return
 
-            try:
-                decision = self.resource_guard.check(shard_id, command.name)
-                if not isinstance(decision, ResourceDecision):
-                    raise TypeError(
-                        f"invalid resource decision: {decision!r}"
+            now = self.monotonic_clock()
+            if now >= next_resource_check:
+                try:
+                    decision = self.resource_guard.check(
+                        shard_id, command.name
                     )
-                action = decision.action
-                if not isinstance(action, ResourceAction):
-                    raise TypeError(f"invalid resource action: {action!r}")
-            except ResourceLimitExceeded:
-                raise
-            except (OSError, RuntimeError, TypeError, ValueError) as error:
-                raise InfrastructureError(
-                    f"resource monitor failed: {error}"
-                ) from error
-            if action == ResourceAction.STOP:
-                raise ResourceLimitExceeded(decision.reasons)
-            if action == ResourceAction.PAUSE:
-                for process, status in zip(processes, statuses):
-                    if status is None and process.pid not in paused_groups:
-                        self._signal_process(process, "pause")
-                        paused_groups.add(process.pid)
-            elif action == ResourceAction.RUN and paused_groups:
-                for process, status in zip(processes, statuses):
-                    if status is None and process.pid in paused_groups:
-                        self._signal_process(process, "resume")
-                        paused_groups.discard(process.pid)
-            self.sleeper(self.monitor_interval_seconds)
+                    if not isinstance(decision, ResourceDecision):
+                        raise TypeError(
+                            f"invalid resource decision: {decision!r}"
+                        )
+                    action = decision.action
+                    if not isinstance(action, ResourceAction):
+                        raise TypeError(
+                            f"invalid resource action: {action!r}"
+                        )
+                except ResourceLimitExceeded:
+                    raise
+                except (OSError, RuntimeError, TypeError, ValueError) as error:
+                    raise InfrastructureError(
+                        f"resource monitor failed: {error}"
+                    ) from error
+                if action == ResourceAction.STOP:
+                    raise ResourceLimitExceeded(decision.reasons)
+                if action == ResourceAction.PAUSE:
+                    for process, status in zip(processes, statuses):
+                        if (
+                            status is None
+                            and process.pid not in paused_groups
+                        ):
+                            self._signal_process(process, "pause")
+                            paused_groups.add(process.pid)
+                elif action == ResourceAction.RUN and paused_groups:
+                    for process, status in zip(processes, statuses):
+                        if (
+                            status is None
+                            and process.pid in paused_groups
+                        ):
+                            self._signal_process(process, "resume")
+                            paused_groups.discard(process.pid)
+                next_resource_check = now + self.monitor_interval_seconds
+            delay = min(
+                self.process_poll_interval_seconds,
+                max(0.0, next_resource_check - self.monotonic_clock()),
+            )
+            self.sleeper(delay or self.process_poll_interval_seconds)
 
     @staticmethod
     def _signal_process(process, action: str) -> None:
@@ -2806,6 +2889,175 @@ def _safe_zip_infos(bundle: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     return result
 
 
+class _ParallelChunkExecutor:
+    """Own one isolated PipelineServices/runner pair per active chunk."""
+
+    def __init__(
+        self,
+        parent_services: "PipelineServices",
+        checkpoint_root: Path,
+        stage_commands: Mapping[str, tuple[str, ...]],
+    ) -> None:
+        self.parent_services = parent_services
+        self.checkpoint_root = Path(checkpoint_root)
+        self.stage_commands = dict(stage_commands)
+        self._services: dict[str, PipelineServices] = {}
+        self._contexts: dict[str, ShardContext] = {}
+        self._lock = threading.Lock()
+
+    def _service(
+        self, chunk: ChunkContext
+    ) -> tuple["PipelineServices", ShardContext]:
+        with self._lock:
+            existing = self._services.get(chunk.chunk_id)
+            if existing is not None:
+                return existing, self._contexts[chunk.chunk_id]
+            parent = self.parent_services
+            context = chunk.as_shard_context()
+            service = PipelineServices(
+                parent.config,
+                resource_guard=parent.resource_guard,
+                pilot_reader=parent.pilot_reader,
+                reference_counter=parent.reference_counter,
+                project_accounting=parent.project_accounting,
+                registry_store=parent.registry,
+                disk_usage=parent.disk_usage,
+                tool_commit=parent._tool_commit,
+            )
+            control = self.checkpoint_root / chunk.chunk_id
+            service.runner.checkpoint_path = (
+                lambda _context, path=control / "pipeline.json": path
+            )
+            service.runner.quality_ledger_path = (
+                lambda _context, path=control / "quality.json": path
+            )
+            parent_runner = parent.runner
+            for attribute in (
+                "process_factory",
+                "supervisor_factory",
+                "monotonic_clock",
+                "sleeper",
+                "killpg",
+                "getpgid",
+                "termination_grace_seconds",
+                "reap_timeout_seconds",
+                "monitor_interval_seconds",
+                "process_poll_interval_seconds",
+                "environment",
+                "utc_clock",
+            ):
+                if hasattr(parent_runner, attribute):
+                    value = getattr(parent_runner, attribute)
+                    if attribute == "environment":
+                        value = dict(value)
+                    setattr(service.runner, attribute, value)
+            self._seed_parent_quality(service, context, control, chunk.parent)
+            self._services[chunk.chunk_id] = service
+            self._contexts[chunk.chunk_id] = context
+            return service, context
+
+    def _seed_parent_quality(
+        self,
+        service: "PipelineServices",
+        context: ShardContext,
+        control: Path,
+        parent_context: ShardContext,
+    ) -> None:
+        checkpoint_path = control / "pipeline.json"
+        quality_path = control / "quality.json"
+        if checkpoint_path.exists():
+            if not quality_path.exists():
+                raise InfrastructureError(
+                    f"parallel chunk checkpoint lacks quality ledger: {control}"
+                )
+            return
+        parent = self.parent_services
+        parent_checkpoint = parent.runner.load_checkpoint(
+            parent._checkpoint_path(parent_context),
+            parent_context.shard_id,
+            parent_context.gate,
+        )
+        assets = tuple(
+            _read_regular_bytes_nofollow(context.instances)
+            .decode("ascii")
+            .splitlines()
+        )
+        seeded = {
+            asset: parent_checkpoint.quality_outcomes[asset]
+            for asset in assets
+            if asset in parent_checkpoint.quality_outcomes
+        }
+        parent_ledger = _load_quality_ledger(
+            parent._quality_ledger_path(parent_context), parent_context
+        )
+        child_ledger = _empty_quality_ledger(context)
+        child_ledger["quarantine"] = {
+            asset: dict(parent_ledger["quarantine"][asset])
+            for asset in assets
+            if asset in parent_ledger["quarantine"]
+        }
+        child_ledger["family_exclusions"] = {
+            asset: {
+                family: dict(record)
+                for family, record in parent_ledger["family_exclusions"][asset].items()
+            }
+            for asset in assets
+            if asset in parent_ledger["family_exclusions"]
+        }
+        _save_quality_ledger(quality_path, child_ledger)
+        child_checkpoint = PipelineCheckpoint(
+            context.shard_id,
+            quality_outcomes=seeded,
+            gate=context.gate,
+        )
+        service.runner.save_checkpoint(checkpoint_path, child_checkpoint)
+
+    def _select_builder(self, service: "PipelineServices", stage: StageSpec) -> None:
+        try:
+            names = frozenset(self.stage_commands[stage.name])
+        except KeyError as error:
+            raise InfrastructureError(
+                f"parallel stage has no command mapping: {stage.name}"
+            ) from error
+
+        def builder(context, config, profile):
+            return tuple(
+                command
+                for command in build_preprocessing_dag(context, config, profile)
+                if command.name in names
+            )
+
+        service.runner.command_builder = builder
+
+    def execute(
+        self, chunk: ChunkContext, stage: StageSpec
+    ) -> Mapping[str, float]:
+        service, context = self._service(chunk)
+        self._select_builder(service, stage)
+        started = time.monotonic()
+        service.runner.run_shard(context)
+        return {"elapsed_seconds": time.monotonic() - started}
+
+    def validate(self, chunk: ChunkContext, stage: StageSpec) -> bool:
+        service, context = self._service(chunk)
+        self._select_builder(service, stage)
+        return service.runner.validate_completed_commands(
+            context, self.stage_commands[stage.name]
+        )
+
+    def worker_profile(
+        self, chunk: ChunkContext, _stage: StageSpec
+    ) -> Mapping[str, int]:
+        service, _context = self._service(chunk)
+        profile = service.runner.worker_profile
+        return asdict(profile) if profile is not None else {}
+
+    def service_context(
+        self, chunk: ChunkContext
+    ) -> tuple["PipelineServices", ShardContext]:
+        return self._service(chunk)
+
+
 class PipelineServices:
     def __init__(
         self,
@@ -2841,6 +3093,8 @@ class PipelineServices:
         registry_builder: Callable[[], object] | None = None,
         report_builder: Callable[..., object] | None = None,
         tool_commit: str | None = None,
+        parallel_scheduler_factory: Callable[[ShardContext], object]
+        | None = None,
     ):
         self.config = config
         self.registry = registry_store or RegistryStore(
@@ -2897,6 +3151,9 @@ class PipelineServices:
         self.batch_auditor = batch_auditor or self._audit_batch
         self.registry_builder = registry_builder
         self.report_builder = report_builder
+        self.parallel_scheduler_factory = (
+            parallel_scheduler_factory or self._build_parallel_scheduler
+        )
         if tool_commit is not None and (
             not isinstance(tool_commit, str) or not tool_commit
         ):
@@ -2940,6 +3197,492 @@ class PipelineServices:
             checkpoint_path=self._checkpoint_path,
             quality_ledger_path=self._quality_ledger_path,
         )
+
+    def _build_parallel_scheduler(self, context: ShardContext):
+        commands: dict[str, tuple[str, ...]] = {
+            "prepare": (
+                "stage_raw",
+                "dump_mesh",
+                "dump_pbr",
+                "asset_stats",
+            ),
+            "render": ("render_cond",),
+        }
+        stages = [
+            StageSpec(
+                "prepare",
+                Lane.PREPARE,
+                cpu_cores=self.config.parallelism.cpu_physical_cores,
+            ),
+            StageSpec(
+                "render",
+                Lane.RENDER,
+                dependencies=("prepare",),
+                gpu_indices=tuple(range(self.config.parallelism.gpu_count)),
+                gpu_memory_percent=20.0,
+            ),
+        ]
+        dependency = "render"
+        for resolution in self.config.targets.resolutions:
+            geometry = f"geometry_{resolution}"
+            encode = f"encode_{resolution}"
+            commands[geometry] = (
+                f"dual_grid_{resolution}",
+                f"voxelize_pbr_{resolution}",
+            )
+            commands[encode] = (
+                f"encode_shape_{resolution}",
+                f"encode_pbr_{resolution}",
+                f"cleanup_voxels_{resolution}",
+            )
+            stages.extend(
+                (
+                    StageSpec(
+                        geometry,
+                        Lane.GEOMETRY,
+                        dependencies=(dependency,),
+                        cpu_cores=(
+                            self.config.parallelism.cpu_physical_cores
+                        ),
+                    ),
+                    StageSpec(
+                        encode,
+                        Lane.ENCODE,
+                        dependencies=(geometry,),
+                        gpu_indices=tuple(
+                            range(self.config.parallelism.gpu_count)
+                        ),
+                        gpu_memory_percent=float(
+                            self.config.parallelism
+                            .gpu_memory_target_percent
+                        ),
+                    ),
+                )
+            )
+            dependency = encode
+        final = "finalize"
+        commands[final] = (
+            f"encode_ss_{self.config.targets.ss_resolution}",
+            "validate_outputs",
+        )
+
+        stages.append(
+            StageSpec(
+                final,
+                Lane.ENCODE,
+                dependencies=(dependency,),
+                gpu_indices=tuple(range(self.config.parallelism.gpu_count)),
+                gpu_memory_percent=float(
+                    self.config.parallelism.gpu_memory_target_percent
+                ),
+            )
+        )
+
+        gate_reader = getattr(
+            self.pilot_reader, "p95_peak_local_bytes_for_gate", None
+        )
+        p95 = (
+            gate_reader(context.source, context.gate)
+            if gate_reader is not None
+            else self.pilot_reader.p95_peak_local_bytes(context.source)
+        )
+        if type(p95) is not int or p95 <= 0:
+            raise IntegrationProviderRequired(
+                "pilot reader must return a validated positive integer p95"
+            )
+        usage = self.disk_usage(self.config.paths.local_root)
+        total = getattr(usage, "total", None)
+        free = getattr(usage, "free", None)
+        if (
+            type(total) is not int
+            or total <= 0
+            or type(free) is not int
+            or free < 0
+            or free > total
+        ):
+            raise InfrastructureError("invalid local filesystem usage")
+        reserve = max((total * 15 + 99) // 100, 120 * 1024**3)
+        usable = max(0, free - reserve)
+        per_chunk_budget = usable // self.config.parallelism.max_chunks_in_flight
+        chunk_assets = choose_chunk_assets(
+            configured=self.config.parallelism.chunk_assets,
+            p95_scratch_bytes=p95,
+            usable_bytes=per_chunk_budget,
+        )
+        minimum = (p95 * chunk_assets * 5 + 3) // 4
+        if minimum > per_chunk_budget:
+            raise InfrastructureError(
+                "local scratch budget cannot admit a 32-asset parallel chunk"
+            )
+
+        checkpoint_root = (
+            self._checkpoint_path(context).parent
+            / "chunks"
+            / context.batch_id
+        )
+        executor = _ParallelChunkExecutor(self, checkpoint_root, commands)
+        return ParallelChunkScheduler(
+            config_hash=self.config.config_hash(),
+            broker=NodeResourceBroker(
+                cpu_limit=self.config.parallelism.cpu_physical_cores,
+                gpu_count=self.config.parallelism.gpu_count,
+                gpu_hard_percent=(
+                    self.config.parallelism.gpu_memory_hard_percent
+                ),
+            ),
+            executor=executor,
+            stages=tuple(stages),
+            checkpoint_root=checkpoint_root,
+            chunk_assets=chunk_assets,
+            max_chunks_in_flight=(
+                self.config.parallelism.max_chunks_in_flight
+            ),
+            promoter=lambda parent, chunk: self._promote_parallel_chunk(
+                parent, chunk, executor
+            ),
+            publisher=lambda parent, chunks: self._publish_parallel_batch(
+                parent, chunks, executor
+            ),
+        )
+
+    def _run_parallel_parent_download(self, context: ShardContext) -> None:
+        original_builder = self.runner.command_builder
+
+        def download_builder(candidate, config, profile):
+            return tuple(
+                command
+                for command in build_preprocessing_dag(
+                    candidate, config, profile
+                )
+                if command.name == "download"
+            )
+
+        self.runner.command_builder = download_builder
+        try:
+            self.runner.run_shard(context)
+        finally:
+            self.runner.command_builder = original_builder
+
+    @staticmethod
+    def _regular_digest(path: Path) -> str:
+        try:
+            details = path.lstat()
+        except OSError as error:
+            raise InfrastructureError(
+                f"cannot inspect parallel artifact: {path}: {error}"
+            ) from error
+        if not stat.S_ISREG(details.st_mode):
+            raise InfrastructureError(
+                f"parallel artifact is not a regular file: {path}"
+            )
+        with path.open("rb") as stream:
+            return _sha_stream(stream)
+
+    def _link_parallel_tree(
+        self,
+        source_root: Path,
+        destination_root: Path,
+        *,
+        skip: frozenset[Path] = frozenset(),
+        record_prefix: str | None = None,
+        records_only: bool = False,
+    ) -> None:
+        if not source_root.exists():
+            return
+        if source_root.is_symlink() or not source_root.is_dir():
+            raise InfrastructureError(
+                f"unsafe parallel source tree: {source_root}"
+            )
+        for source in sorted(source_root.rglob("*")):
+            relative = source.relative_to(source_root)
+            if relative in skip:
+                continue
+            if records_only and "new_records" not in relative.parts:
+                continue
+            details = source.lstat()
+            if stat.S_ISLNK(details.st_mode):
+                raise InfrastructureError(
+                    f"unsafe symlink in parallel source tree: {source}"
+                )
+            if stat.S_ISDIR(details.st_mode):
+                continue
+            if not stat.S_ISREG(details.st_mode):
+                raise InfrastructureError(
+                    f"unsafe file type in parallel source tree: {source}"
+                )
+            target_relative = relative
+            if record_prefix is not None and source.parent.name == "new_records":
+                target_relative = (
+                    relative.parent / f"{record_prefix}{source.name}"
+                )
+            destination = destination_root / target_relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(source, destination, follow_symlinks=False)
+            except FileExistsError:
+                if self._regular_digest(source) != self._regular_digest(
+                    destination
+                ):
+                    raise InfrastructureError(
+                        f"conflicting parallel artifact: {destination}"
+                    )
+            except OSError as error:
+                raise InfrastructureError(
+                    f"cannot hard-link parallel artifact {source}: {error}"
+                ) from error
+
+    def _promote_parallel_chunk(
+        self,
+        parent: ShardContext,
+        chunk: ChunkContext,
+        executor: _ParallelChunkExecutor,
+    ) -> None:
+        promote_chunk_outputs(parent, chunk)
+        self._link_parallel_tree(
+            chunk.download_root,
+            parent.download_root,
+            skip=frozenset({Path("raw/metadata.csv")}),
+        )
+        self._link_parallel_tree(
+            chunk.work_root,
+            parent.work_root,
+            record_prefix=f"{chunk.chunk_id}_",
+            records_only=True,
+        )
+        service, context = executor.service_context(chunk)
+        checkpoint = service.runner.load_checkpoint(
+            service.runner.checkpoint_path(context),
+            context.shard_id,
+            context.gate,
+        )
+        ledger = _load_quality_ledger(
+            service.runner.quality_ledger_path(context), context
+        )
+        dependencies = family_dependencies(self.config)
+        for asset in chunk.assets():
+            if checkpoint.quality_outcomes.get(asset) != "completed":
+                continue
+            self.family_output_validator(parent, asset, "common")
+            excluded = set(ledger["family_exclusions"].get(asset, {}))
+
+            def eligible(family: str, visiting: frozenset[str]) -> bool:
+                if family in excluded:
+                    return False
+                if family in visiting:
+                    raise InfrastructureError(
+                        f"cyclic promoted family dependency: {family}"
+                    )
+                return all(
+                    eligible(dependency, visiting | {family})
+                    for dependency in dependencies[family]
+                )
+
+            for family in PACK_FAMILIES:
+                if family != "common" and eligible(family, frozenset()):
+                    self.family_output_validator(parent, asset, family)
+
+    def _merge_parallel_quality(
+        self,
+        parent: ShardContext,
+        chunks: Sequence[ChunkContext],
+        executor: _ParallelChunkExecutor,
+    ) -> None:
+        assets = self._instances(parent)
+        outcomes: dict[str, str] = {}
+        quarantine: dict[str, dict[str, object]] = {}
+        family_exclusions: dict[
+            str, dict[str, dict[str, object]]
+        ] = {}
+        for chunk in chunks:
+            service, context = executor.service_context(chunk)
+            checkpoint = service.runner.load_checkpoint(
+                service.runner.checkpoint_path(context),
+                context.shard_id,
+                context.gate,
+            )
+            chunk_assets = chunk.assets()
+            if set(checkpoint.quality_outcomes) != set(chunk_assets):
+                raise InfrastructureError(
+                    f"parallel chunk lacks terminal quality outcomes: {chunk.chunk_id}"
+                )
+            for asset in chunk_assets:
+                if asset in outcomes:
+                    raise InfrastructureError(
+                        f"duplicate parallel quality asset: {asset}"
+                    )
+                outcomes[asset] = checkpoint.quality_outcomes[asset]
+            ledger = _load_quality_ledger(
+                service.runner.quality_ledger_path(context), context
+            )
+            for asset, record in ledger["quarantine"].items():
+                existing = quarantine.get(asset)
+                if existing is not None and existing != record:
+                    raise InfrastructureError(
+                        f"conflicting parallel quarantine: {asset}"
+                    )
+                quarantine[asset] = dict(record)
+            for asset, exclusions in ledger["family_exclusions"].items():
+                target = family_exclusions.setdefault(asset, {})
+                for family, record in exclusions.items():
+                    existing = target.get(family)
+                    if existing is not None and existing != record:
+                        raise InfrastructureError(
+                            f"conflicting parallel family exclusion: {asset}/{family}"
+                        )
+                    target[family] = dict(record)
+        if set(outcomes) != set(assets):
+            raise InfrastructureError(
+                "parallel quality outcomes do not cover the frozen batch"
+            )
+        ordered_outcomes = {asset: outcomes[asset] for asset in assets}
+        parent_checkpoint_path = self._checkpoint_path(parent)
+        parent_checkpoint = self.runner.load_checkpoint(
+            parent_checkpoint_path, parent.shard_id, parent.gate
+        )
+        for asset, outcome in parent_checkpoint.quality_outcomes.items():
+            if ordered_outcomes.get(asset) != outcome:
+                raise InfrastructureError(
+                    f"conflicting parent quality outcome: {asset}"
+                )
+        parent_checkpoint.quality_outcomes = ordered_outcomes
+        parent_checkpoint.active_attempt = None
+        self.runner.save_checkpoint(parent_checkpoint_path, parent_checkpoint)
+
+        ledger_path = self._quality_ledger_path(parent)
+        ledger = _load_quality_ledger(ledger_path, parent)
+        prior_entries = [
+            entry
+            for entry in ledger["entries"]
+            if entry["batch_id"] != parent.batch_id
+        ]
+        current_entries = [
+            {
+                "batch_id": parent.batch_id,
+                "position": position,
+                "asset_sha": asset,
+                "outcome": ordered_outcomes[asset],
+            }
+            for position, asset in enumerate(assets)
+        ]
+        next_quarantine = {
+            asset: dict(record)
+            for asset, record in ledger["quarantine"].items()
+            if asset not in set(assets)
+        }
+        next_quarantine.update(quarantine)
+        next_exclusions = {
+            asset: {
+                family: dict(record)
+                for family, record in exclusions.items()
+            }
+            for asset, exclusions in ledger["family_exclusions"].items()
+            if asset not in set(assets)
+        }
+        next_exclusions.update(family_exclusions)
+        next_batches = dict(ledger["batches"])
+        next_batches[parent.batch_id] = {
+            "instances_sha256": self._asset_scope_sha256(assets),
+            "admitted_prefix": len(assets),
+        }
+        next_ledger = {
+            **ledger,
+            "batches": next_batches,
+            "entries": (prior_entries + current_entries)[
+                -QUALITY_WINDOW_SIZE:
+            ],
+            "quarantine": next_quarantine,
+            "family_exclusions": next_exclusions,
+        }
+        _save_quality_ledger(ledger_path, next_ledger)
+
+    def _write_parallel_raw_metadata(
+        self,
+        parent: ShardContext,
+        chunks: Sequence[ChunkContext],
+        executor: _ParallelChunkExecutor,
+    ) -> None:
+        assets = self._instances(parent)
+        records = {}
+        for chunk in chunks:
+            service, context = executor.service_context(chunk)
+            for record in service._staged_records(context):
+                asset = _validated_asset_sha(record.get("sha256"))
+                if asset in records and records[asset] != record:
+                    raise InfrastructureError(
+                        f"conflicting parallel raw record: {asset}"
+                    )
+                records[asset] = record
+        if set(records) != set(assets):
+            raise InfrastructureError(
+                "parallel raw metadata does not cover the frozen batch"
+            )
+        self._write_raw_records(
+            parent.download_root / "raw/metadata.csv",
+            tuple(records[asset] for asset in assets),
+        )
+
+    def _publish_parallel_batch(
+        self,
+        parent: ShardContext,
+        chunks: tuple[ChunkContext, ...],
+        executor: _ParallelChunkExecutor,
+    ) -> None:
+        self._merge_parallel_quality(parent, chunks, executor)
+        already_durable = self._published_is_valid(
+            parent
+        ) and self._archive_is_valid(parent)
+        if not already_durable:
+            self._write_parallel_raw_metadata(parent, chunks, executor)
+        publication_names = frozenset(
+            {"validate_outputs", "build_packs", "archive_raw", "cleanup_local"}
+        )
+        original_builder = self.runner.command_builder
+
+        def publication_builder(context, config, profile):
+            return tuple(
+                command
+                for command in build_preprocessing_dag(context, config, profile)
+                if command.name in publication_names
+            )
+
+        self.runner.command_builder = publication_builder
+        try:
+            self.runner.run_shard(parent)
+        finally:
+            self.runner.command_builder = original_builder
+        for chunk in chunks:
+            root = chunk.work_root.parent
+            if root.exists():
+                shutil.rmtree(root)
+        if chunks:
+            chunks_root = chunks[0].work_root.parent.parent
+            try:
+                chunks_root.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                if error.errno != errno.ENOTEMPTY:
+                    raise
+
+    def _execute_batch(
+        self,
+        context: ShardContext,
+        assets: Sequence[str],
+        *,
+        resume: bool,
+    ) -> None:
+        if (
+            context.gate == "production"
+            and len(assets) > self.config.parallelism.chunk_assets
+        ):
+            self._run_parallel_parent_download(context)
+            scheduler = self.parallel_scheduler_factory(context)
+            scheduler.run_batch(context, tuple(assets))
+            return
+        if resume:
+            self.runner.resume_shard(context)
+        else:
+            self.runner.run_shard(context)
 
     def _active_context(self) -> ShardContext:
         context = getattr(self.runner, "active_context", None)
@@ -5302,7 +6045,7 @@ class PipelineServices:
                 f"batch{index:03d}",
                 gate=gate,
             )
-            self.runner.run_shard(context)
+            self._execute_batch(context, batches[index], resume=False)
             self.batch_auditor(context)
             self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches, gate=gate)
@@ -5322,7 +6065,7 @@ class PipelineServices:
                 f"batch{index:03d}",
                 gate=gate,
             )
-            self.runner.resume_shard(context)
+            self._execute_batch(context, batches[index], resume=True)
             self.batch_auditor(context)
             self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches, gate=gate)

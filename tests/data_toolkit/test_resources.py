@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,46 @@ from data_toolkit.pipeline.resources import (
     ResourceSnapshot,
     TelemetryWriter,
 )
+
+
+def test_resource_guard_serializes_parallel_chunk_sampling(config):
+    state = {"active": 0, "peak": 0}
+    lock = threading.Lock()
+    barrier = threading.Barrier(5)
+
+    def sampler():
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.01)
+        with lock:
+            state["active"] -= 1
+        return sample(datetime.now(timezone.utc), monotonic_seconds=time.monotonic())
+
+    class Writer:
+        def write(self, *_args):
+            pass
+
+    guard = ResourceGuard(
+        sampler,
+        ResourcePolicy(config.limits),
+        Writer(),
+        time.monotonic,
+        lambda _seconds: None,
+    )
+
+    def worker(index):
+        barrier.wait()
+        guard.check("ABO-00000", f"chunk-{index}")
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(4)]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    assert state["peak"] == 1
 
 
 def sample(now, **changes):

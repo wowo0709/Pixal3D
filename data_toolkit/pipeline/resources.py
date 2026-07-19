@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import threading
 import time
 from typing import Callable
 
@@ -393,33 +394,37 @@ class ResourceGuard:
         self._snapshots = deque(maxlen=60)
         self._recovery_required = False
         self._stable_since: float | None = None
+        self._lock = threading.RLock()
 
     def check(self, shard_id: str, command: str) -> ResourceDecision:
-        snapshot = self.sample()
-        decision = self.policy.evaluate(snapshot)
-        now = self.clock()
-        if decision.action == ResourceAction.RUN:
-            if self._recovery_required:
-                if self._stable_since is None:
-                    self._stable_since = now
-                recovery_seconds = getattr(
-                    getattr(self.policy, "limits", None),
-                    "recovery_stable_seconds",
-                    30,
-                )
-                if now - self._stable_since < recovery_seconds:
-                    decision = ResourceDecision(
-                        ResourceAction.PAUSE, ("resource recovery period",)
+        with self._lock:
+            snapshot = self.sample()
+            decision = self.policy.evaluate(snapshot)
+            now = self.clock()
+            if decision.action == ResourceAction.RUN:
+                if self._recovery_required:
+                    if self._stable_since is None:
+                        self._stable_since = now
+                    recovery_seconds = getattr(
+                        getattr(self.policy, "limits", None),
+                        "recovery_stable_seconds",
+                        30,
                     )
+                    if now - self._stable_since < recovery_seconds:
+                        decision = ResourceDecision(
+                            ResourceAction.PAUSE, ("resource recovery period",)
+                        )
+                    else:
+                        self._recovery_required = False
+                        self._stable_since = None
                 else:
-                    self._recovery_required = False
                     self._stable_since = None
-        else:
-            self._recovery_required = True
-            self._stable_since = None
-        self._snapshots.append(snapshot)
-        self.telemetry_writer.write(snapshot, decision, shard_id, command)
-        return decision
+            else:
+                self._recovery_required = True
+                self._stable_since = None
+            self._snapshots.append(snapshot)
+            self.telemetry_writer.write(snapshot, decision, shard_id, command)
+            return decision
 
     def wait_for_admission(
         self, shard_id: str, command: str
@@ -433,7 +438,10 @@ class ResourceGuard:
             self.sleeper(5)
 
     def last_five_minutes(self) -> tuple[dict, ...]:
-        return tuple(_snapshot_payload(snapshot) for snapshot in self._snapshots)
+        with self._lock:
+            return tuple(
+                _snapshot_payload(snapshot) for snapshot in self._snapshots
+            )
 
 
 class ResourcePolicy:

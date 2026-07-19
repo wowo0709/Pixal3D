@@ -171,6 +171,7 @@ class ShardContext:
     output_root: Path
     batch_id: str
     gate: str = "production"
+    record_prefix: str = ""
 
     @classmethod
     def for_test(
@@ -344,6 +345,11 @@ def build_preprocessing_dag(
             ),
         )
     dataset = dataset_args(context.source)
+    record_args = (
+        ("--record_prefix", context.record_prefix)
+        if context.record_prefix
+        else ()
+    )
     base = (
         *dataset,
         "--root",
@@ -413,6 +419,7 @@ def build_preprocessing_dag(
                 str(context.work_root),
                 "--max_workers",
                 str(profile.dump_workers),
+                *record_args,
             ),
             CPU_ENV,
         ),
@@ -435,6 +442,7 @@ def build_preprocessing_dag(
                 config.render.cycles_device,
                 "--max_workers",
                 "1",
+                *record_args,
             ),
             RENDER_ENV,
             gpu_ranks=profile.render_workers,
@@ -467,6 +475,7 @@ def build_preprocessing_dag(
                         str(profile.voxel_workers),
                         "--native_threads",
                         str(profile.voxel_threads_per_worker),
+                        *record_args,
                     ),
                     CPU_ENV,
                 ),
@@ -486,6 +495,7 @@ def build_preprocessing_dag(
                         str(profile.voxel_workers),
                         "--native_threads",
                         str(profile.voxel_threads_per_worker),
+                        *record_args,
                     ),
                     CPU_ENV,
                 ),

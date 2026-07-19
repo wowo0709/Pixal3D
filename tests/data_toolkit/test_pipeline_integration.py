@@ -1,10 +1,12 @@
 from collections import Counter
+from hashlib import sha256
 import json
 from pathlib import Path
 import tarfile
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from data_toolkit.pipeline.cli import main
 from data_toolkit.pipeline.commands import (
@@ -14,7 +16,12 @@ from data_toolkit.pipeline.commands import (
 from data_toolkit.pipeline.config import load_config
 from data_toolkit.pipeline.orchestrator import PipelineServices
 from data_toolkit.pipeline.packing import PACK_FAMILIES, verify_pack
-from data_toolkit.pipeline.resources import ResourceSampler
+from data_toolkit.pipeline.resources import (
+    ResourceAction,
+    ResourceDecision,
+    ResourceSampler,
+)
+from data_toolkit.pipeline.runtime import CanonicalRegistryBuilder, SafeRegistryStore
 
 
 SOURCE = "Synthetic"
@@ -248,3 +255,142 @@ def test_two_asset_shard_runs_and_resumes(synthetic_config, monkeypatch):
 
     assert main(["resume", *arguments]) == 0
     assert json.loads(counts_path.read_text()) == first_counts
+
+
+@pytest.fixture
+def parallel_synthetic_config(tmp_config):
+    raw = yaml.safe_load(tmp_config.read_text())
+    raw["sources"] = [SOURCE]
+    raw["evaluation_sources"] = [f"{SOURCE}Eval"]
+    raw["shard_size"] = 65
+    tmp_config.write_text(yaml.safe_dump(raw, sort_keys=False))
+    config = load_config(tmp_config)
+
+    payloads = tuple(
+        f"pixal3d parallel synthetic asset {index:03d}".encode("ascii")
+        for index in range(65)
+    )
+    training = config.paths.data2_root / f"control/metadata/{SOURCE}/metadata.csv"
+    training.parent.mkdir(parents=True)
+    training.write_text(
+        "sha256,file_identifier,fixture_payload\n"
+        + "".join(
+            f"{sha256(payload).hexdigest()},objects/asset-{index:03d}.glb,"
+            f"{payload.decode('ascii')}\n"
+            for index, payload in enumerate(payloads)
+        )
+    )
+    evaluation = (
+        config.paths.data2_root
+        / f"control/metadata/{SOURCE}Eval/metadata.csv"
+    )
+    evaluation.parent.mkdir(parents=True)
+    evaluation.write_text(
+        "sha256,file_identifier\n"
+        f"{sha256(b'parallel evaluation').hexdigest()},evaluation/unused.glb\n"
+    )
+    CanonicalRegistryBuilder(config)()
+    return config
+
+
+class _AlwaysRunGuard:
+    def wait_for_admission(self, _shard_id, _command):
+        return None
+
+    def last_five_minutes(self):
+        return ()
+
+    def check(self, _shard_id, _command):
+        return ResourceDecision(ResourceAction.RUN, ())
+
+
+class _OneMiBPilot:
+    def p95_peak_local_bytes(self, _source):
+        return 1024**2
+
+    def p95_peak_local_bytes_for_gate(self, _source, _gate):
+        return 1024**2
+
+
+class _KeepRawReferences:
+    def pending_references(self, *_args, **_kwargs):
+        return 1
+
+
+class _NoopAccounting:
+    def record_registry_delta(self, _path, _delta):
+        return None
+
+    def reconcile_at_shard_boundary(self):
+        return (0, 0)
+
+
+@pytest.mark.integration
+def test_65_asset_production_batch_runs_as_two_restartable_chunks(
+    parallel_synthetic_config, monkeypatch
+):
+    config = parallel_synthetic_config
+    worker = Path("tests/data_toolkit/fixtures/fake_leaf_worker.py").resolve()
+    monkeypatch.setenv("PIXAL3D_LEAF_WORKER", str(worker))
+    monkeypatch.setenv("PIXAL3D_FAKE_FAST", "1")
+    monkeypatch.setenv(
+        "PIXAL3D_FAKE_VXZ_TEMPLATE",
+        str(config.paths.local_root / "fake-template.vxz"),
+    )
+    services = PipelineServices(
+        config,
+        resource_guard=_AlwaysRunGuard(),
+        pilot_reader=_OneMiBPilot(),
+        reference_counter=_KeepRawReferences(),
+        project_accounting=_NoopAccounting(),
+        registry_store=SafeRegistryStore(
+            config.paths.data2_root / "control/assets.parquet", config
+        ),
+        disk_usage=_synthetic_disk_usage,
+        tool_commit="parallel-integration-test",
+    )
+    services.runner.monitor_interval_seconds = 0.01
+
+    services.run("production", SOURCE, SHARD)
+
+    context = ShardContext.from_config(
+        config, SOURCE, SHARD, "batch000", gate="production"
+    )
+    chunks = (
+        config.paths.data2_root
+        / f"control/checkpoints/{SOURCE}/{SHARD}/chunks/batch000"
+    )
+    manifest = json.loads((chunks / "manifest.json").read_text())
+    assert [entry["count"] for entry in manifest["chunks"]] == [64, 1]
+    assert all(
+        json.loads((chunks / f"chunk{index:03d}/checkpoint.json").read_text())[
+            "promoted"
+        ]
+        for index in range(2)
+    )
+    parent_checkpoint = json.loads(
+        (config.paths.data2_root / f"control/checkpoints/{SOURCE}/{SHARD}/batch000.json").read_text()
+    )
+    assert len(parent_checkpoint["quality_outcomes"]) == 65
+    assert set(parent_checkpoint["completed_commands"]) == {
+        "download",
+        "validate_outputs",
+        "build_packs",
+        "archive_raw",
+        "cleanup_local",
+    }
+    prepared = config.paths.data2_root / "prepared"
+    assert len(tuple(prepared.rglob("batch000.tar"))) == 8
+    for root in (context.download_root, context.work_root, context.output_root):
+        assert not root.exists()
+    assert not (context.work_root.parent / "chunks").exists()
+
+    command_counts = {
+        path: json.loads(path.read_text())
+        for path in chunks.rglob("leaf-command-counts.json")
+    }
+    assert len(command_counts) == 2
+    services.resume("production", SOURCE, SHARD)
+    assert {
+        path: json.loads(path.read_text()) for path in command_counts
+    } == command_counts
