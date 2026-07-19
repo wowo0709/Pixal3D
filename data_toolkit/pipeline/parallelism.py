@@ -22,25 +22,17 @@ class GeometryProfile:
 
 
 def geometry_profile(config: ParallelismConfig) -> GeometryProfile:
-    native_threads = 4
-    if config.cpu_physical_cores % native_threads:
-        raise ValueError(
-            "parallelism CPU cores must divide into four-core geometry workers"
-        )
-    profile = GeometryProfile(
-        processes=config.cpu_physical_cores // native_threads,
-        native_threads=native_threads,
+    return GeometryProfile(
+        processes=config.cpu_physical_cores,
+        native_threads=1,
     )
-    if profile.processes > 11:
-        raise ValueError("geometry profile exceeds the 11-process node cap")
-    return profile
 
 
 def geometry_affinity_sets(
     profile: GeometryProfile,
 ) -> tuple[tuple[int, ...], ...]:
-    if profile.native_threads != 4 or profile.processes > 11:
-        raise ValueError("unsupported geometry affinity profile")
+    if profile.processes * profile.native_threads > 44:
+        raise ValueError("geometry affinity profile exceeds 44 physical cores")
     physical_cores = (*range(0, 20), *range(24, 48))
     groups = tuple(
         tuple(physical_cores[index : index + profile.native_threads])

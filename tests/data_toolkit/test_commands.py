@@ -49,7 +49,7 @@ def test_initial_worker_profile_owns_full_geometry_lane(config):
     selected = choose_worker_profile((), config)
 
     assert selected.dump_workers == 44
-    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (11, 4)
+    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (44, 1)
 
 
 def test_worker_profile_steps_down_on_pressure(config):
@@ -96,6 +96,21 @@ def test_worker_profile_applies_render_step_at_next_dag_boundary(config):
 
     assert previous.render_workers_per_gpu == 2
     assert selected.render_workers_per_gpu == 3
+    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (44, 1)
+
+
+def test_full_geometry_profile_steps_down_to_existing_safe_profile_on_pressure(config):
+    previous = choose_worker_profile((), config)
+    pressure = [{
+        "cpu_percent": 81,
+        "io_wait_percent": 0,
+        "available_ram_gib": 200,
+        "reasons": [],
+    }]
+
+    selected = choose_worker_profile(pressure, config, previous)
+
+    assert (selected.voxel_workers, selected.voxel_threads_per_worker) == (11, 4)
 
 
 def test_dag_accepts_worker_profile(config, tmp_path):

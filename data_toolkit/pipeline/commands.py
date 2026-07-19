@@ -128,16 +128,29 @@ def choose_worker_profile(
         for snapshot in recent_snapshots[-3:]
     )
     current_dump = dump_steps.index(previous.dump_workers)
-    current_voxel = profiles.index(
-        (previous.voxel_workers, previous.voxel_threads_per_worker)
+    current_geometry = (
+        previous.voxel_workers,
+        previous.voxel_threads_per_worker,
     )
-    if pressure:
-        current_dump = max(0, current_dump - 1)
-        current_voxel = max(0, current_voxel - 1)
-    elif stable:
-        current_dump = min(len(dump_steps) - 1, current_dump + 1)
-        current_voxel = min(len(profiles) - 1, current_voxel + 1)
-    voxel_workers, native_threads = profiles[current_voxel]
+    full_geometry = (
+        config.parallelism.cpu_physical_cores,
+        1,
+    )
+    if current_geometry == full_geometry:
+        voxel_workers, native_threads = (
+            profiles[-1] if pressure else current_geometry
+        )
+        if pressure:
+            current_dump = max(0, current_dump - 1)
+    else:
+        current_voxel = profiles.index(current_geometry)
+        if pressure:
+            current_dump = max(0, current_dump - 1)
+            current_voxel = max(0, current_voxel - 1)
+        elif stable:
+            current_dump = min(len(dump_steps) - 1, current_dump + 1)
+            current_voxel = min(len(profiles) - 1, current_voxel + 1)
+        voxel_workers, native_threads = profiles[current_voxel]
     render_workers_per_gpu = previous.render_workers_per_gpu
     render_state = _render_gpu_state(recent_snapshots)
     if render_state is not None:
