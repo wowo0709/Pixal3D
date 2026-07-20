@@ -70,7 +70,12 @@ def load_moge_model(device="cuda", model_name=MOGE_MODEL_NAME):
     return moge_model
 
 
-def init_pipeline(model_path=MODEL_PATH, device="cuda"):
+def init_pipeline(model_path=MODEL_PATH, device="cuda", low_vram=False):
+    device = torch.device(device)
+    if device.type == "cuda":
+        torch.cuda.set_device(
+            device.index if device.index is not None else torch.cuda.current_device()
+        )
     print(f"[Pipeline] Loading from {model_path}...")
     pipeline = Pixal3DImageTo3DPipeline.from_pretrained(model_path)
 
@@ -80,13 +85,14 @@ def init_pipeline(model_path=MODEL_PATH, device="cuda"):
     pipeline.image_cond_model_shape_1024 = build_image_cond_model(IMAGE_COND_CONFIGS["shape_1024"])
     pipeline.image_cond_model_tex_1024 = build_image_cond_model(IMAGE_COND_CONFIGS["tex_1024"])
 
-    pipeline.low_vram = False
-    pipeline.cuda()
+    pipeline.low_vram = bool(low_vram)
+    pipeline.to(device)
 
-    pipeline.image_cond_model_ss.cuda()
-    pipeline.image_cond_model_shape_512.cuda()
-    pipeline.image_cond_model_shape_1024.cuda()
-    pipeline.image_cond_model_tex_1024.cuda()
+    if not pipeline.low_vram:
+        pipeline.image_cond_model_ss.to(device)
+        pipeline.image_cond_model_shape_512.to(device)
+        pipeline.image_cond_model_shape_1024.to(device)
+        pipeline.image_cond_model_tex_1024.to(device)
 
     print("[NAF] Pre-loading NAF upsampler model...")
     for attr in ['image_cond_model_ss', 'image_cond_model_shape_512', 'image_cond_model_shape_1024', 'image_cond_model_tex_1024']:
@@ -95,6 +101,43 @@ def init_pipeline(model_path=MODEL_PATH, device="cuda"):
             model._load_naf()
 
     return pipeline
+
+
+def export_glb(
+    pipeline,
+    mesh,
+    resolution,
+    output_path,
+    decimation_target=200_000,
+    texture_size=2048,
+):
+    glb = o_voxel.postprocess.to_glb(
+        vertices=mesh.vertices,
+        faces=mesh.faces,
+        attr_volume=mesh.attrs,
+        coords=mesh.coords,
+        attr_layout=pipeline.pbr_attr_layout,
+        grid_size=resolution,
+        aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+        decimation_target=decimation_target,
+        texture_size=texture_size,
+        remesh=True,
+        remesh_band=1,
+        remesh_project=0,
+        use_tqdm=True,
+    )
+    rotation = np.array(
+        [
+            [-1, 0, 0, 0],
+            [0, 0, -1, 0],
+            [0, -1, 0, 0],
+            [0, 0, 0, 1],
+        ],
+        dtype=np.float64,
+    )
+    glb.apply_transform(rotation)
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    glb.export(output_path, extension_webp=True)
 
 # ============================================================================
 # Camera Estimation
@@ -225,26 +268,7 @@ def run_inference(
 
     # Extract GLB
     print("[Inference] Extracting GLB...")
-    glb = o_voxel.postprocess.to_glb(
-        vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs,
-        coords=mesh.coords, attr_layout=pipeline.pbr_attr_layout,
-        grid_size=res, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=200000, texture_size=2048,
-        remesh=True, remesh_band=1, remesh_project=0, use_tqdm=True,
-    )
-
-    # Apply rotation
-    rot = np.array([
-        [-1,  0,  0,  0],
-        [ 0,  0, -1,  0],
-        [ 0, -1,  0,  0],
-        [ 0,  0,  0,  1],
-    ], dtype=np.float64)
-    glb.apply_transform(rot)
-
-    # Export
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    glb.export(output_path, extension_webp=True)
+    export_glb(pipeline, mesh, res, output_path)
     print(f"[Done] GLB saved to: {output_path}")
 
 
