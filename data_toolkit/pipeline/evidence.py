@@ -407,7 +407,7 @@ class GateEvidenceCollector:
                             raise ArtifactValidationError(
                                 f"invalid quarantine category: {asset}"
                             )
-                        outcome = (
+                        outcome = recorded_outcome or (
                             "schema_failure"
                             if category == "schema_failure"
                             else "failure"

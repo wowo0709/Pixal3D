@@ -9,7 +9,6 @@ def _registry():
     rows = []
     counts = {
         "ObjaverseXL_sketchfab": 2,
-        "ObjaverseXL_github": 1,
         "ABO": 1,
         "HSSD": 1,
         "3D-FUTURE": 1,
@@ -87,7 +86,6 @@ def test_full_runner_uses_fixed_source_order_and_audits_each_shard(
         ("3D-FUTURE", "3D-FUTURE-00000"),
         ("ObjaverseXL_sketchfab", "ObjaverseXL_sketchfab-00000"),
         ("ObjaverseXL_sketchfab", "ObjaverseXL_sketchfab-00001"),
-        ("ObjaverseXL_github", "ObjaverseXL_github-00000"),
     ]
     assert services.calls == [
         call
@@ -150,6 +148,6 @@ def test_full_runner_dry_run_is_ordered_and_does_not_mutate(
     assert lines[0] == "ABO/ABO-00000/batch000: 256 assets, 4 chunks (max 64)"
     assert lines[1] == "ABO/ABO-00000/batch001: 17 assets, 1 chunks (max 64)"
     assert lines[-1].startswith(
-        "ObjaverseXL_github/ObjaverseXL_github-00000/"
+        "ObjaverseXL_sketchfab/ObjaverseXL_sketchfab-00001/"
     )
     assert services.calls == []

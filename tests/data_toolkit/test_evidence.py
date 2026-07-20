@@ -336,3 +336,36 @@ def test_collects_checksum_bound_evidence_from_publications_and_ledger(
         "fp16_sha256": sha256(fp16_path.read_bytes()).hexdigest(),
         "telemetry_sha256": sha256(telemetry_path.read_bytes()).hexdigest(),
     }
+
+
+def test_collect_accepts_schema_failure_recorded_for_asset_validation_quarantine(
+    synthetic_config,
+):
+    config = load_config(synthetic_config)
+    registry = SafeRegistryStore(
+        config.paths.data2_root / "control/assets.parquet", config
+    ).load()
+    assets = tuple(sorted(registry["sha256"]))
+    _publish_smoke_fixture(config, assets)
+    lock = (
+        config.paths.data2_root
+        / "control/qualification/smoke/shards/Synthetic"
+        / ".Synthetic-00000.freeze.lock"
+    )
+    lock.touch()
+    ledger_path = (
+        config.paths.data2_root
+        / "control/qualification/smoke/quality/Synthetic/Synthetic-00000.json"
+    )
+    ledger = json.loads(ledger_path.read_text())
+    ledger["entries"][1]["outcome"] = "schema_failure"
+    ledger["quarantine"][assets[1]]["category"] = "asset_validation"
+    ledger_path.write_text(json.dumps(ledger))
+
+    measurements_path, *_ = GateEvidenceCollector(config).collect("smoke")
+
+    measurements = pd.read_csv(measurements_path, dtype={"sha256": str})
+    assert (
+        measurements.set_index("sha256").loc[assets[1], "outcome"]
+        == "schema_failure"
+    )

@@ -15,7 +15,6 @@ SOURCE_ORDER = (
     "HSSD",
     "3D-FUTURE",
     "ObjaverseXL_sketchfab",
-    "ObjaverseXL_github",
 )
 
 
