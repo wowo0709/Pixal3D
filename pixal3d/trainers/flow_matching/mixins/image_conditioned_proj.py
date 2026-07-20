@@ -20,6 +20,10 @@ from ....utils import dist_utils
 from ....utils.dist_utils import read_file_dist
 
 
+NAF_REPOSITORY = "valeoai/NAF"
+NAF_REPOSITORY_REVISION = "37f2dfc180f2de53d98bd601109c0da0dd6b0f43"
+
+
 # =============================================================================
 # Projection Utilities
 # =============================================================================
@@ -368,12 +372,16 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         grid_resolution: int = 16,
         use_naf_upsample: bool = False,
         naf_target_size: Optional[List[int]] = None,
+        revision: Optional[str] = None,
+        naf_revision: str = NAF_REPOSITORY_REVISION,
     ):
         super().__init__()
         self.model_name = model_name
         self.image_size = image_size
         self.grid_resolution = grid_resolution
         self.use_naf_upsample = use_naf_upsample
+        self.revision = revision
+        self.naf_revision = naf_revision
         if naf_target_size is None:
             self.naf_target_size = (128, 128)
         elif isinstance(naf_target_size, int):
@@ -382,7 +390,8 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             self.naf_target_size = tuple(naf_target_size)
         
         # Load DINOv3 model (frozen, no trainable params in this module)
-        self.model = DINOv3ViTModel.from_pretrained(model_name)
+        revision_args = {} if revision is None else {"revision": revision}
+        self.model = DINOv3ViTModel.from_pretrained(model_name, **revision_args)
         self.model.eval()
         self.model.requires_grad_(False)
         
@@ -417,8 +426,14 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         if self.naf_model is None:
             import torch.hub
             device = next(self.model.parameters()).device
+            if not self.naf_revision:
+                raise ValueError("NAF loading requires an immutable repository revision")
             self.naf_model = torch.hub.load(
-                "valeoai/NAF", "naf", pretrained=True, device=device, trust_repo=True
+                f"{NAF_REPOSITORY}:{self.naf_revision}",
+                "naf",
+                pretrained=True,
+                device=device,
+                trust_repo=True,
             )
             self.naf_model.eval()
             self.naf_model.requires_grad_(False)
@@ -632,13 +647,19 @@ class DinoV3VaeProjFeatureExtractor(nn.Module):
         vae_model_name: str = "black-forest-labs/FLUX.1-dev",
         image_size: int = 512,
         grid_resolution: int = 16,
+        dino_revision: Optional[str] = None,
     ):
         super().__init__()
         self.image_size = image_size
         self.grid_resolution = grid_resolution
         
         # --- DINOv3 backbone (frozen) ---
-        self.dino_model = DINOv3ViTModel.from_pretrained(dino_model_name)
+        revision_args = (
+            {} if dino_revision is None else {"revision": dino_revision}
+        )
+        self.dino_model = DINOv3ViTModel.from_pretrained(
+            dino_model_name, **revision_args
+        )
         self.dino_model.eval()
         self.dino_model.requires_grad_(False)
         

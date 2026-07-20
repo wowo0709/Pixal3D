@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 
 class FakeImageConditioner:
@@ -35,8 +36,15 @@ class FakePipeline:
 
 
 def _import_inference_without_model_weights(monkeypatch):
+    import huggingface_hub
     import pixal3d.pipelines as pipelines
 
+    monkeypatch.setenv("PIXAL3D_MODEL_REVISION", "a" * 40)
+    monkeypatch.setattr(
+        huggingface_hub,
+        "snapshot_download",
+        lambda *, repo_id, revision: repo_id,
+    )
     monkeypatch.setitem(
         pipelines.__dict__, "Pixal3DImageTo3DPipeline", FakePipeline
     )
@@ -93,6 +101,106 @@ def test_full_vram_bootstrap_places_image_conditioners_on_requested_device(
     for attribute in inference.IMAGE_COND_CONFIGS:
         model = getattr(pipeline, f"image_cond_model_{attribute}")
         assert model.devices == [torch.device("cpu")]
+
+
+def test_remote_bootstrap_loads_exact_snapshot_and_dependency_revisions(monkeypatch):
+    import huggingface_hub
+
+    inference = _import_inference_without_model_weights(monkeypatch)
+    snapshot_calls = []
+    configs = []
+    monkeypatch.setenv("PIXAL3D_MODEL_REVISION", "b" * 40)
+    monkeypatch.setenv("PIXAL3D_DINO_REVISION", "c" * 40)
+    monkeypatch.setenv("PIXAL3D_NAF_REVISION", "d" * 40)
+
+    def snapshot_download(*, repo_id, revision):
+        snapshot_calls.append((repo_id, revision))
+        return "/immutable/pixal-snapshot"
+
+    def build_image_cond_model(config):
+        configs.append(dict(config))
+        return FakeImageConditioner()
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    monkeypatch.setattr(inference, "build_image_cond_model", build_image_cond_model)
+
+    inference.init_pipeline("TencentARC/Pixal3D", device="cpu", low_vram=True)
+
+    assert snapshot_calls == [("TencentARC/Pixal3D", "b" * 40)]
+    assert FakePipeline.loaded_paths[-1] == "/immutable/pixal-snapshot"
+    assert len(configs) == len(inference.IMAGE_COND_CONFIGS)
+    assert all(config["revision"] == "c" * 40 for config in configs)
+    assert all(config["naf_revision"] == "d" * 40 for config in configs)
+
+
+def test_local_pipeline_path_bypasses_snapshot_download(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    inference = _import_inference_without_model_weights(monkeypatch)
+    local_model = tmp_path / "local-model"
+    local_model.mkdir()
+    (local_model / "pipeline.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        huggingface_hub,
+        "snapshot_download",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("local model must not use snapshot_download")
+        ),
+    )
+    monkeypatch.setattr(
+        inference, "build_image_cond_model", lambda config: FakeImageConditioner()
+    )
+
+    inference.init_pipeline(str(local_model), device="cpu", low_vram=True)
+
+    assert FakePipeline.loaded_paths[-1] == str(local_model)
+
+
+def test_image_conditioner_pins_dino_and_naf_loaders(monkeypatch):
+    from pixal3d.trainers.flow_matching.mixins import image_conditioned_proj
+
+    class FakeDinoModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.anchor = nn.Parameter(torch.zeros(1))
+            self.config = SimpleNamespace(patch_size=16, hidden_size=4)
+
+    dino_calls = []
+    naf_calls = []
+
+    def load_dino(model_name, **kwargs):
+        dino_calls.append((model_name, kwargs))
+        return FakeDinoModel()
+
+    def load_naf(repo, entrypoint, **kwargs):
+        naf_calls.append((repo, entrypoint, kwargs))
+        return FakeDinoModel()
+
+    monkeypatch.setattr(
+        image_conditioned_proj.DINOv3ViTModel,
+        "from_pretrained",
+        load_dino,
+    )
+    monkeypatch.setattr(torch.hub, "load", load_naf)
+
+    extractor = image_conditioned_proj.DinoV3ProjFeatureExtractor(
+        model_name="camenduru/dinov3-vitl16-pretrain-lvd1689m",
+        image_size=16,
+        grid_resolution=1,
+        use_naf_upsample=True,
+        revision="e" * 40,
+        naf_revision="f" * 40,
+    )
+    extractor._load_naf()
+
+    assert dino_calls == [
+        (
+            "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+            {"revision": "e" * 40},
+        )
+    ]
+    assert naf_calls[0][0] == f"valeoai/NAF:{'f' * 40}"
+    assert naf_calls[0][1] == "naf"
 
 
 def test_export_glb_uses_tracked_orientation_and_export_settings(

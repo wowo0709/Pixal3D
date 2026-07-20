@@ -1,6 +1,7 @@
 import os
 import argparse
 import math
+import re
 import time
 import torch
 import numpy as np
@@ -22,6 +23,8 @@ import o_voxel
 
 MOGE_MODEL_NAME = "Ruicheng/moge-2-vitl"
 MODEL_PATH = "TencentARC/Pixal3D"
+DINO_MODEL_REVISION = "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+NAF_REPOSITORY_REVISION = "37f2dfc180f2de53d98bd601109c0da0dd6b0f43"
 
 IMAGE_COND_CONFIGS = {
     "ss": {
@@ -70,20 +73,58 @@ def load_moge_model(device="cuda", model_name=MOGE_MODEL_NAME):
     return moge_model
 
 
+def _immutable_revision(environment_name, default=None):
+    revision = os.environ.get(environment_name, default)
+    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-fA-F]{40,64}", revision) is None:
+        raise RuntimeError(f"{environment_name} must be an immutable commit revision")
+    return revision.lower()
+
+
+def _pipeline_model_path(model_path):
+    if os.path.exists(os.path.join(os.fspath(model_path), "pipeline.json")):
+        return model_path
+
+    revision = os.environ.get("PIXAL3D_MODEL_REVISION")
+    if revision is None:
+        from huggingface_hub import HfApi
+        revision = HfApi().model_info(
+            model_path, revision="main", files_metadata=False
+        ).sha
+    revision = str(revision).lower()
+    if re.fullmatch(r"[0-9a-f]{40,64}", revision) is None:
+        raise RuntimeError("remote Pixal model revision must be an immutable commit")
+
+    from huggingface_hub import snapshot_download
+    return snapshot_download(repo_id=model_path, revision=revision)
+
+
 def init_pipeline(model_path=MODEL_PATH, device="cuda", low_vram=False):
     device = torch.device(device)
     if device.type == "cuda":
         torch.cuda.set_device(
             device.index if device.index is not None else torch.cuda.current_device()
         )
+    pipeline_model_path = _pipeline_model_path(model_path)
     print(f"[Pipeline] Loading from {model_path}...")
-    pipeline = Pixal3DImageTo3DPipeline.from_pretrained(model_path)
+    pipeline = Pixal3DImageTo3DPipeline.from_pretrained(pipeline_model_path)
 
     print("[ImageCond] Building DinoV3ProjFeatureExtractor models...")
-    pipeline.image_cond_model_ss = build_image_cond_model(IMAGE_COND_CONFIGS["ss"])
-    pipeline.image_cond_model_shape_512 = build_image_cond_model(IMAGE_COND_CONFIGS["shape_512"])
-    pipeline.image_cond_model_shape_1024 = build_image_cond_model(IMAGE_COND_CONFIGS["shape_1024"])
-    pipeline.image_cond_model_tex_1024 = build_image_cond_model(IMAGE_COND_CONFIGS["tex_1024"])
+    dependency_revisions = {
+        "revision": _immutable_revision(
+            "PIXAL3D_DINO_REVISION", DINO_MODEL_REVISION
+        ),
+        "naf_revision": _immutable_revision(
+            "PIXAL3D_NAF_REVISION", NAF_REPOSITORY_REVISION
+        ),
+    }
+    image_cond_configs = {
+        name: {**config, **dependency_revisions}
+        for name, config in IMAGE_COND_CONFIGS.items()
+    }
+    pipeline.image_cond_model_ss = build_image_cond_model(image_cond_configs["ss"])
+    pipeline.image_cond_model_shape_512 = build_image_cond_model(image_cond_configs["shape_512"])
+    pipeline.image_cond_model_shape_1024 = build_image_cond_model(image_cond_configs["shape_1024"])
+    pipeline.image_cond_model_tex_1024 = build_image_cond_model(image_cond_configs["tex_1024"])
 
     pipeline.low_vram = bool(low_vram)
     pipeline.to(device)
