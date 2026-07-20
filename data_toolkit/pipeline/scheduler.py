@@ -15,7 +15,7 @@ import time
 from typing import Callable, Mapping, Protocol, Sequence
 
 from .commands import ShardContext
-from .parallelism import NodeResourceBroker
+from .parallelism import DynamicResourceBroker, NodeResourceBroker
 
 
 CHUNK_CHECKPOINT_SCHEMA_VERSION = 1
@@ -591,16 +591,31 @@ class ParallelChunkScheduler:
                     )
                     if stage is None:
                         continue
-                    lease = self.broker.try_acquire(
-                        cpu_cores=stage.cpu_cores,
-                        gpu_indices=stage.gpu_indices,
-                        gpu_memory_percent=stage.gpu_memory_percent,
-                    )
+                    if isinstance(self.broker, DynamicResourceBroker):
+                        lease = self.broker.acquire_any(
+                            cpu_cores=stage.cpu_cores,
+                            gpu_count=len(stage.gpu_indices),
+                            gpu_memory_percent=stage.gpu_memory_percent,
+                        )
+                    else:
+                        lease = self.broker.try_acquire(
+                            cpu_cores=stage.cpu_cores,
+                            gpu_indices=stage.gpu_indices,
+                            gpu_memory_percent=stage.gpu_memory_percent,
+                        )
                     if lease is None:
                         continue
                     chunk = by_id[chunk_id]
                     start = self.monotonic_clock()
-                    future = pool.submit(self.executor.execute, chunk, stage)
+                    execute_with_lease = getattr(
+                        self.executor, "execute_with_lease", None
+                    )
+                    if callable(execute_with_lease):
+                        future = pool.submit(
+                            execute_with_lease, chunk, stage, lease
+                        )
+                    else:
+                        future = pool.submit(self.executor.execute, chunk, stage)
                     running[future] = (chunk, stage, lease, start)
                     admitted = True
 

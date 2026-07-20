@@ -1,14 +1,60 @@
 import pytest
 
 from data_toolkit.pipeline.parallelism import (
+    DynamicResourceBroker,
     GeometryProfile,
     GpuMemoryState,
     NodeResourceBroker,
+    WorkerSpec,
     configure_geometry_threads,
     geometry_affinity_sets,
     geometry_profile,
     select_micro_batch,
 )
+
+
+def test_dynamic_broker_drains_one_worker_and_admits_another():
+    broker = DynamicResourceBroker()
+    broker.register(WorkerSpec("node17", cpu_limit=4, gpu_indices=(0,)))
+    broker.register(WorkerSpec("node16", cpu_limit=4, gpu_indices=(2, 3)))
+
+    first = broker.acquire_any(
+        cpu_cores=1, gpu_count=1, gpu_memory_percent=20.0
+    )
+    assert first is not None
+    assert first.node_id == "node17"
+
+    broker.drain("node17")
+    second = broker.acquire_any(
+        cpu_cores=1, gpu_count=1, gpu_memory_percent=20.0
+    )
+    assert second is not None
+    assert second.node_id == "node16"
+    first.release()
+    second.release()
+
+
+def test_dynamic_broker_accounts_for_external_gpu_memory_and_removal():
+    broker = DynamicResourceBroker()
+    broker.register(WorkerSpec("node16", cpu_limit=4, gpu_indices=(2, 3)))
+    broker.update_gpu_memory(
+        "node16",
+        (
+            GpuMemoryState(index=2, used_mib=4_895.0, total_mib=97_887.0),
+            GpuMemoryState(index=3, used_mib=0.0, total_mib=97_887.0),
+        ),
+    )
+
+    lease = broker.acquire_any(
+        cpu_cores=1, gpu_count=1, gpu_memory_percent=80.0
+    )
+    assert lease is not None
+    assert lease.gpu_indices == (2,)
+    broker.remove("node16")
+    assert broker.acquire_any(
+        cpu_cores=1, gpu_count=1, gpu_memory_percent=20.0
+    ) is None
+    lease.release()
 
 
 def test_geometry_thread_cap_matches_affinity_width():

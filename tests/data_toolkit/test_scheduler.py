@@ -10,7 +10,11 @@ import time
 import pytest
 
 from data_toolkit.pipeline.commands import ShardContext, build_preprocessing_dag
-from data_toolkit.pipeline.parallelism import NodeResourceBroker
+from data_toolkit.pipeline.parallelism import (
+    DynamicResourceBroker,
+    NodeResourceBroker,
+    WorkerSpec,
+)
 from data_toolkit.pipeline.scheduler import (
     ChunkExecutionError,
     Lane,
@@ -123,6 +127,39 @@ def test_scheduler_overlaps_independent_resource_lanes(tmp_path):
         executor.intervals[("chunk000", "encode")],
     )
     assert result.publication_order == ("chunk000", "chunk001", "batch000")
+
+
+def test_scheduler_passes_dynamic_worker_lease_to_lease_aware_executor(tmp_path):
+    class Executor(_TimelineExecutor):
+        def __init__(self):
+            super().__init__()
+            self.nodes = []
+
+        def execute_with_lease(self, chunk, stage, lease):
+            self.nodes.append((chunk.chunk_id, stage.name, lease.node_id))
+            return self.execute(chunk, stage)
+
+    parent = ShardContext.for_test(tmp_path / "batch", "ABO", "ABO-00000")
+    parent.instances.parent.mkdir(parents=True, exist_ok=True)
+    parent.instances.write_text("".join(f"{asset}\n" for asset in _assets(2)))
+    broker = DynamicResourceBroker()
+    broker.register(WorkerSpec("node16", cpu_limit=2, gpu_indices=(2,)))
+    executor = Executor()
+    scheduler = ParallelChunkScheduler(
+        config_hash="c" * 64,
+        broker=broker,
+        executor=executor,
+        stages=_stages(),
+        checkpoint_root=tmp_path / "checkpoints",
+        chunk_assets=2,
+        max_chunks_in_flight=1,
+        promoter=lambda _parent, _chunk: None,
+        publisher=lambda _parent, _chunks: None,
+    )
+
+    scheduler.run_batch(parent, _assets(2))
+
+    assert {node for _, _, node in executor.nodes} == {"node16"}
 
 
 def test_scheduler_preserves_same_chunk_dependencies(tmp_path):

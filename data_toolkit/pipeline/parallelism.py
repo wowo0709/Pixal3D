@@ -217,3 +217,161 @@ class NodeResourceBroker:
             self._cpu_allocated -= lease.cpu_cores
             for index in lease.gpu_indices:
                 self._gpu_allocated_percent[index] -= lease.gpu_memory_percent
+
+
+@dataclass(frozen=True)
+class WorkerSpec:
+    """The schedulable CPU and GPU resources of one preprocessing worker."""
+
+    node_id: str
+    cpu_limit: int
+    gpu_indices: tuple[int, ...]
+    gpu_hard_percent: float = 90.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.node_id, str) or not self.node_id:
+            raise ValueError("worker node id must be non-empty")
+        if type(self.cpu_limit) is not int or self.cpu_limit <= 0:
+            raise ValueError("worker CPU limit must be positive")
+        if (
+            not isinstance(self.gpu_indices, tuple)
+            or not self.gpu_indices
+            or any(type(index) is not int or index < 0 for index in self.gpu_indices)
+            or len(self.gpu_indices) != len(set(self.gpu_indices))
+        ):
+            raise ValueError("worker GPU indices must be unique nonnegative integers")
+        if not isinstance(self.gpu_hard_percent, (int, float)) or isinstance(
+            self.gpu_hard_percent, bool
+        ):
+            raise ValueError("worker GPU hard percent must be numeric")
+        if not math.isfinite(float(self.gpu_hard_percent)) or not (
+            0 < float(self.gpu_hard_percent) <= 100
+        ):
+            raise ValueError("worker GPU hard percent must be in (0, 100]")
+
+
+class _DynamicResourceLease:
+    def __init__(
+        self,
+        broker: "DynamicResourceBroker",
+        node_id: str,
+        cpu_cores: int,
+        gpu_indices: tuple[int, ...],
+        gpu_memory_percent: float,
+    ) -> None:
+        self._broker = broker
+        self.node_id = node_id
+        self.cpu_cores = cpu_cores
+        self.gpu_indices = gpu_indices
+        self.gpu_memory_percent = gpu_memory_percent
+        self._released = False
+        self._lock = threading.Lock()
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        self._broker._release_dynamic(self)
+
+
+class DynamicResourceBroker:
+    """Thread-safe dynamic worker pool with drain/remove semantics.
+
+    All GPU admission uses externally observed memory plus this broker's
+    outstanding reservations.  A drained or removed node keeps outstanding
+    leases valid but accepts no new work.
+    """
+
+    def __init__(self) -> None:
+        self._workers: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def register(self, spec: WorkerSpec) -> None:
+        if not isinstance(spec, WorkerSpec):
+            raise ValueError("worker registration requires a WorkerSpec")
+        with self._lock:
+            prior = self._workers.get(spec.node_id)
+            if prior is not None and prior["cpu_allocated"]:
+                raise ValueError("cannot replace a worker with active leases")
+            self._workers[spec.node_id] = {
+                "spec": spec,
+                "state": "active",
+                "cpu_allocated": 0,
+                "gpu_allocated": {index: 0.0 for index in spec.gpu_indices},
+                "gpu_external": {index: 0.0 for index in spec.gpu_indices},
+            }
+
+    def drain(self, node_id: str) -> None:
+        with self._lock:
+            worker = self._worker(node_id)
+            if worker["state"] != "removed":
+                worker["state"] = "draining"
+
+    def remove(self, node_id: str) -> None:
+        with self._lock:
+            self._worker(node_id)["state"] = "removed"
+
+    def update_gpu_memory(
+        self, node_id: str, states: tuple[GpuMemoryState, ...]
+    ) -> None:
+        values = tuple(states)
+        with self._lock:
+            worker = self._worker(node_id)
+            expected = set(worker["spec"].gpu_indices)
+            actual = {state.index for state in values}
+            if actual != expected:
+                raise ValueError("GPU memory update must cover exactly worker GPUs")
+            worker["gpu_external"] = {
+                state.index: state.percent for state in values
+            }
+
+    def acquire_any(
+        self, *, cpu_cores: int, gpu_count: int, gpu_memory_percent: float = 0.0
+    ) -> _DynamicResourceLease | None:
+        if type(cpu_cores) is not int or cpu_cores < 0:
+            raise ValueError("CPU cores must be a nonnegative integer")
+        if type(gpu_count) is not int or gpu_count < 0:
+            raise ValueError("GPU count must be a nonnegative integer")
+        if not isinstance(gpu_memory_percent, (int, float)) or isinstance(
+            gpu_memory_percent, bool
+        ) or not math.isfinite(float(gpu_memory_percent)) or gpu_memory_percent < 0:
+            raise ValueError("GPU memory percent must be finite and nonnegative")
+        if not gpu_count and gpu_memory_percent:
+            raise ValueError("GPU memory cannot be reserved without a GPU")
+        with self._lock:
+            for node_id, worker in self._workers.items():
+                if worker["state"] != "active":
+                    continue
+                spec = worker["spec"]
+                if worker["cpu_allocated"] + cpu_cores > spec.cpu_limit:
+                    continue
+                selected = tuple(
+                    index
+                    for index in spec.gpu_indices
+                    if worker["gpu_external"][index]
+                    + worker["gpu_allocated"][index]
+                    + float(gpu_memory_percent)
+                    < float(spec.gpu_hard_percent)
+                )[:gpu_count]
+                if len(selected) != gpu_count:
+                    continue
+                worker["cpu_allocated"] += cpu_cores
+                for index in selected:
+                    worker["gpu_allocated"][index] += float(gpu_memory_percent)
+                return _DynamicResourceLease(
+                    self, node_id, cpu_cores, selected, float(gpu_memory_percent)
+                )
+        return None
+
+    def _worker(self, node_id: str) -> dict:
+        if not isinstance(node_id, str) or node_id not in self._workers:
+            raise ValueError("unknown worker node")
+        return self._workers[node_id]
+
+    def _release_dynamic(self, lease: _DynamicResourceLease) -> None:
+        with self._lock:
+            worker = self._worker(lease.node_id)
+            worker["cpu_allocated"] -= lease.cpu_cores
+            for index in lease.gpu_indices:
+                worker["gpu_allocated"][index] -= lease.gpu_memory_percent
