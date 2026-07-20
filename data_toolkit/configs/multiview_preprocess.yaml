@@ -1,5 +1,5 @@
 pipeline_version: pixal3d-mv-v2
-sources: [ObjaverseXL_sketchfab, ObjaverseXL_github, ABO, HSSD, 3D-FUTURE]
+sources: [ObjaverseXL_sketchfab, ABO, HSSD, 3D-FUTURE]
 evaluation_sources: [Toys4k]
 shard_size: 5000
 paths: {data2_root: /root/data2/pixal3d, data3_root: /root/data3/pixal3d, local_root: /root/node17/data/pixal3d}

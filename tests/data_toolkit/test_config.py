@@ -16,7 +16,6 @@ def test_fixed_contract():
     assert cfg.paths.data3_root == Path("/root/data3/pixal3d")
     assert cfg.sources == (
         "ObjaverseXL_sketchfab",
-        "ObjaverseXL_github",
         "ABO",
         "HSSD",
         "3D-FUTURE",
