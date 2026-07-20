@@ -58,7 +58,7 @@ class FlowEulerSampler(Sampler):
             raise ValueError("SpaceControl latent contains non-finite values")
         index = int(step_index)
         t_start = float(t_seq[index])
-        return t_start * noise + (1.0 - t_start) * control, index
+        return (1.0 - t_start) * noise + t_start * control, index
 
     def _inference_model(self, model, x_t, t, cond=None, **kwargs):
         t = torch.tensor([1000 * t] * x_t.shape[0], device=x_t.device, dtype=torch.float32)
