@@ -263,3 +263,75 @@ def test_export_glb_uses_tracked_orientation_and_export_settings(
     )
     assert output_path.parent.is_dir()
     assert glb.export_call == (output_path, True)
+
+
+def test_export_coordinate_contract_includes_o_voxel_axis_conversion(
+    tmp_path, monkeypatch
+):
+    inference = _import_inference_without_model_weights(monkeypatch)
+    canonical_vertices = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    o_voxel_canonical_to_gltf = np.array(
+        [
+            [1, 0, 0, 0],
+            [0, 0, 1, 0],
+            [0, -1, 0, 0],
+            [0, 0, 0, 1],
+        ],
+        dtype=np.float64,
+    )
+
+    def transform_points(points, transform):
+        homogeneous = np.column_stack([points, np.ones(len(points))])
+        return (transform @ homogeneous.T).T[:, :3]
+
+    class FakeGlb:
+        def __init__(self, vertices):
+            self.vertices = transform_points(
+                vertices, o_voxel_canonical_to_gltf
+            )
+
+        def apply_transform(self, transform):
+            self.vertices = transform_points(self.vertices, transform)
+
+        def export(self, path, *, extension_webp):
+            pass
+
+    exported_glbs = []
+
+    def to_glb(**kwargs):
+        glb = FakeGlb(kwargs["vertices"])
+        exported_glbs.append(glb)
+        return glb
+
+    monkeypatch.setattr(
+        inference,
+        "o_voxel",
+        SimpleNamespace(
+            postprocess=SimpleNamespace(to_glb=to_glb)
+        ),
+    )
+    pipeline = SimpleNamespace(pbr_attr_layout={"base_color": slice(0, 3)})
+    mesh = SimpleNamespace(
+        vertices=canonical_vertices,
+        faces=object(),
+        attrs=object(),
+        coords=object(),
+    )
+
+    inference.export_glb(
+        pipeline,
+        mesh,
+        1024,
+        tmp_path / "result.glb",
+    )
+
+    expected_contract = np.diag([-1.0, 1.0, -1.0, 1.0])
+    np.testing.assert_array_equal(
+        inference.PIXAL_CANONICAL_TO_GLB, expected_contract
+    )
+    np.testing.assert_allclose(
+        exported_glbs[0].vertices,
+        transform_points(canonical_vertices, expected_contract),
+    )

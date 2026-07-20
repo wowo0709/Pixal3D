@@ -26,6 +26,30 @@ MODEL_PATH = "TencentARC/Pixal3D"
 DINO_MODEL_REVISION = "3c276edd87d6f6e569ff0c4400e086807d0f3881"
 NAF_REPOSITORY_REVISION = "37f2dfc180f2de53d98bd601109c0da0dd6b0f43"
 
+# o_voxel converts Pixal canonical coordinates to glTF coordinates before
+# returning the mesh. The second transform is the tracked Pixal export pose.
+O_VOXEL_CANONICAL_TO_GLTF = np.array(
+    [
+        [1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, -1, 0, 0],
+        [0, 0, 0, 1],
+    ],
+    dtype=np.float64,
+)
+PIXAL_GLTF_POST_ROTATION = np.array(
+    [
+        [-1, 0, 0, 0],
+        [0, 0, -1, 0],
+        [0, -1, 0, 0],
+        [0, 0, 0, 1],
+    ],
+    dtype=np.float64,
+)
+PIXAL_CANONICAL_TO_GLB = (
+    PIXAL_GLTF_POST_ROTATION @ O_VOXEL_CANONICAL_TO_GLTF
+)
+
 IMAGE_COND_CONFIGS = {
     "ss": {
         "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
@@ -167,16 +191,7 @@ def export_glb(
         remesh_project=0,
         use_tqdm=True,
     )
-    rotation = np.array(
-        [
-            [-1, 0, 0, 0],
-            [0, 0, -1, 0],
-            [0, -1, 0, 0],
-            [0, 0, 0, 1],
-        ],
-        dtype=np.float64,
-    )
-    glb.apply_transform(rotation)
+    glb.apply_transform(PIXAL_GLTF_POST_ROTATION)
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     glb.export(output_path, extension_webp=True)
 
