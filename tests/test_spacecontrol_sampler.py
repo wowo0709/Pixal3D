@@ -27,7 +27,7 @@ class SpaceControlSamplerTests(unittest.TestCase):
 
         raw = np.linspace(1, 0, 13)
         schedule = (5.0 * raw / (1.0 + 4.0 * raw)).tolist()
-        expected_start = (1.0 - schedule[6]) * noise + schedule[6] * control
+        expected_start = schedule[6] * noise + (1.0 - schedule[6]) * control
         self.assertEqual(len(seen), 6)
         self.assertTrue(torch.equal(seen[0][0], expected_start))
         self.assertEqual((seen[0][1], seen[0][2]), (schedule[6], schedule[7]))

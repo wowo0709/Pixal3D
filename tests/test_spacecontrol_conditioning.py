@@ -1,10 +1,13 @@
 import json
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
 import torch
 import trimesh
+from safetensors.torch import save_file
 
+from pixal3d import models
 import pixal3d.utils.spacecontrol_conditioning as conditioning
 from pixal3d.utils.spacecontrol_conditioning import (
     SurfaceCondition,
@@ -18,6 +21,21 @@ class FakeEncoder(torch.nn.Module):
     def forward(self, occupancy):
         assert occupancy.shape == (1, 1, 64, 64, 64)
         return torch.ones((1, 8, 16, 16, 16), device=occupancy.device)
+
+
+class CheckpointTestEncoder(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.zeros((2, 2)))
+
+
+def _write_test_checkpoint(tmp_path, state_dict):
+    base = tmp_path / "encoder"
+    base.with_suffix(".json").write_text(
+        json.dumps({"name": "CheckpointTestEncoder", "args": {}})
+    )
+    save_file(state_dict, base.with_suffix(".safetensors"))
+    return base
 
 
 def test_transform_is_applied_without_extent_renormalization(tmp_path):
@@ -99,6 +117,56 @@ def test_missing_checkpoint_sidecar_is_rejected(tmp_path):
         encode_surface_condition(
             torch.ones((1, 1, 64, 64, 64)), str(base), torch.device("cpu")
         )
+
+
+@pytest.mark.parametrize(
+    ("state_dict", "error"),
+    [
+        ({}, "Missing key"),
+        (
+            {
+                "weight": torch.ones((2, 2)),
+                "unexpected": torch.ones(1),
+            },
+            "Unexpected key",
+        ),
+        ({"weight": torch.ones((3, 2))}, "size mismatch"),
+    ],
+)
+def test_strict_from_pretrained_rejects_incompatible_weights(
+    tmp_path, monkeypatch, state_dict, error
+):
+    base = _write_test_checkpoint(tmp_path, state_dict)
+    monkeypatch.setattr(
+        models, "CheckpointTestEncoder", CheckpointTestEncoder, raising=False
+    )
+
+    with pytest.raises(RuntimeError, match=error):
+        models.from_pretrained(str(base), strict=True)
+
+
+def test_from_pretrained_remains_permissive_by_default(tmp_path, monkeypatch):
+    base = _write_test_checkpoint(
+        tmp_path,
+        {"unexpected": torch.ones(1)},
+    )
+    monkeypatch.setattr(
+        models, "CheckpointTestEncoder", CheckpointTestEncoder, raising=False
+    )
+
+    loaded = models.from_pretrained(str(base))
+
+    assert isinstance(loaded, CheckpointTestEncoder)
+
+
+def test_spacecontrol_encoder_requests_strict_checkpoint_loading(monkeypatch):
+    loader = Mock(return_value=FakeEncoder())
+    monkeypatch.setattr(models, "from_pretrained", loader)
+
+    encoder = conditioning._load_encoder("encoder")
+
+    assert isinstance(encoder, FakeEncoder)
+    loader.assert_called_once_with("encoder", strict=True)
 
 
 @pytest.mark.parametrize("latent", [

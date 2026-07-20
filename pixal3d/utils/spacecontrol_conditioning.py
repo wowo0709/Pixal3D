@@ -219,7 +219,7 @@ def _open3d_surface_indices(
 def _load_encoder(encoder_path: str) -> torch.nn.Module:
     from pixal3d import models
 
-    return models.from_pretrained(encoder_path)
+    return models.from_pretrained(encoder_path, strict=True)
 
 
 def _atomic_write(path: Path, writer: Callable[[Path], object]) -> None:
