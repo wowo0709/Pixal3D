@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -29,6 +30,7 @@ from .runtime import (
     read_parallelism_report,
 )
 from .validation import ValidationError
+from .worker_registry import WorkerRegistration, WorkerRegistry
 
 
 SUCCESS = 0
@@ -95,6 +97,7 @@ def parser() -> argparse.ArgumentParser:
         "full-run",
         "report",
         "benchmark-parallelism",
+        "workers",
     ):
         child = children.add_parser(name)
         child.add_argument("--config", type=Path, required=True)
@@ -134,6 +137,12 @@ def parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--shard", required=True)
     benchmark.add_argument("--count", type=_positive_integer, required=True)
     benchmark.add_argument("--dry-run", action="store_true")
+    workers = children.choices["workers"]
+    workers.add_argument("--action", choices=("register", "drain", "status"), required=True)
+    workers.add_argument("--node-id")
+    workers.add_argument("--ssh-target")
+    workers.add_argument("--cpu-limit", type=_positive_integer)
+    workers.add_argument("--gpus")
     return root
 
 
@@ -183,6 +192,24 @@ def _stopped_exit(error: PipelineStopped) -> int:
 
 
 def _dispatch(args, config) -> int:
+    if args.command == "workers":
+        registry = WorkerRegistry(config.paths.data2_root / "control/runtime/workers.json")
+        if args.action == "register":
+            if not all((args.node_id, args.ssh_target, args.cpu_limit, args.gpus)):
+                raise ArtifactValidationError("worker register requires node, SSH target, CPU limit, and GPUs")
+            status = registry.register(
+                WorkerRegistration(args.node_id, args.ssh_target, args.cpu_limit, tuple(int(value) for value in args.gpus.split(","))),
+                now=datetime.now(timezone.utc),
+            )
+            print(json.dumps({"node_id": status.node_id, "state": status.state}))
+        elif args.action == "drain":
+            if not args.node_id:
+                raise ArtifactValidationError("worker drain requires --node-id")
+            status = registry.drain(args.node_id)
+            print(json.dumps({"node_id": status.node_id, "state": status.state}))
+        else:
+            print(json.dumps({node: {"state": status.state} for node, status in registry.read().items()}, sort_keys=True))
+        return SUCCESS
     if args.command == "preflight":
         results = run_preflight(config)
         for item in results:

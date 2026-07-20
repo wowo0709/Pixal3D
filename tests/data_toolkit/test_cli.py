@@ -936,6 +936,22 @@ def test_full_run_dry_run_uses_read_only_plan(
     assert "4 chunks" in capsys.readouterr().out
 
 
+def test_workers_cli_registers_and_drains_worker(tmp_config, capsys):
+    assert main([
+        "workers", "--config", str(tmp_config), "--action", "register",
+        "--node-id", "node16", "--ssh-target", "youngwoo@n16.unist.info:55555",
+        "--cpu-limit", "40", "--gpus", "2,3,4,5",
+    ]) == 0
+    assert main([
+        "workers", "--config", str(tmp_config), "--action", "drain",
+        "--node-id", "node16",
+    ]) == 0
+    assert main([
+        "workers", "--config", str(tmp_config), "--action", "status",
+    ]) == 0
+    assert '"state": "draining"' in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     "argv",
     [
