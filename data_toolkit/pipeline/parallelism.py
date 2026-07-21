@@ -312,6 +312,13 @@ class DynamicResourceBroker:
         with self._lock:
             self._worker(node_id)["state"] = "removed"
 
+    def cordon(self, node_id: str) -> None:
+        """Stop new admission after an infrastructure-stage failure."""
+        with self._lock:
+            worker = self._worker(node_id)
+            if worker["state"] == "active":
+                worker["state"] = "cordoned"
+
     def update_gpu_memory(
         self, node_id: str, states: tuple[GpuMemoryState, ...]
     ) -> None:

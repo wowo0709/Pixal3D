@@ -672,6 +672,11 @@ class ParallelChunkScheduler:
                         checkpoints[chunk.chunk_id].complete(stage.name)
                         self._save_checkpoint(chunk, checkpoints[chunk.chunk_id])
                     except BaseException as error:
+                        if isinstance(self.broker, DynamicResourceBroker):
+                            self.broker.cordon(lease.node_id)
+                            # The checkpoint was not advanced: another active
+                            # worker can resume this exact stage safely.
+                            continue
                         failed.add(chunk.chunk_id)
                         errors.append((chunk.chunk_id, stage.name, error))
 
