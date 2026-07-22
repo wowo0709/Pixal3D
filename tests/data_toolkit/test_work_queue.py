@@ -93,3 +93,38 @@ def test_initialize_is_idempotent_but_rejects_different_scope(tmp_path):
 
     with pytest.raises(ValueError, match="different production scope"):
         queue.initialize("b" * 64, units(), now=NOW)
+
+
+def test_released_unit_retries_then_becomes_terminal_failure(tmp_path):
+    queue = ProductionWorkQueue(
+        tmp_path, lease_timeout=timedelta(minutes=5), max_attempts=3
+    )
+    queue.initialize("a" * 64, units()[:1], now=NOW)
+
+    for attempt in range(1, 4):
+        lease = queue.claim(
+            f"node{attempt}",
+            now=NOW + timedelta(minutes=attempt),
+            token=f"token{attempt}",
+        )
+        assert lease.attempt == attempt
+        queue.release(
+            lease,
+            reason="infrastructure failure",
+            now=NOW + timedelta(minutes=attempt, seconds=1),
+        )
+
+    assert queue.claim(
+        "node4", now=NOW + timedelta(minutes=4), token="token4"
+    ) is None
+    assert queue.status(now=NOW + timedelta(minutes=4))["failed"] == 1
+
+
+def test_adopt_completed_marks_verified_legacy_batch(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units()[:1], now=NOW)
+
+    queue.adopt_completed(units()[0], now=NOW, node_id="legacy-node17")
+
+    assert queue.claim("node16", now=NOW, token="token") is None
+    assert queue.status(now=NOW)["completed"] == 1

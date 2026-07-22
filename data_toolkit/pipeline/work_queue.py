@@ -55,11 +55,20 @@ class WorkLease:
 
 
 class ProductionWorkQueue:
-    def __init__(self, root: Path, *, lease_timeout: timedelta):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        lease_timeout: timedelta,
+        max_attempts: int = 3,
+    ):
         self.root = Path(root)
         if not isinstance(lease_timeout, timedelta) or lease_timeout <= timedelta(0):
             raise ValueError("lease timeout must be positive")
+        if type(max_attempts) is not int or max_attempts <= 0:
+            raise ValueError("maximum attempts must be positive")
         self.lease_timeout = lease_timeout
+        self.max_attempts = max_attempts
         self.manifest_path = self.root / "units.json"
         self.leases_root = self.root / "leases"
         self.history_root = self.root / "history"
@@ -133,7 +142,9 @@ class ProductionWorkQueue:
             if self._terminal(unit):
                 continue
             lease_dir = self._lease_dir(unit)
-            attempt = 1
+            attempt = self._next_attempt(unit)
+            if attempt > self.max_attempts:
+                continue
             try:
                 lease_dir.mkdir()
             except FileExistsError:
@@ -149,7 +160,17 @@ class ProductionWorkQueue:
                     lease_dir.rename(stale_path)
                 except FileNotFoundError:
                     continue
-                attempt = current.attempt + 1
+                attempt = max(current.attempt + 1, self._next_attempt(unit))
+                if attempt > self.max_attempts:
+                    self._mark_failed(
+                        unit,
+                        node_id=current.node_id,
+                        token=current.token,
+                        attempt=current.attempt,
+                        reason="lease-timeout",
+                        now=now,
+                    )
+                    continue
                 try:
                     lease_dir.mkdir()
                 except FileExistsError:
@@ -231,6 +252,61 @@ class ProductionWorkQueue:
                 f"work lease was lost: {lease.unit.unit_id}"
             ) from error
 
+    def release(self, lease: WorkLease, *, reason: str, now: datetime) -> None:
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("release reason must be non-empty")
+        _aware(now)
+        self.assert_owned(lease)
+        if lease.attempt >= self.max_attempts:
+            self._mark_failed(
+                lease.unit,
+                node_id=lease.node_id,
+                token=lease.token,
+                attempt=lease.attempt,
+                reason=reason,
+                now=now,
+            )
+        self.assert_owned(lease)
+        try:
+            self._lease_dir(lease.unit).rename(
+                self.history_root / f"{lease.unit.unit_id}.{lease.token}.released"
+            )
+        except FileNotFoundError as error:
+            raise LeaseLostError(
+                f"work lease was lost: {lease.unit.unit_id}"
+            ) from error
+
+    def adopt_completed(
+        self,
+        unit: WorkUnit,
+        *,
+        now: datetime,
+        node_id: str,
+    ) -> None:
+        _aware(now)
+        _identifier(node_id, "node id")
+        known_units = {candidate.unit_id: candidate for candidate in self.units()}
+        if known_units.get(unit.unit_id) != unit:
+            raise ValueError(f"unknown production work unit: {unit.unit_id}")
+        if self._read_lease(unit) is not None:
+            raise ValueError(f"cannot adopt leased work unit: {unit.unit_id}")
+        if (self.failed_root / f"{unit.unit_id}.json").is_file():
+            raise ValueError(f"cannot adopt failed work unit: {unit.unit_id}")
+        completion_path = self._completion_path(unit)
+        if completion_path.is_file():
+            return
+        _write_json(
+            completion_path,
+            {
+                "schema_version": QUEUE_SCHEMA_VERSION,
+                "unit_id": unit.unit_id,
+                "node_id": node_id,
+                "token": "adopted",
+                "attempt": 0,
+                "completed_at": _timestamp(now),
+            },
+        )
+
     def status(self, *, now: datetime) -> dict[str, int]:
         _aware(now)
         counts = {
@@ -267,6 +343,43 @@ class ProductionWorkQueue:
 
     def _lease_dir(self, unit: WorkUnit) -> Path:
         return self.leases_root / unit.unit_id
+
+    def _next_attempt(self, unit: WorkUnit) -> int:
+        highest = 0
+        prefix = f"{unit.unit_id}."
+        if self.history_root.is_dir():
+            for path in self.history_root.iterdir():
+                if not path.name.startswith(prefix) or not path.is_dir():
+                    continue
+                value = _read_json(path / "owner.json", missing_ok=True)
+                if isinstance(value, dict):
+                    attempt = value.get("attempt")
+                    if type(attempt) is int and attempt > highest:
+                        highest = attempt
+        return highest + 1
+
+    def _mark_failed(
+        self,
+        unit: WorkUnit,
+        *,
+        node_id: str,
+        token: str,
+        attempt: int,
+        reason: str,
+        now: datetime,
+    ) -> None:
+        _write_json(
+            self.failed_root / f"{unit.unit_id}.json",
+            {
+                "schema_version": QUEUE_SCHEMA_VERSION,
+                "unit_id": unit.unit_id,
+                "node_id": node_id,
+                "token": token,
+                "attempt": attempt,
+                "reason": reason,
+                "failed_at": _timestamp(now),
+            },
+        )
 
     def _read_lease(self, unit: WorkUnit) -> WorkLease | None:
         value = _read_json(self._lease_dir(unit) / "owner.json", missing_ok=True)
@@ -343,7 +456,12 @@ def _write_json_existing_directory(
             0o600,
             dir_fd=directory_fd,
         )
-        os.write(file_fd, payload)
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(file_fd, remaining)
+            if written <= 0:
+                raise OSError("failed to write queue metadata")
+            remaining = remaining[written:]
         os.fsync(file_fd)
         os.close(file_fd)
         file_fd = None
