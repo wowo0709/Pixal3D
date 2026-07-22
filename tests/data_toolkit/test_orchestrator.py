@@ -166,6 +166,116 @@ def test_production_batches_above_64_use_parallel_chunk_scheduler(
     assert runner.command_builder == "original"
 
 
+def test_parallel_raw_metadata_omits_quarantined_download_assets(
+    isolated_config, shard_context
+):
+    completed = "a" * 64
+    quarantined = "b" * 64
+    parent = replace(shard_context, gate="production")
+    parent.instances.parent.mkdir(parents=True, exist_ok=True)
+    parent.instances.write_text(f"{completed}\n{quarantined}\n")
+
+    runner = RecordingRunner(isolated_config)
+    runner.checkpoint.quality_outcomes = {
+        completed: "completed",
+        quarantined: "failure",
+    }
+    services = PipelineServices(isolated_config, runner=runner)
+    child_instances = parent.work_root / "chunks/chunk000/instances.txt"
+    child_instances.parent.mkdir(parents=True, exist_ok=True)
+    child_instances.write_text(f"{completed}\n{quarantined}\n")
+    child = replace(
+        parent,
+        instances=child_instances,
+        download_root=parent.work_root / "chunks/chunk000/source",
+    )
+    child_metadata = child.download_root / "raw/metadata.csv"
+    child_metadata.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "sha256": completed,
+                "local_path": f"raw/{completed}.glb",
+                "content_sha256": completed,
+                "companion_files": "{}",
+            }
+        ]
+    ).to_csv(child_metadata, index=False)
+    chunk = SimpleNamespace(
+        assets=lambda: (completed, quarantined),
+    )
+    executor = SimpleNamespace(
+        service_context=lambda _chunk: (services, child),
+    )
+
+    services._write_parallel_raw_metadata(parent, (chunk,), executor)
+
+    records = services._read_raw_records(
+        parent.download_root / "raw/metadata.csv", (completed,)
+    )
+    assert tuple(record["sha256"] for record in records) == (completed,)
+
+
+def test_parallel_raw_metadata_allows_quarantined_chunk_without_metadata(
+    isolated_config, shard_context
+):
+    quarantined = "b" * 64
+    parent = replace(shard_context, gate="production")
+    parent.instances.parent.mkdir(parents=True, exist_ok=True)
+    parent.instances.write_text(f"{quarantined}\n")
+    runner = RecordingRunner(isolated_config)
+    runner.checkpoint.quality_outcomes = {quarantined: "failure"}
+    services = PipelineServices(isolated_config, runner=runner)
+    child = replace(
+        parent,
+        download_root=parent.work_root / "chunks/chunk000/source",
+    )
+    chunk = SimpleNamespace(assets=lambda: (quarantined,))
+    executor = SimpleNamespace(
+        service_context=lambda _chunk: (services, child),
+    )
+
+    services._write_parallel_raw_metadata(parent, (chunk,), executor)
+
+    assert services._read_raw_records(
+        parent.download_root / "raw/metadata.csv", ()
+    ) == ()
+
+
+def test_build_packs_creates_empty_output_root_for_quarantined_batch(
+    isolated_config, shard_context
+):
+    quarantined = "b" * 64
+    context = replace(shard_context, gate="production")
+    context.instances.parent.mkdir(parents=True, exist_ok=True)
+    context.instances.write_text(f"{quarantined}\n")
+    runner = RecordingRunner(isolated_config)
+    runner.checkpoint.quality_outcomes = {quarantined: "failure"}
+    runner.active_context = context
+    runner.active_checkpoint = runner.checkpoint
+    runner._active_quality_ledger = {"family_exclusions": {}}
+
+    def publish(_data2, source_root, members, *_args, **_kwargs):
+        assert source_root.is_dir()
+        assert all(not family_members for family_members in members.values())
+        return tuple(
+            SimpleNamespace(validated_at="now") for _ in PACK_FAMILIES
+        )
+
+    services = PipelineServices(
+        isolated_config,
+        runner=runner,
+        output_validator=lambda _context: None,
+        pack_publisher=publish,
+        published_batch_verifier=lambda _context: None,
+        tool_commit="test-commit",
+    )
+
+    services.build_packs(context)
+
+    assert context.output_root.is_dir()
+
+
 @pytest.mark.parametrize("gate", ["smoke", "pilot"])
 def test_qualification_batches_keep_sequential_reference_path(
     isolated_config, shard_context, gate

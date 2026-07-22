@@ -3621,23 +3621,45 @@ class PipelineServices:
         executor: _ParallelChunkExecutor,
     ) -> None:
         assets = self._instances(parent)
+        checkpoint = self.runner.load_checkpoint(
+            self._checkpoint_path(parent), parent.shard_id, parent.gate
+        )
+        if tuple(checkpoint.quality_outcomes) != assets:
+            raise InfrastructureError(
+                "parallel raw metadata lacks terminal quality outcomes"
+            )
+        completed = tuple(
+            asset
+            for asset in assets
+            if checkpoint.quality_outcomes[asset] == "completed"
+        )
+        completed_set = set(completed)
         records = {}
         for chunk in chunks:
             service, context = executor.service_context(chunk)
-            for record in service._staged_records(context):
+            chunk_completed = tuple(
+                asset for asset in chunk.assets() if asset in completed_set
+            )
+            if not chunk_completed:
+                continue
+            chunk_records = service._read_raw_records(
+                context.download_root / "raw/metadata.csv",
+                chunk_completed,
+            )
+            for record in chunk_records:
                 asset = _validated_asset_sha(record.get("sha256"))
                 if asset in records and records[asset] != record:
                     raise InfrastructureError(
                         f"conflicting parallel raw record: {asset}"
                     )
                 records[asset] = record
-        if set(records) != set(assets):
+        if set(records) != completed_set:
             raise InfrastructureError(
-                "parallel raw metadata does not cover the frozen batch"
+                "parallel raw metadata does not cover completed assets"
             )
         self._write_raw_records(
             parent.download_root / "raw/metadata.csv",
-            tuple(records[asset] for asset in assets),
+            tuple(records[asset] for asset in completed),
         )
 
     def _publish_parallel_batch(
@@ -5365,6 +5387,19 @@ class PipelineServices:
     def build_packs(self, context: ShardContext) -> None:
         self.output_validator(context)
         shas, completed, _quarantined = self._quality_state(context)
+        if not completed:
+            try:
+                output_descriptor = _open_directory_nofollow(
+                    context.output_root, create=True
+                )
+            except OSError as error:
+                if error.errno in PATH_VALIDATION_ERRNOS:
+                    raise ValidationError(
+                        f"unsafe empty output root: {context.output_root}"
+                    ) from error
+                raise
+            else:
+                os.close(output_descriptor)
         included = self._family_included_assets(completed, context=context)
         members = self.pack_member_builder(context)
         if set(members) != set(PACK_FAMILIES):
