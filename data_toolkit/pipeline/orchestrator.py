@@ -1,4 +1,5 @@
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import csv
 import ctypes
 from dataclasses import asdict, dataclass, field, replace
@@ -3971,16 +3972,27 @@ class PipelineServices:
                 0o600,
             )
             entries = []
+            batch_files = []
             for index, batch in enumerate(batches):
                 name = f"batch{index:03d}.txt"
                 payload = self._batch_file_payload(batch)
-                _atomic_write_text(temporary / name, payload)
+                batch_files.append((temporary / name, payload))
                 entries.append(
                     {
                         "name": name,
                         "count": len(batch),
                         "sha256": sha256(payload.encode("ascii")).hexdigest(),
                     }
+                )
+            with ThreadPoolExecutor(
+                max_workers=max(1, min(16, len(batch_files))),
+                thread_name_prefix="pixal3d-freeze",
+            ) as executor:
+                tuple(
+                    executor.map(
+                        lambda item: _atomic_write_text(*item),
+                        batch_files,
+                    )
                 )
             marker = {
                 "schema_version": 2,

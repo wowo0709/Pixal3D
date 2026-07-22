@@ -12,6 +12,8 @@ import runpy
 import signal
 import subprocess
 import sys
+import threading
+import time
 from types import SimpleNamespace
 import zipfile
 
@@ -1043,6 +1045,43 @@ def test_plan_uses_exact_local_reserve_and_freezes_immutable_batches(
     assert {
         path: path.read_bytes() for path in batch_root.iterdir() if path.is_file()
     } == before
+
+
+def test_freeze_writes_independent_batch_files_concurrently(
+    isolated_config, monkeypatch
+):
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+    )
+    shas = tuple(f"{index:064x}" for index in range(8))
+    batches = tuple((asset,) for asset in shas)
+    original = orchestrator_module._atomic_write_text
+    lock = threading.Lock()
+    active = 0
+    maximum = 0
+
+    def measured_write(path, payload):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+        time.sleep(0.03)
+        try:
+            return original(path, payload)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(
+        orchestrator_module, "_atomic_write_text", measured_write
+    )
+
+    services._freeze_batches(
+        "production", "ABO", "ABO-00000", batches, shas
+    )
+
+    assert maximum > 1
 
 
 def test_read_only_plan_does_not_create_configured_roots(isolated_config):
