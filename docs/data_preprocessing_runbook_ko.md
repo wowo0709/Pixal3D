@@ -415,20 +415,22 @@ conda run --no-capture-output -n pixal3d \
   python -m data_toolkit.pipeline.cli queue --config "$CONFIG" --action init
 ```
 
-node17 worker는 node17에서, node16 worker는 node16에서 각각 실행한다. node16은
-공유 registry의 node16 경로를 명시한다.
+production에서는 단발 `worker`를 직접 상주시켜 두지 않고 `supervisor`를 실행한다.
+supervisor는 child worker가 비정상 종료해도 registry가 `active`이고 queue가 남아
+있으면 10초 뒤 다시 실행한다. `draining` 동안에는 새 worker를 실행하지 않고
+대기하며, 같은 node-id를 `activate`하면 자동으로 이어서 실행한다.
 
 ```bash
 # node17
 conda run --no-capture-output -n pixal3d \
-  python -m data_toolkit.pipeline.cli worker --config "$CONFIG" \
+  python -m data_toolkit.pipeline.cli supervisor --config "$CONFIG" \
   --node-id node17
 
 # node16
 conda run --no-capture-output -n pixal3d \
-  python -m data_toolkit.pipeline.cli worker --config "$CONFIG" \
+  python -m data_toolkit.pipeline.cli supervisor --config "$CONFIG" \
   --node-id node16 \
-  --worker-registry /file2/youngwoo/pixal3d/control/runtime/workers.json
+  --worker-registry /root/data2/pixal3d/control/runtime/workers.json
 ```
 
 실시간 상태에는 node별 현재 source/shard/batch, attempt, stage, 마지막 heartbeat와
@@ -441,10 +443,12 @@ conda run --no-capture-output -n pixal3d \
   python -m data_toolkit.pipeline.cli workers --config "$CONFIG" --action status
 ```
 
-노드를 빼려면 `drain`한다. 진행 중 batch는 끝내되 새 batch를 claim하지 않고 worker가
-종료한다. 그 다음 `remove`한다. 새 노드는 `register` 후 worker process를 실행하면
-즉시 다음 batch부터 참여한다. CPU/GPU 구성을 바꿀 때도 `drain -> worker 종료 확인 ->
-동일 node-id register -> worker 재실행` 순서를 쓴다. 다른 노드는 멈추지 않는다.
+노드를 빼려면 `drain`한다. 진행 중 batch는 끝내되 새 batch를 claim하지 않고 child
+worker가 종료하며 supervisor는 대기한다. 잠시 뒤 다시 쓸 노드는 `activate`만 하면
+되고, 완전히 뺄 노드는 `remove`한다. 새 노드는 `register` 후 supervisor process를
+실행하면 즉시 다음 batch부터 참여한다. CPU/GPU 구성을 바꿀 때는 `drain -> child
+worker 종료 확인 -> 동일 node-id register -> activate` 순서를 쓴다. 다른 노드는
+멈추지 않는다.
 
 ```bash
 conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli \

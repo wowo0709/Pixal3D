@@ -33,6 +33,7 @@ from .runtime import (
 )
 from .validation import ValidationError
 from .production_worker import ProductionWorker
+from .worker_supervisor import ProductionWorkerSupervisor
 from .work_queue import ProductionWorkQueue
 from .worker_runtime import (
     execution_config,
@@ -109,6 +110,7 @@ def parser() -> argparse.ArgumentParser:
         "workers",
         "queue",
         "worker",
+        "supervisor",
     ):
         child = children.add_parser(name)
         child.add_argument("--config", type=Path, required=True)
@@ -166,9 +168,11 @@ def parser() -> argparse.ArgumentParser:
     queue.add_argument(
         "--action", choices=("init", "reconcile", "status"), required=True
     )
+    for name in ("worker", "supervisor"):
+        child = children.choices[name]
+        child.add_argument("--node-id", required=True)
+        child.add_argument("--worker-registry", type=Path)
     worker = children.choices["worker"]
-    worker.add_argument("--node-id", required=True)
-    worker.add_argument("--worker-registry", type=Path)
     worker.add_argument("--once", action="store_true")
     return root
 
@@ -299,6 +303,50 @@ def _dispatch(args, config) -> int:
                 _assert_queue_config(queue, config)
             _reconcile_queue(queue, services, config)
         print(json.dumps(queue.snapshot(now=datetime.now(timezone.utc)), sort_keys=True))
+        return SUCCESS
+    if args.command == "supervisor":
+        registry_path = (
+            args.worker_registry
+            or config.paths.data2_root / "control/runtime/workers.json"
+        ).resolve()
+        registry = WorkerRegistry(registry_path)
+        try:
+            registration = registry.read()[args.node_id].registration
+        except KeyError as error:
+            raise ArtifactValidationError(
+                f"production worker is not registered: {args.node_id}"
+            ) from error
+        held_config = execution_config(config, registration)
+        queue = ProductionWorkQueue(
+            held_config.paths.data2_root / "control/runtime/work_queue",
+            lease_timeout=timedelta(minutes=5),
+            max_attempts=3,
+        )
+        _assert_queue_config(queue, config)
+        command = (
+            sys.executable,
+            "-m",
+            "data_toolkit.pipeline.cli",
+            "worker",
+            "--config",
+            str(args.config.resolve()),
+            "--node-id",
+            args.node_id,
+            "--worker-registry",
+            str(registry_path),
+        )
+        ProductionWorkerSupervisor(
+            queue,
+            registry,
+            args.node_id,
+            command,
+            on_exit=lambda returncode: print(
+                f"production worker exited with status {returncode}; "
+                "supervisor will reconcile registry and queue state",
+                file=sys.stderr,
+                flush=True,
+            ),
+        ).run_forever()
         return SUCCESS
     if args.command == "worker":
         registry = WorkerRegistry(

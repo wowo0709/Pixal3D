@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import sys
 
 import pandas as pd
 import pytest
@@ -1063,6 +1064,53 @@ def test_worker_once_uses_registered_paths_gpus_and_claimed_batch(
     assert calls == [("production", "ABO", "ABO-00000", "batch000")]
     assert queue.status(now=datetime.now(timezone.utc))["completed"] == 1
     assert os.environ["PIXAL3D_GPU_INDICES"] == "9"
+
+
+def test_supervisor_cli_launches_restartable_worker_command(
+    tmp_config, monkeypatch
+):
+    from data_toolkit.pipeline.work_queue import ProductionWorkQueue, WorkUnit
+
+    config = load_config(tmp_config)
+    registry_path = config.paths.data2_root / "control/runtime/workers.json"
+    assert main([
+        "workers", "--config", str(tmp_config), "--action", "register",
+        "--node-id", "node17", "--ssh-target", "local",
+        "--cpu-limit", "4", "--gpus", "1,3",
+    ]) == 0
+    queue = ProductionWorkQueue(
+        config.paths.data2_root / "control/runtime/work_queue",
+        lease_timeout=timedelta(minutes=5),
+    )
+    queue.initialize(
+        config.config_hash(),
+        (WorkUnit("ABO", "ABO-00000", "batch000", 12),),
+        now=datetime.now(timezone.utc),
+    )
+    calls = []
+
+    class Supervisor:
+        def __init__(self, queue, registry, node_id, command, **kwargs):
+            calls.append((queue, registry, node_id, command, kwargs))
+
+        def run_forever(self):
+            calls.append("run_forever")
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.ProductionWorkerSupervisor", Supervisor
+    )
+
+    assert main([
+        "supervisor", "--config", str(tmp_config), "--node-id", "node17",
+        "--worker-registry", str(registry_path),
+    ]) == 0
+
+    assert calls[-1] == "run_forever"
+    assert calls[0][2] == "node17"
+    command = calls[0][3]
+    assert command[:3] == (sys.executable, "-m", "data_toolkit.pipeline.cli")
+    assert command[3] == "worker"
+    assert "--worker-registry" in command
 
 
 @pytest.mark.parametrize(
