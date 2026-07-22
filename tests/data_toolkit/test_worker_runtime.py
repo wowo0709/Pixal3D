@@ -42,6 +42,8 @@ def test_execution_config_preserves_gate_identity_and_overrides_node_resources()
     assert configured.workers.encoder_ranks == 4
     assert configured.worker_tuning.render_workers == 4
     assert configured.worker_tuning.encoder_ranks == 4
+    assert configured.worker_tuning.dump_steps == (32, 36, 40)
+    assert configured.worker_tuning.voxel_profiles == ((8, 4), (10, 4))
     assert canonical.parallelism.gpu_count == 7
 
 

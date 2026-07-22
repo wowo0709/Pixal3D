@@ -155,6 +155,22 @@ class WorkerExecutionConfig:
         self, canonical: PipelineConfig, registration: WorkerRegistration
     ) -> None:
         gpu_count = len(registration.gpu_indices)
+        cpu_limit = registration.cpu_limit
+        dump_steps = tuple(
+            value
+            for value in canonical.worker_tuning.dump_steps
+            if value <= cpu_limit
+        ) or (cpu_limit,)
+        voxel_profiles = tuple(
+            profile
+            for profile in canonical.worker_tuning.voxel_profiles
+            if profile[0] * profile[1] <= cpu_limit
+        ) or ((cpu_limit, 1),)
+        configured_voxel_workers = canonical.workers.voxel_workers
+        configured_voxel_threads = canonical.workers.voxel_threads_per_worker
+        if configured_voxel_workers * configured_voxel_threads > cpu_limit:
+            configured_voxel_workers = cpu_limit
+            configured_voxel_threads = 1
         self._canonical = canonical
         self.paths = replace(
             canonical.paths,
@@ -165,16 +181,21 @@ class WorkerExecutionConfig:
         self.parallelism = replace(
             canonical.parallelism,
             gpu_count=gpu_count,
-            cpu_physical_cores=registration.cpu_limit,
+            cpu_physical_cores=cpu_limit,
         )
         self.workers = replace(
             canonical.workers,
-            cpu_threads=registration.cpu_limit,
+            cpu_threads=cpu_limit,
+            dump_workers=min(canonical.workers.dump_workers, cpu_limit),
+            voxel_workers=configured_voxel_workers,
+            voxel_threads_per_worker=configured_voxel_threads,
             render_workers=gpu_count,
             encoder_ranks=gpu_count,
         )
         self.worker_tuning = replace(
             canonical.worker_tuning,
+            dump_steps=dump_steps,
+            voxel_profiles=voxel_profiles,
             render_workers=gpu_count,
             encoder_ranks=gpu_count,
         )
