@@ -1,5 +1,7 @@
 import pandas as pd
 import pytest
+import threading
+import time
 
 from data_toolkit.pipeline.config import load_config
 from data_toolkit.pipeline.full_run import FullProductionRunner
@@ -179,3 +181,30 @@ def test_work_units_freeze_batches_and_round_robin_sources(
     assert units[4].source == "ABO"
     assert units[4].batch_id == "batch001"
     assert units[4].count == 17
+
+
+def test_work_units_freeze_independent_shards_concurrently(
+    tmp_config, monkeypatch
+):
+    config = load_config(tmp_config)
+    _install_inputs(monkeypatch, config, [])
+    lock = threading.Lock()
+    active = 0
+    maximum = 0
+
+    class Services(_Services):
+        def plan(self, gate, source, shard, count, *, freeze):
+            nonlocal active, maximum
+            assert freeze is True
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.03)
+            with lock:
+                active -= 1
+            return ("batch000: 256 assets",)
+
+    units = FullProductionRunner(config, Services()).work_units(freeze=True)
+
+    assert len(units) == 5
+    assert maximum > 1

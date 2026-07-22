@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from .config import PipelineConfig
 from .orchestrator import PipelineServices
 from .runtime import (
@@ -83,6 +85,7 @@ class FullProductionRunner:
         by_source: dict[str, list[WorkUnit]] = {
             source: [] for source in SOURCE_ORDER
         }
+        scopes = []
         for source in SOURCE_ORDER:
             shards = tuple(
                 sorted(
@@ -96,15 +99,29 @@ class FullProductionRunner:
                 raise ArtifactValidationError(
                     f"full production registry has no shard for source: {source}"
                 )
-            for shard in shards:
-                batches = self.services.plan(
-                    "production", source, shard, None, freeze=freeze
+            scopes.extend((source, shard) for shard in shards)
+
+        def planned(scope):
+            source, shard = scope
+            return self.services.plan(
+                "production", source, shard, None, freeze=freeze
+            )
+
+        if freeze and len(scopes) > 1:
+            with ThreadPoolExecutor(
+                max_workers=min(4, len(scopes)),
+                thread_name_prefix="pixal3d-shard-freeze",
+            ) as executor:
+                planned_batches = tuple(executor.map(planned, scopes))
+        else:
+            planned_batches = tuple(planned(scope) for scope in scopes)
+
+        for (source, shard), batches in zip(scopes, planned_batches):
+            for batch in batches:
+                batch_id, count = self._parse_batch(batch)
+                by_source[source].append(
+                    WorkUnit(source, shard, batch_id, count)
                 )
-                for batch in batches:
-                    batch_id, count = self._parse_batch(batch)
-                    by_source[source].append(
-                        WorkUnit(source, shard, batch_id, count)
-                    )
 
         ordered: list[WorkUnit] = []
         longest = max(len(values) for values in by_source.values())
