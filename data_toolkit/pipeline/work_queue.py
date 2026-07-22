@@ -13,6 +13,7 @@ from .orchestrator import _atomic_write_bytes_nofollow, _read_regular_bytes_nofo
 
 QUEUE_SCHEMA_VERSION = 1
 LEASE_SCHEMA_VERSION = 1
+PRIORITY_SCHEMA_VERSION = 1
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
@@ -70,6 +71,7 @@ class ProductionWorkQueue:
         self.lease_timeout = lease_timeout
         self.max_attempts = max_attempts
         self.manifest_path = self.root / "units.json"
+        self.priority_path = self.root / "priority.json"
         self.leases_root = self.root / "leases"
         self.history_root = self.root / "history"
         self.completed_root = self.root / "completed"
@@ -133,6 +135,69 @@ class ProductionWorkQueue:
         if not isinstance(manifest, dict) or manifest.get("config_hash") != expected:
             raise ValueError("production work queue config hash mismatch")
 
+    def set_source_priority(
+        self,
+        sources: tuple[str, ...],
+        *,
+        now: datetime,
+    ) -> None:
+        _aware(now)
+        requested = tuple(sources)
+        expected = self._manifest_sources()
+        if (
+            not requested
+            or len(set(requested)) != len(requested)
+            or set(requested) != set(expected)
+            or any(
+                not isinstance(source, str)
+                or _IDENTIFIER.fullmatch(source) is None
+                for source in requested
+            )
+        ):
+            raise ValueError(
+                "source priority must contain every queue source exactly once"
+            )
+        _write_json(
+            self.priority_path,
+            {
+                "schema_version": PRIORITY_SCHEMA_VERSION,
+                "sources": list(requested),
+                "updated_at": _timestamp(now),
+            },
+        )
+
+    def source_priority(self) -> tuple[str, ...]:
+        expected = self._manifest_sources()
+        value = _read_json(self.priority_path, missing_ok=True)
+        if value is None:
+            return expected
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "sources",
+            "updated_at",
+        }:
+            raise ValueError("invalid production source priority")
+        if value["schema_version"] != PRIORITY_SCHEMA_VERSION:
+            raise ValueError("unsupported production source priority")
+        datetime.fromisoformat(value["updated_at"])
+        sources = (
+            tuple(value["sources"])
+            if isinstance(value["sources"], list)
+            else ()
+        )
+        if (
+            not sources
+            or any(not isinstance(source, str) for source in sources)
+            or len(set(sources)) != len(sources)
+            or set(sources) != set(expected)
+            or any(_IDENTIFIER.fullmatch(source) is None for source in sources)
+        ):
+            raise ValueError("invalid production source priority")
+        return sources
+
+    def _manifest_sources(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(unit.source for unit in self.units()))
+
     def claim(
         self,
         node_id: str,
@@ -144,6 +209,7 @@ class ProductionWorkQueue:
         _aware(now)
         requested_token = token or uuid.uuid4().hex
         _identifier(requested_token, "lease token")
+        self.source_priority()
         for unit in self.units():
             if self._terminal(unit):
                 continue

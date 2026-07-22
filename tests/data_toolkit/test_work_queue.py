@@ -20,6 +20,51 @@ def units():
     )
 
 
+def test_source_priority_defaults_to_first_manifest_appearance(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units(), now=NOW)
+
+    assert queue.source_priority() == ("ABO", "HSSD")
+
+
+def test_source_priority_round_trips_without_changing_manifest(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units(), now=NOW)
+    manifest_before = queue.manifest_path.read_bytes()
+
+    queue.set_source_priority(("HSSD", "ABO"), now=NOW)
+
+    assert queue.source_priority() == ("HSSD", "ABO")
+    assert queue.manifest_path.read_bytes() == manifest_before
+
+
+@pytest.mark.parametrize(
+    "sources",
+    [(), ("ABO",), ("ABO", "ABO"), ("ABO", "unknown")],
+)
+def test_source_priority_rejects_incomplete_duplicate_and_unknown_sources(
+    tmp_path, sources
+):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units(), now=NOW)
+
+    with pytest.raises(ValueError, match="every queue source exactly once"):
+        queue.set_source_priority(sources, now=NOW)
+
+
+def test_malformed_source_priority_stops_reads_and_claims(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units(), now=NOW)
+    queue.priority_path.write_text(
+        '{"schema_version":1,"sources":["ABO"]}'
+    )
+
+    with pytest.raises(ValueError, match="source priority"):
+        queue.source_priority()
+    with pytest.raises(ValueError, match="source priority"):
+        queue.claim("node17", now=NOW, token="token")
+
+
 def test_claims_are_atomic_and_distinct(tmp_path):
     queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
     queue.initialize("a" * 64, units(), now=NOW)
