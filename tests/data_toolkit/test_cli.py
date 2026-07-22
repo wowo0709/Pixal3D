@@ -2,10 +2,12 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 from data_toolkit.pipeline.cli import main, parser
 from data_toolkit.pipeline.config import load_config
@@ -114,11 +116,18 @@ def test_audit_rejects_pbr_identity_missing_from_matching_shape(tmp_config):
         validate_family_memberships(included, config)
 
 
-def valid_hardware_payload(config_hash):
+def load_config_with_github(path):
+    value = yaml.safe_load(path.read_text())
+    value["sources"].insert(1, "ObjaverseXL_github")
+    path.write_text(yaml.safe_dump(value, sort_keys=False))
+    return load_config(path)
+
+
+def valid_hardware_payload(config):
     return {
         "schema_version": 2,
         "artifact_type": "hardware_preflight_evidence",
-        "config_hash": config_hash,
+        "config_hash": config.config_hash(),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "software": {
             "cuda_version": "12.8",
@@ -152,14 +161,7 @@ def valid_hardware_payload(config_hash):
             for root in ("local", "data2", "data3")
         },
         "source_measurements": {
-            source: [100, 150, 200, 250]
-            for source in (
-                "ObjaverseXL_sketchfab",
-                "ObjaverseXL_github",
-                "ABO",
-                "HSSD",
-                "3D-FUTURE",
-            )
+            source: [100, 150, 200, 250] for source in config.sources
         },
     }
 
@@ -296,7 +298,7 @@ def write_complete_gate_evidence(config, gate):
 
     hardware_input = config.paths.data2_root / "control/report_inputs/hardware.json"
     hardware_input.parent.mkdir(parents=True, exist_ok=True)
-    hardware_input.write_text(json.dumps(valid_hardware_payload(config.config_hash())))
+    hardware_input.write_text(json.dumps(valid_hardware_payload(config)))
     RuntimeReportBuilder(config)(None, True)
 
     measurements = pd.DataFrame(
@@ -638,7 +640,7 @@ def test_smoke_gate_excludes_provider_unavailable_assets_from_source_rate(tmp_co
         / "control/report_evidence/smoke/measurements.csv"
     )
     measurements = pd.read_csv(measurements_path, dtype={"sha256": str})
-    source = "ObjaverseXL_github"
+    source = "ObjaverseXL_sketchfab"
     failed = measurements.index[measurements["source"] == source][:2]
     measurements.loc[failed, "outcome"] = "failure"
     measurements.loc[failed, "failure_category"] = (
@@ -1012,6 +1014,7 @@ def test_worker_once_uses_registered_paths_gpus_and_claimed_batch(
 
     config = load_config(tmp_config)
     registry_path = config.paths.data2_root / "control/runtime/workers.json"
+    monkeypatch.setenv("PIXAL3D_GPU_INDICES", "9")
     assert main([
         "workers", "--config", str(tmp_config), "--action", "register",
         "--node-id", "node17", "--ssh-target", "local",
@@ -1055,6 +1058,7 @@ def test_worker_once_uses_registered_paths_gpus_and_claimed_batch(
 
     assert calls == [("production", "ABO", "ABO-00000", "batch000")]
     assert queue.status(now=datetime.now(timezone.utc))["completed"] == 1
+    assert os.environ["PIXAL3D_GPU_INDICES"] == "9"
 
 
 @pytest.mark.parametrize(
@@ -1611,7 +1615,7 @@ def test_pilot_reader_validates_schema_and_source(tmp_config):
     config = load_config(tmp_config)
     root = config.paths.data2_root / "control/report_inputs"
     root.mkdir(parents=True)
-    payload = valid_hardware_payload(config.config_hash())
+    payload = valid_hardware_payload(config)
     (root / "hardware.json").write_text(json.dumps(payload))
     RuntimeReportBuilder(config)(None, True)
     reader = PilotArtifactReader(config)
@@ -1648,7 +1652,7 @@ def test_pilot_reader_uses_the_previous_gate_for_sizing(
     root = config.paths.data2_root / "control/report_inputs"
     root.mkdir(parents=True)
     (root / "hardware.json").write_text(
-        json.dumps(valid_hardware_payload(config.config_hash()))
+        json.dumps(valid_hardware_payload(config))
     )
     RuntimeReportBuilder(config)(None, True)
     reader = PilotArtifactReader(config)
@@ -1739,7 +1743,7 @@ def test_hardware_report_builder_validates_and_publishes(tmp_config):
     input_root = config.paths.data2_root / "control/report_inputs"
     input_root.mkdir(parents=True)
     (input_root / "hardware.json").write_text(
-        json.dumps(valid_hardware_payload(config.config_hash()))
+        json.dumps(valid_hardware_payload(config))
     )
 
     outputs = RuntimeReportBuilder(config)(None, True)
@@ -1751,7 +1755,7 @@ def test_hardware_candidate_cannot_supply_a_pass_decision(tmp_config):
     config = load_config(tmp_config)
     input_root = config.paths.data2_root / "control/report_inputs"
     input_root.mkdir(parents=True)
-    payload = valid_hardware_payload(config.config_hash())
+    payload = valid_hardware_payload(config)
     payload["decision"] = "passed"
     (input_root / "hardware.json").write_text(json.dumps(payload))
 
@@ -1763,7 +1767,7 @@ def test_hardware_evidence_is_fresh_exact_and_math_is_derived(tmp_config):
     config = load_config(tmp_config)
     input_root = config.paths.data2_root / "control/report_inputs"
     input_root.mkdir(parents=True)
-    payload = valid_hardware_payload(config.config_hash())
+    payload = valid_hardware_payload(config)
     (input_root / "hardware.json").write_text(json.dumps(payload))
 
     paths = RuntimeReportBuilder(config)(None, True)
@@ -1789,7 +1793,7 @@ def test_hardware_inventory_allows_repeated_gpu_model_names(tmp_config):
     config = load_config(tmp_config)
     input_root = config.paths.data2_root / "control/report_inputs"
     input_root.mkdir(parents=True)
-    payload = valid_hardware_payload(config.config_hash())
+    payload = valid_hardware_payload(config)
     for gpu in payload["gpus"]:
         gpu["name"] = "NVIDIA RTX PRO 6000 Blackwell"
     (input_root / "hardware.json").write_text(json.dumps(payload))
@@ -1956,7 +1960,7 @@ def test_registry_builder_uses_configured_source_order_and_no_network(
 
 
 def test_registry_builder_normalizes_adapter_raw_reference_paths(tmp_config):
-    config = load_config(tmp_config)
+    config = load_config_with_github(tmp_config)
     sketchfab_uid = "bGOGeXuHiDCTB33QjbQSBV6A2Fj"
     smithsonian_url = (
         "https://3d-api.si.edu/content/document/"
@@ -2241,7 +2245,7 @@ def test_evaluation_overlap_is_excluded_from_training_registry(tmp_config):
 
 
 def test_reference_index_retains_future_unfrozen_shared_zip(tmp_config):
-    config = load_config(tmp_config)
+    config = load_config_with_github(tmp_config)
     source = "ObjaverseXL_github"
     first, future = "a" * 64, "b" * 64
     training = pd.DataFrame(
@@ -2295,7 +2299,7 @@ def test_reference_index_retains_future_unfrozen_shared_zip(tmp_config):
 
 
 def test_reference_index_rejects_forged_raw_path(tmp_config):
-    config = load_config(tmp_config)
+    config = load_config_with_github(tmp_config)
     source = "ObjaverseXL_github"
     asset = "a" * 64
     write_reference_index(
@@ -2396,7 +2400,7 @@ def write_reference_index(config, source, references):
 def test_reference_counter_preserves_shared_zip_until_final_frozen_batch(
     tmp_config,
 ):
-    config = load_config(tmp_config)
+    config = load_config_with_github(tmp_config)
     source = "ObjaverseXL_github"
     first, second = "a" * 64, "b" * 64
     metadata = config.paths.data2_root / "raw" / source / "raw/metadata.csv"
@@ -2434,7 +2438,7 @@ def test_reference_counter_preserves_shared_zip_until_final_frozen_batch(
 
 
 def test_reference_counter_rejects_corrupt_frozen_manifest(tmp_config):
-    config = load_config(tmp_config)
+    config = load_config_with_github(tmp_config)
     source = "ObjaverseXL_github"
     asset = "a" * 64
     metadata = config.paths.data2_root / "raw" / source / "raw/metadata.csv"
@@ -2471,7 +2475,7 @@ def test_reference_counter_rejects_corrupt_frozen_manifest(tmp_config):
 def test_reference_counter_releases_shared_zip_after_final_verified_archive(
     tmp_config,
 ):
-    config = load_config(tmp_config)
+    config = load_config_with_github(tmp_config)
     source = "ObjaverseXL_github"
     first = "a" * 64
     contents = b"second member"
