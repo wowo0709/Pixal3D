@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -25,6 +26,10 @@ RENDER_ENV = (
     ("MKL_NUM_THREADS", "1"),
     ("OPENBLAS_NUM_THREADS", "1"),
 )
+ENCODE_ENV = CPU_ENV + (
+    ("ATTN_BACKEND", "sdpa"),
+    ("SPARSE_ATTN_BACKEND", "sdpa"),
+)
 
 
 def _by_name(dag, name):
@@ -32,7 +37,7 @@ def _by_name(dag, name):
 
 
 def _python_command(script, *args):
-    return ("python", f"data_toolkit/{script}", *args)
+    return (sys.executable, f"data_toolkit/{script}", *args)
 
 
 def test_worker_profile_ramps_after_stable_telemetry(config):
@@ -183,6 +188,13 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
         str(context.download_root),
         "--mesh_dump_root",
         str(context.work_root),
+        "--blender_path",
+        str(
+            config.paths.local_root
+            / "tools"
+            / f"blender-{config.render.blender_version}-linux-x64"
+            / "blender"
+        ),
         "--max_workers",
         str(config.workers.dump_workers),
     )
@@ -193,6 +205,13 @@ def test_commands_have_exact_parser_compatible_argv(config, tmp_path):
         str(context.download_root),
         "--pbr_dump_root",
         str(context.work_root),
+        "--blender_path",
+        str(
+            config.paths.local_root
+            / "tools"
+            / f"blender-{config.render.blender_version}-linux-x64"
+            / "blender"
+        ),
         "--max_workers",
         str(config.workers.dump_workers),
     )
@@ -420,9 +439,18 @@ def test_render_and_cpu_stages_apply_thread_and_worker_caps(config, tmp_path):
     external_cpu = [
         command
         for command in dag
-        if command.argv[0] == "python" and command.name != "render_cond"
+        if command.argv[0] == sys.executable and command.name != "render_cond"
     ]
-    assert all(command.env == CPU_ENV for command in external_cpu)
+    assert all(
+        command.env == ENCODE_ENV
+        for command in external_cpu
+        if command.name.startswith("encode_")
+    )
+    assert all(
+        command.env == CPU_ENV
+        for command in external_cpu
+        if not command.name.startswith("encode_")
+    )
     assert all(
         command.gpu_ranks == config.workers.encoder_ranks
         for command in external_cpu

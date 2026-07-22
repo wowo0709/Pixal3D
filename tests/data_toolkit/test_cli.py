@@ -1050,6 +1050,10 @@ def test_worker_once_uses_registered_paths_gpus_and_claimed_batch(
     monkeypatch.setattr(
         "data_toolkit.pipeline.cli.build_mutating_services", Runtime
     )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.validate_worker_environment",
+        lambda configured, registered: None,
+    )
 
     assert main([
         "worker", "--config", str(tmp_config), "--node-id", "node17",

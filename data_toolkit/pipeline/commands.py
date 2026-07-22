@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import math
 import os
 from pathlib import Path
+import sys
 from typing import Mapping, Sequence
 
 from .config import PipelineConfig
@@ -273,6 +274,10 @@ RENDER_ENV = (
     ("MKL_NUM_THREADS", "1"),
     ("OPENBLAS_NUM_THREADS", "1"),
 )
+ENCODE_ENV = CPU_ENV + (
+    ("ATTN_BACKEND", "sdpa"),
+    ("SPARSE_ATTN_BACKEND", "sdpa"),
+)
 
 
 def _validate_identifier(name: str, value: str) -> None:
@@ -293,10 +298,11 @@ def _validate_gate(value: str) -> None:
 
 
 def python_command(script: str, *args: str) -> tuple[str, ...]:
+    python = sys.executable
     override = os.environ.get("PIXAL3D_LEAF_WORKER")
     if override:
-        return ("python", override, "--original-script", script, *args)
-    return ("python", f"data_toolkit/{script}", *args)
+        return (python, override, "--original-script", script, *args)
+    return (python, f"data_toolkit/{script}", *args)
 
 
 def dataset_args(source: str) -> tuple[str, ...]:
@@ -418,6 +424,8 @@ def build_preprocessing_dag(
                 str(context.download_root),
                 "--mesh_dump_root",
                 str(context.work_root),
+                "--blender_path",
+                str(blender),
                 "--max_workers",
                 str(profile.dump_workers),
             ),
@@ -432,6 +440,8 @@ def build_preprocessing_dag(
                 str(context.download_root),
                 "--pbr_dump_root",
                 str(context.work_root),
+                "--blender_path",
+                str(blender),
                 "--max_workers",
                 str(profile.dump_workers),
             ),
@@ -555,7 +565,7 @@ def build_preprocessing_dag(
                         "--gpu_memory_target_percent",
                         str(config.parallelism.gpu_memory_target_percent),
                     ),
-                    CPU_ENV,
+                    ENCODE_ENV,
                     gpu_ranks=profile.encoder_ranks,
                 ),
                 CommandSpec(
@@ -582,7 +592,7 @@ def build_preprocessing_dag(
                         "--gpu_memory_target_percent",
                         str(config.parallelism.gpu_memory_target_percent),
                     ),
-                    CPU_ENV,
+                    ENCODE_ENV,
                     gpu_ranks=profile.encoder_ranks,
                 ),
                 CommandSpec(
@@ -616,14 +626,14 @@ def build_preprocessing_dag(
                     "0-1",
                     "--loader_workers",
                     str(config.workers.encoder_loader_threads),
-                "--saver_workers",
-                str(config.workers.encoder_saver_threads),
-                "--micro_batch_size",
-                str(config.parallelism.micro_batch(config.targets.ss_resolution)),
-                "--gpu_memory_target_percent",
-                str(config.parallelism.gpu_memory_target_percent),
-            ),
-                CPU_ENV,
+                    "--saver_workers",
+                    str(config.workers.encoder_saver_threads),
+                    "--micro_batch_size",
+                    str(config.parallelism.micro_batch(config.targets.ss_resolution)),
+                    "--gpu_memory_target_percent",
+                    str(config.parallelism.gpu_memory_target_percent),
+                ),
+                ENCODE_ENV,
                 gpu_ranks=profile.encoder_ranks,
             ),
             CommandSpec("validate_outputs", ("internal:validate_outputs",)),

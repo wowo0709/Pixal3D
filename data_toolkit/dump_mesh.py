@@ -16,12 +16,22 @@ BLENDER_LINK = 'https://ftp.halifax.rwth-aachen.de/blender/release/Blender4.5/bl
 BLENDER_INSTALLATION_PATH = '/tmp'
 BLENDER_PATH = f'{BLENDER_INSTALLATION_PATH}/blender-4.5.1-linux-x64/blender'
 
-def _install_blender():
-    if not os.path.exists(BLENDER_PATH):
+def _install_blender(blender_path=None):
+    selected = os.path.expanduser(blender_path or BLENDER_PATH)
+    if blender_path is not None:
+        if not os.path.isfile(selected) or not os.access(selected, os.X_OK):
+            raise FileNotFoundError(
+                f'Configured Blender binary is unavailable: {selected}'
+            )
+        return selected
+    if not os.path.exists(selected):
         os.system('sudo apt-get update')
         os.system('sudo apt-get install -y libxrender1 libxi6 libxkbcommon-x11-0 libsm6 libxfixes3 libgl1')
         os.system(f'wget {BLENDER_LINK} -P {BLENDER_INSTALLATION_PATH}')
         os.system(f'tar -xvf {BLENDER_INSTALLATION_PATH}/blender-4.5.1-linux-x64.tar.xz -C {BLENDER_INSTALLATION_PATH}')
+    if not os.path.isfile(selected) or not os.access(selected, os.X_OK):
+        raise FileNotFoundError(f'Blender installation failed: {selected}')
+    return selected
 
 
 def _sync_parent(path):
@@ -61,7 +71,9 @@ def _atomic_write_csv(frame, path):
             temporary.unlink(missing_ok=True)
 
 
-def _dump_mesh(file_path, sha256, root, timeout_seconds=900):
+def _dump_mesh(
+    file_path, sha256, root, timeout_seconds=900, blender_path=BLENDER_PATH
+):
     output_path = Path(root) / 'mesh_dumps' / f'{sha256}.pickle'
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
@@ -83,7 +95,7 @@ def _dump_mesh(file_path, sha256, root, timeout_seconds=900):
             temporary = Path(stream.name)
         error_path = Path(f'{temporary}_error.txt')
         args = [
-            BLENDER_PATH, '-b', '-P', os.path.join(os.path.dirname(__file__), 'blender_script', 'dump_mesh.py'),
+            str(blender_path), '-b', '-P', os.path.join(os.path.dirname(__file__), 'blender_script', 'dump_mesh.py'),
             '--',
             '--object', os.path.expanduser(file_path),
             '--output_path', os.path.expanduser(temporary)
@@ -145,6 +157,8 @@ if __name__ == '__main__':
                         help='Directory to save the downloaded files')
     parser.add_argument('--mesh_dump_root', type=str, default=None,
                         help='Directory to save the mesh dumps')
+    parser.add_argument('--blender_path', type=str, default=None,
+                        help='Explicit Blender executable')
     parser.add_argument('--filter_low_aesthetic_score', type=float, default=None,
                         help='Filter objects with aesthetic score lower than this value')
     parser.add_argument('--instances', type=str, default=None,
@@ -168,7 +182,7 @@ if __name__ == '__main__':
     
     # install blender
     print('Checking blender...', flush=True)
-    _install_blender()
+    blender_path = _install_blender(opt.blender_path)
 
     # get file list
     if not os.path.exists(os.path.join(opt.root, 'metadata.csv')):
@@ -222,6 +236,7 @@ if __name__ == '__main__':
         _dump_mesh,
         root=opt.mesh_dump_root,
         timeout_seconds=opt.timeout_seconds,
+        blender_path=blender_path,
     )
     foreach_kwargs = {
         'max_workers': opt.max_workers,

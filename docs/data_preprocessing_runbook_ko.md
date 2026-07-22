@@ -389,6 +389,23 @@ conda run --no-capture-output -n pixal3d \
   --local-root /home/youngwoo/data/pixal3d
 ```
 
+worker는 queue lease를 잡기 전에 PyTorch/CUDA 버전, 등록 GPU, Blender 실행 파일,
+네 source adapter와 `cumesh`, `flex_gemm`, `o_voxel`, `nvdiffrast`를 모두
+검사한다. 하나라도 없으면 asset 실패로 잘못 기록하지 않고 worker 시작 자체가
+실패한다. node16 컨테이너는 CUDA 12.8 및 Ubuntu 22.04 이상이어야 한다. 저장소의
+`docker/production-worker-cu128.Dockerfile`이 재현 가능한 기준 이미지다. 기본 Python
+의존성을 설치한 다음 TRELLIS.2와 동일하게 CuMesh, FlexGEMM, O-Voxel을 현재
+PyTorch 2.8/CUDA 12.8 환경에서 빌드하고, 다음 점검이 모두 성공해야 등록한다.
+
+```bash
+python -c 'import torch, cumesh, flex_gemm, o_voxel, nvdiffrast; assert tuple(map(int, torch.__version__.split("+")[0].split(".")[:2])) >= (2, 8); assert torch.version.cuda == "12.8"; assert torch.cuda.is_available()'
+$LOCAL_PATH/tools/blender-4.5.1-linux-x64/blender --version
+```
+
+같은 `node-id`/`local-root`에 worker를 두 번 실행하면 두 번째 프로세스는 비차단
+파일 잠금에서 즉시 실패한다. 비정상 종료 시 커널이 잠금을 자동 해제하므로 별도
+lock 파일 삭제는 하지 않는다.
+
 기존 single-process `full-run`을 종료하고 미완료 child가 없음을 확인한 뒤 큐를 딱
 한 번 초기화한다. 이 명령은 네 source의 모든 production batch를 freeze하고, 기존
 pack과 raw archive가 모두 audit되는 완료 batch만 `completed`로 채택한다.

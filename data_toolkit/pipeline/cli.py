@@ -34,7 +34,11 @@ from .runtime import (
 from .validation import ValidationError
 from .production_worker import ProductionWorker
 from .work_queue import ProductionWorkQueue
-from .worker_runtime import execution_config
+from .worker_runtime import (
+    execution_config,
+    validate_worker_environment,
+    worker_process_lock,
+)
 from .worker_registry import WorkerRegistration, WorkerRegistry
 
 
@@ -308,41 +312,46 @@ def _dispatch(args, config) -> int:
                 f"production worker is not registered: {args.node_id}"
             ) from error
         held_config = execution_config(config, registration)
+        validate_worker_environment(held_config, registration)
         prior_gpu_indices = os.environ.get("PIXAL3D_GPU_INDICES")
-        try:
-            os.environ["PIXAL3D_GPU_INDICES"] = ",".join(
-                str(index) for index in registration.gpu_indices
-            )
-            queue = ProductionWorkQueue(
-                held_config.paths.data2_root / "control/runtime/work_queue",
-                lease_timeout=timedelta(minutes=5),
-                max_attempts=3,
-            )
-            _assert_queue_config(queue, config)
-            with build_mutating_services(held_config) as runtime:
-                worker = ProductionWorker(
-                    queue,
-                    registry,
-                    args.node_id,
-                    lambda unit: runtime.services.run_batch(
-                        "production", unit.source, unit.shard_id, unit.batch_id
-                    ),
-                    on_error=lambda error: print(
-                        f"production batch failed and was released: "
-                        f"{type(error).__name__}: {error}",
-                        file=sys.stderr,
-                        flush=True,
-                    ),
+        with worker_process_lock(registration.local_root, args.node_id):
+            try:
+                os.environ["PIXAL3D_GPU_INDICES"] = ",".join(
+                    str(index) for index in registration.gpu_indices
                 )
-                if args.once:
-                    worker.run_once()
+                queue = ProductionWorkQueue(
+                    held_config.paths.data2_root / "control/runtime/work_queue",
+                    lease_timeout=timedelta(minutes=5),
+                    max_attempts=3,
+                )
+                _assert_queue_config(queue, config)
+                with build_mutating_services(held_config) as runtime:
+                    worker = ProductionWorker(
+                        queue,
+                        registry,
+                        args.node_id,
+                        lambda unit: runtime.services.run_batch(
+                            "production",
+                            unit.source,
+                            unit.shard_id,
+                            unit.batch_id,
+                        ),
+                        on_error=lambda error: print(
+                            f"production batch failed and was released: "
+                            f"{type(error).__name__}: {error}",
+                            file=sys.stderr,
+                            flush=True,
+                        ),
+                    )
+                    if args.once:
+                        worker.run_once()
+                    else:
+                        worker.run_forever()
+            finally:
+                if prior_gpu_indices is None:
+                    os.environ.pop("PIXAL3D_GPU_INDICES", None)
                 else:
-                    worker.run_forever()
-        finally:
-            if prior_gpu_indices is None:
-                os.environ.pop("PIXAL3D_GPU_INDICES", None)
-            else:
-                os.environ["PIXAL3D_GPU_INDICES"] = prior_gpu_indices
+                    os.environ["PIXAL3D_GPU_INDICES"] = prior_gpu_indices
         return SUCCESS
     if args.command == "preflight":
         results = run_preflight(config)

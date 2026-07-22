@@ -357,6 +357,39 @@ def test_dump_worker_propagates_timeout_and_reopens_pickle(
     assert not list(output.parent.glob(".abc123.pickle.*"))
 
 
+@pytest.mark.parametrize(
+    ("module_name", "function_name"),
+    (
+        ("data_toolkit.dump_mesh", "_dump_mesh"),
+        ("data_toolkit.dump_pbr", "_dump_pbr"),
+    ),
+)
+def test_dump_worker_uses_explicit_blender_binary(
+    monkeypatch, tmp_path, module_name, function_name
+):
+    worker = importlib.import_module(module_name)
+    observed = {}
+    blender = tmp_path / "tools" / "blender"
+
+    def fake_run(args, **kwargs):
+        observed["binary"] = args[0]
+        temporary = Path(args[args.index("--output_path") + 1])
+        with temporary.open("wb") as stream:
+            pickle.dump({"objects": []}, stream)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(worker.subprocess, "run", fake_run)
+
+    getattr(worker, function_name)(
+        "fixture.glb",
+        "abc123",
+        str(tmp_path),
+        blender_path=blender,
+    )
+
+    assert observed["binary"] == str(blender)
+
+
 def test_pbr_failure_record_classifies_official_unsupported_marker():
     worker = importlib.import_module("data_toolkit.dump_pbr")
     asset_sha = "a" * 64
