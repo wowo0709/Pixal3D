@@ -960,6 +960,37 @@ def test_pipeline_services_cache_immutable_registry_for_shard_planning(
     assert registry.loads == 1
 
 
+def test_pipeline_services_accept_verified_archive_tool_commit(
+    isolated_config, monkeypatch
+):
+    expected = "a" * 40
+    monkeypatch.setenv("PIXAL3D_TOOL_COMMIT", expected)
+    monkeypatch.setattr(
+        orchestrator_module.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("archive deployment ran git"),
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+    )
+
+    assert services._resolved_tool_commit() == expected
+
+
+def test_pipeline_services_reject_invalid_archive_tool_commit(
+    isolated_config, monkeypatch
+):
+    monkeypatch.setenv("PIXAL3D_TOOL_COMMIT", "not-a-commit")
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+    )
+
+    with pytest.raises(InfrastructureError, match="deployment identity"):
+        services._resolved_tool_commit()
+
+
 class FakeReferenceCounter:
     def __init__(self, value):
         self.value = value

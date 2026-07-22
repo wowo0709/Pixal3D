@@ -3738,6 +3738,21 @@ class PipelineServices:
     def _resolved_tool_commit(self) -> str:
         if self._tool_commit is not None:
             return self._tool_commit
+        deployed_commit = os.environ.get("PIXAL3D_TOOL_COMMIT")
+        if deployed_commit is not None:
+            value = deployed_commit.strip().lower()
+            if (
+                len(value) != 40
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in value
+                )
+            ):
+                raise InfrastructureError(
+                    "invalid PIXAL3D_TOOL_COMMIT deployment identity"
+                )
+            self._tool_commit = value
+            return value
         try:
             completed = subprocess.run(
                 ("git", "rev-parse", "HEAD"),
