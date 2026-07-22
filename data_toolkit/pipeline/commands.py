@@ -321,7 +321,22 @@ def expand_ranked(
         if command.workers_per_gpu != 1:
             raise ValueError("workers per GPU requires GPU ranks")
         return ((command.argv, command.env),)
-    total = command.gpu_ranks * command.workers_per_gpu
+    raw_indices = os.environ.get("PIXAL3D_GPU_INDICES")
+    if raw_indices is None:
+        gpu_indices = tuple(range(command.gpu_ranks))
+    else:
+        try:
+            gpu_indices = tuple(int(value) for value in raw_indices.split(","))
+        except ValueError as error:
+            raise ValueError("PIXAL3D_GPU_INDICES must be comma-separated integers") from error
+        if (
+            not gpu_indices
+            or any(index < 0 for index in gpu_indices)
+            or len(set(gpu_indices)) != len(gpu_indices)
+        ):
+            raise ValueError("PIXAL3D_GPU_INDICES must contain unique nonnegative GPU indices")
+        gpu_indices = gpu_indices[:command.gpu_ranks]
+    total = len(gpu_indices) * command.workers_per_gpu
     if total > 28:
         raise ValueError("ranked command exceeds the 28-process cap")
     return tuple(
@@ -335,7 +350,7 @@ def expand_ranked(
             ),
             (
                 *command.env,
-                ("CUDA_VISIBLE_DEVICES", str(rank % command.gpu_ranks)),
+                ("CUDA_VISIBLE_DEVICES", str(gpu_indices[rank % len(gpu_indices)])),
             ),
         )
         for rank in range(total)

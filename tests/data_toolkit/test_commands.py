@@ -482,6 +482,20 @@ def test_render_workers_map_round_robin_to_seven_gpus(config, tmp_path):
         )
 
 
+def test_ranked_workers_honor_explicit_gpu_allowlist(config, tmp_path, monkeypatch):
+    monkeypatch.setenv("PIXAL3D_GPU_INDICES", "1,2,3,4,5,6")
+    context = ShardContext.for_test(tmp_path, "ABO", "ABO-00000")
+    render = _by_name(build_preprocessing_dag(context, config), "render_cond")
+
+    expanded = expand_ranked(render)
+
+    assert len(expanded) == 18
+    assert [dict(env)["CUDA_VISIBLE_DEVICES"] for _, env in expanded] == [
+        str(gpu) for _ in range(3) for gpu in range(1, 7)
+    ]
+    assert all(argv[-1] == "18" for argv, _ in expanded)
+
+
 def test_unranked_command_expands_once_without_mutation():
     command = CommandSpec("cpu", ("python", "script.py"), CPU_ENV)
 
