@@ -94,6 +94,9 @@ def test_initialize_is_idempotent_but_rejects_different_scope(tmp_path):
 
     with pytest.raises(ValueError, match="different production scope"):
         queue.initialize("b" * 64, units(), now=NOW)
+    queue.assert_config_hash("a" * 64)
+    with pytest.raises(ValueError, match="config hash mismatch"):
+        queue.assert_config_hash("b" * 64)
 
 
 def test_released_unit_retries_then_becomes_terminal_failure(tmp_path):

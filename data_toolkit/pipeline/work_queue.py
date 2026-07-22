@@ -127,6 +127,12 @@ class ProductionWorkQueue:
             raise ValueError("invalid production work queue units")
         return result
 
+    def assert_config_hash(self, expected: str) -> None:
+        _config_hash(expected)
+        manifest = _read_json(self.manifest_path)
+        if not isinstance(manifest, dict) or manifest.get("config_hash") != expected:
+            raise ValueError("production work queue config hash mismatch")
+
     def claim(
         self,
         node_id: str,

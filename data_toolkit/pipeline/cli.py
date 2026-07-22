@@ -281,6 +281,7 @@ def _dispatch(args, config) -> int:
             max_attempts=3,
         )
         if args.action == "status":
+            _assert_queue_config(queue, config)
             print(json.dumps(queue.snapshot(now=datetime.now(timezone.utc)), sort_keys=True))
             return SUCCESS
         with build_mutating_services(config) as runtime:
@@ -290,6 +291,8 @@ def _dispatch(args, config) -> int:
                 queue.initialize(
                     config.config_hash(), units, now=datetime.now(timezone.utc)
                 )
+            else:
+                _assert_queue_config(queue, config)
             _reconcile_queue(queue, services, config)
         print(json.dumps(queue.snapshot(now=datetime.now(timezone.utc)), sort_keys=True))
         return SUCCESS
@@ -313,6 +316,7 @@ def _dispatch(args, config) -> int:
             lease_timeout=timedelta(minutes=5),
             max_attempts=3,
         )
+        _assert_queue_config(queue, config)
         with build_mutating_services(held_config) as runtime:
             worker = ProductionWorker(
                 queue,
@@ -439,6 +443,13 @@ def _reconcile_queue(queue, services, config) -> None:
             except ValueError as error:
                 if "leased work unit" not in str(error):
                     raise
+
+
+def _assert_queue_config(queue, config) -> None:
+    try:
+        queue.assert_config_hash(config.config_hash())
+    except (OSError, ValueError) as error:
+        raise ArtifactValidationError(str(error)) from error
 
 
 def main(argv: Sequence[str] | None = None) -> int:

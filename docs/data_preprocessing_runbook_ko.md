@@ -248,7 +248,7 @@ conda run -n pixal3d python -c \
   "$LEDGER"
 ```
 
-## 7. Smoke evidence/report와 1,000개 pilot
+## 7. Smoke evidence/report와 800개 pilot
 
 모든 smoke source의 run/audit가 끝나면 다음 순서를 지킨다. FP32 설정에서는
 `fp16.csv`가 header-only인 것이 정상이다.
@@ -263,12 +263,12 @@ conda run --no-capture-output -n pixal3d \
   --config data_toolkit/configs/multiview_preprocess.yaml --gate smoke
 ```
 
-smoke report가 `passed`일 때 source당 200개, 총 1,000개 pilot을 순차 실행한다.
+smoke report가 `passed`일 때 현재 production source당 200개, 총 800개 pilot을 순차 실행한다.
 `plan`은 preview이고, 실제 frozen scope는 첫 `run --count 200`이 만든다.
 
 ```bash
 for SOURCE in \
-  ObjaverseXL_sketchfab ObjaverseXL_github ABO HSSD 3D-FUTURE
+  ObjaverseXL_sketchfab ABO HSSD 3D-FUTURE
 do
   SHARD="${SOURCE}-00000"
   conda run --no-capture-output -n pixal3d \
@@ -355,30 +355,97 @@ PYTHONPATH=. conda run --no-capture-output -n pixal3d \
 새 admission을 중단하고 마지막으로 audit된 worker profile로 되돌린 뒤 동일 frozen
 scope를 `resume`한다.
 
-### 다른 노드로 분산할 때
+### 두 노드 공용 work queue
 
-추가 노드의 CPU와 GPU를 모두 사용할 수 있다. `dual_grid`와 `voxelize_pbr`는
-추가 CPU 노드로, Blender condition render는 추가 GPU 노드로 분배할 수 있다.
-가장 안전한 단위는 stage 중간 파일을 매번 네트워크로 전송하는 방식이 아니라,
-64개 이하의 완전한 asset chunk를 한 노드에 배정해 그 노드의 local scratch에서
-render/geometry/encode를 진행하고 검증된 최종 chunk만 canonical parent로
-promotion하는 방식이다. 이렇게 해야 1024 voxel과 latent의 큰 중간 I/O가 병목이
-되지 않는다.
+두 노드는 source를 고정 배정하지 않는다. NFS의
+`control/runtime/work_queue`에서 최대 256개인 frozen publication batch 하나를
+원자적으로 claim하고, 그 batch 안의 최대 64개 chunk를 해당 노드 CPU/GPU 전체로
+처리한다. 먼저 끝난 노드는 다른 source를 포함한 다음 남은 batch를 바로 가져간다.
+stage 중간 파일은 각 노드 local scratch에 두고, 검증된 pack과 raw archive만 공유
+data2/data3에 원자적으로 게시한다.
 
 모든 노드는 동일한 Git commit, config hash, `pixal3d` conda 환경(CUDA 12.8,
 PyTorch 2.8 이상), Blender 4.5.1/OptiX, canonical raw 접근 권한을 가져야 한다.
-노드 추가 전에는 hostname/SSH, physical core와 RAM, GPU 수·모델·VRAM·driver,
-노드 local NVMe 경로, data2/data3 공유 여부, 노드 간 실효 네트워크 대역폭을
-기록한다. CPU만 추가하면 geometry 구간은 크게 줄지만 전체 속도는 render/encode와
-I/O에 제한된다. CPU와 GPU가 모두 비슷한 노드를 하나 더 추가하면 전체 chunk를
-두 노드에 분산할 수 있어 이상적으로 2배에 접근하되, publication과 공유 스토리지
-경합 때문에 실제 증가는 그보다 작다.
+현재 등록값은 node17 CPU 44/GPU 1-6, node16 CPU 40/GPU 0-3이다. node17에서
+공유 registry에 다음과 같이 등록한다. 비밀번호는 명령이나 로그에 저장하지 않는다.
+
+```bash
+CONFIG=data_toolkit/configs/multiview_preprocess.yaml
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli workers --config "$CONFIG" \
+  --action register --node-id node17 --ssh-target local://node17 \
+  --cpu-limit 44 --gpus 1,2,3,4,5,6 \
+  --data2-root /root/data2/pixal3d --data3-root /root/data3/pixal3d \
+  --local-root /root/node17/data/pixal3d
+
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli workers --config "$CONFIG" \
+  --action register --node-id node16 \
+  --ssh-target youngwoo@n16.unist.info:55555 \
+  --cpu-limit 40 --gpus 0,1,2,3 \
+  --data2-root /file2/youngwoo/pixal3d \
+  --data3-root /file3/youngwoo/pixal3d \
+  --local-root /home/youngwoo/data/pixal3d
+```
+
+기존 single-process `full-run`을 종료하고 미완료 child가 없음을 확인한 뒤 큐를 딱
+한 번 초기화한다. 이 명령은 네 source의 모든 production batch를 freeze하고, 기존
+pack과 raw archive가 모두 audit되는 완료 batch만 `completed`로 채택한다.
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli queue --config "$CONFIG" --action init
+```
+
+node17 worker는 node17에서, node16 worker는 node16에서 각각 실행한다. node16은
+공유 registry의 node16 경로를 명시한다.
+
+```bash
+# node17
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli worker --config "$CONFIG" \
+  --node-id node17
+
+# node16
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli worker --config "$CONFIG" \
+  --node-id node16 \
+  --worker-registry /file2/youngwoo/pixal3d/control/runtime/workers.json
+```
+
+실시간 상태에는 node별 현재 source/shard/batch, attempt, stage, 마지막 heartbeat와
+전체 pending/running/completed/failed 수가 표시된다.
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli queue --config "$CONFIG" --action status
+conda run --no-capture-output -n pixal3d \
+  python -m data_toolkit.pipeline.cli workers --config "$CONFIG" --action status
+```
+
+노드를 빼려면 `drain`한다. 진행 중 batch는 끝내되 새 batch를 claim하지 않고 worker가
+종료한다. 그 다음 `remove`한다. 새 노드는 `register` 후 worker process를 실행하면
+즉시 다음 batch부터 참여한다. CPU/GPU 구성을 바꿀 때도 `drain -> worker 종료 확인 ->
+동일 node-id register -> worker 재실행` 순서를 쓴다. 다른 노드는 멈추지 않는다.
+
+```bash
+conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli \
+  workers --config "$CONFIG" --action drain --node-id node16
+conda run --no-capture-output -n pixal3d python -m data_toolkit.pipeline.cli \
+  workers --config "$CONFIG" --action remove --node-id node16
+```
+
+worker가 비정상 종료되면 마지막 heartbeat 5분 뒤 해당 미완료 batch만 다른 노드가
+처음부터 재시작한다. 완료 marker는 보존된다. infrastructure 실패는 batch별 최대
+3회이며, 3회째에도 실패한 batch만 `failed`로 격리되고 나머지 큐는 계속 진행한다.
 
 ## 7-2. 전체 데이터 다운로드/전처리
 
 전체 처리는 smoke와 pilot report가 모두 `passed`인 경우에만 실행한다. 전체
-실행에서는 `--count`를 절대 사용하지 않는다. 권장 명령은 전체 canonical shard를
-고정 순서로 run/audit하는 resumable runner 하나다.
+실행에서는 `--count`를 절대 사용하지 않는다. 권장 실행은 위의 공용 queue와
+노드별 worker다. 아래 `full-run`은 단일 노드 호환 및 수동 복구용이며 분산 worker와
+동시에 실행하면 안 된다.
 
 ```bash
 conda run --no-capture-output -n pixal3d \
@@ -387,7 +454,7 @@ conda run --no-capture-output -n pixal3d \
 ```
 
 중단 후에도 위의 동일한 `full-run` 명령을 다시 실행한다. runner는
-`ObjaverseXL_sketchfab -> ObjaverseXL_github -> ABO -> HSSD -> 3D-FUTURE`
+`ABO -> HSSD -> 3D-FUTURE -> ObjaverseXL_sketchfab`
 순서로 각 canonical shard에 대해 `run(production, count=None)` 직후 audit한다.
 이미 frozen/completed된 shard는 재검증하고, 실패한 shard보다 뒤의 작업은 예약하지
 않는다.
@@ -417,8 +484,12 @@ ABO의 약 154GB `abo-3dmodels.tar` 전체 archive는
 ABO frozen smoke 9개도 completed 상태이므로 production에서 이 archive를 재사용한다.
 
 full runner는 source별 다운로드를 필요할 때 시작한다. ABO는 기존 tar를 재사용하며,
-ObjaverseXL/HSSD/3D-FUTURE는 canonical registry reference에 따라 다운로드와 전처리를
-같은 shard 실행 안에서 이어간다.
+ObjaverseXL sketchfab/HSSD/3D-FUTURE는 canonical registry reference에 따라
+다운로드와 전처리를 같은 shard 실행 안에서 이어간다.
+
+ObjaverseXL GitHub source는 repository 단위 크기와 다운로드 지연 문제로 현재
+production source에서 제외한다. 별도 registry와 download 정책을 확정하기 전에는
+현재 4-source queue에 다시 넣지 않는다.
 
 ## 8. 모델 구현 시점
 
