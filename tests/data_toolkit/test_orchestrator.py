@@ -917,8 +917,10 @@ class FakeRegistry:
     def __init__(self, frame, path):
         self.frame = frame
         self.path = path
+        self.loads = 0
 
     def load(self):
+        self.loads += 1
         return self.frame.copy()
 
 
@@ -932,6 +934,30 @@ class FakePilotReader:
         if isinstance(self.value, BaseException):
             raise self.value
         return self.value
+
+
+def test_pipeline_services_cache_immutable_registry_for_shard_planning(
+    isolated_config,
+):
+    registry = FakeRegistry(
+        pd.DataFrame(
+            {
+                "sha256": ("a" * 64, "b" * 64),
+                "owner_source": ("ABO", "HSSD"),
+                "shard_id": ("ABO-00000", "HSSD-00000"),
+            }
+        ),
+        isolated_config.paths.data2_root / "control/assets.parquet",
+    )
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        registry_store=registry,
+    )
+
+    assert services._registry_shas("ABO", "ABO-00000") == ("a" * 64,)
+    assert services._registry_shas("HSSD", "HSSD-00000") == ("b" * 64,)
+    assert registry.loads == 1
 
 
 class FakeReferenceCounter:

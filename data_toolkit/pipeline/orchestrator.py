@@ -3114,6 +3114,8 @@ class PipelineServices:
         self.registry = registry_store or RegistryStore(
             config.paths.data2_root / "control" / "assets.parquet"
         )
+        self._registry_frame_cache = None
+        self._registry_frame_lock = threading.Lock()
         self.resource_guard = (
             resource_guard
             if resource_guard is not None
@@ -3769,7 +3771,10 @@ class PipelineServices:
             not isinstance(count, int) or isinstance(count, bool) or count <= 0
         ):
             raise ValueError("count must be a positive integer")
-        frame = self.registry.load()
+        with self._registry_frame_lock:
+            if self._registry_frame_cache is None:
+                self._registry_frame_cache = self.registry.load()
+            frame = self._registry_frame_cache
         required = {"sha256", "owner_source", "shard_id"}
         if not required.issubset(frame.columns):
             raise InfrastructureError(
