@@ -1142,6 +1142,74 @@ def test_resume_reuses_frozen_batches_without_replanning(isolated_config):
     assert audits == runner.resumes
 
 
+def test_run_batch_executes_only_the_claimed_frozen_batch(isolated_config):
+    shas = tuple(f"{index:064x}" for index in range(3))
+    registry = FakeRegistry(
+        pd.DataFrame(
+            {
+                "sha256": shas,
+                "owner_source": ["ABO"] * 3,
+                "shard_id": ["ABO-00000"] * 3,
+            }
+        ),
+        isolated_config.paths.data2_root / "control/assets.parquet",
+    )
+    runner = FakeShardRunner()
+    audits = []
+    accounting = FakeAccounting()
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        registry_store=registry,
+        runner=runner,
+        project_accounting=accounting,
+        batch_auditor=audits.append,
+        published_batch_verifier=lambda context: None,
+    )
+    services._freeze_batches(
+        "production",
+        "ABO",
+        "ABO-00000",
+        (shas[:2], shas[2:]),
+        shas,
+    )
+
+    context = services.run_batch(
+        "production", "ABO", "ABO-00000", "batch001"
+    )
+
+    assert context.batch_id == "batch001"
+    assert [item.batch_id for item in runner.runs] == ["batch001"]
+    assert audits == runner.runs
+    assert accounting.reconciliations == 1
+
+
+def test_run_batch_rejects_unknown_batch(isolated_config):
+    asset = "a" * 64
+    services = PipelineServices(
+        isolated_config,
+        resource_guard=FakeResourceGuard(),
+        registry_store=FakeRegistry(
+            pd.DataFrame(
+                {
+                    "sha256": [asset],
+                    "owner_source": ["ABO"],
+                    "shard_id": ["ABO-00000"],
+                }
+            ),
+            isolated_config.paths.data2_root / "control/assets.parquet",
+        ),
+    )
+    services._freeze_batches(
+        "production", "ABO", "ABO-00000", ((asset,),), (asset,)
+    )
+
+    with pytest.raises(ValueError, match="unknown frozen batch"):
+        services.run_batch(
+            "production", "ABO", "ABO-00000", "batch999"
+        )
+
+
 def test_resume_accepts_frozen_gate_subset_without_expanding_scope(
     isolated_config,
 ):

@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import pickle
+import re
 import select
 import shutil
 import shlex
@@ -6065,6 +6066,32 @@ class PipelineServices:
             self._reconcile_accounting(context, "batch")
         self._verify_logical_index(source, shard, batches, gate=gate)
         self._reconcile_accounting(context, "shard")
+
+    def run_batch(
+        self,
+        gate: str,
+        source: str,
+        shard: str,
+        batch_id: str,
+    ) -> ShardContext:
+        if gate != "production":
+            raise ValueError("work queue batch execution requires production gate")
+        match = re.fullmatch(r"batch([0-9]{3})", batch_id)
+        if match is None:
+            raise ValueError(f"invalid production batch id: {batch_id}")
+        batches = self._frozen_for_execution(gate, source, shard)
+        index = int(match.group(1))
+        if index >= len(batches):
+            raise ValueError(
+                f"unknown frozen batch: {source}/{shard}/{batch_id}"
+            )
+        context = ShardContext.from_config(
+            self.config, source, shard, batch_id, gate=gate
+        )
+        self._execute_batch(context, batches[index], resume=False)
+        self.batch_auditor(context)
+        self._reconcile_accounting(context, "batch")
+        return context
 
     def resume(
         self, gate: str, source: str | None, shard: str | None
