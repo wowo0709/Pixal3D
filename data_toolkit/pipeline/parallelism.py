@@ -198,7 +198,7 @@ class NodeResourceBroker:
                 return None
             if any(
                 self._gpu_allocated_percent[index] + gpu_memory_percent
-                >= self.gpu_hard_percent
+                > self.gpu_hard_percent
                 for index in gpu_indices
             ):
                 return None
@@ -359,7 +359,7 @@ class DynamicResourceBroker:
                     if worker["gpu_external"][index]
                     + worker["gpu_allocated"][index]
                     + float(gpu_memory_percent)
-                    < float(spec.gpu_hard_percent)
+                    <= float(spec.gpu_hard_percent)
                 )[:gpu_count]
                 if len(selected) != gpu_count:
                     continue

@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from data_toolkit.pipeline.config import load_config
+from data_toolkit.pipeline.gpu_policy import GpuRuntimePolicy
 from data_toolkit.pipeline.worker_registry import WorkerRegistration
 
 import pytest
@@ -45,6 +46,30 @@ def test_execution_config_preserves_gate_identity_and_overrides_node_resources()
     assert configured.worker_tuning.dump_steps == (32, 36, 40)
     assert configured.worker_tuning.voxel_profiles == ((8, 4), (10, 4))
     assert canonical.parallelism.gpu_count == 7
+
+
+def test_execution_config_applies_gpu_policy_without_changing_identity():
+    canonical = load_config(CONFIG)
+    registration = WorkerRegistration(
+        node_id="node16",
+        ssh_target="node16",
+        cpu_limit=40,
+        gpu_indices=(0, 1, 2, 3),
+        data2_root=Path("/file2/youngwoo/pixal3d"),
+        data3_root=Path("/file3/youngwoo/pixal3d"),
+        local_root=Path("/home/youngwoo/data/pixal3d"),
+    )
+
+    configured = execution_config(
+        canonical,
+        registration,
+        GpuRuntimePolicy(80, 100),
+    )
+
+    assert configured.config_hash() == canonical.config_hash()
+    assert canonical.parallelism.gpu_memory_hard_percent == 90
+    assert configured.parallelism.gpu_memory_target_percent == 80
+    assert configured.parallelism.gpu_memory_hard_percent == 100
 
 
 def test_worker_process_lock_rejects_duplicate_for_same_node(tmp_path):

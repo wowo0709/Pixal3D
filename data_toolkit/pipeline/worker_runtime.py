@@ -12,6 +12,7 @@ import subprocess
 from typing import Callable, Iterator
 
 from .config import PipelineConfig
+from .gpu_policy import GpuRuntimePolicy
 from .worker_registry import WorkerRegistration
 
 
@@ -152,10 +153,29 @@ class WorkerExecutionConfig:
     """Node-local execution overrides bound to a canonical pipeline identity."""
 
     def __init__(
-        self, canonical: PipelineConfig, registration: WorkerRegistration
+        self,
+        canonical: PipelineConfig,
+        registration: WorkerRegistration,
+        gpu_policy: GpuRuntimePolicy | None = None,
     ) -> None:
         gpu_count = len(registration.gpu_indices)
         cpu_limit = registration.cpu_limit
+        effective_gpu_policy = gpu_policy or GpuRuntimePolicy(
+            canonical.parallelism.gpu_memory_target_percent,
+            canonical.parallelism.gpu_memory_hard_percent,
+        )
+        if (
+            effective_gpu_policy.target_percent
+            != canonical.parallelism.gpu_memory_target_percent
+            or not 0
+            < effective_gpu_policy.target_percent
+            < effective_gpu_policy.hard_percent
+            <= 100
+        ):
+            raise ValueError(
+                "GPU runtime policy must preserve the canonical target and "
+                "satisfy 0 < target < hard <= 100"
+            )
         dump_steps = tuple(
             value
             for value in canonical.worker_tuning.dump_steps
@@ -182,6 +202,8 @@ class WorkerExecutionConfig:
             canonical.parallelism,
             gpu_count=gpu_count,
             cpu_physical_cores=cpu_limit,
+            gpu_memory_target_percent=effective_gpu_policy.target_percent,
+            gpu_memory_hard_percent=effective_gpu_policy.hard_percent,
         )
         self.workers = replace(
             canonical.workers,
@@ -208,6 +230,8 @@ class WorkerExecutionConfig:
 
 
 def execution_config(
-    canonical: PipelineConfig, registration: WorkerRegistration
+    canonical: PipelineConfig,
+    registration: WorkerRegistration,
+    gpu_policy: GpuRuntimePolicy | None = None,
 ) -> WorkerExecutionConfig:
-    return WorkerExecutionConfig(canonical, registration)
+    return WorkerExecutionConfig(canonical, registration, gpu_policy)

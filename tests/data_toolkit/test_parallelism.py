@@ -136,7 +136,7 @@ def test_broker_never_oversubscribes_cpu_and_release_is_idempotent():
     assert broker.try_acquire(cpu_cores=1, gpu_indices=()) is not None
 
 
-def test_broker_rejects_gpu_admission_at_hard_limit():
+def test_broker_admits_at_hard_limit_and_rejects_above_it():
     broker = NodeResourceBroker(cpu_limit=44, gpu_count=7, gpu_hard_percent=90.0)
 
     assert broker.try_acquire(
@@ -144,7 +144,63 @@ def test_broker_rejects_gpu_admission_at_hard_limit():
     ) is not None
     assert broker.try_acquire(
         cpu_cores=0, gpu_indices=(1,), gpu_memory_percent=90.0
+    ) is not None
+    assert broker.try_acquire(
+        cpu_cores=0, gpu_indices=(2,), gpu_memory_percent=90.1
     ) is None
+
+
+def test_node_broker_admits_exact_hard_limit_but_not_more():
+    broker = NodeResourceBroker(
+        cpu_limit=44,
+        gpu_count=1,
+        gpu_hard_percent=100.0,
+    )
+    render = broker.try_acquire(
+        cpu_cores=0,
+        gpu_indices=(0,),
+        gpu_memory_percent=20.0,
+    )
+    encode = broker.try_acquire(
+        cpu_cores=0,
+        gpu_indices=(0,),
+        gpu_memory_percent=80.0,
+    )
+
+    assert render is not None and encode is not None
+    assert (
+        broker.try_acquire(
+            cpu_cores=0,
+            gpu_indices=(0,),
+            gpu_memory_percent=0.1,
+        )
+        is None
+    )
+
+
+def test_dynamic_broker_admits_observed_plus_reserved_exactly_at_hard_limit():
+    broker = DynamicResourceBroker()
+    broker.register(
+        WorkerSpec(
+            "node16",
+            cpu_limit=4,
+            gpu_indices=(0,),
+            gpu_hard_percent=100.0,
+        )
+    )
+    broker.update_gpu_memory(
+        "node16",
+        (GpuMemoryState(index=0, used_mib=20.0, total_mib=100.0),),
+    )
+
+    assert (
+        broker.acquire_any(
+            cpu_cores=1,
+            gpu_count=1,
+            gpu_memory_percent=80.0,
+        )
+        is not None
+    )
 
 
 @pytest.mark.parametrize(
