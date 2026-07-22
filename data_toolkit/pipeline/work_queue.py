@@ -209,8 +209,7 @@ class ProductionWorkQueue:
         _aware(now)
         requested_token = token or uuid.uuid4().hex
         _identifier(requested_token, "lease token")
-        self.source_priority()
-        for unit in self.units():
+        for unit in self._ordered_units():
             if self._terminal(unit):
                 continue
             lease_dir = self._lease_dir(unit)
@@ -288,6 +287,14 @@ class ProductionWorkQueue:
                 raise
             return lease
         return None
+
+    def _ordered_units(self) -> tuple[WorkUnit, ...]:
+        units = self.units()
+        ranks = {
+            source: rank
+            for rank, source in enumerate(self.source_priority())
+        }
+        return tuple(sorted(units, key=lambda unit: ranks[unit.source]))
 
     def heartbeat(
         self,

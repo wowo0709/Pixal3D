@@ -20,6 +20,21 @@ def units():
     )
 
 
+def priority_units():
+    return (
+        WorkUnit(
+            "ObjaverseXL_sketchfab",
+            "ObjaverseXL_sketchfab-00000",
+            "batch000",
+            256,
+        ),
+        WorkUnit("ABO", "ABO-00000", "batch000", 256),
+        WorkUnit("ABO", "ABO-00000", "batch001", 256),
+        WorkUnit("3D-FUTURE", "3D-FUTURE-00000", "batch000", 256),
+        WorkUnit("HSSD", "HSSD-00000", "batch000", 256),
+    )
+
+
 def test_source_priority_defaults_to_first_manifest_appearance(tmp_path):
     queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
     queue.initialize("a" * 64, units(), now=NOW)
@@ -63,6 +78,82 @@ def test_malformed_source_priority_stops_reads_and_claims(tmp_path):
         queue.source_priority()
     with pytest.raises(ValueError, match="source priority"):
         queue.claim("node17", now=NOW, token="token")
+
+
+def test_claim_uses_priority_and_preserves_source_local_manifest_order(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, priority_units(), now=NOW)
+    queue.set_source_priority(
+        ("ABO", "3D-FUTURE", "HSSD", "ObjaverseXL_sketchfab"),
+        now=NOW,
+    )
+
+    first = queue.claim("node17", now=NOW, token="first")
+    second = queue.claim("node16", now=NOW, token="second")
+
+    assert first.unit.batch_id == "batch000"
+    assert second.unit.batch_id == "batch001"
+
+
+def test_idle_worker_advances_when_all_higher_priority_units_are_live(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, priority_units()[1:4], now=NOW)
+    queue.set_source_priority(("ABO", "3D-FUTURE"), now=NOW)
+    queue.claim("node17", now=NOW, token="abo-0")
+    queue.claim("node16", now=NOW, token="abo-1")
+
+    lease = queue.claim("node18", now=NOW, token="future")
+
+    assert lease.unit.source == "3D-FUTURE"
+
+
+def test_stale_high_priority_lease_is_reclaimed_before_lower_source(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, priority_units()[1:4:2], now=NOW)
+    queue.set_source_priority(("ABO", "3D-FUTURE"), now=NOW)
+    stale = queue.claim("node17", now=NOW, token="stale")
+
+    replacement = queue.claim(
+        "node16",
+        now=NOW + timedelta(minutes=6),
+        token="replacement",
+    )
+
+    assert stale.unit.source == "ABO"
+    assert replacement.unit.source == "ABO"
+    assert replacement.attempt == 2
+
+
+def test_terminal_high_priority_units_do_not_block_lower_source(tmp_path):
+    selected = priority_units()[1:4:2]
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, selected, now=NOW)
+    queue.set_source_priority(("ABO", "3D-FUTURE"), now=NOW)
+    abo = queue.claim("node17", now=NOW, token="abo")
+    queue.complete(abo, now=NOW)
+
+    assert (
+        queue.claim("node16", now=NOW, token="future").unit.source
+        == "3D-FUTURE"
+    )
+
+
+def test_terminally_failed_high_priority_unit_does_not_block_lower_source(
+    tmp_path,
+):
+    selected = priority_units()[1:4:2]
+    queue = ProductionWorkQueue(
+        tmp_path, lease_timeout=timedelta(minutes=5), max_attempts=1
+    )
+    queue.initialize("a" * 64, selected, now=NOW)
+    queue.set_source_priority(("ABO", "3D-FUTURE"), now=NOW)
+    abo = queue.claim("node17", now=NOW, token="abo")
+    queue.release(abo, reason="unusable assets", now=NOW)
+
+    assert (
+        queue.claim("node16", now=NOW, token="future").unit.source
+        == "3D-FUTURE"
+    )
 
 
 def test_claims_are_atomic_and_distinct(tmp_path):
