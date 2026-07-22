@@ -158,12 +158,16 @@ def _foreach_child(
     desc,
     requires_local_path=True,
     affinity=None,
+    started_at=None,
+    finished_at=None,
 ):
     temporary = None
     try:
         if affinity is not None:
             os.sched_setaffinity(0, set(affinity))
             configure_geometry_threads(len(affinity))
+        if started_at is not None:
+            started_at.value = time.monotonic()
         result = process_single_metadata_row(
             dataset_utils,
             metadata,
@@ -171,6 +175,8 @@ def _foreach_child(
             func,
             requires_local_path=requires_local_path,
         )
+        if finished_at is not None:
+            finished_at.value = time.monotonic()
         result_path = Path(result_path)
         with tempfile.NamedTemporaryFile(
             dir=result_path.parent,
@@ -266,6 +272,8 @@ def _run_foreach_bounded(
             error_path = temporary_dir / f'{position:08d}.error.txt'
             row = metadata.iloc[[position]].copy()
             asset = str(row.iloc[0].get('sha256', f'row {position}'))
+            started_at = context.Value('d', 0.0, lock=False)
+            finished_at = context.Value('d', 0.0, lock=False)
             process = context.Process(
                 target=_foreach_child,
                 args=(
@@ -282,15 +290,23 @@ def _run_foreach_bounded(
                         if affinity_sets is not None
                         else None
                     ),
+                    started_at,
+                    finished_at,
                 ),
             )
             process.start()
+            launched_at = time.monotonic()
             active[position] = {
                 'asset': asset,
                 'process': process,
                 'result_path': result_path,
                 'error_path': error_path,
-                'deadline': time.monotonic() + timeout_seconds,
+                'started_at': started_at,
+                'finished_at': finished_at,
+                'deadline': None,
+                'startup_deadline': (
+                    launched_at + max(5.0, timeout_seconds)
+                ),
                 'affinity_slot': affinity_slot,
             }
 
@@ -307,6 +323,17 @@ def _run_foreach_bounded(
                 now = time.monotonic()
                 for position, state in list(active.items()):
                     process = state['process']
+                    if state['deadline'] is None and state['started_at'].value > 0:
+                        state['deadline'] = (
+                            state['started_at'].value + timeout_seconds
+                        )
+                    deadline = state['deadline'] or state['startup_deadline']
+                    if state['finished_at'].value > 0:
+                        state['deadline'] = (
+                            state['finished_at'].value
+                            + max(5.0, timeout_seconds)
+                        )
+                        deadline = state['deadline']
                     process.join(0)
                     if not process.is_alive():
                         exit_code = process.exitcode
@@ -340,7 +367,7 @@ def _run_foreach_bounded(
                                     f"{state['asset']}: invalid worker result: "
                                     f'{error}',
                                 ))
-                    elif now >= state['deadline']:
+                    elif now >= deadline:
                         _terminate_process(process)
                         process.close()
                         del active[position]
@@ -354,7 +381,8 @@ def _run_foreach_bounded(
 
                 if not progressed and active:
                     next_deadline = min(
-                        state['deadline'] for state in active.values()
+                        state['deadline'] or state['startup_deadline']
+                        for state in active.values()
                     )
                     time.sleep(min(0.01, max(0, next_deadline - now)))
         finally:

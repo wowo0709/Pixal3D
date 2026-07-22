@@ -773,6 +773,44 @@ def test_voxel_adapter_timeout_is_per_asset(module_name):
     "module_name",
     ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
 )
+def test_voxel_adapter_timeout_excludes_child_startup_delay(
+    module_name, monkeypatch
+):
+    worker = importlib.import_module(module_name)
+    original_child = worker._foreach_child
+
+    def delayed_child(*args):
+        time.sleep(0.15)
+        original_child(*args)
+
+    monkeypatch.setattr(worker, "_foreach_child", delayed_child)
+
+    class FastAdapter:
+        @staticmethod
+        def _process_instance(args):
+            metadatum, output_dir, func = args
+            time.sleep(0.05)
+            return {"sha256": metadatum["sha256"], "processed": True}
+
+    result = worker._run_foreach_bounded(
+        FastAdapter,
+        pd.DataFrame([{"sha256": "asset"}]),
+        None,
+        lambda *args: None,
+        max_workers=1,
+        desc="fixture",
+        timeout_seconds=0.1,
+    )
+
+    assert result.to_dict("records") == [
+        {"sha256": "asset", "processed": True}
+    ]
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("data_toolkit.dual_grid_view", "data_toolkit.voxelize_pbr_view"),
+)
 def test_voxel_adapter_timeout_isolates_healthy_asset(
     tmp_path, module_name
 ):
