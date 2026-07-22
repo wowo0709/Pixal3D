@@ -456,7 +456,11 @@ class ProductionWorkQueue:
                     "stale": now - lease.heartbeat_at > self.lease_timeout,
                 }
             )
-        return {"counts": self.status(now=now), "active": active}
+        return {
+            "counts": self.status(now=now),
+            "active": active,
+            "source_priority": list(self.source_priority()),
+        }
 
     def _terminal(self, unit: WorkUnit) -> bool:
         return self._completion_path(unit).is_file() or (

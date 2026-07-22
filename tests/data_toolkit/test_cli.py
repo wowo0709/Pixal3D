@@ -1005,6 +1005,70 @@ def test_queue_init_freezes_and_reconciles_work_units(
     assert status["counts"]["pending"] == 1
 
 
+def test_queue_cli_persists_and_reports_source_priority(tmp_config, capsys):
+    from data_toolkit.pipeline.work_queue import ProductionWorkQueue, WorkUnit
+
+    config = load_config(tmp_config)
+    queue = ProductionWorkQueue(
+        config.paths.data2_root / "control/runtime/work_queue",
+        lease_timeout=timedelta(minutes=5),
+    )
+    queue.initialize(
+        config.config_hash(),
+        (
+            WorkUnit("ABO", "ABO-00000", "batch000", 1),
+            WorkUnit("HSSD", "HSSD-00000", "batch000", 1),
+        ),
+        now=datetime.now(timezone.utc),
+    )
+
+    assert (
+        main(
+            [
+                "queue",
+                "--config",
+                str(tmp_config),
+                "--action",
+                "prioritize",
+                "--sources",
+                "ABO,HSSD",
+            ]
+        )
+        == 0
+    )
+    prioritized = json.loads(capsys.readouterr().out)
+    assert prioritized["source_priority"] == ["ABO", "HSSD"]
+
+    assert (
+        main(
+            [
+                "queue",
+                "--config",
+                str(tmp_config),
+                "--action",
+                "status",
+            ]
+        )
+        == 0
+    )
+    status = json.loads(capsys.readouterr().out)
+    assert status["source_priority"] == ["ABO", "HSSD"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["queue", "--action", "prioritize"],
+        ["queue", "--action", "status", "--sources", "ABO,HSSD"],
+    ],
+)
+def test_queue_priority_cli_rejects_missing_or_misplaced_sources(
+    tmp_config, argv
+):
+    with pytest.raises(SystemExit):
+        parser().parse_args([*argv, "--config", str(tmp_config)])
+
+
 def test_worker_once_uses_registered_paths_gpus_and_claimed_batch(
     tmp_config, monkeypatch
 ):

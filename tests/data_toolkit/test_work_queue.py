@@ -296,6 +296,14 @@ def test_snapshot_reports_live_node_batch_attempt_and_stage(tmp_path):
     ]
 
 
+def test_snapshot_reports_effective_source_priority(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units(), now=NOW)
+    queue.set_source_priority(("HSSD", "ABO"), now=NOW)
+
+    assert queue.snapshot(now=NOW)["source_priority"] == ["HSSD", "ABO"]
+
+
 def test_orphaned_claim_directory_is_recovered_after_lease_timeout(tmp_path):
     queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
     queue.initialize("a" * 64, units()[:1], now=NOW)

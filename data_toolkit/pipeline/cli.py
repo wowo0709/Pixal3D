@@ -60,6 +60,15 @@ def _positive_integer(value: str) -> int:
     return parsed
 
 
+def _source_priority(value: str) -> tuple[str, ...]:
+    sources = tuple(value.split(","))
+    if not sources or any(not source for source in sources):
+        raise argparse.ArgumentTypeError(
+            "must be a comma-separated source list"
+        )
+    return sources
+
+
 class PipelineArgumentParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         result = super().parse_args(args, namespace)
@@ -90,6 +99,11 @@ class PipelineArgumentParser(argparse.ArgumentParser):
                 )
             if args.parallelism_check and sum(checks) != 1:
                 self.error("--parallelism-check cannot be combined with another report")
+        if command == "queue":
+            if args.action == "prioritize" and args.sources is None:
+                self.error("queue prioritize requires --sources")
+            if args.action != "prioritize" and args.sources is not None:
+                self.error("queue --sources requires --action prioritize")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -166,8 +180,11 @@ def parser() -> argparse.ArgumentParser:
     workers.add_argument("--worker-registry", type=Path)
     queue = children.choices["queue"]
     queue.add_argument(
-        "--action", choices=("init", "reconcile", "status"), required=True
+        "--action",
+        choices=("init", "reconcile", "status", "prioritize"),
+        required=True,
     )
+    queue.add_argument("--sources", type=_source_priority)
     for name in ("worker", "supervisor"):
         child = children.choices[name]
         child.add_argument("--node-id", required=True)
@@ -291,6 +308,18 @@ def _dispatch(args, config) -> int:
         if args.action == "status":
             _assert_queue_config(queue, config)
             print(json.dumps(queue.snapshot(now=datetime.now(timezone.utc)), sort_keys=True))
+            return SUCCESS
+        if args.action == "prioritize":
+            _assert_queue_config(queue, config)
+            queue.set_source_priority(
+                args.sources, now=datetime.now(timezone.utc)
+            )
+            print(
+                json.dumps(
+                    queue.snapshot(now=datetime.now(timezone.utc)),
+                    sort_keys=True,
+                )
+            )
             return SUCCESS
         with build_mutating_services(config) as runtime:
             services = runtime.services
