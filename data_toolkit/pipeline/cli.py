@@ -12,6 +12,12 @@ from typing import Sequence
 from .config import load_config
 from .evidence import GateEvidenceCollector
 from .full_run import FullProductionRunner
+from .gpu_policy import (
+    GpuPolicyError,
+    GpuRuntimePolicy,
+    read_gpu_runtime_policy,
+    write_gpu_runtime_policy,
+)
 from .commands import ShardContext
 from .hardware import HardwarePreflightError, collect_hardware_preflight
 from .orchestrator import (
@@ -104,6 +110,20 @@ class PipelineArgumentParser(argparse.ArgumentParser):
                 self.error("queue prioritize requires --sources")
             if args.action != "prioritize" and args.sources is not None:
                 self.error("queue --sources requires --action prioritize")
+        if command == "workers":
+            policy_arguments = (
+                args.gpu_target_percent is not None,
+                args.gpu_hard_percent is not None,
+            )
+            if args.action == "set-gpu-policy" and not all(policy_arguments):
+                self.error(
+                    "workers set-gpu-policy requires target and hard "
+                    "percentages"
+                )
+            if args.action != "set-gpu-policy" and any(policy_arguments):
+                self.error(
+                    "GPU policy arguments require workers set-gpu-policy"
+                )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -167,7 +187,14 @@ def parser() -> argparse.ArgumentParser:
     workers = children.choices["workers"]
     workers.add_argument(
         "--action",
-        choices=("register", "activate", "drain", "remove", "status"),
+        choices=(
+            "register",
+            "activate",
+            "drain",
+            "remove",
+            "status",
+            "set-gpu-policy",
+        ),
         required=True,
     )
     workers.add_argument("--node-id")
@@ -178,6 +205,8 @@ def parser() -> argparse.ArgumentParser:
     workers.add_argument("--data3-root", type=Path)
     workers.add_argument("--local-root", type=Path)
     workers.add_argument("--worker-registry", type=Path)
+    workers.add_argument("--gpu-target-percent", type=_positive_integer)
+    workers.add_argument("--gpu-hard-percent", type=_positive_integer)
     queue = children.choices["queue"]
     queue.add_argument(
         "--action",
@@ -216,6 +245,28 @@ def _validate_scope(args, config) -> None:
         )
 
 
+def _gpu_policy_path(data2_root: Path) -> Path:
+    return Path(data2_root) / "control/runtime/gpu_policy.json"
+
+
+def _effective_gpu_policy(config, data2_root: Path) -> GpuRuntimePolicy:
+    return read_gpu_runtime_policy(
+        _gpu_policy_path(data2_root),
+        canonical_target_percent=(
+            config.parallelism.gpu_memory_target_percent
+        ),
+        canonical_hard_percent=config.parallelism.gpu_memory_hard_percent,
+    )
+
+
+def _registered_execution_config(config, registration):
+    return execution_config(
+        config,
+        registration,
+        _effective_gpu_policy(config, registration.data2_root),
+    )
+
+
 def _required_gates(args, config) -> None:
     if args.command not in {"run", "resume"}:
         return
@@ -245,7 +296,31 @@ def _dispatch(args, config) -> int:
             args.worker_registry
             or config.paths.data2_root / "control/runtime/workers.json"
         )
-        if args.action == "register":
+        if args.action == "set-gpu-policy":
+            policy = GpuRuntimePolicy(
+                args.gpu_target_percent,
+                args.gpu_hard_percent,
+            )
+            write_gpu_runtime_policy(
+                _gpu_policy_path(config.paths.data2_root),
+                policy,
+                canonical_target_percent=(
+                    config.parallelism.gpu_memory_target_percent
+                ),
+                now=datetime.now(timezone.utc),
+            )
+            print(
+                json.dumps(
+                    {
+                        "gpu_memory_target_percent": (
+                            policy.target_percent
+                        ),
+                        "gpu_memory_hard_percent": policy.hard_percent,
+                    },
+                    sort_keys=True,
+                )
+            )
+        elif args.action == "register":
             if not all((args.node_id, args.ssh_target, args.cpu_limit, args.gpus)):
                 raise ArtifactValidationError("worker register requires node, SSH target, CPU limit, and GPUs")
             execution_roots = (
@@ -286,6 +361,7 @@ def _dispatch(args, config) -> int:
             status = registry.remove(args.node_id)
             print(json.dumps({"node_id": status.node_id, "state": status.state}))
         else:
+            policy = _effective_gpu_policy(config, config.paths.data2_root)
             print(json.dumps({
                 node: {
                     "state": status.state,
@@ -295,6 +371,8 @@ def _dispatch(args, config) -> int:
                     "data2_root": str(status.registration.data2_root),
                     "data3_root": str(status.registration.data3_root),
                     "local_root": str(status.registration.local_root),
+                    "gpu_memory_target_percent": policy.target_percent,
+                    "gpu_memory_hard_percent": policy.hard_percent,
                 }
                 for node, status in registry.read().items()
             }, sort_keys=True))
@@ -345,7 +423,7 @@ def _dispatch(args, config) -> int:
             raise ArtifactValidationError(
                 f"production worker is not registered: {args.node_id}"
             ) from error
-        held_config = execution_config(config, registration)
+        held_config = _registered_execution_config(config, registration)
         queue = ProductionWorkQueue(
             held_config.paths.data2_root / "control/runtime/work_queue",
             lease_timeout=timedelta(minutes=5),
@@ -388,7 +466,7 @@ def _dispatch(args, config) -> int:
             raise ArtifactValidationError(
                 f"production worker is not registered: {args.node_id}"
             ) from error
-        held_config = execution_config(config, registration)
+        held_config = _registered_execution_config(config, registration)
         validate_worker_environment(held_config, registration)
         prior_gpu_indices = os.environ.get("PIXAL3D_GPU_INDICES")
         with worker_process_lock(registration.local_root, args.node_id):
@@ -568,6 +646,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         InfrastructureError,
         ResourceAccountingError,
         ReportValidationError,
+        GpuPolicyError,
     ) as error:
         return _operator_error(error)
 

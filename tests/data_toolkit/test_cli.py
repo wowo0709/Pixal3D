@@ -955,6 +955,146 @@ def test_workers_cli_registers_and_drains_worker(tmp_config, capsys):
     assert '"state": "draining"' in capsys.readouterr().out
 
 
+def test_workers_cli_sets_and_reports_shared_gpu_policy(tmp_config, capsys):
+    assert (
+        main(
+            [
+                "workers",
+                "--config",
+                str(tmp_config),
+                "--action",
+                "register",
+                "--node-id",
+                "node17",
+                "--ssh-target",
+                "local",
+                "--cpu-limit",
+                "4",
+                "--gpus",
+                "0,1",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "workers",
+                "--config",
+                str(tmp_config),
+                "--action",
+                "set-gpu-policy",
+                "--gpu-target-percent",
+                "80",
+                "--gpu-hard-percent",
+                "100",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {
+        "gpu_memory_hard_percent": 100,
+        "gpu_memory_target_percent": 80,
+    }
+
+    assert (
+        main(
+            [
+                "workers",
+                "--config",
+                str(tmp_config),
+                "--action",
+                "status",
+            ]
+        )
+        == 0
+    )
+    status = json.loads(capsys.readouterr().out)
+    assert status["node17"]["gpu_memory_target_percent"] == 80
+    assert status["node17"]["gpu_memory_hard_percent"] == 100
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [
+            "workers",
+            "--action",
+            "set-gpu-policy",
+            "--gpu-target-percent",
+            "80",
+        ],
+        [
+            "workers",
+            "--action",
+            "status",
+            "--gpu-hard-percent",
+            "100",
+        ],
+    ],
+)
+def test_workers_gpu_policy_arguments_are_action_scoped(tmp_config, argv):
+    with pytest.raises(SystemExit):
+        parser().parse_args([*argv, "--config", str(tmp_config)])
+
+
+def test_malformed_gpu_policy_stops_worker_before_claim(
+    tmp_config, monkeypatch, capsys
+):
+    config = load_config(tmp_config)
+    registry_path = config.paths.data2_root / "control/runtime/workers.json"
+    assert (
+        main(
+            [
+                "workers",
+                "--config",
+                str(tmp_config),
+                "--action",
+                "register",
+                "--node-id",
+                "node17",
+                "--ssh-target",
+                "local",
+                "--cpu-limit",
+                "4",
+                "--gpus",
+                "0,1",
+            ]
+        )
+        == 0
+    )
+    policy_path = (
+        config.paths.data2_root / "control/runtime/gpu_policy.json"
+    )
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text("{}")
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.validate_worker_environment",
+        lambda configured, registered: pytest.fail(
+            "validation must not run"
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "worker",
+                "--config",
+                str(tmp_config),
+                "--node-id",
+                "node17",
+                "--worker-registry",
+                str(registry_path),
+                "--once",
+            ]
+        )
+        == 2
+    )
+    assert "invalid GPU runtime policy" in capsys.readouterr().err
+
+
 def test_queue_init_freezes_and_reconciles_work_units(
     tmp_config, monkeypatch, capsys
 ):
