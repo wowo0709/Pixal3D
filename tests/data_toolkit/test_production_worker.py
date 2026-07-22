@@ -110,3 +110,22 @@ def test_heartbeat_keeps_long_running_batch_owned(tmp_path):
     finish.set()
     thread.join(timeout=1)
     assert not thread.is_alive()
+
+
+def test_run_forever_reports_retries_and_quarantines_terminal_batch(tmp_path):
+    queue, registry, _ = setup_runtime(tmp_path)
+    errors = []
+    worker = ProductionWorker(
+        queue,
+        registry,
+        "node17",
+        lambda unit: (_ for _ in ()).throw(RuntimeError("bad asset")),
+        poll_interval=0.001,
+        sleeper=lambda seconds: None,
+        on_error=errors.append,
+    )
+
+    worker.run_forever()
+
+    assert [str(error) for error in errors] == ["bad asset"] * 3
+    assert queue.status(now=datetime.now(timezone.utc))["failed"] == 1

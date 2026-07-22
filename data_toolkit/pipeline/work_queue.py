@@ -150,31 +150,53 @@ class ProductionWorkQueue:
             except FileExistsError:
                 current = self._read_lease(unit)
                 if current is None:
-                    continue
-                if now - current.heartbeat_at <= self.lease_timeout:
-                    continue
-                stale_path = self.history_root / (
-                    f"{unit.unit_id}.{current.token}.stale"
-                )
-                try:
-                    lease_dir.rename(stale_path)
-                except FileNotFoundError:
-                    continue
-                attempt = max(current.attempt + 1, self._next_attempt(unit))
-                if attempt > self.max_attempts:
-                    self._mark_failed(
-                        unit,
-                        node_id=current.node_id,
-                        token=current.token,
-                        attempt=current.attempt,
-                        reason="lease-timeout",
-                        now=now,
+                    try:
+                        created_at = datetime.fromtimestamp(
+                            lease_dir.stat().st_mtime, timezone.utc
+                        )
+                    except FileNotFoundError:
+                        continue
+                    if now - created_at <= self.lease_timeout:
+                        continue
+                    orphan_path = self.history_root / (
+                        f"{unit.unit_id}.{uuid.uuid4().hex}.orphan"
                     )
+                    try:
+                        lease_dir.rename(orphan_path)
+                    except FileNotFoundError:
+                        continue
+                    try:
+                        lease_dir.mkdir()
+                    except FileExistsError:
+                        continue
+                    current = None
+                if current is None:
+                    pass
+                elif now - current.heartbeat_at <= self.lease_timeout:
                     continue
-                try:
-                    lease_dir.mkdir()
-                except FileExistsError:
-                    continue
+                else:
+                    stale_path = self.history_root / (
+                        f"{unit.unit_id}.{current.token}.stale"
+                    )
+                    try:
+                        lease_dir.rename(stale_path)
+                    except FileNotFoundError:
+                        continue
+                    attempt = max(current.attempt + 1, self._next_attempt(unit))
+                    if attempt > self.max_attempts:
+                        self._mark_failed(
+                            unit,
+                            node_id=current.node_id,
+                            token=current.token,
+                            attempt=current.attempt,
+                            reason="lease-timeout",
+                            now=now,
+                        )
+                        continue
+                    try:
+                        lease_dir.mkdir()
+                    except FileExistsError:
+                        continue
             lease = WorkLease(
                 unit=unit,
                 node_id=node_id,
@@ -332,6 +354,30 @@ class ProductionWorkQueue:
                 else:
                     counts["running"] += 1
         return counts
+
+    def snapshot(self, *, now: datetime) -> dict[str, object]:
+        _aware(now)
+        active = []
+        for unit in self.units():
+            if self._terminal(unit):
+                continue
+            lease = self._read_lease(unit)
+            if lease is None:
+                continue
+            active.append(
+                {
+                    "unit_id": unit.unit_id,
+                    "source": unit.source,
+                    "shard_id": unit.shard_id,
+                    "batch_id": unit.batch_id,
+                    "node_id": lease.node_id,
+                    "attempt": lease.attempt,
+                    "stage": lease.stage,
+                    "heartbeat_at": _timestamp(lease.heartbeat_at),
+                    "stale": now - lease.heartbeat_at > self.lease_timeout,
+                }
+            )
+        return {"counts": self.status(now=now), "active": active}
 
     def _terminal(self, unit: WorkUnit) -> bool:
         return self._completion_path(unit).is_file() or (

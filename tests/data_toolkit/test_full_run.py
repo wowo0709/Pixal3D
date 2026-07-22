@@ -151,3 +151,31 @@ def test_full_runner_dry_run_is_ordered_and_does_not_mutate(
         "ObjaverseXL_sketchfab/ObjaverseXL_sketchfab-00001/"
     )
     assert services.calls == []
+
+
+def test_work_units_freeze_batches_and_round_robin_sources(
+    tmp_config, monkeypatch
+):
+    config = load_config(tmp_config)
+    _install_inputs(monkeypatch, config, [])
+
+    class Services(_Services):
+        def plan(self, gate, source, shard, count, *, freeze):
+            assert (gate, count, freeze) == ("production", None, True)
+            return (
+                "batch000: 256 assets",
+                "batch001: 17 assets",
+            )
+
+    units = FullProductionRunner(config, Services()).work_units(freeze=True)
+
+    assert [unit.source for unit in units[:4]] == [
+        "ABO",
+        "HSSD",
+        "3D-FUTURE",
+        "ObjaverseXL_sketchfab",
+    ]
+    assert [unit.batch_id for unit in units[:4]] == ["batch000"] * 4
+    assert units[4].source == "ABO"
+    assert units[4].batch_id == "batch001"
+    assert units[4].count == 17

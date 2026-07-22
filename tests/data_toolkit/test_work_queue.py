@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import os
 
 import pytest
 
@@ -128,3 +129,45 @@ def test_adopt_completed_marks_verified_legacy_batch(tmp_path):
 
     assert queue.claim("node16", now=NOW, token="token") is None
     assert queue.status(now=NOW)["completed"] == 1
+
+
+def test_snapshot_reports_live_node_batch_attempt_and_stage(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units()[:1], now=NOW)
+    lease = queue.claim("node17", now=NOW, token="token")
+    queue.heartbeat(
+        lease, stage="render_cond", now=NOW + timedelta(seconds=30)
+    )
+
+    snapshot = queue.snapshot(now=NOW + timedelta(seconds=31))
+
+    assert snapshot["counts"]["running"] == 1
+    assert snapshot["active"] == [
+        {
+            "unit_id": "ABO--ABO-00000--batch000",
+            "source": "ABO",
+            "shard_id": "ABO-00000",
+            "batch_id": "batch000",
+            "node_id": "node17",
+            "attempt": 1,
+            "stage": "render_cond",
+            "heartbeat_at": "2026-07-22T04:30:30+00:00",
+            "stale": False,
+        }
+    ]
+
+
+def test_orphaned_claim_directory_is_recovered_after_lease_timeout(tmp_path):
+    queue = ProductionWorkQueue(tmp_path, lease_timeout=timedelta(minutes=5))
+    queue.initialize("a" * 64, units()[:1], now=NOW)
+    orphan = queue.leases_root / units()[0].unit_id
+    orphan.mkdir()
+    old = NOW.timestamp()
+    os.utime(orphan, (old, old))
+
+    lease = queue.claim(
+        "node16", now=NOW + timedelta(minutes=6), token="replacement"
+    )
+
+    assert lease is not None
+    assert lease.attempt == 1

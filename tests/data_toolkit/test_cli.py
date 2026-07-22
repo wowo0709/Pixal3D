@@ -952,6 +952,111 @@ def test_workers_cli_registers_and_drains_worker(tmp_config, capsys):
     assert '"state": "draining"' in capsys.readouterr().out
 
 
+def test_queue_init_freezes_and_reconciles_work_units(
+    tmp_config, monkeypatch, capsys
+):
+    from data_toolkit.pipeline.work_queue import WorkUnit
+
+    class Services:
+        def _published_is_valid(self, context):
+            return context.batch_id == "batch000"
+
+        def _archive_is_valid(self, context):
+            return True
+
+    class Runtime:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        services = Services()
+
+    class Runner:
+        def __init__(self, config, services):
+            pass
+
+        def work_units(self, *, freeze):
+            assert freeze is True
+            return (
+                WorkUnit("ABO", "ABO-00000", "batch000", 256),
+                WorkUnit("ABO", "ABO-00000", "batch001", 7),
+            )
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services",
+        lambda config: Runtime(),
+    )
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.FullProductionRunner", Runner
+    )
+
+    assert main([
+        "queue", "--config", str(tmp_config), "--action", "init"
+    ]) == 0
+
+    status = json.loads(capsys.readouterr().out)
+    assert status["counts"]["total"] == 2
+    assert status["counts"]["completed"] == 1
+    assert status["counts"]["pending"] == 1
+
+
+def test_worker_once_uses_registered_paths_gpus_and_claimed_batch(
+    tmp_config, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+
+    from data_toolkit.pipeline.config import load_config
+    from data_toolkit.pipeline.work_queue import ProductionWorkQueue, WorkUnit
+
+    config = load_config(tmp_config)
+    registry_path = config.paths.data2_root / "control/runtime/workers.json"
+    assert main([
+        "workers", "--config", str(tmp_config), "--action", "register",
+        "--node-id", "node17", "--ssh-target", "local",
+        "--cpu-limit", "4", "--gpus", "1,3",
+    ]) == 0
+    queue = ProductionWorkQueue(
+        config.paths.data2_root / "control/runtime/work_queue",
+        lease_timeout=timedelta(minutes=5),
+    )
+    queue.initialize(
+        config.config_hash(),
+        (WorkUnit("ABO", "ABO-00000", "batch000", 12),),
+        now=datetime.now(timezone.utc),
+    )
+    calls = []
+
+    class Runtime:
+        def __init__(self, held_config):
+            self.held_config = held_config
+            self.services = self
+
+        def __enter__(self):
+            assert self.held_config.parallelism.gpu_count == 2
+            assert self.held_config.paths.data2_root == config.paths.data2_root
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def run_batch(self, *args):
+            calls.append(args)
+
+    monkeypatch.setattr(
+        "data_toolkit.pipeline.cli.build_mutating_services", Runtime
+    )
+
+    assert main([
+        "worker", "--config", str(tmp_config), "--node-id", "node17",
+        "--worker-registry", str(registry_path), "--once",
+    ]) == 0
+
+    assert calls == [("production", "ABO", "ABO-00000", "batch000")]
+    assert queue.status(now=datetime.now(timezone.utc))["completed"] == 1
+
+
 @pytest.mark.parametrize(
     "argv",
     [

@@ -23,6 +23,7 @@ class ProductionWorker:
         poll_interval: float = 5.0,
         clock: Callable[[], datetime] | None = None,
         sleeper: Callable[[float], None] = time.sleep,
+        on_error: Callable[[BaseException], None] | None = None,
     ) -> None:
         if heartbeat_interval <= 0 or poll_interval <= 0:
             raise ValueError("worker intervals must be positive")
@@ -34,6 +35,7 @@ class ProductionWorker:
         self.poll_interval = poll_interval
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.sleeper = sleeper
+        self.on_error = on_error or (lambda error: None)
 
     def run_once(self, *, now: datetime | None = None) -> bool:
         claimed_at = now or self.clock()
@@ -88,7 +90,8 @@ class ProductionWorker:
                 return
             try:
                 worked = self.run_once()
-            except Exception:
+            except Exception as error:
+                self.on_error(error)
                 self.sleeper(self.poll_interval)
                 continue
             if worked:

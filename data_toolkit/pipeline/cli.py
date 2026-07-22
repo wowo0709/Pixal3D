@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -11,6 +12,7 @@ from typing import Sequence
 from .config import load_config
 from .evidence import GateEvidenceCollector
 from .full_run import FullProductionRunner
+from .commands import ShardContext
 from .hardware import HardwarePreflightError, collect_hardware_preflight
 from .orchestrator import (
     CheckpointError,
@@ -30,6 +32,9 @@ from .runtime import (
     read_parallelism_report,
 )
 from .validation import ValidationError
+from .production_worker import ProductionWorker
+from .work_queue import ProductionWorkQueue
+from .worker_runtime import execution_config
 from .worker_registry import WorkerRegistration, WorkerRegistry
 
 
@@ -98,6 +103,8 @@ def parser() -> argparse.ArgumentParser:
         "report",
         "benchmark-parallelism",
         "workers",
+        "queue",
+        "worker",
     ):
         child = children.add_parser(name)
         child.add_argument("--config", type=Path, required=True)
@@ -138,11 +145,27 @@ def parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--count", type=_positive_integer, required=True)
     benchmark.add_argument("--dry-run", action="store_true")
     workers = children.choices["workers"]
-    workers.add_argument("--action", choices=("register", "drain", "status"), required=True)
+    workers.add_argument(
+        "--action",
+        choices=("register", "activate", "drain", "remove", "status"),
+        required=True,
+    )
     workers.add_argument("--node-id")
     workers.add_argument("--ssh-target")
     workers.add_argument("--cpu-limit", type=_positive_integer)
     workers.add_argument("--gpus")
+    workers.add_argument("--data2-root", type=Path)
+    workers.add_argument("--data3-root", type=Path)
+    workers.add_argument("--local-root", type=Path)
+    workers.add_argument("--worker-registry", type=Path)
+    queue = children.choices["queue"]
+    queue.add_argument(
+        "--action", choices=("init", "reconcile", "status"), required=True
+    )
+    worker = children.choices["worker"]
+    worker.add_argument("--node-id", required=True)
+    worker.add_argument("--worker-registry", type=Path)
+    worker.add_argument("--once", action="store_true")
     return root
 
 
@@ -193,12 +216,32 @@ def _stopped_exit(error: PipelineStopped) -> int:
 
 def _dispatch(args, config) -> int:
     if args.command == "workers":
-        registry = WorkerRegistry(config.paths.data2_root / "control/runtime/workers.json")
+        registry = WorkerRegistry(
+            args.worker_registry
+            or config.paths.data2_root / "control/runtime/workers.json"
+        )
         if args.action == "register":
             if not all((args.node_id, args.ssh_target, args.cpu_limit, args.gpus)):
                 raise ArtifactValidationError("worker register requires node, SSH target, CPU limit, and GPUs")
+            execution_roots = (
+                args.data2_root,
+                args.data3_root,
+                args.local_root,
+            )
+            if any(execution_roots) and not all(execution_roots):
+                raise ArtifactValidationError(
+                    "worker register requires all three execution roots"
+                )
             status = registry.register(
-                WorkerRegistration(args.node_id, args.ssh_target, args.cpu_limit, tuple(int(value) for value in args.gpus.split(","))),
+                WorkerRegistration(
+                    args.node_id,
+                    args.ssh_target,
+                    args.cpu_limit,
+                    tuple(int(value) for value in args.gpus.split(",")),
+                    args.data2_root or config.paths.data2_root,
+                    args.data3_root or config.paths.data3_root,
+                    args.local_root or config.paths.local_root,
+                ),
                 now=datetime.now(timezone.utc),
             )
             print(json.dumps({"node_id": status.node_id, "state": status.state}))
@@ -207,8 +250,88 @@ def _dispatch(args, config) -> int:
                 raise ArtifactValidationError("worker drain requires --node-id")
             status = registry.drain(args.node_id)
             print(json.dumps({"node_id": status.node_id, "state": status.state}))
+        elif args.action == "activate":
+            if not args.node_id:
+                raise ArtifactValidationError("worker activate requires --node-id")
+            status = registry.activate(args.node_id, now=datetime.now(timezone.utc))
+            print(json.dumps({"node_id": status.node_id, "state": status.state}))
+        elif args.action == "remove":
+            if not args.node_id:
+                raise ArtifactValidationError("worker remove requires --node-id")
+            status = registry.remove(args.node_id)
+            print(json.dumps({"node_id": status.node_id, "state": status.state}))
         else:
-            print(json.dumps({node: {"state": status.state} for node, status in registry.read().items()}, sort_keys=True))
+            print(json.dumps({
+                node: {
+                    "state": status.state,
+                    "healthy": status.healthy(now=datetime.now(timezone.utc)),
+                    "cpu_limit": status.registration.cpu_limit,
+                    "gpu_indices": status.registration.gpu_indices,
+                    "data2_root": str(status.registration.data2_root),
+                    "data3_root": str(status.registration.data3_root),
+                    "local_root": str(status.registration.local_root),
+                }
+                for node, status in registry.read().items()
+            }, sort_keys=True))
+        return SUCCESS
+    if args.command == "queue":
+        queue = ProductionWorkQueue(
+            config.paths.data2_root / "control/runtime/work_queue",
+            lease_timeout=timedelta(minutes=5),
+            max_attempts=3,
+        )
+        if args.action == "status":
+            print(json.dumps(queue.snapshot(now=datetime.now(timezone.utc)), sort_keys=True))
+            return SUCCESS
+        with build_mutating_services(config) as runtime:
+            services = runtime.services
+            if args.action == "init":
+                units = FullProductionRunner(config, services).work_units(freeze=True)
+                queue.initialize(
+                    config.config_hash(), units, now=datetime.now(timezone.utc)
+                )
+            _reconcile_queue(queue, services, config)
+        print(json.dumps(queue.snapshot(now=datetime.now(timezone.utc)), sort_keys=True))
+        return SUCCESS
+    if args.command == "worker":
+        registry = WorkerRegistry(
+            args.worker_registry
+            or config.paths.data2_root / "control/runtime/workers.json"
+        )
+        try:
+            registration = registry.read()[args.node_id].registration
+        except KeyError as error:
+            raise ArtifactValidationError(
+                f"production worker is not registered: {args.node_id}"
+            ) from error
+        held_config = execution_config(config, registration)
+        os.environ["PIXAL3D_GPU_INDICES"] = ",".join(
+            str(index) for index in registration.gpu_indices
+        )
+        queue = ProductionWorkQueue(
+            held_config.paths.data2_root / "control/runtime/work_queue",
+            lease_timeout=timedelta(minutes=5),
+            max_attempts=3,
+        )
+        with build_mutating_services(held_config) as runtime:
+            worker = ProductionWorker(
+                queue,
+                registry,
+                args.node_id,
+                lambda unit: runtime.services.run_batch(
+                    "production", unit.source, unit.shard_id, unit.batch_id
+                ),
+                on_error=lambda error: print(
+                    f"production batch failed and was released: "
+                    f"{type(error).__name__}: {error}",
+                    file=sys.stderr,
+                    flush=True,
+                ),
+            )
+            if args.once:
+                worker.run_once()
+            else:
+                worker.run_forever()
         return SUCCESS
     if args.command == "preflight":
         results = run_preflight(config)
@@ -293,6 +416,29 @@ def _dispatch(args, config) -> int:
         else:
             raise AssertionError(f"unhandled command: {args.command}")
     return SUCCESS
+
+
+def _reconcile_queue(queue, services, config) -> None:
+    for unit in queue.units():
+        context = ShardContext.from_config(
+            config,
+            unit.source,
+            unit.shard_id,
+            unit.batch_id,
+            gate="production",
+        )
+        if services._published_is_valid(context) and services._archive_is_valid(
+            context
+        ):
+            try:
+                queue.adopt_completed(
+                    unit,
+                    now=datetime.now(timezone.utc),
+                    node_id="legacy-node17",
+                )
+            except ValueError as error:
+                if "leased work unit" not in str(error):
+                    raise
 
 
 def main(argv: Sequence[str] | None = None) -> int:
