@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import time
+import uuid
 
 from .orchestrator import _atomic_write_bytes_nofollow, _read_regular_bytes_nofollow
 
@@ -60,8 +62,19 @@ class WorkerStatus:
 
 
 class WorkerRegistry:
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        lock_timeout_seconds: float = 30.0,
+        stale_lock_seconds: float = 120.0,
+    ) -> None:
         self.path = Path(path)
+        if lock_timeout_seconds <= 0 or stale_lock_seconds <= 0:
+            raise ValueError("worker registry lock intervals must be positive")
+        self.lock_path = self.path.with_name(f"{self.path.name}.lock")
+        self.lock_timeout_seconds = lock_timeout_seconds
+        self.stale_lock_seconds = stale_lock_seconds
 
     def read(self) -> dict[str, WorkerStatus]:
         payload = _read_regular_bytes_nofollow(self.path, missing_ok=True)
@@ -95,43 +108,92 @@ class WorkerRegistry:
         return result
 
     def register(self, registration: WorkerRegistration, *, now: datetime) -> WorkerStatus:
-        workers = self.read()
-        status = WorkerStatus(registration, "active", now)
-        workers[registration.node_id] = status
-        self._write(workers)
-        return status
+        with self._locked():
+            workers = self.read()
+            status = WorkerStatus(registration, "active", now)
+            workers[registration.node_id] = status
+            self._write(workers)
+            return status
 
     def heartbeat(self, node_id: str, *, now: datetime) -> WorkerStatus:
-        workers = self.read()
-        current = workers[node_id]
-        status = WorkerStatus(current.registration, current.state, now)
-        workers[node_id] = status
-        self._write(workers)
-        return status
+        with self._locked():
+            workers = self.read()
+            current = workers[node_id]
+            status = WorkerStatus(current.registration, current.state, now)
+            workers[node_id] = status
+            self._write(workers)
+            return status
 
     def drain(self, node_id: str) -> WorkerStatus:
-        workers = self.read()
-        current = workers[node_id]
-        status = WorkerStatus(current.registration, "draining", current.heartbeat_at)
-        workers[node_id] = status
-        self._write(workers)
-        return status
+        with self._locked():
+            workers = self.read()
+            current = workers[node_id]
+            status = WorkerStatus(current.registration, "draining", current.heartbeat_at)
+            workers[node_id] = status
+            self._write(workers)
+            return status
 
     def activate(self, node_id: str, *, now: datetime) -> WorkerStatus:
-        workers = self.read()
-        current = workers[node_id]
-        status = WorkerStatus(current.registration, "active", now)
-        workers[node_id] = status
-        self._write(workers)
-        return status
+        with self._locked():
+            workers = self.read()
+            current = workers[node_id]
+            status = WorkerStatus(current.registration, "active", now)
+            workers[node_id] = status
+            self._write(workers)
+            return status
 
     def remove(self, node_id: str) -> WorkerStatus:
-        workers = self.read()
-        current = workers[node_id]
-        status = WorkerStatus(current.registration, "removed", current.heartbeat_at)
-        workers[node_id] = status
-        self._write(workers)
-        return status
+        with self._locked():
+            workers = self.read()
+            current = workers[node_id]
+            status = WorkerStatus(current.registration, "removed", current.heartbeat_at)
+            workers[node_id] = status
+            self._write(workers)
+            return status
+
+    class _RegistryLock:
+        def __init__(self, registry: "WorkerRegistry") -> None:
+            self.registry = registry
+            self.owned = False
+
+        def __enter__(self):
+            registry = self.registry
+            registry.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            deadline = time.monotonic() + registry.lock_timeout_seconds
+            while True:
+                try:
+                    registry.lock_path.mkdir()
+                    self.owned = True
+                    return self
+                except FileExistsError:
+                    try:
+                        age = time.time() - registry.lock_path.stat().st_mtime
+                    except FileNotFoundError:
+                        continue
+                    if age > registry.stale_lock_seconds:
+                        stale = registry.lock_path.with_name(
+                            f"{registry.lock_path.name}.stale.{uuid.uuid4().hex}"
+                        )
+                        try:
+                            registry.lock_path.rename(stale)
+                            stale.rmdir()
+                        except FileNotFoundError:
+                            pass
+                        continue
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("timed out acquiring worker registry lock")
+                    time.sleep(0.01)
+
+        def __exit__(self, exc_type, exc_value, traceback) -> None:
+            if self.owned:
+                try:
+                    self.registry.lock_path.rmdir()
+                except FileNotFoundError:
+                    pass
+                self.owned = False
+
+    def _locked(self) -> "WorkerRegistry._RegistryLock":
+        return self._RegistryLock(self)
 
     def _write(self, workers: dict[str, WorkerStatus]) -> None:
         value = {"schema_version": 2, "workers": [

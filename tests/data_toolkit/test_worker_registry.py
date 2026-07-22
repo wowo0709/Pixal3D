@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import pytest
 
@@ -63,3 +65,28 @@ def test_registration_rejects_relative_execution_paths():
             data3_root=Path("/data3"),
             local_root=Path("/local"),
         )
+
+
+def test_concurrent_registry_updates_do_not_lose_workers(tmp_path):
+    registry = WorkerRegistry(tmp_path / "workers.json")
+    barrier = threading.Barrier(12)
+
+    def register(index):
+        barrier.wait()
+        registry.register(
+            WorkerRegistration(
+                node_id=f"node{index}",
+                ssh_target=f"node{index}",
+                cpu_limit=4,
+                gpu_indices=(index,),
+                data2_root=Path(f"/data2/node{index}"),
+                data3_root=Path(f"/data3/node{index}"),
+                local_root=Path(f"/local/node{index}"),
+            ),
+            now=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        tuple(executor.map(register, range(12)))
+
+    assert set(registry.read()) == {f"node{index}" for index in range(12)}
