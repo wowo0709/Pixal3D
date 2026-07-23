@@ -357,6 +357,31 @@ class ViewImageConditionedMixin:
         return pack
 
 
+MULTIVIEW_CONDITION_KEYS = (
+    "cond",
+    "camera_angle_x",
+    "camera_distance",
+    "transform_matrix",
+    "view_indices",
+)
+
+
+def slice_condition_views(
+    batch: Sequence[Dict[str, Any]], num_views: int
+) -> List[Dict[str, Any]]:
+    if not 1 <= num_views <= 8:
+        raise ValueError("num_views must be between 1 and 8")
+    sliced = []
+    for source in batch:
+        item = dict(source)
+        for key in MULTIVIEW_CONDITION_KEYS:
+            if key not in source or source[key].shape[0] < num_views:
+                raise ValueError(f"{key} does not contain {num_views} aligned views")
+            item[key] = source[key][:num_views]
+        sliced.append(item)
+    return sliced
+
+
 class MultiViewImageConditionedMixin:
     def __init__(
         self,
@@ -377,6 +402,12 @@ class MultiViewImageConditionedMixin:
         self.min_condition_views = min_condition_views
         self.max_condition_views = max_condition_views
         super().__init__(roots, **kwargs)
+
+    def select_batch_condition_views(self, batch):
+        num_views = int(np.random.randint(
+            self.min_condition_views, self.max_condition_views + 1
+        ))
+        return slice_condition_views(batch, num_views)
 
     def filter_metadata(self, metadata, dataset_name=None):
         metadata, stats = super().filter_metadata(metadata, dataset_name=dataset_name)

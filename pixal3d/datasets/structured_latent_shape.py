@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import utils3d
 from .. import models
-from .components import ImageConditionedMixin, ViewImageConditionedMixin
+from .components import ImageConditionedMixin, ViewImageConditionedMixin, MultiViewImageConditionedMixin
 from ..modules.sparse import SparseTensor
 from .structured_latent import SLatVisMixin, SLat
 from ..utils.render_utils import get_renderer, yaw_pitch_r_fov_to_extrinsics_intrinsics
@@ -400,3 +400,12 @@ class ViewImageConditionedSLatShapeView(ViewImageConditionedMixin, SLatShapeView
     Uses ViewImageConditionedMixin which reads mesh_scale from view{XX}_scale.json.
     """
     pass
+
+
+class MultiViewImageConditionedSLatShapeView(
+    MultiViewImageConditionedMixin, SLatShapeView
+):
+    def collate_fn(self, batch, split_size=None):
+        return SLatShapeView.collate_fn(
+            self.select_batch_condition_views(batch), split_size=split_size
+        )

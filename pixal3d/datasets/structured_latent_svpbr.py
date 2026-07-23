@@ -7,7 +7,7 @@ import torch
 import cv2
 import utils3d
 from .. import models
-from .components import StandardDatasetBase, ImageConditionedMixin, ViewImageConditionedMixin
+from .components import StandardDatasetBase, ImageConditionedMixin, ViewImageConditionedMixin, MultiViewImageConditionedMixin
 from ..modules.sparse import SparseTensor, sparse_cat
 from ..representations import MeshWithVoxel
 from ..renderers import PbrMeshRenderer, EnvMap
@@ -664,3 +664,12 @@ class ViewImageConditionedSLatPbrView(ViewImageConditionedMixin, SLatPbrView):
     and provides camera parameters for 3D-to-2D projection.
     """
     pass
+
+
+class MultiViewImageConditionedSLatPbrView(
+    MultiViewImageConditionedMixin, SLatPbrView
+):
+    def collate_fn(self, batch, split_size=None):
+        return SLatPbrView.collate_fn(
+            self.select_batch_condition_views(batch), split_size=split_size
+        )

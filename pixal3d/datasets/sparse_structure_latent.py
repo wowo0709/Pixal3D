@@ -5,9 +5,10 @@ import numpy as np
 import torch
 import utils3d
 from PIL import Image
+from torch.utils.data._utils.collate import default_collate
 from ..representations import Voxel
 from ..renderers import VoxelRenderer
-from .components import StandardDatasetBase, ImageConditionedMixin, ViewImageConditionedMixin
+from .components import StandardDatasetBase, ImageConditionedMixin, ViewImageConditionedMixin, MultiViewImageConditionedMixin
 from .. import models
 from ..utils.render_utils import yaw_pitch_r_fov_to_extrinsics_intrinsics
 
@@ -406,3 +407,12 @@ class ViewImageConditionedSparseStructureLatentView(ViewImageConditionedMixin, S
     Uses ViewImageConditionedMixin which reads mesh_scale from view{XX}_scale.json.
     """
     pass
+
+
+class MultiViewImageConditionedSparseStructureLatentView(
+    MultiViewImageConditionedMixin, SparseStructureLatentView
+):
+    def collate_fn(self, batch, split_size=None):
+        if split_size is not None:
+            raise ValueError("dense sparse-structure collation does not use split_size")
+        return default_collate(self.select_batch_condition_views(batch))
