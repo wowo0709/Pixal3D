@@ -11,9 +11,13 @@ RTOL = 1e-5
 ATOL = 1e-5
 
 
-def test_projection_matrices_match_anchor_relative_formula():
-    anchor = torch.eye(4)
-    anchor[:3, 3] = torch.tensor([1.0, 2.0, 3.0])
+def test_projection_matrices_keep_anchor_exact_and_non_anchor_relative():
+    anchor = torch.tensor([
+        [0.8660254, -0.5, 0.0, 1.25],
+        [0.5, 0.8660254, 0.0, -2.5],
+        [0.0, 0.0, 1.0, 3.75],
+        [0.0, 0.0, 0.0, 1.0],
+    ])
     second = torch.eye(4)
     second[:3, 3] = torch.tensor([-2.0, 1.5, 4.0])
     transforms = torch.stack([anchor, second])[None]
@@ -24,12 +28,16 @@ def test_projection_matrices_match_anchor_relative_formula():
         transforms, distances, fixed
     )
 
-    expected_relative = torch.linalg.inv(anchor) @ transforms[0]
+    expected_relative = torch.linalg.inv(anchor) @ second
     expected_fixed = fixed.clone()
     expected_fixed[1, 3] = -distances[0, 0]
-    torch.testing.assert_close(relative[0], expected_relative, rtol=RTOL, atol=ATOL)
+    assert torch.equal(relative[:, 0], torch.eye(4)[None])
+    assert torch.equal(projection[:, 0], expected_fixed[None])
     torch.testing.assert_close(
-        projection[0], expected_fixed @ expected_relative, rtol=RTOL, atol=ATOL
+        relative[0, 1], expected_relative, rtol=RTOL, atol=ATOL
+    )
+    torch.testing.assert_close(
+        projection[0, 1], expected_fixed @ expected_relative, rtol=RTOL, atol=ATOL
     )
 
 

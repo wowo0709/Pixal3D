@@ -169,10 +169,15 @@ def compute_multiview_projection_matrices(
         anchor_inverse, info = torch.linalg.inv_ex(anchors)
         if torch.any(info != 0):
             raise ValueError("anchor transform must be invertible")
-        relative = anchor_inverse[:, None] @ transforms
+        anchor_relative = torch.eye(
+            4, dtype=transforms.dtype, device=transforms.device
+        ).expand(batch_size, 1, 4, 4)
+        non_anchor_relative = anchor_inverse[:, None] @ transforms[:, 1:]
+        relative = torch.cat((anchor_relative, non_anchor_relative), dim=1)
         fixed = fixed_transform.float().expand(batch_size, 4, 4).clone()
         fixed[:, 1, 3] = -distance[:, 0].float()
-        projection = fixed[:, None] @ relative
+        non_anchor_projection = fixed[:, None] @ non_anchor_relative
+        projection = torch.cat((fixed[:, None], non_anchor_projection), dim=1)
     return projection, relative
 
 

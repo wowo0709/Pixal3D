@@ -45,6 +45,12 @@ def test_k1_matches_single_view_with_exact_fp32_gate():
     model = ConditionerHarness()
     image = torch.arange(12, dtype=torch.float32).reshape(1, 3, 2, 2)
     camera = cameras(1)
+    camera["transform_matrix"][0, 0] = torch.tensor([
+        [0.8660254, -0.5, 0.0, 1.25],
+        [0.5, 0.8660254, 0.0, -2.5],
+        [0.0, 0.0, 1.0, 3.75],
+        [0.0, 0.0, 0.0, 1.0],
+    ])
     actual = model(image[:, None], **camera)
     fixed = model.front[None].clone()
     fixed[:, 1, 3] = -2.5
@@ -52,8 +58,8 @@ def test_k1_matches_single_view_with_exact_fp32_gate():
         image, camera["camera_angle_x"][:, 0], camera["distance"][:, 0],
         camera["mesh_scale"], fixed,
     )
-    torch.testing.assert_close(actual[0], expected[0], rtol=1e-5, atol=1e-5)
-    torch.testing.assert_close(actual[1], expected[1], rtol=1e-5, atol=1e-5)
+    assert torch.equal(actual[0], expected[0])
+    assert torch.equal(actual[1], expected[1])
 
 
 def test_repeated_view_mean_matches_single_view():
