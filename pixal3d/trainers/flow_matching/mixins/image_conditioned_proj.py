@@ -139,6 +139,35 @@ def sample_features(fmap: torch.Tensor, queries_ndc: torch.Tensor) -> torch.Tens
 # Projection Grid Module
 # =============================================================================
 
+def compute_multiview_projection_matrices(
+    transform_matrix: torch.Tensor,
+    distance: torch.Tensor,
+    fixed_transform: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if transform_matrix.ndim != 4 or transform_matrix.shape[-2:] != (4, 4):
+        raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
+    if distance.shape != transform_matrix.shape[:2]:
+        raise ValueError("distance must have shape [B, K]")
+    if not torch.isfinite(transform_matrix).all() or not torch.isfinite(distance).all():
+        raise ValueError("camera transforms and distances must be finite")
+    if not torch.isfinite(fixed_transform).all() or fixed_transform.shape != (4, 4):
+        raise ValueError("fixed_transform must be a finite [4, 4] matrix")
+
+    batch_size, num_views = transform_matrix.shape[:2]
+    device_type = transform_matrix.device.type
+    with torch.autocast(device_type=device_type, enabled=False):
+        transforms = transform_matrix.float()
+        anchors = transforms[:, 0]
+        anchor_inverse, info = torch.linalg.inv_ex(anchors)
+        if torch.any(info != 0):
+            raise ValueError("anchor transform must be invertible")
+        relative = anchor_inverse[:, None] @ transforms
+        fixed = fixed_transform.float().expand(batch_size, 4, 4).clone()
+        fixed[:, 1, 3] = -distance[:, 0].float()
+        projection = fixed[:, None] @ relative
+    return projection, relative
+
+
 class ProjGrid(nn.Module):
     """
     3D Grid Projection Module.
@@ -208,11 +237,11 @@ class ProjGrid(nn.Module):
         grid_points = self.grid_points
         grid_points = grid_points.expand(B, -1, -1)
         grid_points = grid_points / mesh_scale.unsqueeze(-1).unsqueeze(-1) / 2  # Scale alignment
-        assert transform_matrix is None, "transform_matrix is not None"
         if transform_matrix is None:
-            transform_matrix = self.front_view_transform_matrix
-            transform_matrix = transform_matrix.expand(B, -1, -1).clone()
+            transform_matrix = self.front_view_transform_matrix.expand(B, -1, -1).clone()
             transform_matrix[:, 1, 3] = -distance  # Set camera distance
+        elif transform_matrix.shape != (B, 4, 4) or not torch.isfinite(transform_matrix).all():
+            raise ValueError("transform_matrix must be finite with shape [B, 4, 4]")
             
         # Project to image coordinates (simulate Blender projection)
         image_points, depth, valid_mask = project_points_to_image_batch(
