@@ -11,6 +11,7 @@ transformers==4.57.3
 zstandard==0.25.0
 kornia==0.8.2
 timm==1.0.22
+einops==0.8.0
 diffusers==0.37.1
 accelerate==1.13.0
 gradio
