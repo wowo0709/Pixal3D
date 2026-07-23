@@ -1496,6 +1496,7 @@ class ImageConditionedProjMixin:
     def get_cond(self, cond, **kwargs):
         """Get the conditioning data."""
         kwargs.pop('view_idx', None)
+        kwargs.pop('view_indices', None)
         
         if self.image_attn_mode in ('proj', 'gated_proj'):
             # Handle projection mode (both standard proj and gated_proj)
@@ -1549,6 +1550,7 @@ class ImageConditionedProjMixin:
     def get_inference_cond(self, cond, **kwargs):
         """Get the conditioning data for inference."""
         kwargs.pop('view_idx', None)
+        kwargs.pop('view_indices', None)
         
         if self.image_attn_mode in ('proj', 'gated_proj'):
             camera_info = self._extract_camera_info(kwargs)

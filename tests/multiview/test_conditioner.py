@@ -4,6 +4,7 @@ import torch.nn as nn
 
 from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
     DinoV3ProjFeatureExtractor,
+    ImageConditionedProjMixin,
 )
 
 
@@ -94,3 +95,51 @@ def test_multiview_rejects_misaligned_camera_shapes(key):
 
 def test_multiview_conditioner_adds_no_trainable_parameter():
     assert [p for p in ConditionerHarness().parameters() if p.requires_grad] == []
+
+
+class _ConditioningSink:
+    def get_cond(self, cond, **kwargs):
+        return {"cond": cond, **kwargs}
+
+    def get_inference_cond(self, cond, **kwargs):
+        return {"cond": cond, **kwargs}
+
+
+class ProjectionConditioningHarness(ImageConditionedProjMixin, _ConditioningSink):
+    image_attn_mode = "proj"
+
+    def __init__(self):
+        pass
+
+    def encode_image_proj(self, cond, **camera_info):
+        self.received_camera_info = camera_info
+        encoded = {"global": cond}
+        negative = {"global": torch.zeros_like(cond)}
+        return encoded, negative
+
+
+@pytest.mark.parametrize("method_name", ["get_cond", "get_inference_cond"])
+def test_projection_conditioning_consumes_view_indices_without_mutating_caller(
+    method_name,
+):
+    harness = ProjectionConditioningHarness()
+    view_indices = torch.tensor([[3, 1, 2]])
+    camera_info = {
+        "camera_angle_x": torch.tensor([[0.7, 0.8, 0.9]]),
+        "distance": torch.tensor([[2.0, 2.1, 2.2]]),
+        "mesh_scale": torch.ones(1),
+        "transform_matrix": torch.eye(4).repeat(1, 3, 1, 1),
+        "coords": None,
+    }
+    caller_data = {
+        "cond": torch.ones(1, 4),
+        "camera_info": camera_info,
+        "view_indices": view_indices,
+    }
+
+    result = getattr(harness, method_name)(**caller_data)
+
+    assert "view_indices" not in result
+    assert harness.received_camera_info == camera_info
+    assert caller_data["view_indices"] is view_indices
+    torch.testing.assert_close(caller_data["view_indices"], torch.tensor([[3, 1, 2]]))

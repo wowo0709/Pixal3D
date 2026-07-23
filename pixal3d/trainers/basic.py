@@ -1275,7 +1275,8 @@ class BasicTrainer:
         if self.world_size > 1:
             dist.barrier()
         if self.is_master:
-            self.writer.close()
+            if self.writer is not None:
+                self.writer.close()
             print('Training finished.')
             
     def profile(self, wait=2, warmup=3, active=5):

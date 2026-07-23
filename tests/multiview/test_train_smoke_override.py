@@ -178,3 +178,17 @@ def test_sparse_smoke_dataloader_disables_persistent_zero_workers():
 
     assert trainer.dataloader.num_workers == 0
     assert trainer.dataloader.persistent_workers is False
+
+
+def test_basic_run_allows_master_without_writer_when_no_steps_or_snapshots(capsys):
+    trainer = object.__new__(BasicTrainer)
+    trainer.is_master = True
+    trainer.i_sample = -1
+    trainer.step = 0
+    trainer.max_steps = 0
+    trainer.world_size = 1
+    trainer.writer = None
+
+    BasicTrainer.run(trainer)
+
+    assert "Training finished." in capsys.readouterr().out
