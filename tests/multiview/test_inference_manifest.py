@@ -6,6 +6,7 @@ import pytest
 import torch
 from PIL import Image
 
+import inference
 from inference import (
     FLOW_MODEL_KEYS,
     build_parser,
@@ -75,12 +76,36 @@ def test_manifest_rejects_frame_path_escape(tmp_path):
         load_calibrated_manifest(manifest, mesh_scale=1.0)
 
 
+def test_manifest_rejects_symlink_whose_target_escapes_directory(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.png"
+    Image.new("RGBA", (4, 4)).save(outside)
+    (tmp_path / "linked.png").symlink_to(outside)
+    manifest = write_manifest(
+        tmp_path,
+        [calibrated_frame("linked.png")],
+    )
+
+    with pytest.raises(ValueError, match="inside"):
+        load_calibrated_manifest(manifest, mesh_scale=1.0)
+
+
 @pytest.mark.parametrize("angle", [float("nan"), float("inf")])
 def test_manifest_rejects_nonfinite_camera_angle(tmp_path, angle):
     Image.new("RGBA", (4, 4)).save(tmp_path / "000.png")
     manifest = write_manifest(
         tmp_path,
         [calibrated_frame("000.png", angle=angle)],
+    )
+
+    with pytest.raises(ValueError, match="camera_angle_x must be finite"):
+        load_calibrated_manifest(manifest, mesh_scale=1.0)
+
+
+def test_manifest_rejects_camera_angle_outside_float32_range(tmp_path):
+    Image.new("RGBA", (4, 4)).save(tmp_path / "000.png")
+    manifest = write_manifest(
+        tmp_path,
+        [calibrated_frame("000.png", angle=1e39)],
     )
 
     with pytest.raises(ValueError, match="camera_angle_x must be finite"):
@@ -98,6 +123,19 @@ def test_manifest_rejects_nonfinite_transform(tmp_path, value):
     )
 
     with pytest.raises(ValueError, match=r"transform_matrix must be finite \[4, 4\]"):
+        load_calibrated_manifest(manifest, mesh_scale=1.0)
+
+
+def test_manifest_rejects_distance_outside_float32_range(tmp_path):
+    Image.new("RGBA", (4, 4)).save(tmp_path / "000.png")
+    transform = np.eye(4, dtype=np.float32)
+    transform[:2, 3] = 3e38
+    manifest = write_manifest(
+        tmp_path,
+        [calibrated_frame("000.png", transform=transform)],
+    )
+
+    with pytest.raises(ValueError, match="distance must be finite"):
         load_calibrated_manifest(manifest, mesh_scale=1.0)
 
 
@@ -130,6 +168,69 @@ def test_manifest_missing_mesh_scale_warns_once_and_assumes_unit_scale(tmp_path)
     ]
     assert len(scale_warnings) == 1
     assert cameras["mesh_scale"] == 1.0
+
+
+class RecordingPipeline:
+    def __init__(self):
+        self.models = {}
+        self.pbr_attr_layout = None
+        self.camera_params = None
+
+    def preprocess_image(self, image):
+        return image
+
+    def run(self, image, *, camera_params, **kwargs):
+        self.camera_params = camera_params
+        mesh = type(
+            "Mesh",
+            (),
+            {
+                "vertices": None,
+                "faces": None,
+                "attrs": None,
+                "coords": None,
+            },
+        )()
+        return [mesh], (None, None, 1)
+
+
+class RecordingGlb:
+    def apply_transform(self, transform):
+        pass
+
+    def export(self, output_path, *, extension_webp):
+        pass
+
+
+def test_programmatic_calibrated_inference_omission_warns_once(
+    tmp_path, monkeypatch
+):
+    Image.new("RGBA", (4, 4)).save(tmp_path / "000.png")
+    manifest = write_manifest(tmp_path, [calibrated_frame("000.png")])
+    pipeline = RecordingPipeline()
+    monkeypatch.setattr(inference, "init_pipeline", lambda *args, **kwargs: pipeline)
+    monkeypatch.setattr(
+        inference.o_voxel.postprocess,
+        "to_glb",
+        lambda **kwargs: RecordingGlb(),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        inference.run_inference(
+            image_path=None,
+            output_path=str(tmp_path / "output.glb"),
+            transforms_path=str(manifest),
+        )
+
+    scale_warnings = [
+        warning
+        for warning in caught
+        if issubclass(warning.category, UserWarning)
+        and "assuming canonical unit scale (1.0)" in str(warning.message)
+    ]
+    assert len(scale_warnings) == 1
+    assert pipeline.camera_params["mesh_scale"] == 1.0
 
 
 @pytest.mark.parametrize("mesh_scale", [0.0, -1.0, float("nan"), float("inf")])

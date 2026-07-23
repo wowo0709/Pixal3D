@@ -244,7 +244,10 @@ def load_calibrated_manifest(path, *, mesh_scale):
             raise ValueError(
                 f"camera_angle_x must be finite for frame {index}"
             ) from None
-        if not np.isfinite(angle):
+        if (
+            not np.isfinite(angle)
+            or abs(angle) > float(np.finfo(np.float32).max)
+        ):
             raise ValueError(f"camera_angle_x must be finite for frame {index}")
 
         try:
@@ -262,8 +265,16 @@ def load_calibrated_manifest(path, *, mesh_scale):
 
         with Image.open(image_path) as source:
             images.append(source.convert("RGBA"))
+        distance = float(
+            np.linalg.norm(transform[:3, 3].astype(np.float64))
+        )
+        if (
+            not np.isfinite(distance)
+            or distance > float(np.finfo(np.float32).max)
+        ):
+            raise ValueError(f"distance must be finite for frame {index}")
         angles.append(angle)
-        distances.append(float(np.linalg.norm(transform[:3, 3])))
+        distances.append(distance)
         transforms.append(transform)
 
     return images, {
@@ -294,7 +305,7 @@ def run_inference(
     tex_slat_guidance_rescale: float = 0.0,
     tex_slat_sampling_steps: int = 12,
     tex_slat_rescale_t: float = 3.0,
-    mesh_scale: float = 1.0,
+    mesh_scale: Optional[float] = None,
     extend_pixel: int = 0,
     image_resolution: int = 512,
     max_num_tokens: int = 49152,
