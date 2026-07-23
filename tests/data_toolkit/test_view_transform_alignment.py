@@ -3,7 +3,15 @@ import pytest
 import torch
 
 from data_toolkit.utils import sphere_normalize_torch, transform_mesh
-from data_toolkit.voxelize_pbr_view import transform_pbr_dump
+
+# o_voxel imports flex_gemm, which probes a GPU name during module import even
+# though this test exercises only CPU transform helpers.
+_original_get_device_name = torch.cuda.get_device_name
+torch.cuda.get_device_name = lambda *_args, **_kwargs: "A100"
+try:
+    from data_toolkit.voxelize_pbr_view import transform_pbr_dump
+finally:
+    torch.cuda.get_device_name = _original_get_device_name
 
 
 def _geometry_transform(vertices, frame):
