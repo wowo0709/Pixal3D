@@ -490,7 +490,11 @@ class DinoV3ProjFeatureExtractor(nn.Module):
 
         return F.layer_norm(hidden_states, hidden_states.shape[-1:])
     
-    def forward(
+    @property
+    def fixed_projection_transform(self) -> torch.Tensor:
+        return self.proj_grid.front_view_transform_matrix
+
+    def _forward_single_view(
         self,
         image: Union[torch.Tensor, List[Image.Image]],
         camera_angle_x: Optional[torch.Tensor] = None,
@@ -593,6 +597,67 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         # z_proj stays in proj_channels, each block will project independently
         
         return z_global, z_proj
+
+    def _forward_multiview(
+        self,
+        image: torch.Tensor,
+        camera_angle_x: torch.Tensor,
+        distance: torch.Tensor,
+        mesh_scale: torch.Tensor,
+        transform_matrix: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if image.ndim != 5:
+            raise ValueError("multi-view image must have shape [B, K, C, H, W]")
+        batch_size, num_views = image.shape[:2]
+        expected_vector = (batch_size, num_views)
+        if camera_angle_x is None or camera_angle_x.shape != expected_vector:
+            raise ValueError("camera_angle_x must have shape [B, K]")
+        if distance is None or distance.shape != expected_vector:
+            raise ValueError("distance must have shape [B, K]")
+        if mesh_scale is None or mesh_scale.shape != (batch_size,):
+            raise ValueError("mesh_scale must have shape [B]")
+        if transform_matrix is None or transform_matrix.shape != (
+            batch_size, num_views, 4, 4
+        ):
+            raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
+        if not torch.isfinite(mesh_scale).all() or torch.any(mesh_scale <= 0):
+            raise ValueError("mesh_scale must be finite and positive")
+
+        projection, _ = compute_multiview_projection_matrices(
+            transform_matrix, distance, self.fixed_projection_transform
+        )
+        global_views = []
+        projected_views = []
+        for view_index in range(num_views):
+            global_feature, projected_feature = self._forward_single_view(
+                image[:, view_index],
+                camera_angle_x[:, view_index],
+                distance[:, view_index],
+                mesh_scale,
+                projection[:, view_index],
+            )
+            global_views.append(global_feature)
+            projected_views.append(projected_feature)
+        return (
+            torch.stack(global_views, dim=1).mean(dim=1),
+            torch.stack(projected_views, dim=1).mean(dim=1),
+        )
+
+    def forward(
+        self,
+        image: Union[torch.Tensor, List[Image.Image]],
+        camera_angle_x: Optional[torch.Tensor] = None,
+        distance: Optional[torch.Tensor] = None,
+        mesh_scale: Optional[torch.Tensor] = None,
+        transform_matrix: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(image, torch.Tensor) and image.ndim == 5:
+            return self._forward_multiview(
+                image, camera_angle_x, distance, mesh_scale, transform_matrix
+            )
+        return self._forward_single_view(
+            image, camera_angle_x, distance, mesh_scale, transform_matrix
+        )
     
     @torch.no_grad()
     def visualize_projection(
