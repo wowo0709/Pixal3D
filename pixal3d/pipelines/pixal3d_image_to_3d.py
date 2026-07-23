@@ -1,4 +1,5 @@
 from typing import *
+import warnings
 import torch
 import torch.nn as nn
 import numpy as np
@@ -36,6 +37,12 @@ def normalize_calibrated_views(image, camera_params):
         transforms = transforms.unsqueeze(0)
     if num_views > 1 and transforms is None:
         raise ValueError("calibrated multi-view inference requires transform_matrix")
+    if "mesh_scale" not in camera_params:
+        warnings.warn(
+            "mesh_scale was not provided; assuming canonical unit scale (1.0)",
+            UserWarning,
+            stacklevel=2,
+        )
     mesh_scale = torch.tensor(
         [float(camera_params.get("mesh_scale", 1.0))], dtype=torch.float32
     )
@@ -720,7 +727,8 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             camera_params (dict): Camera parameters with keys:
                 - camera_angle_x: Scalar or one horizontal FOV per view.
                 - distance: Scalar or one camera distance per view.
-                - mesh_scale (float): Mesh scale factor.
+                - mesh_scale (float): Optional mesh scale factor; omission warns
+                  and assumes canonical unit scale (1.0).
                 - transform_matrix: Optional [K, 4, 4] calibrated transforms;
                   required when K is greater than one.
             num_samples (int): The number of samples to generate.

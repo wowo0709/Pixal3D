@@ -41,6 +41,24 @@ def test_calibrated_multiview_preserves_order_and_shapes():
     assert cameras["transform_matrix"].shape == (1, 2, 4, 4)
 
 
+def test_missing_mesh_scale_warns_and_assumes_canonical_unit_scale():
+    transforms = torch.eye(4).repeat(2, 1, 1)
+    with pytest.warns(
+        UserWarning,
+        match="mesh_scale was not provided; assuming canonical unit scale \\(1.0\\)",
+    ):
+        _, cameras = normalize_calibrated_views(
+            [image("red"), image("blue")],
+            {
+                "camera_angle_x": [0.7, 0.8],
+                "distance": [2.5, 2.7],
+                "transform_matrix": transforms,
+            },
+        )
+
+    torch.testing.assert_close(cameras["mesh_scale"], torch.tensor([1.0]))
+
+
 @pytest.mark.parametrize("num_views", [0, 9])
 def test_inference_rejects_view_counts_outside_one_to_eight(num_views):
     with pytest.raises(ValueError, match="between 1 and 8"):
@@ -77,11 +95,17 @@ class RecordingConditioner(torch.nn.Module):
         self.calls = []
 
     def forward(self, image, **camera):
-        transform_matrix = camera["transform_matrix"]
-        transform_shape = (
-            None if transform_matrix is None else transform_matrix.shape
-        )
-        self.calls.append((image.shape, transform_shape))
+        self.calls.append({
+            "image": image.detach().clone(),
+            "camera_angle_x": camera["camera_angle_x"].detach().clone(),
+            "distance": camera["distance"].detach().clone(),
+            "mesh_scale": camera["mesh_scale"].detach().clone(),
+            "transform_matrix": (
+                None
+                if camera["transform_matrix"] is None
+                else camera["transform_matrix"].detach().clone()
+            ),
+        })
         batch = image.shape[0]
         return (
             torch.zeros(batch, 5, 4),
@@ -99,28 +123,33 @@ def test_all_four_inference_conditioners_receive_the_same_k2_bundle():
     pipeline.image_cond_model_ss = conditioners[0]
     images = [image("red"), image("blue")]
     transforms = torch.eye(4).repeat(2, 1, 1)
+    transforms[0, 0, 3] = 1.0
+    transforms[1, 0, 3] = 2.0
     cameras = {
         "camera_angle_x": [[0.7, 0.8]],
         "distance": [[2.5, 2.7]],
-        "mesh_scale": [1.0],
+        "mesh_scale": [0.6],
         "transform_matrix": transforms[None],
     }
     pipeline.get_proj_cond_ss(images, **cameras)
     coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
     for conditioner in conditioners[1:]:
         pipeline.get_proj_cond_shape(conditioner, images, coords, **cameras)
-    assert [call[0][1] for model in conditioners for call in model.calls] == [
-        2,
-        2,
-        2,
-        2,
-    ]
-    assert [call[1][1] for model in conditioners for call in model.calls] == [
-        2,
-        2,
-        2,
-        2,
-    ]
+
+    red = torch.tensor([1.0, 0.0, 0.0])[:, None, None].expand(3, 8, 8)
+    blue = torch.tensor([0.0, 0.0, 1.0])[:, None, None].expand(3, 8, 8)
+    expected = {
+        "image": torch.stack([red, blue]).unsqueeze(0),
+        "camera_angle_x": torch.tensor([[0.7, 0.8]]),
+        "distance": torch.tensor([[2.5, 2.7]]),
+        "mesh_scale": torch.tensor([0.6]),
+        "transform_matrix": transforms.unsqueeze(0),
+    }
+    for conditioner in conditioners:
+        assert len(conditioner.calls) == 1
+        call = conditioner.calls[0]
+        for name, value in expected.items():
+            torch.testing.assert_close(call[name], value, rtol=0, atol=0)
 
 
 def test_shape_conditioner_preserves_positional_grid_resolution_override():
@@ -136,6 +165,8 @@ def test_shape_conditioner_preserves_positional_grid_resolution_override():
         conditioner, [image("red")], coords, 0.7, 2.5, 1.0, 3
     )
 
-    assert conditioner.calls == [(torch.Size([1, 3, 8, 8]), None)]
+    assert len(conditioner.calls) == 1
+    assert conditioner.calls[0]["image"].shape == torch.Size([1, 3, 8, 8])
+    assert conditioner.calls[0]["transform_matrix"] is None
     assert conditioner.grid_resolution == 2
     assert conditioner.proj_grid.grid_resolution == 2
