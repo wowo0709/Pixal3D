@@ -6,7 +6,12 @@ import sys
 
 from easydict import EasyDict as edict
 import pytest
+import torch
 
+from pixal3d.trainers.basic import BasicTrainer
+from pixal3d.trainers.flow_matching.sparse_flow_matching import (
+    SparseFlowMatchingTrainer,
+)
 from train import apply_smoke_overrides
 
 
@@ -132,3 +137,44 @@ def test_one_step_online_gate_samples_and_saves_step_one():
     assert config.trainer.args.snapshot_num_samples == 1
     assert config.trainer.args.num_workers == 0
     assert config.trainer.args.prefetch_data is False
+
+
+class _DenseSmokeDataset(torch.utils.data.Dataset):
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, index):
+        return torch.tensor(index)
+
+
+class _SparseSmokeDataset(_DenseSmokeDataset):
+    loads = [1]
+
+    @staticmethod
+    def collate_fn(batch, split_size):
+        return batch
+
+
+def test_basic_smoke_dataloader_disables_persistent_zero_workers():
+    trainer = object.__new__(BasicTrainer)
+    trainer.dataset = _DenseSmokeDataset()
+    trainer.batch_size_per_gpu = 1
+    trainer.num_workers = 0
+
+    BasicTrainer.prepare_dataloader(trainer)
+
+    assert trainer.dataloader.num_workers == 0
+    assert trainer.dataloader.persistent_workers is False
+
+
+def test_sparse_smoke_dataloader_disables_persistent_zero_workers():
+    trainer = object.__new__(SparseFlowMatchingTrainer)
+    trainer.dataset = _SparseSmokeDataset()
+    trainer.batch_size_per_gpu = 1
+    trainer.batch_split = 1
+    trainer.num_workers = 0
+
+    SparseFlowMatchingTrainer.prepare_dataloader(trainer)
+
+    assert trainer.dataloader.num_workers == 0
+    assert trainer.dataloader.persistent_workers is False

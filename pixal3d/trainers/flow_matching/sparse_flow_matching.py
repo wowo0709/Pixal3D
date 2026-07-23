@@ -74,7 +74,7 @@ class SparseFlowMatchingTrainer(FlowMatchingTrainer):
             num_workers=num_workers,
             pin_memory=True,
             drop_last=True,
-            persistent_workers=True,
+            persistent_workers=num_workers > 0,
             collate_fn=functools.partial(self.dataset.collate_fn, split_size=self.batch_split),
             sampler=self.data_sampler,
         )
