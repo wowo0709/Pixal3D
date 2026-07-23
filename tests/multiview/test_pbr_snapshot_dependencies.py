@@ -1,4 +1,7 @@
+import os
 from pathlib import Path
+
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 import cv2
 import numpy as np
