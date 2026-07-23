@@ -10,6 +10,54 @@ from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
 
 
+def normalize_calibrated_views(image, camera_params):
+    images = list(image) if isinstance(image, (list, tuple)) else [image]
+    if not 1 <= len(images) <= 8:
+        raise ValueError("Pixal3D inference requires between 1 and 8 views")
+    if not all(isinstance(view, Image.Image) for view in images):
+        raise TypeError("every inference view must be a PIL image")
+    num_views = len(images)
+
+    def vector(name):
+        value = camera_params[name]
+        values = [value] if np.isscalar(value) else list(value)
+        if len(values) != num_views:
+            raise ValueError(f"{name} must contain one value per view")
+        tensor = torch.tensor(values, dtype=torch.float32).reshape(1, num_views)
+        if not torch.isfinite(tensor).all():
+            raise ValueError(f"{name} must be finite")
+        return tensor
+
+    transforms = camera_params.get("transform_matrix")
+    if transforms is not None:
+        transforms = torch.as_tensor(transforms, dtype=torch.float32)
+        if transforms.shape != (num_views, 4, 4) or not torch.isfinite(transforms).all():
+            raise ValueError("transform_matrix must be finite with shape [K, 4, 4]")
+        transforms = transforms.unsqueeze(0)
+    if num_views > 1 and transforms is None:
+        raise ValueError("calibrated multi-view inference requires transform_matrix")
+    mesh_scale = torch.tensor(
+        [float(camera_params.get("mesh_scale", 1.0))], dtype=torch.float32
+    )
+    if not torch.isfinite(mesh_scale).all() or torch.any(mesh_scale <= 0):
+        raise ValueError("mesh_scale must be finite and positive")
+    return images, {
+        "camera_angle_x": vector("camera_angle_x"),
+        "distance": vector("distance"),
+        "mesh_scale": mesh_scale,
+        "transform_matrix": transforms,
+    }
+
+
+def pil_views_to_tensor(images, image_size, device):
+    tensors = []
+    for view in images:
+        resized = view.resize((image_size, image_size), Image.Resampling.LANCZOS)
+        array = np.asarray(resized.convert("RGB"), dtype=np.float32) / 255.0
+        tensors.append(torch.from_numpy(array.copy()).permute(2, 0, 1))
+    return torch.stack(tensors).unsqueeze(0).to(device)
+
+
 class Pixal3DImageTo3DPipeline(Pipeline):
     """
     Pipeline for inferring Pixal3D (proj mode) image-to-3D models.
@@ -196,6 +244,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         camera_angle_x: float = 0.8575560450553894,
         distance: float = 2.0,
         mesh_scale: float = 1.0,
+        transform_matrix=None,
     ) -> dict:
         """
         Get proj conditioning for sparse structure stage.
@@ -205,6 +254,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             camera_angle_x: Camera horizontal FOV in radians.
             distance: Camera distance.
             mesh_scale: Mesh scale.
+            transform_matrix: Optional per-view camera transforms [1, K, 4, 4].
 
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': ...}
@@ -213,11 +263,31 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         image_cond_model = self.image_cond_model_ss
         if self.low_vram:
             image_cond_model.to(device)
-        cam_angle = torch.tensor([camera_angle_x], device=device)
-        dist_tensor = torch.tensor([distance], device=device)
-        scale_tensor = torch.tensor([mesh_scale], device=device)
+        num_views = len(image)
+        image_tensor = pil_views_to_tensor(image, image_cond_model.image_size, device)
+        camera_angle_x = torch.as_tensor(
+            camera_angle_x, dtype=torch.float32, device=device
+        ).reshape(1, num_views)
+        distance = torch.as_tensor(
+            distance, dtype=torch.float32, device=device
+        ).reshape(1, num_views)
+        mesh_scale = torch.as_tensor(
+            mesh_scale, dtype=torch.float32, device=device
+        ).reshape(1)
+        if transform_matrix is not None:
+            transform_matrix = torch.as_tensor(
+                transform_matrix, dtype=torch.float32, device=device
+            ).reshape(1, num_views, 4, 4)
+        if num_views == 1 and transform_matrix is None:
+            image_tensor = image_tensor[:, 0]
+            camera_angle_x = camera_angle_x[:, 0]
+            distance = distance[:, 0]
         z_global, z_proj = image_cond_model(
-            image, camera_angle_x=cam_angle, distance=dist_tensor, mesh_scale=scale_tensor,
+            image_tensor,
+            camera_angle_x=camera_angle_x,
+            distance=distance,
+            mesh_scale=mesh_scale,
+            transform_matrix=transform_matrix,
         )
         if self.low_vram:
             image_cond_model.cpu()
@@ -236,6 +306,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         distance: float = 2.0,
         mesh_scale: float = 1.0,
         grid_resolution_override: int = None,
+        transform_matrix=None,
     ) -> dict:
         """
         Get proj conditioning for shape/texture stages (sparse-token aligned).
@@ -248,6 +319,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             distance: Camera distance.
             mesh_scale: Mesh scale.
             grid_resolution_override: Override the grid resolution if not None.
+            transform_matrix: Optional per-view camera transforms [1, K, 4, 4].
 
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': SparseTensor}
@@ -265,11 +337,31 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             ).to(device)
 
         B = 1
-        cam_angle = torch.tensor([camera_angle_x], device=device)
-        dist_tensor = torch.tensor([distance], device=device)
-        scale_tensor = torch.tensor([mesh_scale], device=device)
+        num_views = len(image)
+        image_tensor = pil_views_to_tensor(image, image_cond_model.image_size, device)
+        camera_angle_x = torch.as_tensor(
+            camera_angle_x, dtype=torch.float32, device=device
+        ).reshape(1, num_views)
+        distance = torch.as_tensor(
+            distance, dtype=torch.float32, device=device
+        ).reshape(1, num_views)
+        mesh_scale = torch.as_tensor(
+            mesh_scale, dtype=torch.float32, device=device
+        ).reshape(1)
+        if transform_matrix is not None:
+            transform_matrix = torch.as_tensor(
+                transform_matrix, dtype=torch.float32, device=device
+            ).reshape(1, num_views, 4, 4)
+        if num_views == 1 and transform_matrix is None:
+            image_tensor = image_tensor[:, 0]
+            camera_angle_x = camera_angle_x[:, 0]
+            distance = distance[:, 0]
         z_global, z_proj = image_cond_model(
-            image, camera_angle_x=cam_angle, distance=dist_tensor, mesh_scale=scale_tensor,
+            image_tensor,
+            camera_angle_x=camera_angle_x,
+            distance=distance,
+            mesh_scale=mesh_scale,
+            transform_matrix=transform_matrix,
         )
         grid_res = image_cond_model.grid_resolution
         z_proj_grid = z_proj.reshape(B, grid_res, grid_res, grid_res, -1)
@@ -608,7 +700,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
     @torch.no_grad()
     def run(
         self,
-        image: Image.Image,
+        image: Union[Image.Image, List[Image.Image], Tuple[Image.Image, ...]],
         camera_params: dict,
         num_samples: int = 1,
         seed: int = 42,
@@ -624,11 +716,13 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         Run the Pixal3D pipeline (proj mode, cascade).
 
         Args:
-            image (Image.Image): The image prompt.
+            image: One PIL image or an ordered sequence of 1 to 8 PIL images.
             camera_params (dict): Camera parameters with keys:
-                - camera_angle_x (float): Horizontal FOV in radians.
-                - distance (float): Camera distance.
+                - camera_angle_x: Scalar or one horizontal FOV per view.
+                - distance: Scalar or one camera distance per view.
                 - mesh_scale (float): Mesh scale factor.
+                - transform_matrix: Optional [K, 4, 4] calibrated transforms;
+                  required when K is greater than one.
             num_samples (int): The number of samples to generate.
             seed (int): The random seed.
             sparse_structure_sampler_params (dict): Additional parameters for the sparse structure sampler.
@@ -661,21 +755,22 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         assert self.image_cond_model_shape_1024 is not None, "image_cond_model_shape_1024 not set."
         assert self.image_cond_model_tex_1024 is not None, "image_cond_model_tex_1024 not set."
 
-        # Extract camera params
-        camera_angle_x = camera_params['camera_angle_x']
-        distance = camera_params['distance']
-        mesh_scale = camera_params.get('mesh_scale', 1.0)
-        
+        images, cameras = normalize_calibrated_views(image, camera_params)
         if preprocess_image:
-            image = self.preprocess_image(image)
+            images = [self.preprocess_image(view) for view in images]
+        camera_angle_x = cameras["camera_angle_x"]
+        distance = cameras["distance"]
+        mesh_scale = cameras["mesh_scale"]
+        transform_matrix = cameras["transform_matrix"]
         torch.manual_seed(seed)
 
         # ---- Stage 1: Sparse Structure (proj) ----
         cond_ss = self.get_proj_cond_ss(
-            [image],
+            images,
             camera_angle_x=camera_angle_x,
             distance=distance,
             mesh_scale=mesh_scale,
+            transform_matrix=transform_matrix,
         )
         ss_res = 32
         coords = self.sample_sparse_structure(
@@ -687,10 +782,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
 
         # ---- Stage 2: Shape LR 512 (proj) ----
         cond_shape_lr = self.get_proj_cond_shape(
-            self.image_cond_model_shape_512, [image], coords,
+            self.image_cond_model_shape_512, images, coords,
             camera_angle_x=camera_angle_x,
             distance=distance,
             mesh_scale=mesh_scale,
+            transform_matrix=transform_matrix,
         )
         lr_slat = self.sample_shape_slat(
             cond_shape_lr, self.models['shape_slat_flow_model_512'],
@@ -728,10 +824,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
 
         # ---- Stage 3b: Shape HR (proj) ----
         cond_shape_hr = self.get_proj_cond_shape(
-            self.image_cond_model_shape_1024, [image], hr_coords_unique,
+            self.image_cond_model_shape_1024, images, hr_coords_unique,
             camera_angle_x=camera_angle_x,
             distance=distance,
             mesh_scale=mesh_scale,
+            transform_matrix=transform_matrix,
             grid_resolution_override=actual_grid_res,
         )
         noise_hr = SparseTensor(
@@ -761,10 +858,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         # ---- Stage 4: Texture (proj) ----
         tex_grid_res = actual_hr_resolution // 16
         cond_tex = self.get_proj_cond_shape(
-            self.image_cond_model_tex_1024, [image], shape_slat.coords,
+            self.image_cond_model_tex_1024, images, shape_slat.coords,
             camera_angle_x=camera_angle_x,
             distance=distance,
             mesh_scale=mesh_scale,
+            transform_matrix=transform_matrix,
             grid_resolution_override=tex_grid_res,
         )
         tex_slat = self.sample_tex_slat(
