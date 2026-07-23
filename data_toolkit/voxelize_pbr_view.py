@@ -583,10 +583,9 @@ def transform_pbr_dump(dump, frame):
     Apply multi-view transform to entire PBR dump data.
 
     Processing flow (based on test_ovoxel_pbr_transform.py):
-    1. Box normalize all vertices (scale only, no center shift)
-    2. Sphere normalize
-    3. Apply multi-view transform
-    4. Normalize back to [-0.5, 0.5]^3
+    1. Sphere normalize
+    2. Apply multi-view transform
+    3. Normalize back to [-0.5, 0.5]^3
 
     Note: All object vertices are processed together (not per-object) for consistency.
 
@@ -611,30 +610,23 @@ def transform_pbr_dump(dump, frame):
         return transformed_dump, 1.0
 
     all_vertices = np.concatenate(all_vertices_list, axis=0)
+    all_vertices_tensor = torch.from_numpy(all_vertices).float().contiguous()
 
-    # 2. Box normalize (scale only, no center shift, consistent with original rendering)
-    vertices_min = all_vertices.min(axis=0)
-    vertices_max = all_vertices.max(axis=0)
-    box_scale_init = 0.99999 / (vertices_max - vertices_min).max()
-    all_vertices_box_normalized = all_vertices * box_scale_init
-
-    all_vertices_tensor = torch.from_numpy(all_vertices_box_normalized).float()
-
-    # 3. Sphere normalize all vertices together
+    # 2. Sphere normalize all vertices together
     all_vertices_sphere, sphere_center, sphere_radius = sphere_normalize_torch(all_vertices_tensor)
 
-    # 4. Multi-view transform
+    # 3. Multi-view transform
     all_transformed = transform_vertices(all_vertices_sphere, frame)
 
-    # 5. Normalize back to [-0.5, 0.5]^3 (all vertices together)
+    # 4. Normalize back to [-0.5, 0.5]^3 (all vertices together)
     abs_max = all_transformed.abs().max().item()
     box_scale_final = 0.49999 / abs_max
     all_transformed_normalized = all_transformed * box_scale_final
 
     # Compute total scale (from original mesh to final normalized mesh)
-    total_scale = box_scale_init * box_scale_final / sphere_radius.item()
+    total_scale = box_scale_final / sphere_radius.item()
 
-    # 6. Split back to individual objects
+    # 5. Split back to individual objects
     start_idx = 0
     for i, obj in enumerate(transformed_dump['objects']):
         end_idx = start_idx + vertex_counts[i]
