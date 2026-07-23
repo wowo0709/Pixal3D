@@ -24,6 +24,14 @@ from ....utils.dist_utils import read_file_dist
 # Projection Utilities
 # =============================================================================
 
+def anchor_condition_image(cond: torch.Tensor) -> torch.Tensor:
+    return cond[:, 0] if cond.ndim == 5 else cond
+
+
+def anchor_camera_value(value: torch.Tensor) -> torch.Tensor:
+    return value[:, 0] if value.ndim > 1 else value
+
+
 def project_points_to_image_batch(
     points_3d: torch.Tensor, 
     transform_matrix: torch.Tensor, 
@@ -1569,7 +1577,7 @@ class ImageConditionedProjMixin:
 
     def vis_cond(self, cond, **kwargs):
         """Visualize the conditioning data."""
-        return {'image': {'value': cond, 'type': 'image'}}
+        return {'image': {'value': anchor_condition_image(cond), 'type': 'image'}}
 
     @torch.no_grad()
     def visualize_projection_test(

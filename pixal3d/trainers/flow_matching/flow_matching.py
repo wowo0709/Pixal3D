@@ -12,7 +12,7 @@ from ...utils.general_utils import dict_reduce
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
 from .mixins.image_conditioned import ImageConditionedMixin
-from .mixins.image_conditioned_proj import ImageConditionedProjMixin
+from .mixins.image_conditioned_proj import ImageConditionedProjMixin, anchor_camera_value
 
 
 class FlowMatchingTrainer(BasicTrainer):
@@ -534,11 +534,11 @@ class ImageConditionedProjFlowMatchingCFGTrainer(ImageConditionedProjMixin, Flow
         
         # Add camera params if available
         if len(camera_distances) > 0:
-            camera_distance = torch.cat(camera_distances, dim=0)
+            camera_distance = anchor_camera_value(torch.cat(camera_distances, dim=0))
             sample_gt_value['camera_distance'] = camera_distance
             sample_value['camera_distance'] = camera_distance
         if len(camera_angles) > 0:
-            camera_angle_x = torch.cat(camera_angles, dim=0)
+            camera_angle_x = anchor_camera_value(torch.cat(camera_angles, dim=0))
             sample_gt_value['camera_angle_x'] = camera_angle_x
             sample_value['camera_angle_x'] = camera_angle_x
         if len(mesh_scales) > 0:

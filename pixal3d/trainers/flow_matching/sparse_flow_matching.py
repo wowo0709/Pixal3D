@@ -15,7 +15,7 @@ from .flow_matching import FlowMatchingTrainer
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
 from .mixins.image_conditioned import ImageConditionedMixin, MultiImageConditionedMixin
-from .mixins.image_conditioned_proj import ImageConditionedProjMixin
+from .mixins.image_conditioned_proj import ImageConditionedProjMixin, anchor_camera_value
 
 
 class SparseFlowMatchingTrainer(FlowMatchingTrainer):
@@ -497,6 +497,10 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
         
         sample_gt = {k: v for k, v in data.items()}
         sample = {k: v if k != 'x_0' else sample for k, v in data.items()}
+        for key in ("camera_angle_x", "camera_distance"):
+            if key in sample_gt:
+                sample_gt[key] = anchor_camera_value(sample_gt[key])
+                sample[key] = anchor_camera_value(sample[key])
         sample_dict = {
             'sample_gt': {'value': sample_gt, 'type': 'sample'},
             'sample': {'value': sample, 'type': 'sample'},
