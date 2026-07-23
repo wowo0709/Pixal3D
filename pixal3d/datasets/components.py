@@ -201,9 +201,15 @@ def load_anchor_first_conditions(
         angles.append(float(angle))
         distances.append(torch.linalg.vector_norm(transform[:3, 3]))
         transforms.append(transform)
+    camera_angles = torch.tensor(angles, dtype=torch.float32)
+    if not torch.isfinite(camera_angles).all():
+        invalid_position = torch.nonzero(~torch.isfinite(camera_angles))[0].item()
+        raise ValueError(
+            f"camera_angle_x must be finite for view {order[invalid_position]}"
+        )
     return {
         "cond": torch.stack(images),
-        "camera_angle_x": torch.tensor(angles, dtype=torch.float32),
+        "camera_angle_x": camera_angles,
         "camera_distance": torch.stack(distances).float(),
         "transform_matrix": torch.stack(transforms),
         "view_indices": torch.tensor(order, dtype=torch.int64),
@@ -379,12 +385,14 @@ class MultiViewImageConditionedMixin:
         return metadata, stats
 
     def get_instance(self, root, instance):
-        pack = super().get_instance(root, instance)
-        anchor_index = self._current_view_idx
-        other_indices = np.random.permutation(
-            [index for index in range(8) if index != anchor_index]
-        ).tolist()
+        anchor_index = None
         try:
+            self.__dict__.pop("_current_view_idx", None)
+            pack = super().get_instance(root, instance)
+            anchor_index = self._current_view_idx
+            other_indices = np.random.permutation(
+                [index for index in range(8) if index != anchor_index]
+            ).tolist()
             pack.update(load_anchor_first_conditions(
                 os.path.join(root["render_cond"], instance),
                 anchor_index=anchor_index,
@@ -393,13 +401,22 @@ class MultiViewImageConditionedMixin:
             ))
             scale_path = Path(self._current_latent_dir) / f"view{anchor_index:02d}_scale.json"
             scale = json.loads(scale_path.read_text()).get("total_scale")
-            if scale is None or not np.isfinite(float(scale)) or float(scale) <= 0:
+            if scale is None:
                 raise ValueError(f"total_scale must be finite and positive: {scale_path}")
-            pack["mesh_scale"] = torch.tensor(float(scale), dtype=torch.float32)
+            mesh_scale = torch.tensor(float(scale), dtype=torch.float32)
+            if not torch.isfinite(mesh_scale) or mesh_scale <= 0:
+                raise ValueError(f"total_scale must be finite and positive: {scale_path}")
+            pack["mesh_scale"] = mesh_scale
         except Exception as error:
             source = getattr(self, "_current_dataset_name", "unknown")
+            anchor_index = getattr(self, "_current_view_idx", anchor_index)
+            anchor_context = (
+                "unknown"
+                if anchor_index is None
+                else f"view{int(anchor_index):02d}"
+            )
             raise RuntimeError(
-                f"source={source} asset={instance} anchor=view{anchor_index:02d}: {error}"
+                f"source={source} asset={instance} anchor={anchor_context}: {error}"
             ) from error
         return pack
 
