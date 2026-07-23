@@ -38,7 +38,10 @@ def test_eight_tasks_at_four_use_two_model_calls():
     ]
 
 
-def test_oom_halves_pending_batch_without_losing_tasks():
+def test_oom_halves_pending_batch_without_losing_tasks(monkeypatch):
+    # Keep this synthetic halving test independent from CUDA state initialized
+    # while collecting unrelated tests; adaptive low-peak regrowth is separate.
+    monkeypatch.setattr(sparse_batching.torch.cuda, "is_initialized", lambda: False)
     call_sizes = []
     failed = False
 
