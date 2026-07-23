@@ -531,13 +531,18 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
         """
         if hasattr(self.dataset, 'visualize_sample'):
             if isinstance(sample, dict):
+                snapshot_sample = dict(sample)
+                for key in ('camera_angle_x', 'camera_distance'):
+                    if key in snapshot_sample:
+                        snapshot_sample[key] = anchor_camera_value(snapshot_sample[key])
+
                 # Extract camera params and pass them explicitly, since some
                 # dataset.visualize_sample() (e.g. SLatShapeVisMixin) expect
                 # separate keyword arguments rather than a single dict.
                 camera_kwargs = {}
                 for k in ('camera_angle_x', 'camera_distance', 'mesh_scale'):
-                    if k in sample:
-                        camera_kwargs[k] = sample[k]
+                    if k in snapshot_sample:
+                        camera_kwargs[k] = snapshot_sample[k]
                 
                 # Try passing camera kwargs explicitly first; fall back to
                 # passing the entire dict if the dataset method doesn't accept them
@@ -547,11 +552,11 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
                 params = list(sig.parameters.keys())
                 if 'camera_angle_x' in params:
                     # Shape-style: visualize_sample(x_0, camera_angle_x=, ...)
-                    x_0 = sample.get('x_0', sample)
+                    x_0 = snapshot_sample.get('x_0', snapshot_sample)
                     return self.dataset.visualize_sample(x_0, **camera_kwargs)
                 else:
                     # Tex/PBR-style: visualize_sample(sample_dict)
-                    return self.dataset.visualize_sample(sample)
+                    return self.dataset.visualize_sample(snapshot_sample)
             else:
                 return self.dataset.visualize_sample(sample)
         else:

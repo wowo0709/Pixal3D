@@ -576,11 +576,16 @@ class ImageConditionedProjFlowMatchingCFGTrainer(ImageConditionedProjMixin, Flow
         """
         if hasattr(self.dataset, 'visualize_sample'):
             if isinstance(sample, dict):
+                snapshot_sample = dict(sample)
+                for key in ('camera_angle_x', 'camera_distance'):
+                    if key in snapshot_sample:
+                        snapshot_sample[key] = anchor_camera_value(snapshot_sample[key])
+
                 # Extract camera params if available
-                camera_angle_x = sample.get('camera_angle_x')
-                camera_distance = sample.get('camera_distance')
-                mesh_scale = sample.get('mesh_scale')
-                x_0 = sample.get('x_0', sample)
+                camera_angle_x = snapshot_sample.get('camera_angle_x')
+                camera_distance = snapshot_sample.get('camera_distance')
+                mesh_scale = snapshot_sample.get('mesh_scale')
+                x_0 = snapshot_sample.get('x_0', snapshot_sample)
                 
                 return self.dataset.visualize_sample(
                     x_0,
