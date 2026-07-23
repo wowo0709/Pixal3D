@@ -58,6 +58,22 @@ def get_model_summary(model):
     return model_summary
 
 
+def apply_smoke_overrides(cfg, smoke_steps):
+    if smoke_steps is None:
+        return cfg
+    if smoke_steps not in (1, 10):
+        raise ValueError("smoke_steps must be 1 or 10")
+    cfg.trainer.args.max_steps = smoke_steps
+    cfg.trainer.args.i_log = 1
+    cfg.trainer.args.i_sample = 1 if smoke_steps == 1 else 5
+    cfg.trainer.args.i_save = smoke_steps
+    cfg.trainer.args.snapshot_batch_size = 1
+    cfg.trainer.args.snapshot_num_samples = 1
+    cfg.trainer.args.num_workers = 0
+    cfg.trainer.args.prefetch_data = False
+    return cfg
+
+
 def main(local_rank, cfg):
     # Set up distributed training
     rank = cfg.node_rank * cfg.num_gpus + local_rank
@@ -169,6 +185,7 @@ if __name__ == '__main__':
     ## dubug
     parser.add_argument('--tryrun', action='store_true', help='Try run without training')
     parser.add_argument('--profile', action='store_true', help='Profile training')
+    parser.add_argument('--smoke_steps', type=int, choices=(1, 10))
     ## multi-node and multi-gpu
     parser.add_argument('--num_nodes', type=int, default=1, help='Number of nodes')
     parser.add_argument('--node_rank', type=int, default=0, help='Node rank')
@@ -189,6 +206,7 @@ if __name__ == '__main__':
     cfg = edict()
     cfg.update(opt.__dict__)
     cfg.update(config)
+    apply_smoke_overrides(cfg, opt.smoke_steps)
     print('\n\nConfig:')
     print('=' * 80)
     print(json.dumps(cfg.__dict__, indent=4))
@@ -227,4 +245,3 @@ if __name__ == '__main__':
                 traceback.print_exc()
                 print(f'{"="*60}')
                 print(f'Retrying ({rty + 1}/{cfg.auto_retry})...')
-            
