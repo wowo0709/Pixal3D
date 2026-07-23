@@ -32,6 +32,43 @@ def anchor_camera_value(value: torch.Tensor) -> torch.Tensor:
     return value[:, 0] if value.ndim > 1 else value
 
 
+def make_anchor_marked_view_grid(
+    cond: torch.Tensor, border: int = 4
+) -> torch.Tensor:
+    if cond.ndim == 4:
+        return cond
+    if cond.ndim != 5:
+        raise ValueError("condition must have shape [B,C,H,W] or [B,K,C,H,W]")
+    batch_size, num_views, channels, height, width = cond.shape
+    if channels != 3:
+        raise ValueError("condition visualization requires RGB views")
+    edge = min(border, height // 2, width // 2)
+    views = cond.detach().clone()
+    anchor = views[:, 0]
+    for region in (
+        (slice(None), slice(None), slice(0, edge), slice(None)),
+        (slice(None), slice(None), slice(height - edge, height), slice(None)),
+        (slice(None), slice(None), slice(None), slice(0, edge)),
+        (slice(None), slice(None), slice(None), slice(width - edge, width)),
+    ):
+        anchor[region] = 0.0
+        red_region = (region[0], 0, region[2], region[3])
+        anchor[red_region] = 1.0
+    views[:, 0] = anchor
+    return views.permute(0, 2, 3, 1, 4).reshape(
+        batch_size, channels, height, num_views * width
+    )
+
+
+def format_multiview_metadata(stage, dataset, sha, view_indices) -> str:
+    indices = [int(value) for value in torch.as_tensor(view_indices).tolist()]
+    order = ",".join(str(value) for value in indices)
+    return (
+        f"stage={stage} dataset={dataset} sha={sha} K={len(indices)} "
+        f"anchor=view{indices[0]:02d} views=[{order}]"
+    )
+
+
 def project_points_to_image_batch(
     points_3d: torch.Tensor, 
     transform_matrix: torch.Tensor, 
@@ -920,10 +957,17 @@ class ImageConditionedProjMixin:
     Args:
         image_cond_model: Configuration for the image conditioning model.
     """
-    def __init__(self, *args, image_cond_model: dict, **kwargs):
+    def __init__(
+        self,
+        *args,
+        image_cond_model: dict,
+        multiview_stage: Optional[str] = None,
+        **kwargs,
+    ):
         # Store config before super().__init__ which calls init_models_and_more
         self.image_cond_model_config = image_cond_model
         self.image_cond_model = None  # Will be initialized in init_models_and_more
+        self.multiview_stage = multiview_stage
         self.image_attn_mode = image_cond_model.get('image_attn_mode', 
                                 image_cond_model.get('args', {}).get('image_attn_mode', 'cross'))
         super().__init__(*args, **kwargs)
@@ -1584,7 +1628,15 @@ class ImageConditionedProjMixin:
 
     def vis_cond(self, cond, **kwargs):
         """Visualize the conditioning data."""
-        return {'image': {'value': anchor_condition_image(cond), 'type': 'image'}}
+        anchor = anchor_condition_image(cond)
+        result = {'image': {'value': anchor, 'type': 'image'}}
+        if cond.ndim == 5:
+            result['input_views'] = {
+                'value': make_anchor_marked_view_grid(cond),
+                'type': 'image',
+            }
+            result['anchor'] = {'value': anchor, 'type': 'image'}
+        return result
 
     @torch.no_grad()
     def visualize_projection_test(

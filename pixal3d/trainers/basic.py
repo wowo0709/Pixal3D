@@ -28,6 +28,21 @@ from ..utils.dist_utils import *
 from ..utils import grad_clip_utils, elastic_utils
 
 
+def batch_multiview_k(data_list):
+    counts = {
+        int(micro_batch["cond"].shape[1])
+        for micro_batch in data_list
+        if isinstance(micro_batch, dict)
+        and isinstance(micro_batch.get("cond"), torch.Tensor)
+        and micro_batch["cond"].ndim == 5
+    }
+    if not counts:
+        return None
+    if len(counts) != 1:
+        raise ValueError("all micro-batches in one optimizer step must share K")
+    return counts.pop()
+
+
 class BasicTrainer:
     """
     Trainer for basic training loop.
@@ -993,6 +1008,7 @@ class BasicTrainer:
         """
         Run a training step.
         """
+        num_views = batch_multiview_k(data_list)
         step_log = {'loss': {}, 'status': {}}
         amp_context = partial(torch.autocast, device_type='cuda', dtype=self.mix_precision_dtype) if self.mix_precision_mode == 'amp' else nullcontext
         elastic_controller_context = self.elastic_controller.record if self.elastic_controller_config is not None else nullcontext
@@ -1113,6 +1129,9 @@ class BasicTrainer:
         if self.is_master:
             self.update_ema()
 
+        if num_views is not None:
+            step_log["multiview"] = {"k": num_views}
+
         return step_log
 
     def save_logs(self):
@@ -1132,8 +1151,15 @@ class BasicTrainer:
 
         # show with mlflow
         log_show = [l for _, l in self.log if not dict_any(l, lambda x: np.isnan(x))]
+        latest_multiview_k = next((
+            int(log["multiview"]["k"])
+            for log in reversed(log_show)
+            if "multiview" in log and "k" in log["multiview"]
+        ), None)
         log_show = dict_reduce(log_show, lambda x: np.mean(x))
         log_show = dict_flatten(log_show, sep='/')
+        if latest_multiview_k is not None:
+            log_show["multiview/k"] = latest_multiview_k
         if self.writer is not None:
             for key, value in log_show.items():
                 self.writer.add_scalar(key, value, self.step)

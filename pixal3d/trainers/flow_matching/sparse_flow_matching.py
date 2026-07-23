@@ -15,7 +15,11 @@ from .flow_matching import FlowMatchingTrainer
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
 from .mixins.image_conditioned import ImageConditionedMixin, MultiImageConditionedMixin
-from .mixins.image_conditioned_proj import ImageConditionedProjMixin, anchor_camera_value
+from .mixins.image_conditioned_proj import (
+    ImageConditionedProjMixin,
+    anchor_camera_value,
+    format_multiview_metadata,
+)
 
 
 class SparseFlowMatchingTrainer(FlowMatchingTrainer):
@@ -461,9 +465,20 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
 
         # Collect metadata (dataset_name and sha256) for wandb display
         sample_metadata = []
+        view_indices = data.get('view_indices')
         if '_dataset_name' in data and '_sha256' in data:
             for j in range(min(num_samples, len(data['_dataset_name']))):
-                sample_metadata.append(f"{data['_dataset_name'][j]}/{data['_sha256'][j]}")
+                if view_indices is None:
+                    sample_metadata.append(
+                        f"{data['_dataset_name'][j]}/{data['_sha256'][j]}"
+                    )
+                else:
+                    sample_metadata.append(format_multiview_metadata(
+                        self.multiview_stage,
+                        data['_dataset_name'][j],
+                        data['_sha256'][j],
+                        view_indices[j],
+                    ))
         # Remove metadata fields before inference
         data.pop('_dataset_name', None)
         data.pop('_sha256', None)

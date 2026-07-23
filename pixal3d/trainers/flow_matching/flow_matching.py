@@ -12,7 +12,11 @@ from ...utils.general_utils import dict_reduce
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
 from .mixins.image_conditioned import ImageConditionedMixin
-from .mixins.image_conditioned_proj import ImageConditionedProjMixin, anchor_camera_value
+from .mixins.image_conditioned_proj import (
+    ImageConditionedProjMixin,
+    anchor_camera_value,
+    format_multiview_metadata,
+)
 
 
 class FlowMatchingTrainer(BasicTrainer):
@@ -492,8 +496,19 @@ class ImageConditionedProjFlowMatchingCFGTrainer(ImageConditionedProjMixin, Flow
             
             # Collect metadata (dataset_name and sha256) for wandb display
             if '_dataset_name' in data and '_sha256' in data:
+                view_indices = data.get('view_indices')
                 for j in range(batch):
-                    sample_metadata.append(f"{data['_dataset_name'][j]}/{data['_sha256'][j]}")
+                    if view_indices is None:
+                        sample_metadata.append(f"{data['_dataset_name'][j]}/{data['_sha256'][j]}")
+                    else:
+                        sample_metadata.append(
+                            format_multiview_metadata(
+                                self.multiview_stage,
+                                data['_dataset_name'][j],
+                                data['_sha256'][j],
+                                view_indices[j],
+                            )
+                        )
             
             # Remove metadata fields before inference
             data.pop('_dataset_name', None)
