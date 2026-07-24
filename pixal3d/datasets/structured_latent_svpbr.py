@@ -210,7 +210,7 @@ class SLatPbrVisMixin:
                     
                     gt_res = renderer.render(scaled_rep, gt_ext, gt_int, envmap=envmap)
                     for k, v in gt_res.items():
-                        gt_key = f'gt_view_{k}'
+                        gt_key = f'anchor_view_{k}'
                         if gt_key not in gt_view_images:
                             gt_view_images[gt_key] = []
                         gt_view_images[gt_key].append(v)

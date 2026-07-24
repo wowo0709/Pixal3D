@@ -808,48 +808,48 @@ class BasicTrainer:
             # --- Save combined images ---
             sample_keys = set(samples.keys())
 
-            # Combined 1: image + sample_gt_view + sample_gt_gt_view (shape)
-            #             image + sample_gt_view_{attr} + sample_gt_gt_view_{attr} (tex, per attribute)
-            # Detect gt_view attribute suffixes from sample keys
-            gt_view_attrs = set()
+            # Combined 1: image + sample_anchor_view + sample_gt_anchor_view (shape)
+            #             image + sample_anchor_view_{attr} + sample_gt_anchor_view_{attr} (tex, per attribute)
+            # Detect anchor_view attribute suffixes from sample keys.
+            anchor_view_attrs = set()
             for k in sample_keys:
-                if k.startswith('sample_gt_view_'):
-                    attr = k[len('sample_gt_view_'):]
-                    gt_view_attrs.add(attr)
+                if k.startswith('sample_anchor_view_'):
+                    attr = k[len('sample_anchor_view_'):]
+                    anchor_view_attrs.add(attr)
             
-            if gt_view_attrs:
+            if anchor_view_attrs:
                 # Tex mode: generate combined view for each PBR attribute
-                for attr in sorted(gt_view_attrs):
-                    combo1_keys = ['image', f'sample_gt_view_{attr}', f'sample_gt_gt_view_{attr}']
+                for attr in sorted(anchor_view_attrs):
+                    combo1_keys = ['image', f'sample_anchor_view_{attr}', f'sample_gt_anchor_view_{attr}']
                     combo1_present = [k for k in combo1_keys if k in sample_keys and samples[k]['type'] == 'image']
                     if len(combo1_present) >= 2:
                         grids = [_make_grid(samples[k]['value']) for k in combo1_present]
                         target_h = max(g.shape[1] for g in grids)
                         grids = [_resize_to_height(g, target_h) for g in grids]
                         combined = torch.cat(grids, dim=2)
-                        combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_views_{attr}_{suffix}.jpg')
+                        combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_anchor_views_{attr}_{suffix}.jpg')
                         utils.save_image(combined, combined_path, normalize=False)
                         if self.wandb_run is not None:
                             grid_np = combined.permute(1, 2, 0).cpu().numpy()
                             grid_np = (grid_np * 255).clip(0, 255).astype(np.uint8)
                             label = ' | '.join(combo1_present)
-                            wandb_images[f'samples/combined_views_{attr}'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
+                            wandb_images[f'samples/combined_anchor_views_{attr}'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
             else:
-                # Shape mode: single gt_view
-                combo1_keys = ['image', 'sample_gt_view', 'sample_gt_gt_view']
+                # Shape mode: single anchor_view
+                combo1_keys = ['image', 'sample_anchor_view', 'sample_gt_anchor_view']
                 combo1_present = [k for k in combo1_keys if k in sample_keys and samples[k]['type'] == 'image']
                 if len(combo1_present) >= 2:
                     grids = [_make_grid(samples[k]['value']) for k in combo1_present]
                     target_h = max(g.shape[1] for g in grids)
                     grids = [_resize_to_height(g, target_h) for g in grids]
                     combined = torch.cat(grids, dim=2)
-                    combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_views_{suffix}.jpg')
+                    combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_anchor_views_{suffix}.jpg')
                     utils.save_image(combined, combined_path, normalize=False)
                     if self.wandb_run is not None:
                         grid_np = combined.permute(1, 2, 0).cpu().numpy()
                         grid_np = (grid_np * 255).clip(0, 255).astype(np.uint8)
                         label = ' | '.join(combo1_present)
-                        wandb_images[f'samples/combined_views'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
+                        wandb_images[f'samples/combined_anchor_views'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
 
             # Combined 2: sample_multiview + sample_gt_multiview
             combo2_keys = ['sample_multiview', 'sample_gt_multiview']

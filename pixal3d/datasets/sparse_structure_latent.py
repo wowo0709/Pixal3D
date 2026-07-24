@@ -76,7 +76,7 @@ class SparseStructureLatentVisMixin:
         Returns:
             dict with:
                 'multiview': [B, 3, 1024, 1024] - 4 fixed views rendered in 2x2 grid
-                'gt_view': [B, 3, 512, 512] - GT camera view (if camera params provided)
+                'anchor_view': [B, 3, 512, 512] - anchor camera view (if camera params provided)
         """
         x_0 = x_0 if isinstance(x_0, torch.Tensor) else x_0['x_0']
         x_0 = self.decode_latent(x_0.cuda())
@@ -211,7 +211,7 @@ class SparseStructureLatentVisMixin:
         }
         
         if has_gt_camera and len(gt_view_images) > 0:
-            result['gt_view'] = torch.stack(gt_view_images)
+            result['anchor_view'] = torch.stack(gt_view_images)
             
         return result
 

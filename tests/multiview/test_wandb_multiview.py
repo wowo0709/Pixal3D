@@ -244,9 +244,7 @@ def test_wandb_offline_serializes_exact_scalar_and_image_keys(tmp_path, monkeypa
     assert wandb.run is None
 
 
-def test_production_wandb_wiring_logs_scalar_and_both_snapshot_images(
-    tmp_path, monkeypatch
-):
+def _snapshot_wandb_payload(tmp_path, monkeypatch, rendered_views):
     fake_run = _FakeWandbRun()
     monkeypatch.setattr(
         basic.wandb,
@@ -262,17 +260,24 @@ def test_production_wandb_wiring_logs_scalar_and_both_snapshot_images(
     trainer.is_master = True
     trainer.world_size = 1
     trainer.output_dir = str(tmp_path)
-    trainer.dataset = SimpleNamespace(value_range=(0.0, 1.0))
+    trainer.dataset = SimpleNamespace(
+        value_range=(0.0, 1.0),
+        visualize_sample=lambda sample: rendered_views[sample],
+    )
     trainer.mix_precision_mode = None
     trainer.mix_precision_dtype = torch.float32
     trainer.run_snapshot = lambda *_args, **_kwargs: {
-        "input_views": {
-            "value": torch.zeros(2, 3, 8, 16),
-            "type": "image",
-        },
-        "anchor": {
+        "image": {
             "value": torch.zeros(2, 3, 8, 8),
             "type": "image",
+        },
+        "sample": {
+            "value": "generated",
+            "type": "sample",
+        },
+        "sample_gt": {
+            "value": "ground_truth",
+            "type": "sample",
         },
     }
 
@@ -280,9 +285,50 @@ def test_production_wandb_wiring_logs_scalar_and_both_snapshot_images(
     BasicTrainer.snapshot(trainer, suffix="wiring", num_samples=2, batch_size=2)
 
     scalar_payload = fake_run.calls[0][0]
-    image_payload = fake_run.calls[-1][0]
     assert scalar_payload["multiview/k"] == 4
-    assert {"samples/input_views", "samples/anchor"} <= set(image_payload)
+    return fake_run.calls[-1][0]
+
+
+def test_shape_snapshot_wandb_uses_anchor_view_names(tmp_path, monkeypatch):
+    rendered_views = {
+        "generated": {"anchor_view": torch.zeros(2, 3, 8, 8)},
+        "ground_truth": {"anchor_view": torch.ones(2, 3, 8, 8)},
+    }
+
+    image_payload = _snapshot_wandb_payload(
+        tmp_path, monkeypatch, rendered_views
+    )
+
+    assert "samples/sample_anchor_view" in image_payload
+    assert "samples/sample_gt_anchor_view" in image_payload
+    assert "samples/combined_anchor_views" in image_payload
+    assert "samples/sample_gt_view" not in image_payload
+    assert "samples/sample_gt_gt_view" not in image_payload
+    assert "samples/combined_views" not in image_payload
+
+
+def test_pbr_snapshot_wandb_uses_anchor_view_attribute_names(
+    tmp_path, monkeypatch
+):
+    rendered_views = {
+        "generated": {
+            "anchor_view_base_color": torch.zeros(2, 3, 8, 8),
+        },
+        "ground_truth": {
+            "anchor_view_base_color": torch.ones(2, 3, 8, 8),
+        },
+    }
+
+    image_payload = _snapshot_wandb_payload(
+        tmp_path, monkeypatch, rendered_views
+    )
+
+    assert "samples/sample_anchor_view_base_color" in image_payload
+    assert "samples/sample_gt_anchor_view_base_color" in image_payload
+    assert "samples/combined_anchor_views_base_color" in image_payload
+    assert "samples/sample_gt_view_base_color" not in image_payload
+    assert "samples/sample_gt_gt_view_base_color" not in image_payload
+    assert "samples/combined_views_base_color" not in image_payload
 
 
 class _SnapshotDataset:
