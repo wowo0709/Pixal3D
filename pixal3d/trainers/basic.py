@@ -4,6 +4,7 @@ import time
 import json
 import copy
 import re
+import tempfile
 import threading
 from functools import partial
 from contextlib import nullcontext
@@ -420,55 +421,95 @@ class BasicTrainer:
         """
         assert self.is_master, 'save() should be called only by the rank 0 process.'
         print(f'\nSaving checkpoint at step {self.step}...', end='')
+        ckpt_dir = os.path.join(self.output_dir, 'ckpts')
+        misc_path = os.path.join(ckpt_dir, f'misc_step{self.step:07d}.pt')
+        retention_enabled = self.max_checkpoints is not None
+        if retention_enabled and os.path.exists(misc_path):
+            raise FileExistsError(
+                f'complete checkpoint already exists for step {self.step}'
+            )
+        temporary_paths = set()
         
-        model_ckpts = self._master_params_to_state_dicts(self.master_params)
-        for name, model_ckpt in model_ckpts.items():
-            model_ckpt = {k: v.cpu() for k, v in model_ckpt.items()}  # Move to CPU for saving
-            if non_blocking and self.max_checkpoints is None:
-                threading.Thread(
-                    target=torch.save,
-                    args=(model_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_step{self.step:07d}.pt')),
-                ).start()
-            else:
-                torch.save(model_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_step{self.step:07d}.pt'))
-        
-        for i, ema_rate in enumerate(self.ema_rate):
-            ema_ckpts = self._master_params_to_state_dicts(self.ema_params[i])
-            for name, ema_ckpt in ema_ckpts.items():
-                ema_ckpt = {k: v.cpu() for k, v in ema_ckpt.items()}  # Move to CPU for saving
-                if non_blocking and self.max_checkpoints is None:
+        try:
+            model_ckpts = self._master_params_to_state_dicts(self.master_params)
+            for name, model_ckpt in model_ckpts.items():
+                model_ckpt = {k: v.cpu() for k, v in model_ckpt.items()}  # Move to CPU for saving
+                path = os.path.join(ckpt_dir, f'{name}_step{self.step:07d}.pt')
+                if retention_enabled:
+                    self._save_checkpoint_atomically(model_ckpt, path, temporary_paths)
+                elif non_blocking:
                     threading.Thread(
                         target=torch.save,
-                        args=(ema_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_ema{ema_rate}_step{self.step:07d}.pt')),
+                        args=(model_ckpt, path),
                     ).start()
                 else:
-                    torch.save(ema_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_ema{ema_rate}_step{self.step:07d}.pt'))
+                    torch.save(model_ckpt, path)
 
-        misc_ckpt = {
-            'optimizer': self.optimizer.state_dict(),
-            'step': self.step,
-            'data_sampler': self.data_sampler.state_dict(),
-        }
-        if self.mix_precision_mode == 'amp' and self.mix_precision_dtype == torch.float16:
-            misc_ckpt['scaler'] = self.scaler.state_dict()
-        elif self.mix_precision_mode == 'inflat_all' and self.mix_precision_dtype == torch.float16:
-            misc_ckpt['log_scale'] = self.log_scale
-        if self.lr_scheduler_config is not None:
-            misc_ckpt['lr_scheduler'] = self.lr_scheduler.state_dict()
-        if self.elastic_controller_config is not None:
-            misc_ckpt['elastic_controller'] = self.elastic_controller.state_dict()
-        if self.grad_clip is not None and not isinstance(self.grad_clip, float):
-            misc_ckpt['grad_clip'] = self.grad_clip.state_dict()
-        if non_blocking and self.max_checkpoints is None:
-            threading.Thread(
-                target=torch.save,
-                args=(misc_ckpt, os.path.join(self.output_dir, 'ckpts', f'misc_step{self.step:07d}.pt')),
-            ).start()
-        else:
-            torch.save(misc_ckpt, os.path.join(self.output_dir, 'ckpts', f'misc_step{self.step:07d}.pt'))
-        if self.max_checkpoints is not None:
-            self._prune_checkpoints()
+            for i, ema_rate in enumerate(self.ema_rate):
+                ema_ckpts = self._master_params_to_state_dicts(self.ema_params[i])
+                for name, ema_ckpt in ema_ckpts.items():
+                    ema_ckpt = {k: v.cpu() for k, v in ema_ckpt.items()}  # Move to CPU for saving
+                    path = os.path.join(ckpt_dir, f'{name}_ema{ema_rate}_step{self.step:07d}.pt')
+                    if retention_enabled:
+                        self._save_checkpoint_atomically(ema_ckpt, path, temporary_paths)
+                    elif non_blocking:
+                        threading.Thread(
+                            target=torch.save,
+                            args=(ema_ckpt, path),
+                        ).start()
+                    else:
+                        torch.save(ema_ckpt, path)
+
+            misc_ckpt = {
+                'optimizer': self.optimizer.state_dict(),
+                'step': self.step,
+                'data_sampler': self.data_sampler.state_dict(),
+            }
+            if self.mix_precision_mode == 'amp' and self.mix_precision_dtype == torch.float16:
+                misc_ckpt['scaler'] = self.scaler.state_dict()
+            elif self.mix_precision_mode == 'inflat_all' and self.mix_precision_dtype == torch.float16:
+                misc_ckpt['log_scale'] = self.log_scale
+            if self.lr_scheduler_config is not None:
+                misc_ckpt['lr_scheduler'] = self.lr_scheduler.state_dict()
+            if self.elastic_controller_config is not None:
+                misc_ckpt['elastic_controller'] = self.elastic_controller.state_dict()
+            if self.grad_clip is not None and not isinstance(self.grad_clip, float):
+                misc_ckpt['grad_clip'] = self.grad_clip.state_dict()
+            if retention_enabled:
+                self._save_checkpoint_atomically(misc_ckpt, misc_path, temporary_paths)
+                self._prune_checkpoints()
+            elif non_blocking:
+                threading.Thread(
+                    target=torch.save,
+                    args=(misc_ckpt, misc_path),
+                ).start()
+            else:
+                torch.save(misc_ckpt, misc_path)
+        except Exception:
+            self._cleanup_checkpoint_temps(temporary_paths)
+            raise
         print(' Done.')
+
+    @staticmethod
+    def _save_checkpoint_atomically(checkpoint, path, temporary_paths):
+        fd, temporary_path = tempfile.mkstemp(
+            prefix=f'.{os.path.basename(path)}.',
+            suffix='.tmp',
+            dir=os.path.dirname(path),
+        )
+        os.close(fd)
+        temporary_paths.add(temporary_path)
+        torch.save(checkpoint, temporary_path)
+        os.replace(temporary_path, path)
+        temporary_paths.remove(temporary_path)
+
+    @staticmethod
+    def _cleanup_checkpoint_temps(temporary_paths):
+        for temporary_path in temporary_paths:
+            try:
+                os.remove(temporary_path)
+            except FileNotFoundError:
+                pass
 
     def _prune_checkpoints(self):
         ckpt_dir = os.path.join(self.output_dir, 'ckpts')

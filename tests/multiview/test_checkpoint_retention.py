@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 import pytest
 import torch
@@ -61,25 +62,52 @@ def test_retention_keeps_latest_five_complete_checkpoints(tmp_path):
         assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, step))
 
 
-def test_failed_save_keeps_all_previous_complete_checkpoints(tmp_path, monkeypatch):
+def test_failed_misc_save_does_not_publish_a_retention_marker(tmp_path, monkeypatch):
     trainer = _make_trainer(tmp_path, step=6)
     ckpt_dir = tmp_path / "ckpts"
     for step in range(1, 6):
         _write_complete_checkpoint(ckpt_dir, step)
-    original_save = torch.save
 
-    def fail_on_new_misc(value, path, *args, **kwargs):
-        if Path(path).name == "misc_step0000006.pt":
+    def write_partial_misc_then_fail(value, path, *args, **kwargs):
+        filename = Path(path).name
+        if filename == "misc_step0000006.pt" or filename.startswith(
+            ".misc_step0000006.pt."
+        ):
+            Path(path).write_bytes(b"partial")
             raise OSError("simulated save failure")
-        return original_save(value, path, *args, **kwargs)
+        torch.serialization.save(value, path, *args, **kwargs)
 
-    monkeypatch.setattr(torch, "save", fail_on_new_misc)
+    monkeypatch.setattr(torch, "save", write_partial_misc_then_fail)
 
     with pytest.raises(OSError, match="simulated save failure"):
         trainer.save()
 
-    for step in range(1, 6):
+    trainer.step = 7
+    trainer.save()
+
+    assert not (ckpt_dir / "misc_step0000006.pt").exists()
+    assert not list(ckpt_dir.glob("*.tmp"))
+    for step in range(2, 6):
         assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, step))
+    assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, 7))
+
+
+def test_duplicate_completed_step_is_rejected_without_overwriting_checkpoint(tmp_path, monkeypatch):
+    trainer = _make_trainer(tmp_path, step=6)
+    ckpt_dir = tmp_path / "ckpts"
+    _write_complete_checkpoint(ckpt_dir, 6)
+    original_model = torch.load(ckpt_dir / "denoiser_step0000006.pt", weights_only=True)
+
+    def fail_if_duplicate_save_attempted(*args, **kwargs):
+        raise OSError("duplicate model or EMA save attempted")
+
+    monkeypatch.setattr(torch, "save", fail_if_duplicate_save_attempted)
+
+    with pytest.raises(FileExistsError, match="complete checkpoint"):
+        trainer.save()
+
+    assert torch.load(ckpt_dir / "denoiser_step0000006.pt", weights_only=True) == original_model
+    assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, 6))
 
 
 def test_incomplete_step_is_not_a_retention_marker(tmp_path):
@@ -112,3 +140,59 @@ def test_max_checkpoints_requires_a_positive_integer(invalid, tmp_path):
             optimizer={},
             max_checkpoints=invalid,
         )
+
+
+def test_legacy_non_blocking_save_starts_threads_and_never_prunes(tmp_path, monkeypatch):
+    trainer = _make_trainer(tmp_path, step=6, max_checkpoints=None)
+    ckpt_dir = tmp_path / "ckpts"
+    for step in range(1, 6):
+        _write_complete_checkpoint(ckpt_dir, step)
+    started = []
+
+    class RecordingThread:
+        def __init__(self, *, target, args):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            started.append(self.args[1])
+
+    monkeypatch.setattr(threading, "Thread", RecordingThread)
+    monkeypatch.setattr(
+        trainer,
+        "_prune_checkpoints",
+        lambda: pytest.fail("legacy save must not prune checkpoints"),
+    )
+
+    trainer.save()
+
+    assert len(started) == 3
+    assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, 1))
+
+
+def test_legacy_blocking_save_uses_synchronous_torch_save(tmp_path, monkeypatch):
+    trainer = _make_trainer(tmp_path, step=6, max_checkpoints=None)
+    saved_paths = []
+
+    def record_save(value, path, *args, **kwargs):
+        saved_paths.append(Path(path).name)
+
+    monkeypatch.setattr(torch, "save", record_save)
+    monkeypatch.setattr(
+        threading,
+        "Thread",
+        lambda *args, **kwargs: pytest.fail("blocking save must not start a thread"),
+    )
+    monkeypatch.setattr(
+        trainer,
+        "_prune_checkpoints",
+        lambda: pytest.fail("legacy save must not prune checkpoints"),
+    )
+
+    trainer.save(non_blocking=False)
+
+    assert saved_paths == [
+        "denoiser_step0000006.pt",
+        "denoiser_ema0.9_step0000006.pt",
+        "misc_step0000006.pt",
+    ]
