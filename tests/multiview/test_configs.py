@@ -40,6 +40,9 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         assert dataset_args["max_condition_views"] == 6
         assert trainer_args["batch_size_per_gpu"] == 1
         assert trainer_args["batch_split"] == 1
+        assert trainer_args["i_sample"] == -1
+        assert trainer_args["i_save"] == 5000
+        assert trainer_args["max_checkpoints"] == 5
         assert trainer_args["multiview_stage"] == stage
         assert trainer_args["image_cond_model"]["name"] == "DinoV3ProjFeatureExtractor"
         assert trainer_args["finetune_ckpt"] == {

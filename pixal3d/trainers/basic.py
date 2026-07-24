@@ -3,6 +3,7 @@ import os
 import time
 import json
 import copy
+import re
 import threading
 from functools import partial
 from contextlib import nullcontext
@@ -75,6 +76,7 @@ class BasicTrainer:
         i_log (int): Log interval.
         i_sample (int): Sample interval.
         i_save (int): Save interval.
+        max_checkpoints (int or None): Maximum number of complete checkpoints to retain.
         i_ddpcheck (int): DDP check interval.
     """
     def __init__(self,
@@ -109,11 +111,18 @@ class BasicTrainer:
         i_log=500,
         i_sample=10000,
         i_save=10000,
+        max_checkpoints=None,
         i_ddpcheck=10000,
         wandb_run=None,  # wandb run object
         **kwargs
     ):
         assert batch_size is not None or batch_size_per_gpu is not None, 'Either batch_size or batch_size_per_gpu must be specified.'
+        if max_checkpoints is not None and (
+            isinstance(max_checkpoints, bool)
+            or not isinstance(max_checkpoints, int)
+            or max_checkpoints <= 0
+        ):
+            raise ValueError('max_checkpoints must be a positive integer or None.')
 
         self.models = models
         self.dataset = dataset
@@ -148,6 +157,7 @@ class BasicTrainer:
         self.i_log = i_log
         self.i_sample = i_sample
         self.i_save = i_save
+        self.max_checkpoints = max_checkpoints
         self.i_ddpcheck = i_ddpcheck        
 
         if dist.is_initialized():
@@ -414,7 +424,7 @@ class BasicTrainer:
         model_ckpts = self._master_params_to_state_dicts(self.master_params)
         for name, model_ckpt in model_ckpts.items():
             model_ckpt = {k: v.cpu() for k, v in model_ckpt.items()}  # Move to CPU for saving
-            if non_blocking:
+            if non_blocking and self.max_checkpoints is None:
                 threading.Thread(
                     target=torch.save,
                     args=(model_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_step{self.step:07d}.pt')),
@@ -426,7 +436,7 @@ class BasicTrainer:
             ema_ckpts = self._master_params_to_state_dicts(self.ema_params[i])
             for name, ema_ckpt in ema_ckpts.items():
                 ema_ckpt = {k: v.cpu() for k, v in ema_ckpt.items()}  # Move to CPU for saving
-                if non_blocking:
+                if non_blocking and self.max_checkpoints is None:
                     threading.Thread(
                         target=torch.save,
                         args=(ema_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_ema{ema_rate}_step{self.step:07d}.pt')),
@@ -449,14 +459,29 @@ class BasicTrainer:
             misc_ckpt['elastic_controller'] = self.elastic_controller.state_dict()
         if self.grad_clip is not None and not isinstance(self.grad_clip, float):
             misc_ckpt['grad_clip'] = self.grad_clip.state_dict()
-        if non_blocking:
+        if non_blocking and self.max_checkpoints is None:
             threading.Thread(
                 target=torch.save,
                 args=(misc_ckpt, os.path.join(self.output_dir, 'ckpts', f'misc_step{self.step:07d}.pt')),
             ).start()
         else:
             torch.save(misc_ckpt, os.path.join(self.output_dir, 'ckpts', f'misc_step{self.step:07d}.pt'))
+        if self.max_checkpoints is not None:
+            self._prune_checkpoints()
         print(' Done.')
+
+    def _prune_checkpoints(self):
+        ckpt_dir = os.path.join(self.output_dir, 'ckpts')
+        complete_steps = []
+        for filename in os.listdir(ckpt_dir):
+            match = re.match(r'^misc_step(\d+)\.pt$', filename)
+            if match:
+                complete_steps.append(int(match.group(1)))
+        for step in sorted(complete_steps)[:-self.max_checkpoints]:
+            suffix = f'_step{step:07d}.pt'
+            for filename in os.listdir(ckpt_dir):
+                if filename.endswith(suffix):
+                    os.remove(os.path.join(ckpt_dir, filename))
 
     def _remap_checkpoint_keys(self, model_ckpt, model_state_dict):
         """
