@@ -160,6 +160,10 @@ python train.py \
 
 `--data_dir` is a JSON string describing the dataset layout. Different stages require different keys:
 
+`--output_dir` can be omitted when the config sets `default_output_dir`; otherwise
+provide it explicitly. When `--load_dir` is omitted, training resumes from the
+resolved output directory.
+
 | Stage | Required keys |
 |-------|---------------|
 | Sparse Structure | `base`, `ss_latent`, `render_cond` |
@@ -244,7 +248,7 @@ python train.py \
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--config` | Config JSON path | *required* |
-| `--output_dir` | Output directory | *required* |
+| `--output_dir` | Output directory | config `default_output_dir`, otherwise *required* |
 | `--data_dir` | Dataset JSON string | `./data/` |
 | `--load_dir` | Checkpoint load directory | `output_dir` |
 | `--ckpt` | Resume from step | `latest` |
@@ -295,4 +299,3 @@ If you find this work useful, please consider citing:
 ## 📜 License
 
 This project is released under the [MIT License](LICENSE). The third-party components included in this project remain licensed under their respective original terms; see [NOTICE](NOTICE) for the full list of dependencies and their licenses.
-
