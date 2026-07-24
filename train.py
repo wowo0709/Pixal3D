@@ -74,6 +74,17 @@ def apply_smoke_overrides(cfg, smoke_steps):
     return cfg
 
 
+def resolve_output_dirs(config, cli_output_dir=None, cli_load_dir=""):
+    default_output_dir = config.get("default_output_dir")
+    output_dir = cli_output_dir or default_output_dir
+    if not output_dir:
+        raise ValueError(
+            "output_dir is required: pass --output_dir or set default_output_dir in the config"
+        )
+    load_dir = cli_load_dir or output_dir
+    return output_dir, load_dir
+
+
 def main(local_rank, cfg):
     # Set up distributed training
     rank = cfg.node_rank * cfg.num_gpus + local_rank
@@ -177,7 +188,12 @@ if __name__ == '__main__':
     ## config
     parser.add_argument('--config', type=str, required=True, help='Experiment config file')
     ## io and resume
-    parser.add_argument('--output_dir', type=str, required=True, help='Output directory')
+    parser.add_argument(
+        '--output_dir',
+        type=str,
+        default=None,
+        help='Output directory; defaults to config default_output_dir',
+    )
     parser.add_argument('--load_dir', type=str, default='', help='Load directory, default to output_dir')
     parser.add_argument('--ckpt', type=str, default='latest', help='Checkpoint step to resume training, default to latest')
     parser.add_argument('--data_dir', type=str, default='./data/', help='Data directory')
@@ -198,14 +214,26 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_name', type=str, default='', help='Wandb run name, default to output_dir basename')
     parser.add_argument('--wandb_id', type=str, default='', help='Wandb run id for resuming')
     opt = parser.parse_args()
-    opt.load_dir = opt.load_dir if opt.load_dir != '' else opt.output_dir
-    opt.num_gpus = torch.cuda.device_count() if opt.num_gpus == -1 else opt.num_gpus
     ## Load config
     config = json.load(open(opt.config, 'r'))
+    try:
+        resolved_output_dir, resolved_load_dir = resolve_output_dirs(
+            config,
+            cli_output_dir=opt.output_dir,
+            cli_load_dir=opt.load_dir,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    opt.output_dir = resolved_output_dir
+    opt.load_dir = resolved_load_dir
+    opt.num_gpus = torch.cuda.device_count() if opt.num_gpus == -1 else opt.num_gpus
     ## Combine arguments and config
     cfg = edict()
     cfg.update(opt.__dict__)
     cfg.update(config)
+    cfg.output_dir = resolved_output_dir
+    cfg.load_dir = resolved_load_dir
     apply_smoke_overrides(cfg, opt.smoke_steps)
     print('\n\nConfig:')
     print('=' * 80)

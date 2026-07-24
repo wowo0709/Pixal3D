@@ -12,11 +12,36 @@ from pixal3d.trainers.basic import BasicTrainer
 from pixal3d.trainers.flow_matching.sparse_flow_matching import (
     SparseFlowMatchingTrainer,
 )
-from train import apply_smoke_overrides
+from train import apply_smoke_overrides, resolve_output_dirs
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESOLVED_CONFIG_MARKER = f"Config:\n{'=' * 80}\n"
+
+
+def test_config_output_default_also_becomes_resume_default():
+    assert resolve_output_dirs(
+        {"default_output_dir": "/persistent/ss64"}
+    ) == ("/persistent/ss64", "/persistent/ss64")
+
+
+def test_cli_output_overrides_config_default():
+    assert resolve_output_dirs(
+        {"default_output_dir": "/persistent/ss64"},
+        cli_output_dir="/override/run",
+    ) == ("/override/run", "/override/run")
+
+
+def test_explicit_load_dir_overrides_resume_default():
+    assert resolve_output_dirs(
+        {"default_output_dir": "/persistent/ss64"},
+        cli_load_dir="/recovery/run",
+    ) == ("/persistent/ss64", "/recovery/run")
+
+
+def test_missing_cli_and_config_output_is_rejected():
+    with pytest.raises(ValueError, match="output_dir"):
+        resolve_output_dirs({})
 
 
 def test_ten_step_smoke_logs_every_step_samples_five_and_ten_and_saves_ten():

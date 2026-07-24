@@ -21,6 +21,12 @@ CHECKPOINTS = {
     "shape1024": "slat_flow_img2shape_dit_1_3B_1024_bf16.pt",
     "pbr1024": "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.pt",
 }
+OUTPUT_DIRS = {
+    "ss64": "/root/data3/pixal3d/ckpts/ss64",
+    "shape512": "/root/data3/pixal3d/ckpts/shape512",
+    "shape1024": "/root/data3/pixal3d/ckpts/shape1024",
+    "pbr1024": "/root/data3/pixal3d/ckpts/pbr1024",
+}
 
 
 def test_four_configs_use_batchwide_k_and_matching_checkpoints():
@@ -43,6 +49,7 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         assert trainer_args["i_sample"] == -1
         assert trainer_args["i_save"] == 5000
         assert trainer_args["max_checkpoints"] == 5
+        assert trainer_args["max_steps"] == 100_000
         assert trainer_args["multiview_stage"] == stage
         assert trainer_args["image_cond_model"]["name"] == "DinoV3ProjFeatureExtractor"
         assert trainer_args["finetune_ckpt"] == {
@@ -50,6 +57,7 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
             + CHECKPOINTS[stage]
         }
         assert config["models"]["denoiser"]["args"]["image_attn_mode"] == "proj"
+        assert config["default_output_dir"] == OUTPUT_DIRS[stage]
 
 
 def test_shape_512_is_an_independent_inference_checkpoint():

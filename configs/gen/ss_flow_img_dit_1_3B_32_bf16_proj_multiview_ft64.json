@@ -1,5 +1,6 @@
 {
     "_comment": "TRELLIS.2 Sparse Structure Flow Model (64) with View-Aligned Projection - Finetune from 32 Proj Checkpoint",
+    "default_output_dir": "/root/data3/pixal3d/ckpts/ss64",
     "models": {
         "denoiser": {
             "name": "SparseStructureFlowModel",
@@ -38,7 +39,7 @@
         "name": "ImageConditionedProjFlowMatchingCFGTrainer",
         "args": {
             "debug": false,
-            "max_steps": 1000000,
+            "max_steps": 100000,
             "batch_size_per_gpu": 1,
             "batch_split": 1,
             "snapshot_batch_size": 1,

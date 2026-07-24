@@ -1,5 +1,6 @@
 {
     "_comment": "TRELLIS.2 SLat Shape Flow Model (512) with View-Aligned Projection + NAF Upsample - Finetune from 256 Proj Checkpoint. NAF upsamples DINOv3 32x32 features using the input image as guide. proj_in_channels=2048 = concat(lr 1024, hr 1024).",
+    "default_output_dir": "/root/data3/pixal3d/ckpts/shape512",
     "models": {
         "denoiser": {
             "name": "ElasticSLatFlowModel",
@@ -54,7 +55,7 @@
     "trainer": {
         "name": "ImageConditionedProjSparseFlowMatchingCFGTrainer",
         "args": {
-            "max_steps": 1000000,
+            "max_steps": 100000,
             "batch_size_per_gpu": 1,
             "batch_split": 1,
             "snapshot_batch_size": 1,
