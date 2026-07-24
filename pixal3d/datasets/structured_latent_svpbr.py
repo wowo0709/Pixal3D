@@ -97,7 +97,7 @@ class SLatPbrVisMixin:
         z = sample['x_0'].cuda()
         reps = self.decode_latent(z, shape_z)
         
-        # Extract camera parameters for GT view rendering (if available)
+        # Extract GT camera parameters for anchor-view rendering (if available).
         camera_angle_x = sample.get('camera_angle_x')
         camera_distance = sample.get('camera_distance')
         mesh_scale = sample.get('mesh_scale')
@@ -127,7 +127,7 @@ class SLatPbrVisMixin:
         ))
         
         images = {}
-        gt_view_images = {}
+        anchor_view_images = {}
         for i, representation in enumerate(reps):
             # Validate mesh data before rasterization (same as shape training)
             verts = representation.vertices
@@ -168,7 +168,7 @@ class SLatPbrVisMixin:
                     pass
                 continue
             
-            # Render GT camera view
+            # Render the anchor camera view.
             # Must scale mesh vertices by / mesh_scale to match ProjGrid's projection space.
             # ProjGrid maps [-1,1]^3 -> / scale / 2 -> [-0.5/s, 0.5/s]^3
             # Mesh vertices in [-0.5, 0.5]^3 -> / scale -> [-0.5/s, 0.5/s]^3 (equivalent)
@@ -195,27 +195,29 @@ class SLatPbrVisMixin:
                     look_at = torch.tensor([0.0, 0.0, 0.0], device=device)
                     cam_up = torch.tensor([0.0, 1.0, 0.0], device=device)
                     
-                    gt_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
-                    gt_int = utils3d.torch.intrinsics_from_fov_xy(
+                    anchor_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
+                    anchor_int = utils3d.torch.intrinsics_from_fov_xy(
                         torch.tensor(fov, device=device),
                         torch.tensor(fov, device=device)
                     )
-                    gt_ext = gt_ext.to(device)
-                    gt_int = gt_int.to(device)
+                    anchor_ext = anchor_ext.to(device)
+                    anchor_int = anchor_int.to(device)
                     
                     # Update near/far for the smaller scaled mesh
                     mesh_half_size = 0.5 / scale
                     renderer.rendering_options.near = max(0.01, distance - mesh_half_size - 0.5)
                     renderer.rendering_options.far = distance + mesh_half_size + 0.5
                     
-                    gt_res = renderer.render(scaled_rep, gt_ext, gt_int, envmap=envmap)
-                    for k, v in gt_res.items():
-                        gt_key = f'anchor_view_{k}'
-                        if gt_key not in gt_view_images:
-                            gt_view_images[gt_key] = []
-                        gt_view_images[gt_key].append(v)
+                    anchor_res = renderer.render(
+                        scaled_rep, anchor_ext, anchor_int, envmap=envmap
+                    )
+                    for k, v in anchor_res.items():
+                        anchor_key = f'anchor_view_{k}'
+                        if anchor_key not in anchor_view_images:
+                            anchor_view_images[anchor_key] = []
+                        anchor_view_images[anchor_key].append(v)
                 except RuntimeError as e:
-                    print(f"[visualize_sample] Warning: GT view render failed for sample {i}: {e}")
+                    print(f"[visualize_sample] Warning: anchor view render failed for sample {i}: {e}")
                     try:
                         torch.cuda.synchronize()
                     except Exception:
@@ -228,7 +230,7 @@ class SLatPbrVisMixin:
         for k in images.keys():
             images[k] = torch.stack(images[k], dim=0)
         
-        for k, v in gt_view_images.items():
+        for k, v in anchor_view_images.items():
             images[k] = torch.stack(v)
         
         return images

@@ -267,6 +267,14 @@ def _snapshot_wandb_payload(tmp_path, monkeypatch, rendered_views):
     trainer.mix_precision_mode = None
     trainer.mix_precision_dtype = torch.float32
     trainer.run_snapshot = lambda *_args, **_kwargs: {
+        "input_views": {
+            "value": torch.zeros(2, 3, 8, 16),
+            "type": "image",
+        },
+        "anchor": {
+            "value": torch.zeros(2, 3, 8, 8),
+            "type": "image",
+        },
         "image": {
             "value": torch.zeros(2, 3, 8, 8),
             "type": "image",
@@ -299,6 +307,15 @@ def test_shape_snapshot_wandb_uses_anchor_view_names(tmp_path, monkeypatch):
         tmp_path, monkeypatch, rendered_views
     )
 
+    snapshot_dir = tmp_path / "samples" / "wiring"
+    assert (snapshot_dir / "sample_anchor_view_wiring.jpg").is_file()
+    assert (snapshot_dir / "sample_gt_anchor_view_wiring.jpg").is_file()
+    assert (snapshot_dir / "combined_anchor_views_wiring.jpg").is_file()
+    assert not (snapshot_dir / "sample_gt_view_wiring.jpg").exists()
+    assert not (snapshot_dir / "sample_gt_gt_view_wiring.jpg").exists()
+    assert not (snapshot_dir / "combined_views_wiring.jpg").exists()
+    assert "samples/input_views" in image_payload
+    assert "samples/anchor" in image_payload
     assert "samples/sample_anchor_view" in image_payload
     assert "samples/sample_gt_anchor_view" in image_payload
     assert "samples/combined_anchor_views" in image_payload
@@ -323,6 +340,15 @@ def test_pbr_snapshot_wandb_uses_anchor_view_attribute_names(
         tmp_path, monkeypatch, rendered_views
     )
 
+    snapshot_dir = tmp_path / "samples" / "wiring"
+    assert (snapshot_dir / "sample_anchor_view_base_color_wiring.jpg").is_file()
+    assert (snapshot_dir / "sample_gt_anchor_view_base_color_wiring.jpg").is_file()
+    assert (snapshot_dir / "combined_anchor_views_base_color_wiring.jpg").is_file()
+    assert not (snapshot_dir / "sample_gt_view_base_color_wiring.jpg").exists()
+    assert not (snapshot_dir / "sample_gt_gt_view_base_color_wiring.jpg").exists()
+    assert not (snapshot_dir / "combined_views_base_color_wiring.jpg").exists()
+    assert "samples/input_views" in image_payload
+    assert "samples/anchor" in image_payload
     assert "samples/sample_anchor_view_base_color" in image_payload
     assert "samples/sample_gt_anchor_view_base_color" in image_payload
     assert "samples/combined_anchor_views_base_color" in image_payload

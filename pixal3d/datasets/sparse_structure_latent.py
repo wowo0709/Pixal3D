@@ -70,7 +70,7 @@ class SparseStructureLatentVisMixin:
         Args:
             x_0: Latent tensor [B, C, D, H, W] or dict containing 'x_0'
             camera_angle_x: Optional [B] camera FOV angle in radians
-            camera_distance: Optional [B] camera distance for GT view rendering
+            camera_distance: Optional [B] camera distance for anchor-view rendering
             mesh_scale: Optional [B] mesh scale factor for coordinate alignment
             
         Returns:
@@ -92,8 +92,8 @@ class SparseStructureLatentVisMixin:
         pitch = [20 / 180 * np.pi for _ in range(4)]
         fixed_exts, fixed_ints = yaw_pitch_r_fov_to_extrinsics_intrinsics(yaw, pitch, 2, 30)
 
-        # Check if we have GT camera parameters for front view rendering
-        # GT view uses the fixed front_view_transform_matrix from image_conditioned_proj.py
+        # Check if we have GT camera parameters for anchor-view rendering.
+        # The anchor view uses the fixed front_view_transform_matrix from image_conditioned_proj.py.
         has_gt_camera = (
             camera_angle_x is not None and 
             camera_distance is not None and 
@@ -101,7 +101,7 @@ class SparseStructureLatentVisMixin:
         )
         
         multiview_images = []
-        gt_view_images = []
+        anchor_view_images = []
         
         # Build each representation
         x_0 = x_0.cuda()
@@ -129,9 +129,9 @@ class SparseStructureLatentVisMixin:
                 image[:, 512 * (j // tile[1]):512 * (j // tile[1] + 1), 512 * (j % tile[1]):512 * (j % tile[1] + 1)] = res['color']
             multiview_images.append(image)
             
-            # Render GT camera view using the fixed front view from image_conditioned_proj.py
+            # Render the anchor camera view using the fixed front view from image_conditioned_proj.py.
             if has_gt_camera:
-                # The GT view should match exactly how ProjGrid projects 3D points to 2D.
+                # The anchor view should match exactly how ProjGrid projects 3D points to 2D.
                 # 
                 # In image_conditioned_proj.py (ProjGrid.forward):
                 # 1. grid_points are in [-1, 1]^3 (from torch.linspace(-1, 1, res))
@@ -193,25 +193,27 @@ class SparseStructureLatentVisMixin:
                 look_at = torch.tensor([0.0, 0.0, 0.0], device=coords.device)
                 cam_up = torch.tensor([0.0, 0.0, 1.0], device=coords.device)
                 
-                gt_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
-                gt_int = utils3d.torch.intrinsics_from_fov_xy(
+                anchor_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
+                anchor_int = utils3d.torch.intrinsics_from_fov_xy(
                     torch.tensor(fov, device=coords.device),
                     torch.tensor(fov, device=coords.device)
                 )
                 
                 # Ensure tensors are on the correct device (utils3d may not preserve device)
-                gt_ext = gt_ext.to(coords.device)
-                gt_int = gt_int.to(coords.device)
+                anchor_ext = anchor_ext.to(coords.device)
+                anchor_int = anchor_int.to(coords.device)
                 
-                gt_res = renderer.render(rep_scaled, gt_ext, gt_int, colors_overwrite=color)
-                gt_view_images.append(gt_res['color'])
+                anchor_res = renderer.render(
+                    rep_scaled, anchor_ext, anchor_int, colors_overwrite=color
+                )
+                anchor_view_images.append(anchor_res['color'])
         
         result = {
             'multiview': torch.stack(multiview_images),
         }
         
-        if has_gt_camera and len(gt_view_images) > 0:
-            result['anchor_view'] = torch.stack(gt_view_images)
+        if has_gt_camera and len(anchor_view_images) > 0:
+            result['anchor_view'] = torch.stack(anchor_view_images)
             
         return result
 

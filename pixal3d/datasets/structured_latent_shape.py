@@ -40,7 +40,7 @@ class SLatShapeVisMixin(SLatVisMixin):
         Args:
             x_0: SparseTensor or dict containing 'x_0'
             camera_angle_x: Optional [B] camera FOV angle in radians
-            camera_distance: Optional [B] camera distance for GT view rendering
+            camera_distance: Optional [B] camera distance for anchor-view rendering
             mesh_scale: Optional [B] mesh scale factor for coordinate alignment
             
         Returns:
@@ -58,7 +58,7 @@ class SLatShapeVisMixin(SLatVisMixin):
         pitch = [20 / 180 * np.pi for _ in range(4)]
         fixed_exts, fixed_ints = yaw_pitch_r_fov_to_extrinsics_intrinsics(yaw, pitch, 2, 30)
         
-        # Check if we have GT camera parameters for GT view rendering
+        # Check if we have GT camera parameters for anchor-view rendering.
         has_gt_camera = (
             camera_angle_x is not None and 
             camera_distance is not None and 
@@ -68,7 +68,7 @@ class SLatShapeVisMixin(SLatVisMixin):
         # render
         renderer = get_renderer(reps[0])
         multiview_images = []
-        gt_view_images = []
+        anchor_view_images = []
         
         for i, representation in enumerate(reps):
             # Render 4 fixed views (2x2 grid)
@@ -101,9 +101,9 @@ class SLatShapeVisMixin(SLatVisMixin):
                 image = torch.zeros(3, 1024, 1024).cuda()
             multiview_images.append(image)
             
-            # Render GT camera view using the fixed front view (same as sparse_structure_latent.py)
+            # Render the anchor camera view using the fixed front view (same as sparse_structure_latent.py).
             if has_gt_camera:
-                # The GT view should match exactly how ProjGrid projects 3D points to 2D.
+                # The anchor view should match exactly how ProjGrid projects 3D points to 2D.
                 # 
                 # In image_conditioned_proj.py (ProjGrid.forward):
                 # 1. grid_points are in [-1, 1]^3 (from torch.linspace(-1, 1, res))
@@ -134,14 +134,14 @@ class SLatShapeVisMixin(SLatVisMixin):
                 look_at = torch.tensor([0.0, 0.0, 0.0], device=device)
                 cam_up = torch.tensor([0.0, 1.0, 0.0], device=device)
                 
-                gt_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
-                gt_int = utils3d.torch.intrinsics_from_fov_xy(
+                anchor_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
+                anchor_int = utils3d.torch.intrinsics_from_fov_xy(
                     torch.tensor(fov, device=device),
                     torch.tensor(fov, device=device)
                 )
                 
-                gt_ext = gt_ext.to(device)
-                gt_int = gt_int.to(device)
+                anchor_ext = anchor_ext.to(device)
+                anchor_int = anchor_int.to(device)
                 
                 # Use scaled mesh renderer with appropriate near/far for smaller mesh
                 mesh_half_size = 0.5 / scale
@@ -149,18 +149,18 @@ class SLatShapeVisMixin(SLatVisMixin):
                 renderer.rendering_options.far = distance + mesh_half_size + 0.5
                 
                 try:
-                    gt_res = renderer.render(scaled_rep, gt_ext, gt_int)
-                    gt_view_images.append(gt_res['normal'])
+                    anchor_res = renderer.render(scaled_rep, anchor_ext, anchor_int)
+                    anchor_view_images.append(anchor_res['normal'])
                 except RuntimeError as e:
-                    print(f"[visualize_sample] Warning: GT view render failed for sample {i}: {e}")
-                    gt_view_images.append(torch.full((3, 512, 512), 0.5, device=device))
+                    print(f"[visualize_sample] Warning: anchor view render failed for sample {i}: {e}")
+                    anchor_view_images.append(torch.full((3, 512, 512), 0.5, device=device))
         
         result = {
             'multiview': torch.stack(multiview_images),
         }
         
-        if has_gt_camera and len(gt_view_images) > 0:
-            result['anchor_view'] = torch.stack(gt_view_images)
+        if has_gt_camera and len(anchor_view_images) > 0:
+            result['anchor_view'] = torch.stack(anchor_view_images)
             
         return result
     
