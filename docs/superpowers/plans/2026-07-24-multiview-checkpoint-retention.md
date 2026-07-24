@@ -147,4 +147,3 @@ git add \
   tests/multiview/test_checkpoint_retention.py
 git commit -m "feat: bound multiview checkpoint retention"
 ```
-

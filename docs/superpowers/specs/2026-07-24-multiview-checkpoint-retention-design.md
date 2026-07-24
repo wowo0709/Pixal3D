@@ -44,4 +44,3 @@ If any save fails, the exception propagates and pruning does not run. Existing c
 `max_checkpoints` defaults to `None`. Configurations that omit it retain the existing non-blocking save behavior and do not prune checkpoints.
 
 A configured value must be a positive integer. Booleans, zero, negative numbers, and non-integers are rejected.
-
