@@ -425,9 +425,8 @@ class BasicTrainer:
         misc_path = os.path.join(ckpt_dir, f'misc_step{self.step:07d}.pt')
         retention_enabled = self.max_checkpoints is not None
         if retention_enabled and os.path.exists(misc_path):
-            raise FileExistsError(
-                f'complete checkpoint already exists for step {self.step}'
-            )
+            print(' Already complete, skipping.')
+            return
         temporary_paths = set()
         
         try:

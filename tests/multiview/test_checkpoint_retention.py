@@ -4,6 +4,7 @@ import threading
 import pytest
 import torch
 
+import pixal3d.trainers.basic as basic
 from pixal3d.trainers.basic import BasicTrainer
 
 
@@ -92,22 +93,52 @@ def test_failed_misc_save_does_not_publish_a_retention_marker(tmp_path, monkeypa
     assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, 7))
 
 
-def test_duplicate_completed_step_is_rejected_without_overwriting_checkpoint(tmp_path, monkeypatch):
+def test_duplicate_completed_step_is_a_noop_without_reserializing_checkpoint(tmp_path, monkeypatch):
     trainer = _make_trainer(tmp_path, step=6)
     ckpt_dir = tmp_path / "ckpts"
     _write_complete_checkpoint(ckpt_dir, 6)
     original_model = torch.load(ckpt_dir / "denoiser_step0000006.pt", weights_only=True)
+    save_calls = []
 
-    def fail_if_duplicate_save_attempted(*args, **kwargs):
-        raise OSError("duplicate model or EMA save attempted")
+    def record_duplicate_save_attempt(*args, **kwargs):
+        save_calls.append(args)
 
-    monkeypatch.setattr(torch, "save", fail_if_duplicate_save_attempted)
+    monkeypatch.setattr(torch, "save", record_duplicate_save_attempt)
 
-    with pytest.raises(FileExistsError, match="complete checkpoint"):
-        trainer.save()
+    trainer.save()
 
+    assert save_calls == []
     assert torch.load(ckpt_dir / "denoiser_step0000006.pt", weights_only=True) == original_model
     assert all(path.exists() for path in _checkpoint_paths(ckpt_dir, 6))
+
+
+def test_abort_after_scheduled_retained_save_reaches_abort_flow_without_reserializing(
+    tmp_path, monkeypatch, capsys
+):
+    trainer = _make_trainer(tmp_path, step=6)
+    trainer.mix_precision_mode = "inflat_all"
+    trainer.mix_precision_dtype = torch.float16
+    trainer.log_scale = -1
+    trainer.world_size = 2
+    trainer.save()
+    save_calls = []
+    log_calls = []
+    barriers = []
+
+    def record_duplicate_save_attempt(*args, **kwargs):
+        save_calls.append(args)
+
+    monkeypatch.setattr(torch, "save", record_duplicate_save_attempt)
+    monkeypatch.setattr(trainer, "save_logs", lambda: log_calls.append(trainer.step))
+    monkeypatch.setattr(basic.dist, "barrier", lambda: barriers.append(True))
+
+    with pytest.raises(ValueError, match="ABORT: log_scale"):
+        trainer.check_abort()
+
+    assert "ABORT: log_scale" in capsys.readouterr().out
+    assert save_calls == []
+    assert log_calls == [6]
+    assert barriers == [True]
 
 
 def test_incomplete_step_is_not_a_retention_marker(tmp_path):
