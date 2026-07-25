@@ -72,7 +72,7 @@ class StagePreflight:
     asset_scope_sha256: str
     anchors_checked: int
     validation_counts: dict[str, int]
-    materialization_sha256: str = ""
+    materialization_sha256: str
 
 
 def _error(stage: str, asset: str | None, message: str, anchor: str | None = None) -> ValueError:
@@ -533,6 +533,7 @@ def _validated_handoff_inputs(
     results: Mapping[str, StagePreflight],
     materializations: Mapping[str, Mapping[str, object]],
     index_sha256: str | None = None,
+    index_path: Path | None = None,
 ) -> None:
     stages = tuple(HANDOFF_STAGE_COUNTS)
     if set(results) != set(stages) or set(materializations) != set(stages):
@@ -568,6 +569,7 @@ def _validated_handoff_inputs(
             or not isinstance(source_index.get("path"), str)
             or not source_index.get("path")
             or source_index.get("sha256") != evidence.get("index_sha256")
+            or (index_path is not None and source_index.get("path") != str(index_path))
             or evidence.get("stage") != stage
             or evidence.get("stage_root") != str(result.root.resolve())
             or evidence.get("asset_count") != result.asset_count
@@ -578,7 +580,9 @@ def _validated_handoff_inputs(
             or len(set(scope)) != len(scope)
             or len(scope) != result.asset_count
             or scope_digest != result.asset_scope_sha256
-            or (result.materialization_sha256 and sha256(_canonical_json_bytes(evidence)).hexdigest() != result.materialization_sha256)
+            or not isinstance(result.materialization_sha256, str)
+            or len(result.materialization_sha256) != 64
+            or sha256(_canonical_json_bytes(evidence)).hexdigest() != result.materialization_sha256
             or (index_sha256 is not None and evidence.get("index_sha256") != index_sha256)
         ):
             raise ValueError(f"materialization evidence does not match strict preflight for stage={stage}")
@@ -631,7 +635,8 @@ def build_report(
     created_at: str,
 ) -> dict[str, object]:
     """Build the immutable evidence report for the approved ABO valid subset."""
-    _validated_handoff_inputs(results, materializations, index_sha256)
+    index_path = Path(index_path).resolve()
+    _validated_handoff_inputs(results, materializations, index_sha256, index_path)
     evidence, observed_tool_commits = _materialization_evidence(materializations)
     stages = _stage_records(results)
     return {
@@ -676,7 +681,7 @@ def build_handoff(
         or len(index_sha256) != 64
     ):
         raise ValueError("report source_index path and digest are invalid")
-    _validated_handoff_inputs(results, materializations, index_sha256)
+    _validated_handoff_inputs(results, materializations, index_sha256, Path(index_path).resolve())
     expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
     if report_sha256 != expected_digest:
         raise ValueError("report digest does not match canonical report bytes")
@@ -714,8 +719,7 @@ def publish_handoff(
     created_at: str,
 ) -> tuple[Path, Path, Path]:
     """Create shared immutable evidence before atomically writing local input data."""
-    _validated_handoff_inputs(results, materializations)
-    index_path = Path(index_path)
+    index_path = Path(index_path).resolve()
     index_sha256 = sha256(_existing_regular_bytes(index_path)).hexdigest()
     existing_report = _load_existing_json(report_path, "report")
     if existing_report is not None:

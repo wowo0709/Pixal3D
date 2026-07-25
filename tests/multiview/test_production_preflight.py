@@ -417,7 +417,7 @@ def canonical_json_bytes(value: object) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64) -> tuple[dict[str, preflight.StagePreflight], dict[str, dict[str, object]]]:
+def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64, index_path: Path | None = None) -> tuple[dict[str, preflight.StagePreflight], dict[str, dict[str, object]]]:
     results = {}
     materializations = {}
     for stage, asset_count in HANDOFF_STAGE_COUNTS.items():
@@ -431,13 +431,14 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64) -> tuple[dict[s
             asset_scope_sha256=scope_digest,
             anchors_checked=asset_count * 2,
             validation_counts={"assets": asset_count, "renders": asset_count * 8},
+            materialization_sha256="0" * 64,
         )
         materializations[stage] = {
             "schema_version": 1,
             "created_at": "2026-07-25T00:00:00Z",
             "source": "ABO",
             "shard_id": "ABO-00000",
-            "source_index": {"path": "/synthetic/index.json", "sha256": index_sha256},
+            "source_index": {"path": str((index_path or tmp_path / "index.json").resolve()), "sha256": index_sha256},
             "acceptance_mode": "valid_subset_user_waiver",
             "original_90_percent_gate_passed": False,
             "counts": {"frozen": 4485, "global_quarantine": 825, "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS},
@@ -450,13 +451,44 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64) -> tuple[dict[s
             "tool_commits": [f"{stage}-tool"],
             "packs": [{"tool_commit": f"{stage}-pack-tool"}],
         }
-    return results, materializations
+    return with_evidence_digests(results, materializations), materializations
+
+
+def with_evidence_digests(results, materializations):
+    return {
+        stage: replace(result, materialization_sha256=hashlib.sha256(
+            canonical_json_bytes(materializations[stage])
+        ).hexdigest())
+        for stage, result in results.items()
+    }
+
+
+@pytest.mark.parametrize("digest", ["", None, "not-a-sha"])
+def test_build_report_requires_a_valid_preflight_evidence_digest(tmp_path, digest):
+    """Omitting the preflight evidence digest would allow a TOCTOU publication."""
+    results, materializations = handoff_inputs(tmp_path)
+    results = with_evidence_digests(results, materializations)
+    results["ss64"] = replace(results["ss64"], materialization_sha256=digest)
+    with pytest.raises(ValueError, match="materialization"):
+        preflight.build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+
+
+def test_build_report_rejects_a_materialization_source_index_path_mismatch(tmp_path):
+    """A matching index digest cannot authorize evidence that names another index path."""
+    index = tmp_path / "index.json"
+    results, materializations = handoff_inputs(tmp_path)
+    for evidence in materializations.values():
+        evidence["source_index"]["path"] = str(index.resolve())
+    materializations["shape512"]["source_index"]["path"] = str((tmp_path / "other-index.json").resolve())
+    results = with_evidence_digests(results, materializations)
+    with pytest.raises(ValueError, match="materialization"):
+        preflight.build_report(index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
 
 
 def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_path):
     """Dropping a waiver count, evidence digest, or stage root must invalidate the handoff."""
-    results, materializations = handoff_inputs(tmp_path)
     index = tmp_path / "immutable-index.json"
+    results, materializations = handoff_inputs(tmp_path, index_path=index)
     report = preflight.build_report(
         index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z"
     )
@@ -511,7 +543,7 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
 ])
 def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(tmp_path, mutation):
     """A direct caller must not combine a valid report with another index or stage evidence."""
-    results, materializations = handoff_inputs(tmp_path)
+    results, materializations = handoff_inputs(tmp_path, index_path=tmp_path / "index-a.json")
     report = preflight.build_report(
         tmp_path / "index-a.json", "i" * 64, results, materializations,
         "2026-07-25T00:00:00Z",
@@ -566,6 +598,7 @@ def test_publish_recovers_an_existing_report_with_its_original_timestamp(tmp_pat
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
         evidence["source_index"]["sha256"] = index_sha256
+    results = with_evidence_digests(results, materializations)
     report_path = tmp_path / "shared" / "report.json"
     report = preflight.build_report(index, index_sha256, results, materializations, "2026-01-01T00:00:00Z")
     preflight.write_create_only_json(report_path, report)
@@ -590,6 +623,7 @@ def test_publish_recovers_existing_report_and_handoff_after_local_failure(tmp_pa
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
         evidence["source_index"]["sha256"] = index_sha256
+    results = with_evidence_digests(results, materializations)
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
@@ -610,6 +644,7 @@ def test_publish_rejects_evidence_reread_that_differs_from_preflight_bytes(tmp_p
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
         evidence["source_index"]["sha256"] = index_sha256
+    results = with_evidence_digests(results, materializations)
     for stage, result in list(results.items()):
         results[stage] = replace(result, materialization_sha256=hashlib.sha256(canonical_json_bytes(materializations[stage])).hexdigest())
     materializations["ss64"]["tool_commits"] = ["later-mutation"]
@@ -663,7 +698,7 @@ def test_publish_handoff_withholds_all_outputs_until_every_stage_passes(tmp_path
         failed = results["pbr1024"]
         results["pbr1024"] = preflight.StagePreflight(
             failed.stage, failed.root, failed.asset_count, failed.asset_scope_sha256,
-            failed.anchors_checked - 1, failed.validation_counts,
+            failed.anchors_checked - 1, failed.validation_counts, failed.materialization_sha256,
         )
     index = tmp_path / "index.json"
     index.write_text('{"source":"ABO"}\n')
@@ -689,6 +724,7 @@ def test_publish_handoff_cross_links_canonical_shared_artifacts_before_local_man
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
         evidence["source_index"]["sha256"] = index_sha256
+    results = with_evidence_digests(results, materializations)
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
@@ -721,6 +757,7 @@ def test_publish_handoff_withholds_local_manifest_when_shared_handoff_rejects_co
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
         evidence["source_index"]["sha256"] = index_sha256
+    results = with_evidence_digests(results, materializations)
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     handoff_path.parent.mkdir(parents=True)
