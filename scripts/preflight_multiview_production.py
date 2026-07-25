@@ -681,7 +681,10 @@ def build_handoff(
         or len(index_sha256) != 64
     ):
         raise ValueError("report source_index path and digest are invalid")
-    _validated_handoff_inputs(results, materializations, index_sha256, Path(index_path).resolve())
+    canonical_index_path = str(Path(index_path).resolve())
+    if index_path != canonical_index_path:
+        raise ValueError("report source_index path must be canonical")
+    _validated_handoff_inputs(results, materializations, index_sha256, Path(canonical_index_path))
     expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
     if report_sha256 != expected_digest:
         raise ValueError("report digest does not match canonical report bytes")
@@ -702,7 +705,7 @@ def build_handoff(
         "authorization": "training-input use only",
         "counts": report["counts"],
         "stages": report["stages"],
-        "source_index": report["source_index"],
+        "source_index": {"path": canonical_index_path, "sha256": index_sha256},
         "materialization_evidence": evidence,
         "observed_tool_commits": observed_tool_commits,
         "report": {"path": str(report_path), "sha256": report_sha256},

@@ -570,6 +570,23 @@ def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(t
         )
 
 
+@pytest.mark.parametrize("path_spelling", ["relative", "parent"])
+def test_build_handoff_rejects_noncanonical_report_source_index_path(tmp_path, path_spelling):
+    """A direct builder must not copy a relative or dot-dot source index into a handoff."""
+    index = tmp_path / "index.json"
+    results, materializations = handoff_inputs(tmp_path, index_path=index)
+    report = preflight.build_report(index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+    if path_spelling == "relative":
+        report["source_index"]["path"] = os.path.relpath(index, Path.cwd())
+    else:
+        report["source_index"]["path"] = str(index.parent / "nested" / ".." / index.name)
+    with pytest.raises(ValueError, match="source_index"):
+        preflight.build_handoff(
+            tmp_path / "report.json", hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
+            report, results, materializations, "2026-07-25T00:00:00Z",
+        )
+
+
 @pytest.mark.parametrize("mutation", ["missing", "reordered", "digest"])
 def test_handoff_rejects_noncanonical_materialization_scope(tmp_path, mutation):
     """A published handoff must not certify evidence whose claimed scope was not proven."""
