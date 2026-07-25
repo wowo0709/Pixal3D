@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import csv
 from dataclasses import dataclass
 from hashlib import sha256
 import json
 import os
+import errno
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -44,6 +46,11 @@ EXPECTED_STAGE_COUNTS = {
     "shape512": 3631,
     "shape1024": 3660,
     "pbr1024": 3660,
+}
+EXPECTED_WAIVER_COUNTS = {
+    "frozen_assets": 4485,
+    "quarantined_assets": 825,
+    "shape512_exclusions": 29,
 }
 _FAMILY_ROOTS = {
     "SS-64": "ss_latents/ss_enc_conv3d_16l8_fp16_64_view",
@@ -197,6 +204,45 @@ def compute_stage_scopes(
     return scopes
 
 
+def _waiver_population(catalog: Mapping[str, Sequence[FamilyPack]]) -> dict[str, int]:
+    """Calculate the frozen-base waiver and its required cross-family subsets."""
+    required = {family for families in STAGE_FAMILIES.values() for family in families}
+    try:
+        frozen = {
+            family: {asset for record in catalog[family] for asset in record.frozen_assets}
+            for family in required
+        }
+        included = {
+            family: {asset for record in catalog[family] for asset in record.included_assets}
+            for family in required
+        }
+    except KeyError as error:
+        raise ValueError(f"missing waiver family: {error.args[0]}") from error
+    frozen_base = frozen["common"]
+    if any(scope != frozen_base for scope in frozen.values()):
+        raise ValueError("waiver frozen populations differ across families")
+    baseline = included["common"]
+    for family in ("SS-64", "shape-1024", "PBR-1024"):
+        if included[family] != baseline:
+            raise ValueError(f"waiver baseline inclusion differs for {family}")
+    if not included["shape-512"].issubset(baseline):
+        raise ValueError("waiver shape-512 scope is not a baseline subset")
+    return {
+        "frozen_assets": len(frozen_base),
+        "quarantined_assets": len(frozen_base - baseline),
+        "shape512_exclusions": len(baseline - included["shape-512"]),
+    }
+
+
+def _validate_waiver(
+    catalog: Mapping[str, Sequence[FamilyPack]], expected_waiver: Mapping[str, int]
+) -> dict[str, int]:
+    actual = _waiver_population(catalog)
+    if actual != dict(expected_waiver):
+        raise ValueError(f"unexpected production waiver population: {actual}")
+    return actual
+
+
 def _expected_member_paths(family: str, asset: str) -> tuple[str, ...]:
     if family == "common":
         return tuple(f"renders_cond/{asset}/{frame:03d}.png" for frame in range(8)) + (f"renders_cond/{asset}/transforms.json",)
@@ -251,6 +297,40 @@ def _write_metadata(path: Path, assets: tuple[str, ...], fields: dict[str, bool]
             writer.writerow({"sha256": asset, **fields})
 
 
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+
+
+def _publish_no_replace(temporary: Path, final: Path) -> None:
+    """Atomically publish a directory only while its lexical destination is absent."""
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except AttributeError as error:
+        raise RuntimeError("atomic no-replace publication is unavailable") from error
+    renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    renameat2.restype = ctypes.c_int
+    if renameat2(_AT_FDCWD, os.fsencode(temporary), _AT_FDCWD, os.fsencode(final), _RENAME_NOREPLACE) != 0:
+        error_number = ctypes.get_errno()
+        if error_number in (errno.EEXIST, errno.ENOTEMPTY):
+            raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
+        raise OSError(error_number, os.strerror(error_number), final)
+
+
+def _acquire_destination_lock(final: Path) -> Path:
+    if os.path.lexists(final):
+        raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
+    lock = final.with_name(".active.materialize.lock")
+    try:
+        descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
+    except FileExistsError as error:
+        raise FileExistsError(f"stage materialization already active: {final}") from error
+    os.close(descriptor)
+    if os.path.lexists(final):
+        lock.unlink(missing_ok=True)
+        raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
+    return lock
+
+
 def materialize_stage(
     stage: str,
     catalog: Mapping[str, Sequence[FamilyPack]],
@@ -258,17 +338,21 @@ def materialize_stage(
     *,
     index_path: Path,
     expected_counts: Mapping[str, int] = EXPECTED_STAGE_COUNTS,
+    expected_waiver: Mapping[str, int] = EXPECTED_WAIVER_COUNTS,
 ) -> Path:
     if stage not in STAGE_FAMILIES:
         raise ValueError(f"unknown production stage: {stage}")
     final = Path(output_root) / stage / "active"
-    if final.exists():
+    if os.path.lexists(final):
         raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
     scopes = compute_stage_scopes(catalog, expected_counts)
+    waiver = _validate_waiver(catalog, expected_waiver)
     assets = scopes[stage]
     final.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=".materializing-", dir=final.parent))
+    lock = _acquire_destination_lock(final)
+    temporary: Path | None = None
     try:
+        temporary = Path(tempfile.mkdtemp(prefix=".materializing-", dir=final.parent))
         evidence_packs = []
         for family in STAGE_FAMILIES[stage]:
             records = catalog[family]
@@ -296,12 +380,16 @@ def materialize_stage(
             "stage_scope_sha256": sha256("\n".join(assets).encode()).hexdigest(),
             "tool_commits": sorted({record.tool_commit for family in STAGE_FAMILIES[stage] for record in catalog[family]}),
             "waiver": "production-valid-subset",
+            **waiver,
         }
         (temporary / "materialization.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
-        os.replace(temporary, final)
+        _publish_no_replace(temporary, final)
     except Exception:
-        shutil.rmtree(temporary, ignore_errors=True)
+        if temporary is not None:
+            shutil.rmtree(temporary, ignore_errors=True)
         raise
+    finally:
+        lock.unlink(missing_ok=True)
     return final
 
 
