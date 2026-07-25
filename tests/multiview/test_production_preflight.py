@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import signal
+import subprocess
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -349,6 +351,48 @@ def test_direct_loader_checks_every_anchor_without_dataset_retry(tmp_path, monke
     assert preflight.validate_direct_loader(stage, root, [ASSET], config) == 2
     assert torch.cuda.get_device_name is original_get_device_name
     assert not torch.cuda.is_initialized()
+
+
+def test_direct_script_loader_imports_pixal3d_from_outside_repository(tmp_path):
+    """Direct script execution must locate the repository package before real loading."""
+    root = make_stage(tmp_path)
+    config = write_loader_config(tmp_path, "ss64")
+    script = Path(preflight.__file__).resolve()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    worker = """
+import runpy
+import sys
+from pathlib import Path
+
+script = Path(sys.argv[1]).resolve()
+repository = script.parent.parent
+sys.path[:] = [
+    str(script.parent),
+    *[
+        entry
+        for entry in sys.path
+        if entry and Path(entry).resolve() not in (repository, script.parent)
+    ],
+]
+subject = runpy.run_path(str(script), run_name="direct_script_regression")
+checked = subject["validate_direct_loader"](
+    "ss64", Path(sys.argv[2]), [sys.argv[3]], Path(sys.argv[4])
+)
+print(checked)
+"""
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, "-c", worker, str(script), str(root), ASSET, str(config)],
+        cwd=outside,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().endswith("2")
 
 
 def test_direct_loader_surfaces_damaged_anchor_instead_of_retrying_another_sample(tmp_path, monkeypatch):

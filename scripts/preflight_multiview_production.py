@@ -5,6 +5,7 @@ import csv
 import json
 import os
 import stat
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +17,9 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 import torch
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 SOURCE = "ABO"
