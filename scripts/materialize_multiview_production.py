@@ -376,7 +376,7 @@ def materialize_stage(
         evidence = {
             "asset_count": len(assets), "index_sha256": file_sha(Path(index_path)),
             "packs": sorted(evidence_packs, key=lambda value: (value["family"], value["batch_id"])),
-            "stage": stage, "stage_scope": list(assets),
+            "stage": stage, "stage_root": str(final.resolve()), "stage_scope": list(assets),
             "stage_scope_sha256": sha256("\n".join(assets).encode()).hexdigest(),
             "tool_commits": sorted({record.tool_commit for family in STAGE_FAMILIES[stage] for record in catalog[family]}),
             "waiver": "production-valid-subset",

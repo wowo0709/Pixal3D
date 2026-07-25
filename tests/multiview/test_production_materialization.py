@@ -193,6 +193,7 @@ def test_materialize_stage_extracts_only_intersection_and_exact_metadata(tmp_pat
         assert list(csv.DictReader(stream)) == [{"sha256": asset_a, "cond_rendered": "True"}]
     evidence = json.loads((final / "materialization.json").read_text())
     assert evidence["stage"] == "shape512" and evidence["asset_count"] == 1
+    assert evidence["stage_root"] == str(final.resolve())
     assert evidence["waiver"] == "production-valid-subset"
 
 

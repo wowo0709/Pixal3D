@@ -67,7 +67,10 @@ def _regular(path: Path, stage: str, asset: str, label: str, anchor: str | None 
 
 
 def _metadata_assets(stage: str, root: Path, relative: str, fields: tuple[str, ...], expected: set[str]) -> None:
-    path = root / relative / "metadata.csv"
+    component_root = root / relative
+    if component_root.is_symlink() or not component_root.is_dir():
+        raise _error(stage, None, f"missing or unsafe component root: {relative}")
+    path = component_root / "metadata.csv"
     _regular(path, stage, None, f"metadata for {relative}")
     with path.open(newline="") as stream:
         reader = csv.DictReader(stream)
@@ -89,7 +92,6 @@ def _metadata_assets(stage: str, root: Path, relative: str, fields: tuple[str, .
         missing, extra = expected - actual, actual - expected
         asset = sorted(missing or extra)[0] if missing or extra else None
         raise _error(stage, asset, f"metadata scope mismatch for {relative}")
-    component_root = root / relative
     entries = {entry.name for entry in component_root.iterdir()}
     allowed = {"metadata.csv", *expected}
     if entries != allowed:
@@ -126,10 +128,11 @@ def _validate_render(stage: str, root: Path, asset: str) -> int:
         expected_name = f"{index:03d}.png"
         if not isinstance(file_path, str) or file_path != expected_name:
             raise _error(stage, asset, f"unsafe or unordered frame path: {file_path!r}")
-        image_path = (directory / file_path).resolve()
+        entry_path = directory / file_path
+        _regular(entry_path, stage, asset, "render PNG")
+        image_path = entry_path.resolve()
         if not image_path.is_relative_to(directory.resolve()):
             raise _error(stage, asset, f"unsafe frame path: {file_path!r}")
-        _regular(image_path, stage, asset, "render PNG")
         try:
             with Image.open(image_path) as image:
                 image.verify()
@@ -165,6 +168,8 @@ def _scale(stage: str, asset: str, path: Path, anchor: str) -> np.float32:
     _regular(path, stage, asset, "scale JSON", anchor)
     try:
         value = json.loads(path.read_text())["total_scale"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("total_scale must be a JSON numeric scalar")
         scale = np.float32(value)
     except (KeyError, TypeError, ValueError, OverflowError, json.JSONDecodeError) as error:
         raise _error(stage, asset, "total_scale must be finite and positive after float32 conversion", anchor) from error
@@ -363,8 +368,14 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
         count = evidence["asset_count"]
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         raise _error(stage, None, "invalid materialization evidence") from error
+    if "stage_root" not in evidence:
+        raise _error(stage, None, "materialization stage root identity is missing")
+    stage_root = evidence["stage_root"]
     if evidence.get("stage") != stage or not isinstance(assets, list) or not all(isinstance(asset, str) for asset in assets):
         raise _error(stage, None, "materialization stage identity is invalid")
+    canonical_root = str(Path(root).resolve())
+    if not isinstance(stage_root, str) or stage_root != canonical_root:
+        raise _error(stage, None, "materialization stage root identity mismatch")
     if assets != sorted(assets) or len(set(assets)) != len(assets) or count != len(assets):
         raise _error(stage, None, "materialization asset scope is not canonical")
     computed = sha256("\n".join(assets).encode()).hexdigest()

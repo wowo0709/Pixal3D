@@ -192,6 +192,16 @@ def test_structure_rejects_invalid_render_or_camera_contract(tmp_path, mutation)
     assert_context(caught, "ss64")
 
 
+def test_structure_rejects_in_directory_render_png_symlink(tmp_path):
+    root = make_stage(tmp_path)
+    render = root / "renders_cond" / ASSET
+    (render / "000.png").unlink()
+    (render / "000.png").symlink_to("001.png")
+    with pytest.raises(ValueError) as caught:
+        validate_stage_structure("ss64", root, [ASSET])
+    assert_context(caught, "ss64")
+
+
 @pytest.mark.parametrize("mutation", ["missing_npz", "missing_scale", "scale_missing", "scale_nan", "scale_zero", "scale_underflow", "bad_key", "bad_dtype", "bad_finite", "bad_shape"])
 def test_structure_rejects_ss_latent_or_scale_mutations(tmp_path, mutation):
     root = make_stage(tmp_path)
@@ -221,6 +231,17 @@ def test_structure_rejects_ss_latent_or_scale_mutations(tmp_path, mutation):
     with pytest.raises(ValueError) as caught:
         validate_stage_structure("ss64", root, [ASSET])
     assert_context(caught, "ss64", "view00")
+
+
+@pytest.mark.parametrize("value", [True, "1.0", [1.0], [1.0, 2.0]])
+@pytest.mark.parametrize("stage, component", [("ss64", "ss"), ("pbr1024", "shape1024"), ("pbr1024", "pbr")])
+def test_structure_rejects_non_numeric_scalar_total_scale(tmp_path, stage, component, value):
+    root = make_stage(tmp_path, stage)
+    scale = component_root(stage, root, component) / ASSET / "view00_scale.json"
+    write_scale(scale, value)
+    with pytest.raises(ValueError) as caught:
+        validate_stage_structure(stage, root, [ASSET])
+    assert_context(caught, stage, "view00")
 
 
 @pytest.mark.parametrize("stage, component, mutation", [
@@ -340,7 +361,7 @@ def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(t
     digest = __import__("hashlib").sha256(ASSET.encode()).hexdigest()
     (root / "materialization.json").write_text(json.dumps({
         "stage": "ss64", "asset_count": 1, "stage_scope": [ASSET],
-        "stage_scope_sha256": digest,
+        "stage_scope_sha256": digest, "stage_root": str(root.resolve()),
     }))
     result = preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
     assert result.stage == "ss64"
@@ -350,3 +371,22 @@ def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(t
     assert result.validation_counts == {"assets": 1, "renders": 8, "latents": 2, "scales": 2}
     with pytest.raises((AttributeError, TypeError)):
         result.stage = "changed"
+
+
+@pytest.mark.parametrize("mutation", ["missing", "altered", "mismatched"])
+def test_preflight_rejects_missing_altered_or_mismatched_materialization_root(tmp_path, mutation):
+    root = make_stage(tmp_path)
+    digest = __import__("hashlib").sha256(ASSET.encode()).hexdigest()
+    evidence = {
+        "stage": "ss64", "asset_count": 1, "stage_scope": [ASSET],
+        "stage_scope_sha256": digest, "stage_root": str(root.resolve()),
+    }
+    if mutation == "missing":
+        evidence.pop("stage_root")
+    elif mutation == "altered":
+        evidence["stage_root"] = str(root.parent / root.name / ".." / root.name)
+    else:
+        evidence["stage_root"] = str((tmp_path / "other" / "active").resolve())
+    (root / "materialization.json").write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="root"):
+        preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
