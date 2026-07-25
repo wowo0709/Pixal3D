@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
+import os
+import stat
+import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 from unittest.mock import patch
 
 import numpy as np
@@ -39,6 +44,23 @@ CONFIGS = {
     "shape512": Path("configs/gen/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json"),
     "shape1024": Path("configs/gen/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json"),
     "pbr1024": Path("configs/gen/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json"),
+}
+DEFAULT_ROOT = Path("/root/node17/data/pixal3d/train/production/abo")
+DEFAULT_INDEX = Path("/root/data2/pixal3d/prepared/index/ABO/ABO-00000.json")
+DEFAULT_REPORT = Path(
+    "/root/data2/pixal3d/control/reports/gates/ABO/"
+    "ABO-00000-valid-subset.json"
+)
+DEFAULT_HANDOFF = Path(
+    "/root/data2/pixal3d/control/splits/ABO/"
+    "ABO-00000-valid-subset-handoff.json"
+)
+DEFAULT_TRAINING_DATA = DEFAULT_ROOT / "training_data.json"
+HANDOFF_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3631,
+    "shape1024": 3660,
+    "pbr1024": 3660,
 }
 
 
@@ -389,3 +411,289 @@ def preflight_stage(stage: str, root: Path, config_path: Path) -> StagePreflight
     counts = validate_stage_structure(stage, root, assets)
     anchors = validate_direct_loader(stage, root, assets, config_path)
     return StagePreflight(stage, Path(root), len(assets), digest, anchors, counts)
+
+
+def _canonical_json_bytes(value: Mapping[str, object]) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _existing_regular_bytes(path: Path) -> bytes:
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError as error:
+        raise FileExistsError(f"existing path is not a regular non-symlink file: {path}") from error
+    if not stat.S_ISREG(mode):
+        raise FileExistsError(f"existing path is not a regular non-symlink file: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise FileExistsError(f"existing path is not a regular non-symlink file: {path}") from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise FileExistsError(f"existing path is not a regular non-symlink file: {path}")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            return stream.read()
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_directory(directory: Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def write_create_only_json(path: Path, value: Mapping[str, object]) -> str:
+    """Publish canonical JSON once, accepting only byte-identical reruns."""
+    path = Path(path)
+    payload = _canonical_json_bytes(value)
+    digest = sha256(payload).hexdigest()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if os.path.lexists(path):
+        if _existing_regular_bytes(path) != payload:
+            raise FileExistsError(f"existing create-only JSON has different content: {path}")
+        return digest
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if _existing_regular_bytes(path) != payload:
+                raise FileExistsError(f"existing create-only JSON has different content: {path}")
+        else:
+            _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return digest
+
+
+def _write_atomic_json(path: Path, value: Mapping[str, object]) -> str:
+    path = Path(path)
+    payload = _canonical_json_bytes(value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return sha256(payload).hexdigest()
+
+
+def _validated_handoff_inputs(
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    index_sha256: str | None = None,
+) -> None:
+    stages = tuple(HANDOFF_STAGE_COUNTS)
+    if set(results) != set(stages) or set(materializations) != set(stages):
+        raise ValueError("all four strict preflight results and materializations are required")
+    for stage, expected_count in HANDOFF_STAGE_COUNTS.items():
+        result = results[stage]
+        if (
+            result.stage != stage
+            or result.asset_count != expected_count
+            or result.anchors_checked != expected_count * 2
+            or result.validation_counts.get("assets") != expected_count
+        ):
+            raise ValueError(f"strict preflight did not complete successfully for stage={stage}")
+        evidence = materializations[stage]
+        if (
+            evidence.get("stage") != stage
+            or evidence.get("stage_root") != str(result.root.resolve())
+            or evidence.get("asset_count") != result.asset_count
+            or evidence.get("stage_scope_sha256") != result.asset_scope_sha256
+            or (index_sha256 is not None and evidence.get("index_sha256") != index_sha256)
+        ):
+            raise ValueError(f"materialization evidence does not match strict preflight for stage={stage}")
+
+
+def _materialization_evidence(
+    materializations: Mapping[str, Mapping[str, object]],
+) -> tuple[dict[str, dict[str, object]], list[str]]:
+    summaries: dict[str, dict[str, object]] = {}
+    observed: set[str] = set()
+    for stage in HANDOFF_STAGE_COUNTS:
+        evidence = materializations[stage]
+        commits = evidence.get("tool_commits")
+        packs = evidence.get("packs")
+        if not isinstance(commits, list) or not all(isinstance(commit, str) and commit for commit in commits):
+            raise ValueError(f"materialization evidence lacks tool commits for stage={stage}")
+        if not isinstance(packs, list) or not all(isinstance(pack, dict) for pack in packs):
+            raise ValueError(f"materialization evidence lacks pack records for stage={stage}")
+        pack_commits = [pack.get("tool_commit") for pack in packs]
+        if not all(isinstance(commit, str) and commit for commit in pack_commits):
+            raise ValueError(f"materialization evidence lacks observed pack tool commits for stage={stage}")
+        observed.update(commits)
+        observed.update(pack_commits)
+        summaries[stage] = {
+            "sha256": sha256(_canonical_json_bytes(evidence)).hexdigest(),
+            "tool_commits": sorted(set(commits) | set(pack_commits)),
+        }
+    return summaries, sorted(observed)
+
+
+def build_report(
+    index_path: Path,
+    index_sha256: str,
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    created_at: str,
+) -> dict[str, object]:
+    """Build the immutable evidence report for the approved ABO valid subset."""
+    _validated_handoff_inputs(results, materializations, index_sha256)
+    evidence, observed_tool_commits = _materialization_evidence(materializations)
+    stages = {
+        stage: {
+            "root": str(results[stage].root),
+            "asset_count": results[stage].asset_count,
+            "asset_scope_sha256": results[stage].asset_scope_sha256,
+            "anchors_checked": results[stage].anchors_checked,
+            "validation_counts": results[stage].validation_counts,
+            "data_dir": stage_data_dir(stage, results[stage].root),
+        }
+        for stage in HANDOFF_STAGE_COUNTS
+    }
+    return {
+        "schema_version": 1,
+        "created_at": created_at,
+        "source": SOURCE,
+        "shard_id": "ABO-00000",
+        "source_index": {"path": str(index_path), "sha256": index_sha256},
+        "acceptance_mode": "valid_subset_user_waiver",
+        "original_90_percent_gate_passed": False,
+        "authorization": "training-input use only",
+        "counts": {
+            "frozen": 4485,
+            "global_quarantine": 825,
+            "shape512_family_exclusions": 29,
+            "stages": HANDOFF_STAGE_COUNTS,
+        },
+        "stages": stages,
+        "materialization_evidence": evidence,
+        "observed_tool_commits": observed_tool_commits,
+    }
+
+
+def build_handoff(
+    report_path: Path,
+    report_sha256: str,
+    report: Mapping[str, object],
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    created_at: str,
+) -> dict[str, object]:
+    """Build the training-input-only handoff that pins the report by digest."""
+    _validated_handoff_inputs(results, materializations)
+    expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
+    if report_sha256 != expected_digest:
+        raise ValueError("report digest does not match canonical report bytes")
+    evidence, observed_tool_commits = _materialization_evidence(materializations)
+    return {
+        "schema_version": 1,
+        "created_at": created_at,
+        "source": SOURCE,
+        "shard_id": "ABO-00000",
+        "acceptance_mode": "valid_subset_user_waiver",
+        "original_90_percent_gate_passed": False,
+        "authorization": "training-input use only",
+        "counts": report["counts"],
+        "stages": report["stages"],
+        "source_index": report["source_index"],
+        "materialization_evidence": evidence,
+        "observed_tool_commits": observed_tool_commits,
+        "report": {"path": str(report_path), "sha256": report_sha256},
+    }
+
+
+def publish_handoff(
+    index_path: Path,
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    report_path: Path,
+    handoff_path: Path,
+    training_data_path: Path,
+    created_at: str,
+) -> tuple[Path, Path, Path]:
+    """Create shared immutable evidence before atomically writing local input data."""
+    _validated_handoff_inputs(results, materializations)
+    index_path = Path(index_path)
+    index_sha256 = sha256(_existing_regular_bytes(index_path)).hexdigest()
+    report = build_report(index_path, index_sha256, results, materializations, created_at)
+    report_sha256 = write_create_only_json(Path(report_path), report)
+    handoff = build_handoff(
+        Path(report_path), report_sha256, report, results, materializations, created_at
+    )
+    handoff_sha256 = write_create_only_json(Path(handoff_path), handoff)
+    training_data = {
+        "schema_version": 1,
+        "created_at": created_at,
+        "source": SOURCE,
+        "shard_id": "ABO-00000",
+        "acceptance_mode": "valid_subset_user_waiver",
+        "original_90_percent_gate_passed": False,
+        "authorization": "training-input use only",
+        "counts": report["counts"],
+        "stages": report["stages"],
+        "source_index": report["source_index"],
+        "materialization_evidence": handoff["materialization_evidence"],
+        "observed_tool_commits": handoff["observed_tool_commits"],
+        "report": handoff["report"],
+        "handoff": {"path": str(handoff_path), "sha256": handoff_sha256},
+    }
+    _write_atomic_json(Path(training_data_path), training_data)
+    return Path(report_path), Path(handoff_path), Path(training_data_path)
+
+
+def _materialization_evidence_from_root(root: Path) -> dict[str, object]:
+    path = Path(root) / "materialization.json"
+    _regular(path, "handoff", None, "materialization.json")
+    try:
+        value = json.loads(_existing_regular_bytes(path))
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError(f"invalid materialization evidence: {path}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid materialization evidence: {path}")
+    return value
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    parser.add_argument("--index", type=Path, default=DEFAULT_INDEX)
+    parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument("--handoff", type=Path, default=DEFAULT_HANDOFF)
+    parser.add_argument("--training-data", type=Path, default=DEFAULT_TRAINING_DATA)
+    args = parser.parse_args()
+    results: dict[str, StagePreflight] = {}
+    for stage in HANDOFF_STAGE_COUNTS:
+        results[stage] = preflight_stage(stage, args.root / stage / "active", CONFIGS[stage])
+    materializations = {
+        stage: _materialization_evidence_from_root(result.root)
+        for stage, result in results.items()
+    }
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    report, handoff, training_data = publish_handoff(
+        args.index, results, materializations, args.report, args.handoff, args.training_data,
+        created_at,
+    )
+    print(report)
+    print(handoff)
+    print(training_data)
+
+
+if __name__ == "__main__":
+    main()

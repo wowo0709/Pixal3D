@@ -512,6 +512,52 @@ ObjaverseXL GitHub source는 repository 단위 크기와 다운로드 지연 문
 production source에서 제외한다. 별도 registry와 download 정책을 확정하기 전에는
 현재 4-source queue에 다시 넣지 않는다.
 
+## 7-3. ABO 승인 valid-subset materialization 및 handoff
+
+ABO `ABO-00000`의 원래 source-level 90% production gate는 통과하지 않았다. 그러나
+사용자는 검증된 valid subset의 사용을 승인했다. 이 예외의 고정 수치는 frozen 4,485,
+global quarantine 825, shape-512 추가 family exclusion 29이며, stage별 수치는
+`ss64=3,660`, `shape512=3,631`, `shape1024=3,660`, `pbr1024=3,660`이다. 따라서
+이 handoff는 `valid_subset_user_waiver`를 명시하며 원래 90% gate가 통과했다는 뜻이
+아니다.
+
+입력은 다음의 변경 불가 production index와 pack만 사용한다.
+
+```text
+/root/data2/pixal3d/prepared/index/ABO/ABO-00000.json
+/root/data2/pixal3d/prepared/{common,ss/64,shape/512,shape/1024,pbr/1024}/ABO/ABO-00000/
+```
+
+출력 stage는 서로 격리된
+`/root/node17/data/pixal3d/train/production/abo/{ss64,shape512,shape1024,pbr1024}/active`
+이며, 기존 `active` root는 절대로 덮어쓰지 않는다. 다음 두 명령은 낮은 CPU/I/O
+우선순위로 실행하고 GPU를 사용하지 않는다.
+
+```bash
+CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
+  conda run --no-capture-output -n pixal3d \
+  python scripts/materialize_multiview_production.py
+
+CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
+  conda run --no-capture-output -n pixal3d \
+  python scripts/preflight_multiview_production.py
+```
+
+엄격한 네 stage preflight가 모두 통과한 뒤에만 다음 immutable shared 문서와 local
+convenience manifest가 생성된다.
+
+```text
+/root/data2/pixal3d/control/reports/gates/ABO/ABO-00000-valid-subset.json
+/root/data2/pixal3d/control/splits/ABO/ABO-00000-valid-subset-handoff.json
+/root/node17/data/pixal3d/train/production/abo/training_data.json
+```
+
+공유 report/handoff는 create-only다. 이미 존재하면 byte-identical 내용만 재실행으로
+허용하며, 다른 내용은 덮어쓰지 않고 실패한다. local `training_data.json`은 두 공유
+문서가 모두 성공한 뒤에만 원자적으로 쓴다. 이 명령들은 training을 시작하지 않으며
+training-input 사용만 승인한다. 실패 시 명령으로 기존 `active`나 문서를 삭제하지 말고,
+operator가 evidence, digest, stage scope를 먼저 점검한 뒤 복구 방법을 결정한다.
+
 ## 8. 모델 구현 시점
 
 데이터 단계에서 최소한 다음 조건을 만족한 뒤 모델 구현으로 이동한다.

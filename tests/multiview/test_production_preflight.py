@@ -1,5 +1,9 @@
 import csv
+import hashlib
 import json
+import os
+import signal
+import time
 from pathlib import Path
 
 import numpy as np
@@ -390,3 +394,284 @@ def test_preflight_rejects_missing_altered_or_mismatched_materialization_root(tm
     (root / "materialization.json").write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="root"):
         preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
+
+
+HANDOFF_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3631,
+    "shape1024": 3660,
+    "pbr1024": 3660,
+}
+
+
+def canonical_json_bytes(value: object) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64) -> tuple[dict[str, preflight.StagePreflight], dict[str, dict[str, object]]]:
+    results = {}
+    materializations = {}
+    for stage, asset_count in HANDOFF_STAGE_COUNTS.items():
+        root = tmp_path / "isolated" / stage / "active"
+        results[stage] = preflight.StagePreflight(
+            stage=stage,
+            root=root,
+            asset_count=asset_count,
+            asset_scope_sha256=(stage[0] * 64),
+            anchors_checked=asset_count * 2,
+            validation_counts={"assets": asset_count, "renders": asset_count * 8},
+        )
+        materializations[stage] = {
+            "stage": stage,
+            "stage_root": str(root),
+            "asset_count": asset_count,
+            "stage_scope_sha256": stage[0] * 64,
+            "index_sha256": index_sha256,
+            "tool_commits": [f"{stage}-tool"],
+            "packs": [{"tool_commit": f"{stage}-pack-tool"}],
+        }
+    return results, materializations
+
+
+def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_path):
+    """Dropping a waiver count, evidence digest, or stage root must invalidate the handoff."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "immutable-index.json"
+    report = preflight.build_report(
+        index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z"
+    )
+
+    assert report["acceptance_mode"] == "valid_subset_user_waiver"
+    assert report["original_90_percent_gate_passed"] is False
+    assert report["counts"] == {
+        "frozen": 4485,
+        "global_quarantine": 825,
+        "shape512_family_exclusions": 29,
+        "stages": HANDOFF_STAGE_COUNTS,
+    }
+    assert report["observed_tool_commits"] == sorted([
+        "pbr1024-pack-tool", "pbr1024-tool", "shape1024-pack-tool", "shape1024-tool",
+        "shape512-pack-tool", "shape512-tool", "ss64-pack-tool", "ss64-tool",
+    ])
+    for stage, evidence in materializations.items():
+        assert report["materialization_evidence"][stage]["sha256"] == hashlib.sha256(
+            canonical_json_bytes(evidence)
+        ).hexdigest()
+        assert report["stages"][stage]["data_dir"] == preflight.stage_data_dir(
+            stage, results[stage].root
+        )
+
+    report_path = tmp_path / "shared" / "report.json"
+    handoff = preflight.build_handoff(
+        report_path,
+        hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
+        report,
+        results,
+        materializations,
+        "2026-07-25T00:00:00Z",
+    )
+    assert handoff["report"] == {
+        "path": str(report_path),
+        "sha256": hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
+    }
+    assert handoff["authorization"] == "training-input use only"
+    assert handoff["original_90_percent_gate_passed"] is False
+    assert handoff["stages"]["pbr1024"]["data_dir"] == {
+        "ABO": {
+            "base": str(tmp_path / "isolated" / "pbr1024" / "active"),
+            "render_cond": str(tmp_path / "isolated" / "pbr1024" / "active" / "renders_cond"),
+            "shape_latent": str(tmp_path / "isolated" / "pbr1024" / "active" / "shape_latents" / "shape_enc_next_dc_f16c32_fp16_1024_view"),
+            "pbr_latent": str(tmp_path / "isolated" / "pbr1024" / "active" / "pbr_latents" / "tex_enc_next_dc_f16c32_fp16_1024_view_fix"),
+        }
+    }
+
+
+def test_create_only_json_is_idempotent_but_refuses_different_or_symlinked_content(tmp_path):
+    """Replacing a published shared document must be rejected rather than overwritten."""
+    path = tmp_path / "shared" / "artifact.json"
+    first = preflight.write_create_only_json(path, {"a": 1})
+    assert first == hashlib.sha256(b'{\n  "a": 1\n}\n').hexdigest()
+    assert preflight.write_create_only_json(path, {"a": 1}) == first
+    with pytest.raises(FileExistsError, match="different"):
+        preflight.write_create_only_json(path, {"a": 2})
+    linked = tmp_path / "shared" / "linked.json"
+    linked.symlink_to(path)
+    with pytest.raises(FileExistsError, match="regular non-symlink"):
+        preflight.write_create_only_json(linked, {"a": 1})
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO requires a POSIX filesystem")
+def test_create_only_json_rejects_a_fifo_without_blocking(tmp_path):
+    """Opening a special file before checking its type can hang the preflight command."""
+    fifo = tmp_path / "shared" / "artifact.json"
+    fifo.parent.mkdir()
+    os.mkfifo(fifo)
+
+    def timeout(_signum, _frame):
+        raise TimeoutError("FIFO open blocked")
+
+    previous = signal.signal(signal.SIGALRM, timeout)
+    signal.setitimer(signal.ITIMER_REAL, 1)
+    started = time.monotonic()
+    try:
+        with pytest.raises(FileExistsError, match="regular non-symlink"):
+            preflight.write_create_only_json(fifo, {"a": 1})
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    assert time.monotonic() - started < 0.2
+
+
+@pytest.mark.parametrize("incomplete", ["absent", "failed"])
+def test_publish_handoff_withholds_all_outputs_until_every_stage_passes(tmp_path, incomplete):
+    """Publishing after a missing or incomplete strict preflight would authorize unsafe input."""
+    results, materializations = handoff_inputs(tmp_path)
+    if incomplete == "absent":
+        results.pop("pbr1024")
+    else:
+        failed = results["pbr1024"]
+        results["pbr1024"] = preflight.StagePreflight(
+            failed.stage, failed.root, failed.asset_count, failed.asset_scope_sha256,
+            failed.anchors_checked - 1, failed.validation_counts,
+        )
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    report = tmp_path / "shared" / "report.json"
+    handoff = tmp_path / "shared" / "handoff.json"
+    training_data = tmp_path / "local" / "training_data.json"
+    with pytest.raises(ValueError, match="strict preflight"):
+        preflight.publish_handoff(
+            index, results, materializations, report, handoff, training_data,
+            "2026-07-25T00:00:00Z",
+        )
+    assert not report.exists()
+    assert not handoff.exists()
+    assert not training_data.exists()
+
+
+def test_publish_handoff_cross_links_canonical_shared_artifacts_before_local_manifest(tmp_path):
+    """A changed report serializer or early local write must break this immutable handoff."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    for evidence in materializations.values():
+        evidence["index_sha256"] = index_sha256
+    report_path = tmp_path / "shared" / "report.json"
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    training_path = tmp_path / "local" / "training_data.json"
+    assert preflight.publish_handoff(
+        index, results, materializations, report_path, handoff_path, training_path,
+        "2026-07-25T00:00:00Z",
+    ) == (report_path, handoff_path, training_path)
+    report = json.loads(report_path.read_text())
+    handoff = json.loads(handoff_path.read_text())
+    training_data = json.loads(training_path.read_text())
+    assert handoff["report"]["sha256"] == hashlib.sha256(report_path.read_bytes()).hexdigest()
+    assert training_data["handoff"] == {
+        "path": str(handoff_path),
+        "sha256": hashlib.sha256(handoff_path.read_bytes()).hexdigest(),
+    }
+    assert training_data["authorization"] == "training-input use only"
+    assert training_data["materialization_evidence"] == handoff["materialization_evidence"]
+    assert training_data["observed_tool_commits"] == handoff["observed_tool_commits"]
+    assert handoff["source_index"] == report["source_index"]
+    assert training_data["source_index"] == report["source_index"]
+    assert training_data["report"] == handoff["report"]
+
+
+def test_publish_handoff_withholds_local_manifest_when_shared_handoff_rejects_content(tmp_path):
+    """The local convenience file must not appear when the second shared publish fails."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    for evidence in materializations.values():
+        evidence["index_sha256"] = index_sha256
+    report_path = tmp_path / "shared" / "report.json"
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    handoff_path.parent.mkdir(parents=True)
+    handoff_path.write_text('{"different":true}\n')
+    training_path = tmp_path / "local" / "training_data.json"
+    with pytest.raises(FileExistsError, match="different"):
+        preflight.publish_handoff(
+            index, results, materializations, report_path, handoff_path, training_path,
+            "2026-07-25T00:00:00Z",
+        )
+    assert report_path.exists()
+    assert not training_path.exists()
+
+
+@pytest.mark.parametrize("mutation", ["root", "count", "scope", "index"])
+def test_publish_handoff_rejects_materialization_evidence_not_bound_to_preflight(tmp_path, mutation):
+    """Publishing evidence for a different root, scope, count, or index is unsafe."""
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    results, materializations = handoff_inputs(
+        tmp_path, hashlib.sha256(index.read_bytes()).hexdigest()
+    )
+    evidence = materializations["pbr1024"]
+    if mutation == "root":
+        evidence["stage_root"] = str(tmp_path / "other" / "active")
+    elif mutation == "count":
+        evidence["asset_count"] = 1
+    elif mutation == "scope":
+        evidence["stage_scope_sha256"] = "x" * 64
+    else:
+        evidence["index_sha256"] = "x" * 64
+    report = tmp_path / "shared" / "report.json"
+    handoff = tmp_path / "shared" / "handoff.json"
+    training_data = tmp_path / "local" / "training_data.json"
+    with pytest.raises(ValueError, match="materialization evidence"):
+        preflight.publish_handoff(
+            index, results, materializations, report, handoff, training_data,
+            "2026-07-25T00:00:00Z",
+        )
+    assert not report.exists()
+    assert not handoff.exists()
+    assert not training_data.exists()
+
+
+def test_cli_completes_all_strict_preflights_before_requesting_handoff(tmp_path, monkeypatch):
+    """Moving publication into a stage loop would authorize training after a partial check."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    seen = []
+
+    def fake_preflight(stage: str, root: Path, config: Path) -> preflight.StagePreflight:
+        assert root == results[stage].root
+        seen.append(stage)
+        return results[stage]
+
+    def fake_publish(
+        received_index: Path,
+        received_results: dict[str, preflight.StagePreflight],
+        received_materializations: dict[str, dict[str, object]],
+        report: Path,
+        handoff: Path,
+        training_data: Path,
+        created_at: str,
+    ) -> tuple[Path, Path, Path]:
+        assert seen == list(HANDOFF_STAGE_COUNTS)
+        assert received_index == index
+        assert received_results == results
+        assert received_materializations == materializations
+        assert created_at.endswith("Z")
+        return report, handoff, training_data
+
+    for stage, evidence in materializations.items():
+        root = results[stage].root
+        root.mkdir(parents=True)
+        (root / "materialization.json").write_bytes(canonical_json_bytes(evidence))
+    monkeypatch.setattr(preflight, "preflight_stage", fake_preflight)
+    monkeypatch.setattr(preflight, "publish_handoff", fake_publish)
+    monkeypatch.setattr("sys.argv", [
+        "preflight_multiview_production.py",
+        "--root", str(tmp_path / "isolated"),
+        "--index", str(index),
+        "--report", str(tmp_path / "shared" / "report.json"),
+        "--handoff", str(tmp_path / "shared" / "handoff.json"),
+        "--training-data", str(tmp_path / "local" / "training_data.json"),
+    ])
+    preflight.main()
