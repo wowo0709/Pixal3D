@@ -546,17 +546,8 @@ def _materialization_evidence(
     return summaries, sorted(observed)
 
 
-def build_report(
-    index_path: Path,
-    index_sha256: str,
-    results: Mapping[str, StagePreflight],
-    materializations: Mapping[str, Mapping[str, object]],
-    created_at: str,
-) -> dict[str, object]:
-    """Build the immutable evidence report for the approved ABO valid subset."""
-    _validated_handoff_inputs(results, materializations, index_sha256)
-    evidence, observed_tool_commits = _materialization_evidence(materializations)
-    stages = {
+def _stage_records(results: Mapping[str, StagePreflight]) -> dict[str, dict[str, object]]:
+    return {
         stage: {
             "root": str(results[stage].root),
             "asset_count": results[stage].asset_count,
@@ -567,6 +558,19 @@ def build_report(
         }
         for stage in HANDOFF_STAGE_COUNTS
     }
+
+
+def build_report(
+    index_path: Path,
+    index_sha256: str,
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    created_at: str,
+) -> dict[str, object]:
+    """Build the immutable evidence report for the approved ABO valid subset."""
+    _validated_handoff_inputs(results, materializations, index_sha256)
+    evidence, observed_tool_commits = _materialization_evidence(materializations)
+    stages = _stage_records(results)
     return {
         "schema_version": 1,
         "created_at": created_at,
@@ -597,11 +601,29 @@ def build_handoff(
     created_at: str,
 ) -> dict[str, object]:
     """Build the training-input-only handoff that pins the report by digest."""
-    _validated_handoff_inputs(results, materializations)
+    source_index = report.get("source_index")
+    if not isinstance(source_index, Mapping):
+        raise ValueError("report source_index must be an object")
+    index_path = source_index.get("path")
+    index_sha256 = source_index.get("sha256")
+    if (
+        not isinstance(index_path, str)
+        or not index_path
+        or not isinstance(index_sha256, str)
+        or len(index_sha256) != 64
+    ):
+        raise ValueError("report source_index path and digest are invalid")
+    _validated_handoff_inputs(results, materializations, index_sha256)
     expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
     if report_sha256 != expected_digest:
         raise ValueError("report digest does not match canonical report bytes")
     evidence, observed_tool_commits = _materialization_evidence(materializations)
+    if (
+        report.get("stages") != _stage_records(results)
+        or report.get("materialization_evidence") != evidence
+        or report.get("observed_tool_commits") != observed_tool_commits
+    ):
+        raise ValueError("report is not bound to supplied preflight evidence")
     return {
         "schema_version": 1,
         "created_at": created_at,

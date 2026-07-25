@@ -486,6 +486,38 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
     }
 
 
+@pytest.mark.parametrize("mutation", [
+    "source_index_path", "source_index_digest", "stage_data", "evidence", "commits",
+])
+def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(tmp_path, mutation):
+    """A direct caller must not combine a valid report with another index or stage evidence."""
+    results, materializations = handoff_inputs(tmp_path)
+    report = preflight.build_report(
+        tmp_path / "index-a.json", "i" * 64, results, materializations,
+        "2026-07-25T00:00:00Z",
+    )
+    report = json.loads(json.dumps(report))
+    if mutation == "source_index_path":
+        report["source_index"]["path"] = ""
+    elif mutation == "source_index_digest":
+        report["source_index"]["sha256"] = "b" * 64
+    elif mutation == "stage_data":
+        report["stages"]["pbr1024"]["data_dir"] = {"ABO": {"base": "/wrong"}}
+    elif mutation == "evidence":
+        report["materialization_evidence"]["pbr1024"]["sha256"] = "b" * 64
+    else:
+        report["observed_tool_commits"] = ["wrong-tool"]
+    with pytest.raises(ValueError):
+        preflight.build_handoff(
+            tmp_path / "report.json",
+            hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
+            report,
+            results,
+            materializations,
+            "2026-07-25T00:00:00Z",
+        )
+
+
 def test_create_only_json_is_idempotent_but_refuses_different_or_symlinked_content(tmp_path):
     """Replacing a published shared document must be rejected rather than overwritten."""
     path = tmp_path / "shared" / "artifact.json"
