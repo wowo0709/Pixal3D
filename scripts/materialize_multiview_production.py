@@ -27,6 +27,11 @@ from data_toolkit.pipeline.packing import (  # noqa: E402
     file_sha,
     verify_pack,
 )
+from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
+    EligibilityExclusion,
+    filter_stage_scope,
+    policy_evidence,
+)
 from data_toolkit.pipeline.validation import ValidationError  # noqa: E402
 
 
@@ -42,11 +47,23 @@ STAGE_FAMILIES = {
     "shape1024": ("common", "shape-1024"),
     "pbr1024": ("common", "shape-1024", "PBR-1024"),
 }
-EXPECTED_STAGE_COUNTS = {
+EXPECTED_CANDIDATE_COUNTS = {
     "ss64": 3660,
     "shape512": 3631,
     "shape1024": 3660,
     "pbr1024": 3660,
+}
+EXPECTED_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3628,
+    "shape1024": 3634,
+    "pbr1024": 3598,
+}
+EXPECTED_TRAINING_EXCLUSION_COUNTS = {
+    "ss64": 0,
+    "shape512": 3,
+    "shape1024": 26,
+    "pbr1024": 62,
 }
 EXPECTED_WAIVER_COUNTS = {
     "frozen_assets": 4485,
@@ -316,6 +333,38 @@ def _write_metadata(path: Path, assets: tuple[str, ...], fields: dict[str, bool]
             writer.writerow({"sha256": asset, **fields})
 
 
+def _scope_sha256(assets: Sequence[str]) -> str:
+    return sha256("\n".join(assets).encode()).hexdigest()
+
+
+def _remove_excluded_assets(
+    temporary: Path, stage: str, exclusions: Sequence[EligibilityExclusion]
+) -> None:
+    """Remove only validated extracted asset directories in this hidden stage."""
+    components = ["renders_cond"] + [
+        _FAMILY_ROOTS[family] for family in STAGE_FAMILIES[stage] if family != "common"
+    ]
+    temporary_root = temporary.resolve(strict=True)
+    for exclusion in exclusions:
+        asset = exclusion.asset
+        if not isinstance(asset, str) or not asset or Path(asset).name != asset:
+            raise ValueError(f"unsafe excluded asset: {asset!r}")
+        for component in components:
+            component_root = (temporary / component).resolve(strict=True)
+            if not component_root.is_relative_to(temporary_root):
+                raise ValueError(f"unsafe temporary component: {component}")
+            target = component_root / asset
+            try:
+                target_stat = target.lstat()
+            except OSError as error:
+                raise ValueError(f"missing excluded asset directory: {component}/{asset}") from error
+            if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISDIR(target_stat.st_mode):
+                raise ValueError(f"invalid excluded asset directory: {component}/{asset}")
+            if not target.resolve(strict=True).is_relative_to(component_root):
+                raise ValueError(f"unsafe excluded asset directory: {component}/{asset}")
+            shutil.rmtree(target)
+
+
 _AT_FDCWD = -100
 _RENAME_NOREPLACE = 1
 
@@ -356,17 +405,23 @@ def materialize_stage(
     output_root: Path,
     *,
     index_path: Path,
-    expected_counts: Mapping[str, int] = EXPECTED_STAGE_COUNTS,
+    expected_counts: Mapping[str, int] = EXPECTED_CANDIDATE_COUNTS,
     expected_waiver: Mapping[str, int] = EXPECTED_WAIVER_COUNTS,
+    expected_stage_counts: Mapping[str, int] | None = None,
+    expected_training_exclusion_counts: Mapping[str, int] | None = None,
 ) -> Path:
     if stage not in STAGE_FAMILIES:
         raise ValueError(f"unknown production stage: {stage}")
     final = Path(output_root) / stage / "active"
     if os.path.lexists(final):
         raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
-    scopes = compute_stage_scopes(catalog, expected_counts)
+    candidate_scopes = compute_stage_scopes(catalog, expected_counts)
     waiver = _validate_waiver(catalog, expected_waiver)
-    assets = scopes[stage]
+    candidate_assets = candidate_scopes[stage]
+    if expected_stage_counts is None:
+        expected_stage_counts = EXPECTED_STAGE_COUNTS
+    if expected_training_exclusion_counts is None:
+        expected_training_exclusion_counts = EXPECTED_TRAINING_EXCLUSION_COUNTS
     final.parent.mkdir(parents=True, exist_ok=True)
     lock = _acquire_destination_lock(final)
     temporary: Path | None = None
@@ -376,7 +431,7 @@ def materialize_stage(
         for family in STAGE_FAMILIES[stage]:
             records = catalog[family]
             for record in records:
-                selected = tuple(asset for asset in assets if asset in record.included_assets)
+                selected = tuple(asset for asset in candidate_assets if asset in record.included_assets)
                 _copy_selected(record, selected, temporary)
                 evidence_packs.append({
                     "batch_id": record.batch_id, "family": family,
@@ -384,6 +439,12 @@ def materialize_stage(
                     "pack_sha256": record.pack_sha256, "manifest_sha256": record.manifest_sha256,
                     "tool_commit": record.tool_commit,
                 })
+        assets, exclusions = filter_stage_scope(stage, temporary, candidate_assets)
+        _remove_excluded_assets(temporary, stage, exclusions)
+        if len(assets) != expected_stage_counts[stage]:
+            raise ValueError(f"unexpected {stage} final scope count: {len(assets)}")
+        if len(exclusions) != expected_training_exclusion_counts[stage]:
+            raise ValueError(f"unexpected {stage} training exclusion count: {len(exclusions)}")
         _write_metadata(temporary / "renders_cond", assets, {"cond_rendered": True})
         for family in STAGE_FAMILIES[stage]:
             if family == "common":
@@ -404,12 +465,25 @@ def materialize_stage(
             "counts": {
                 "frozen": waiver["frozen_assets"], "global_quarantine": waiver["quarantined_assets"],
                 "shape512_family_exclusions": waiver["shape512_exclusions"],
-                "stages": {name: len(scope) for name, scope in scopes.items()},
+                "stages": {name: len(scope) for name, scope in candidate_scopes.items()},
             },
+            "candidate_asset_count": len(candidate_assets),
+            "candidate_stage_scope": list(candidate_assets),
+            "candidate_stage_scope_sha256": _scope_sha256(candidate_assets),
             "asset_count": len(assets), "index_sha256": file_sha(Path(index_path)),
             "packs": sorted(evidence_packs, key=lambda value: (value["family"], value["batch_id"])),
             "stage": stage, "stage_root": str(final.resolve()), "stage_scope": list(assets),
-            "stage_scope_sha256": sha256("\n".join(assets).encode()).hexdigest(),
+            "stage_scope_sha256": _scope_sha256(assets),
+            "training_exclusion_count": len(exclusions),
+            "training_exclusions": [
+                {"asset": exclusion.asset, "reasons": list(exclusion.reasons)}
+                for exclusion in exclusions
+            ],
+            "training_exclusion_reason_counts": {
+                reason: sum(reason in exclusion.reasons for exclusion in exclusions)
+                for reason in sorted({reason for exclusion in exclusions for reason in exclusion.reasons})
+            },
+            "eligibility_policy": policy_evidence(),
             "tool_commits": sorted({record.tool_commit for family in STAGE_FAMILIES[stage] for record in catalog[family]}),
             "waiver": "production-valid-subset",
             **waiver,
@@ -431,7 +505,7 @@ def materialize_all(
     output_root: Path,
     *,
     expected_batches: Sequence[str] = EXPECTED_BATCHES,
-    expected_counts: Mapping[str, int] = EXPECTED_STAGE_COUNTS,
+    expected_counts: Mapping[str, int] = EXPECTED_CANDIDATE_COUNTS,
 ) -> dict[str, Path]:
     catalog = load_production_catalog(index_path, prepared_root, SOURCE, SHARD_ID, expected_batches=expected_batches)
     return {stage: materialize_stage(stage, catalog, output_root, index_path=index_path, expected_counts=expected_counts) for stage in STAGE_FAMILIES}

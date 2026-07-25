@@ -6,8 +6,17 @@ import tarfile
 from hashlib import sha256
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+from data_toolkit.pipeline.training_eligibility import (
+    SCALE_ATOL,
+    SCALE_RTOL,
+    EligibilityExclusion,
+    evaluate_stage_asset,
+    filter_stage_scope,
+    policy_evidence,
+)
 import scripts.materialize_multiview_production as materializer
 from scripts.materialize_multiview_production import (
     FamilyPack,
@@ -33,9 +42,174 @@ FIXTURE_WAIVER = {
     "quarantined_assets": 0,
     "shape512_exclusions": 1,
 }
+FIXTURE_STAGE_COUNTS = {
+    "ss64": 2,
+    "shape512": 1,
+    "shape1024": 2,
+    "pbr1024": 2,
+}
+FIXTURE_TRAINING_EXCLUSION_COUNTS = {
+    "ss64": 0,
+    "shape512": 0,
+    "shape1024": 0,
+    "pbr1024": 0,
+}
 
 
-def _members(family, assets):
+_ELIGIBILITY_ROOTS = {
+    "shape512": ("shape_latents/shape_enc_next_dc_f16c32_fp16_512_view",),
+    "shape1024": ("shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view",),
+    "pbr1024": (
+        "shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view",
+        "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix",
+    ),
+}
+
+
+def _npz_payload(count, *, coords=None, feats=None):
+    coords = np.zeros((count, 3), dtype=np.float32) if coords is None else coords
+    feats = np.zeros((count, 32), dtype=np.float32) if feats is None else feats
+    stream = io.BytesIO()
+    np.savez(stream, coords=coords, feats=feats)
+    return stream.getvalue()
+
+
+def write_eligibility_stage(
+    tmp_path,
+    stage,
+    *,
+    asset="e" * 64,
+    shape_counts=(1, 1),
+    pbr_counts=None,
+    shape_coords=None,
+    pbr_coords=None,
+    shape_scales=(0.5, 0.5),
+    pbr_scales=None,
+):
+    """Build real extracted latent files for one policy input asset."""
+    root = tmp_path / "stage"
+    pbr_counts = shape_counts if pbr_counts is None else pbr_counts
+    pbr_scales = shape_scales if pbr_scales is None else pbr_scales
+    for family_root in _ELIGIBILITY_ROOTS[stage]:
+        counts = pbr_counts if family_root.startswith("pbr_latents") else shape_counts
+        coords = pbr_coords if family_root.startswith("pbr_latents") else shape_coords
+        scales = pbr_scales if family_root.startswith("pbr_latents") else shape_scales
+        for anchor, count in enumerate(counts):
+            anchor_coords = None if coords is None else coords[anchor]
+            (root / family_root / asset).mkdir(parents=True, exist_ok=True)
+            (root / family_root / asset / f"view{anchor:02d}.npz").write_bytes(
+                _npz_payload(count, coords=anchor_coords)
+            )
+            (root / family_root / asset / f"view{anchor:02d}_scale.json").write_text(
+                json.dumps(scales[anchor])
+            )
+    return root, asset
+
+
+def test_training_eligibility_uses_both_anchor_token_limits(tmp_path):
+    """Dropping the second Shape-512 anchor token check must reject this asset."""
+    root, asset = write_eligibility_stage(
+        tmp_path, "shape512", shape_counts=(8192, 8193)
+    )
+    assert evaluate_stage_asset("shape512", root, asset) == (
+        "shape_tokens_view01_exceed_8192",
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "counts", "expected"),
+    [
+        ("shape512", (8192, 8192), ()),
+        ("shape512", (8193, 8192), ("shape_tokens_view00_exceed_8192",)),
+        ("shape1024", (32768, 32768), ()),
+        ("shape1024", (32768, 32769), ("shape_tokens_view01_exceed_32768",)),
+    ],
+)
+def test_training_eligibility_enforces_exact_shape_token_boundaries(tmp_path, stage, counts, expected):
+    """Changing either configured Shape token boundary must alter these real NPZ outcomes."""
+    root, asset = write_eligibility_stage(tmp_path, stage, shape_counts=counts)
+    assert evaluate_stage_asset(stage, root, asset) == expected
+
+
+def test_training_eligibility_applies_pbr1024_limit_to_shape_and_pbr_anchors(tmp_path):
+    """Omitting either PBR-stage latent family from token inspection must fail this result."""
+    root, asset = write_eligibility_stage(
+        tmp_path, "pbr1024", shape_counts=(32769, 32768), pbr_counts=(32768, 32769)
+    )
+    assert evaluate_stage_asset("pbr1024", root, asset) == (
+        "pbr_shape_coords_view00_mismatch",
+        "pbr_shape_coords_view01_mismatch",
+        "pbr_tokens_view01_exceed_32768",
+        "shape_tokens_view00_exceed_32768",
+    )
+
+
+def test_training_eligibility_requires_exact_pbr_shape_coordinates(tmp_path):
+    """Comparing only coordinate shapes must reject value-mismatched PBR anchors."""
+    shape_coords = (np.zeros((2, 3), dtype=np.float32), np.zeros((2, 3), dtype=np.float32))
+    pbr_coords = (np.ones((2, 3), dtype=np.float32), np.zeros((2, 3), dtype=np.float32))
+    root, asset = write_eligibility_stage(
+        tmp_path, "pbr1024", shape_counts=(2, 2), shape_coords=shape_coords, pbr_coords=pbr_coords
+    )
+    assert evaluate_stage_asset("pbr1024", root, asset) == (
+        "pbr_shape_coords_view00_mismatch",
+    )
+
+
+def test_training_eligibility_accepts_scale_drift_at_float32_tolerance(tmp_path):
+    """Tightening approved float32 scale tolerance must reject this PBR anchor pair."""
+    root, asset = write_eligibility_stage(
+        tmp_path, "pbr1024", shape_scales=(0.5, 0.5), pbr_scales=(0.5000002, 0.5)
+    )
+    assert evaluate_stage_asset("pbr1024", root, asset) == ()
+
+
+def test_training_eligibility_rejects_scale_drift_above_float32_tolerance(tmp_path):
+    """Ignoring PBR scale mismatches must fail to exclude this above-tolerance anchor."""
+    root, asset = write_eligibility_stage(
+        tmp_path, "pbr1024", shape_scales=(0.5, 0.5), pbr_scales=(0.5000003, 0.5)
+    )
+    assert evaluate_stage_asset("pbr1024", root, asset) == (
+        "pbr_shape_scale_view00_mismatch",
+    )
+
+
+@pytest.mark.parametrize("invalid_scale", ["0.5", [0.5], float("nan"), 0, -1])
+def test_training_eligibility_rejects_invalid_scale_json_with_asset_context(tmp_path, invalid_scale):
+    """Permitting malformed, non-finite, or non-positive scales must stop policy evaluation."""
+    root, asset = write_eligibility_stage(tmp_path, "pbr1024")
+    scale_path = root / _ELIGIBILITY_ROOTS["pbr1024"][0] / asset / "view00_scale.json"
+    scale_path.write_text(json.dumps(invalid_scale))
+    with pytest.raises(ValueError, match=asset):
+        evaluate_stage_asset("pbr1024", root, asset)
+
+
+def test_training_eligibility_filters_in_canonical_order_with_sorted_unique_reasons(tmp_path):
+    """Unsorted candidates or duplicate reasons must not produce nondeterministic exclusion evidence."""
+    root, rejected = write_eligibility_stage(
+        tmp_path, "pbr1024", shape_counts=(32769, 32768), pbr_counts=(32768, 32769),
+        shape_scales=(0.5, 0.5), pbr_scales=(0.5000003, 0.5),
+    )
+    valid = "d" * 64
+    write_eligibility_stage(tmp_path, "pbr1024", asset=valid)
+    final, exclusions = filter_stage_scope("pbr1024", root, (rejected, valid, rejected))
+    assert final == (valid,)
+    assert exclusions == (EligibilityExclusion(rejected, (
+        "pbr_shape_coords_view00_mismatch",
+        "pbr_shape_coords_view01_mismatch",
+        "pbr_shape_scale_view00_mismatch",
+        "pbr_tokens_view01_exceed_32768",
+        "shape_tokens_view00_exceed_32768",
+    )),)
+    assert policy_evidence() == {
+        "schema_version": 1,
+        "token_limits": {"shape512": 8192, "shape1024": 32768, "pbr1024": 32768},
+        "pbr_shape_coordinates": "exact",
+        "pbr_shape_scale": {"dtype": "float32", "rtol": SCALE_RTOL, "atol": SCALE_ATOL},
+    }
+
+
+def _members(family, assets, latent_specs=None):
     values = {}
     for asset in assets:
         if family == "common":
@@ -52,13 +226,19 @@ def _members(family, assets):
                 "PBR-512": "pbr_latents/tex_enc_next_dc_f16c32_fp16_512_view_fix",
                 "PBR-1024": "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix",
             }[family]
-            for name in ("view00.npz", "view00_scale.json", "view01.npz", "view01_scale.json"):
-                values[f"{root}/{asset}/{name}"] = f"{asset}-{name}".encode()
+            for anchor in range(2):
+                spec = (latent_specs or {}).get((family, asset, anchor), {})
+                values[f"{root}/{asset}/view{anchor:02d}.npz"] = _npz_payload(
+                    spec.get("count", 1), coords=spec.get("coords")
+                )
+                values[f"{root}/{asset}/view{anchor:02d}_scale.json"] = json.dumps(
+                    spec.get("scale", 0.5)
+                ).encode()
     return values
 
 
-def write_pack(path, *, batch, family, frozen, included):
-    members = _members(family, frozen)
+def write_pack(path, *, batch, family, frozen, included, latent_specs=None):
+    members = _members(family, frozen, latent_specs)
     manifest_members = []
     path.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(path, "w", format=tarfile.PAX_FORMAT) as bundle:
@@ -82,7 +262,7 @@ def write_pack(path, *, batch, family, frozen, included):
     return manifest_path
 
 
-def write_catalog_fixture(tmp_path):
+def write_catalog_fixture(tmp_path, *, shape512_includes_all=False, latent_specs=None):
     prepared = tmp_path / "prepared"
     index = {"gate": "production", "source": "ABO", "shard_id": "ABO-00000", "batches": {}}
     for batch, asset in (("batch000", ASSET_A), ("batch001", ASSET_B)):
@@ -90,10 +270,13 @@ def write_catalog_fixture(tmp_path):
         for family in FAMILIES:
             frozen = (asset,)
             included = frozen if family in {"common", "SS-64", "shape-1024", "PBR-1024"} else ()
-            if family == "shape-512" and batch == "batch000":
+            if family == "shape-512" and (batch == "batch000" or shape512_includes_all):
                 included = frozen
             pack = prepared / DIRS[family] / "ABO" / "ABO-00000" / f"{batch}.tar"
-            manifest = write_pack(pack, batch=batch, family=family, frozen=frozen, included=included)
+            manifest = write_pack(
+                pack, batch=batch, family=family, frozen=frozen, included=included,
+                latent_specs=latent_specs,
+            )
             records[family] = {
                 "pack": pack.relative_to(prepared).as_posix(),
                 "pack_sha256": sha256(pack.read_bytes()).hexdigest(),
@@ -187,6 +370,8 @@ def test_materialize_stage_extracts_only_intersection_and_exact_metadata(tmp_pat
     final = materialize_stage(
         "shape512", catalog, tmp_path / "output", index_path=index,
         expected_counts={"shape512": 1}, expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"shape512": 1},
+        expected_training_exclusion_counts={"shape512": 0},
     )
     assert sorted(path.name for path in (final / "renders_cond").iterdir()) == [asset_a, "metadata.csv"]
     with (final / "renders_cond" / "metadata.csv").open() as stream:
@@ -195,6 +380,118 @@ def test_materialize_stage_extracts_only_intersection_and_exact_metadata(tmp_pat
     assert evidence["stage"] == "shape512" and evidence["asset_count"] == 1
     assert evidence["stage_root"] == str(final.resolve())
     assert evidence["waiver"] == "production-valid-subset"
+
+
+def _metadata_assets(component):
+    with (component / "metadata.csv").open() as stream:
+        return [row["sha256"] for row in csv.DictReader(stream)]
+
+
+def test_materialize_stage_removes_training_ineligible_assets_from_every_component(tmp_path):
+    """Publishing the candidate instead of the Shape-512 eligible scope must fail this contract."""
+    latent_specs = {("shape-512", ASSET_B, 1): {"count": 8193}}
+    index, prepared, accepted, rejected = write_catalog_fixture(
+        tmp_path, shape512_includes_all=True, latent_specs=latent_specs
+    )
+    catalog = load_production_catalog(
+        index, prepared, "ABO", "ABO-00000", expected_batches=("batch000", "batch001")
+    )
+    final = materialize_stage(
+        "shape512", catalog, tmp_path / "output", index_path=index,
+        expected_counts={"shape512": 2}, expected_waiver={
+            "frozen_assets": 2, "quarantined_assets": 0, "shape512_exclusions": 0,
+        },
+        expected_stage_counts={"shape512": 1},
+        expected_training_exclusion_counts={"shape512": 1},
+    )
+    evidence = json.loads((final / "materialization.json").read_text())
+    assert evidence["candidate_asset_count"] == 2
+    assert evidence["candidate_stage_scope"] == [accepted, rejected]
+    assert evidence["candidate_stage_scope_sha256"] == sha256(
+        f"{accepted}\n{rejected}".encode()
+    ).hexdigest()
+    assert evidence["asset_count"] == 1
+    assert evidence["stage_scope"] == [accepted]
+    assert evidence["stage_scope_sha256"] == sha256(accepted.encode()).hexdigest()
+    assert evidence["training_exclusion_count"] == 1
+    assert evidence["training_exclusions"] == [{
+        "asset": rejected, "reasons": ["shape_tokens_view01_exceed_8192"],
+    }]
+    assert evidence["training_exclusion_reason_counts"] == {
+        "shape_tokens_view01_exceed_8192": 1,
+    }
+    assert evidence["eligibility_policy"] == policy_evidence()
+    for relative in (
+        "renders_cond",
+        "shape_latents/shape_enc_next_dc_f16c32_fp16_512_view",
+    ):
+        component = final / relative
+        assert _metadata_assets(component) == [accepted]
+        assert not (component / rejected).exists()
+
+
+def test_materialize_stage_keeps_tolerant_pbr_scale_and_removes_coordinate_mismatch(tmp_path):
+    """Skipping PBR coordinate checks or tightening approved scale tolerance must alter this scope."""
+    pbr_mismatch = np.ones((1, 3), dtype=np.float32)
+    latent_specs = {
+        ("PBR-1024", ASSET_A, 0): {"scale": 0.5000002},
+        ("PBR-1024", ASSET_B, 0): {"coords": pbr_mismatch},
+        ("PBR-1024", ASSET_B, 1): {"coords": pbr_mismatch},
+    }
+    index, prepared, accepted, rejected = write_catalog_fixture(tmp_path, latent_specs=latent_specs)
+    catalog = load_production_catalog(
+        index, prepared, "ABO", "ABO-00000", expected_batches=("batch000", "batch001")
+    )
+    final = materialize_stage(
+        "pbr1024", catalog, tmp_path / "output", index_path=index,
+        expected_counts={"pbr1024": 2}, expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"pbr1024": 1},
+        expected_training_exclusion_counts={"pbr1024": 1},
+    )
+    evidence = json.loads((final / "materialization.json").read_text())
+    assert evidence["stage_scope"] == [accepted]
+    assert evidence["training_exclusions"] == [{
+        "asset": rejected,
+        "reasons": [
+            "pbr_shape_coords_view00_mismatch",
+            "pbr_shape_coords_view01_mismatch",
+        ],
+    }]
+    assert evidence["training_exclusion_reason_counts"] == {
+        "pbr_shape_coords_view00_mismatch": 1,
+        "pbr_shape_coords_view01_mismatch": 1,
+    }
+    for relative in (
+        "renders_cond",
+        "shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view",
+        "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix",
+    ):
+        component = final / relative
+        assert _metadata_assets(component) == [accepted]
+        assert not (component / rejected).exists()
+
+
+def test_materialize_stage_cleans_hidden_temporary_when_final_eligibility_count_mismatches(tmp_path):
+    """Publishing a final scope with the wrong approved count must leave no active or hidden tree."""
+    latent_specs = {("shape-512", ASSET_B, 1): {"count": 8193}}
+    index, prepared, _, _ = write_catalog_fixture(
+        tmp_path, shape512_includes_all=True, latent_specs=latent_specs
+    )
+    catalog = load_production_catalog(
+        index, prepared, "ABO", "ABO-00000", expected_batches=("batch000", "batch001")
+    )
+    with pytest.raises(ValueError, match="final|training exclusion"):
+        materialize_stage(
+            "shape512", catalog, tmp_path / "output", index_path=index,
+            expected_counts={"shape512": 2}, expected_waiver={
+                "frozen_assets": 2, "quarantined_assets": 0, "shape512_exclusions": 0,
+            },
+            expected_stage_counts={"shape512": 2},
+            expected_training_exclusion_counts={"shape512": 1},
+        )
+    parent = tmp_path / "output" / "shape512"
+    assert not (parent / "active").exists()
+    assert not list(parent.glob(".materializing-*"))
 
 
 def test_materialize_stage_refuses_existing_active_before_temporary_creation(tmp_path):
@@ -222,6 +519,8 @@ def test_materialize_records_checked_waiver_and_sorted_evidence(tmp_path):
     final = materialize_stage(
         "shape512", catalog, tmp_path / "output", index_path=index,
         expected_counts={"shape512": 1}, expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"shape512": 1},
+        expected_training_exclusion_counts={"shape512": 0},
     )
     evidence = json.loads((final / "materialization.json").read_text())
     assert evidence["frozen_assets"] == 2
@@ -259,6 +558,8 @@ def test_materialize_rejects_dangling_active_symlink_lexically(tmp_path):
         materialize_stage(
             "shape512", catalog, tmp_path / "output", index_path=index,
             expected_counts={"shape512": 1}, expected_waiver=FIXTURE_WAIVER,
+            expected_stage_counts={"shape512": 1},
+            expected_training_exclusion_counts={"shape512": 0},
         )
     assert active.is_symlink() and not list(active.parent.glob(".materializing-*"))
 
@@ -278,6 +579,8 @@ def test_materialize_never_replaces_active_created_during_publication(tmp_path, 
         materialize_stage(
             "shape512", catalog, tmp_path / "output", index_path=index,
             expected_counts={"shape512": 1}, expected_waiver=FIXTURE_WAIVER,
+            expected_stage_counts={"shape512": 1},
+            expected_training_exclusion_counts={"shape512": 0},
         )
     active = tmp_path / "output" / "shape512" / "active"
     assert (active / "sentinel").read_text() == "racer"
@@ -413,7 +716,12 @@ def test_materialize_cleans_temporary_after_mid_extraction_failure(tmp_path):
 def test_materialize_sorts_multi_asset_metadata_and_evidence_scope(tmp_path):
     """A multi-asset stage must retain stable row and evidence ordering independent of pack order."""
     index, _, catalog = load_fixture(tmp_path)
-    final = materialize_stage("ss64", catalog, tmp_path / "output", index_path=index, expected_counts={"ss64": 2}, expected_waiver=FIXTURE_WAIVER)
+    final = materialize_stage(
+        "ss64", catalog, tmp_path / "output", index_path=index,
+        expected_counts={"ss64": 2}, expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"ss64": 2},
+        expected_training_exclusion_counts={"ss64": 0},
+    )
     with (final / "renders_cond" / "metadata.csv").open() as stream:
         assert [row["sha256"] for row in csv.DictReader(stream)] == [ASSET_A, ASSET_B]
     assert json.loads((final / "materialization.json").read_text())["stage_scope"] == [ASSET_A, ASSET_B]
@@ -442,14 +750,13 @@ def test_materializer_emits_exact_preflight_latent_metadata_headers(tmp_path):
              "sha256,pbr_latent_view00_encoded,pbr_latent_view01_encoded"),
         ),
     }
-    expected_counts = {
-        "ss64": 2, "shape512": 1, "shape1024": 2, "pbr1024": 2,
-    }
     for stage, expected_headers in cases.items():
         final = materialize_stage(
             stage, catalog, tmp_path / "output", index_path=index,
-            expected_counts={stage: expected_counts[stage]},
+            expected_counts={stage: FIXTURE_STAGE_COUNTS[stage]},
             expected_waiver=FIXTURE_WAIVER,
+            expected_stage_counts={stage: FIXTURE_STAGE_COUNTS[stage]},
+            expected_training_exclusion_counts={stage: FIXTURE_TRAINING_EXCLUSION_COUNTS[stage]},
         )
         assert [
             (relative, (final / relative / "metadata.csv").read_text().splitlines()[0])
