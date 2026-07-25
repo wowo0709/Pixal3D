@@ -553,6 +553,57 @@ coordinate는 정확히 동일해야 하고, finite positive float32 `total_scal
 금지한다. shared report/handoff/local manifest가 이미 있으면 먼저 중단하고 operator가
 byte digest와 recovery 상태를 확인한다.
 
+다음 recovery block은 위 failed current attempt에만 한 번 사용한다. 세 publication
+artifact가 모두 없고 source가 정확한 ABO production root일 때만 같은 filesystem 안에서
+rename한다. 어느 guard라도 실패하면 중단하고 아무 것도 삭제하지 않는다.
+
+```bash
+set -euo pipefail
+
+SOURCE=/root/node17/data/pixal3d/train/production/abo
+REJECTED=/root/node17/data/pixal3d/train/production/rejected
+REPORT=/root/data2/pixal3d/control/reports/gates/ABO/ABO-00000-valid-subset.json
+HANDOFF=/root/data2/pixal3d/control/splits/ABO/ABO-00000-valid-subset-handoff.json
+LOCAL_MANIFEST=/root/node17/data/pixal3d/train/production/abo/training_data.json
+
+for artifact in "$REPORT" "$HANDOFF" "$LOCAL_MANIFEST"; do
+  if [ -e "$artifact" ] || [ -L "$artifact" ]; then
+    echo "refusing recovery: published artifact exists: $artifact" >&2
+    exit 1
+  fi
+done
+if [ ! -d "$SOURCE" ] || [ -L "$SOURCE" ]; then
+  echo "refusing recovery: source is not the expected real directory: $SOURCE" >&2
+  exit 1
+fi
+mkdir -p -- "$REJECTED"
+if [ -L "$REJECTED" ]; then
+  echo "refusing recovery: rejected root must not be a symlink: $REJECTED" >&2
+  exit 1
+fi
+if [ "$(stat -c %d -- "$SOURCE")" != "$(stat -c %d -- "$REJECTED")" ]; then
+  echo "refusing recovery: source and rejected root are on different filesystems" >&2
+  exit 1
+fi
+
+TARGET="$REJECTED/abo-rejected-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+while [ -e "$TARGET" ] || [ -L "$TARGET" ]; do
+  TARGET="$REJECTED/abo-rejected-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+done
+printf 'guarded rename: %s -> %s\n' "$SOURCE" "$TARGET"
+
+# --no-clobber prevents replacing a target created after the uniqueness check.
+mv -T -n -- "$SOURCE" "$TARGET"
+if [ -e "$SOURCE" ] || [ -L "$SOURCE" ] || [ ! -d "$TARGET" ] || [ -L "$TARGET" ]; then
+  echo "recovery rename did not produce the expected source/target state" >&2
+  exit 1
+fi
+printf 'preserved failed attempt at %s\n' "$TARGET"
+```
+
+위 block 성공 후에도 `SOURCE`가 없고 출력된 `TARGET`만 존재하는지 다시 확인한 뒤 아래
+process/free-space check와 CPU-only materializer/preflight 명령으로 진행한다.
+
 ```bash
 pgrep -af 'materialize_multiview_production|preflight_multiview_production' || true
 df -BG /root/node17/data/pixal3d/train/production

@@ -783,19 +783,19 @@ def build_handoff(
     canonical_index_path = str(Path(index_path).resolve())
     if index_path != canonical_index_path:
         raise ValueError("report source_index path must be canonical")
+    report_created_at = report.get("created_at")
+    if not isinstance(report_created_at, str) or not report_created_at or report_created_at != created_at:
+        raise ValueError("report creation time does not match handoff transaction")
     _validated_handoff_inputs(results, materializations, index_sha256, Path(canonical_index_path))
     expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
     if report_sha256 != expected_digest:
         raise ValueError("report digest does not match canonical report bytes")
-    evidence, observed_tool_commits = _materialization_evidence(materializations)
-    if (
-        report.get("stages") != _stage_records(results)
-        or report.get("counts") != _handoff_counts()
-        or report.get("eligibility_policy") != policy_evidence()
-        or report.get("materialization_evidence") != evidence
-        or report.get("observed_tool_commits") != observed_tool_commits
-    ):
+    expected_report = build_report(
+        Path(canonical_index_path), index_sha256, results, materializations, report_created_at
+    )
+    if report != expected_report:
         raise ValueError("report is not bound to supplied preflight evidence")
+    evidence, observed_tool_commits = _materialization_evidence(materializations)
     return {
         "schema_version": 1,
         "created_at": created_at,

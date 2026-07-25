@@ -698,6 +698,8 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
 
 @pytest.mark.parametrize("mutation", [
     "source_index_path", "source_index_digest", "stage_data", "evidence", "commits",
+    "acceptance_mode", "failed_gate", "authorization", "source", "shard_id",
+    "schema_version", "created_at",
 ])
 def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(tmp_path, mutation):
     """A direct caller must not combine a valid report with another index or stage evidence."""
@@ -715,8 +717,22 @@ def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(t
         report["stages"]["pbr1024"]["data_dir"] = {"ABO": {"base": "/wrong"}}
     elif mutation == "evidence":
         report["materialization_evidence"]["pbr1024"]["sha256"] = "b" * 64
-    else:
+    elif mutation == "commits":
         report["observed_tool_commits"] = ["wrong-tool"]
+    elif mutation == "acceptance_mode":
+        report["acceptance_mode"] = "unapproved"
+    elif mutation == "failed_gate":
+        report["original_90_percent_gate_passed"] = True
+    elif mutation == "authorization":
+        report["authorization"] = "training and publication"
+    elif mutation == "source":
+        report["source"] = "OTHER"
+    elif mutation == "shard_id":
+        report["shard_id"] = "ABO-99999"
+    elif mutation == "schema_version":
+        report["schema_version"] = 2
+    else:
+        report["created_at"] = "2026-07-26T00:00:00Z"
     with pytest.raises(ValueError):
         preflight.build_handoff(
             tmp_path / "report.json",
