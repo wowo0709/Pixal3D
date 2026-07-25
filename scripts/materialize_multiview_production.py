@@ -28,7 +28,14 @@ from data_toolkit.pipeline.packing import (  # noqa: E402
     verify_pack,
 )
 from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
+    EXPECTED_CANDIDATE_STAGE_COUNTS,
+    EXPECTED_FINAL_STAGE_COUNTS,
+    EXPECTED_FROZEN_COUNT,
+    EXPECTED_GLOBAL_QUARANTINE_COUNT,
+    EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT,
+    EXPECTED_TRAINING_EXCLUSION_COUNTS,
     EligibilityExclusion,
+    canonical_count_contract,
     filter_stage_scope,
     policy_evidence,
 )
@@ -47,28 +54,12 @@ STAGE_FAMILIES = {
     "shape1024": ("common", "shape-1024"),
     "pbr1024": ("common", "shape-1024", "PBR-1024"),
 }
-EXPECTED_CANDIDATE_COUNTS = {
-    "ss64": 3660,
-    "shape512": 3631,
-    "shape1024": 3660,
-    "pbr1024": 3660,
-}
-EXPECTED_STAGE_COUNTS = {
-    "ss64": 3660,
-    "shape512": 3628,
-    "shape1024": 3634,
-    "pbr1024": 3598,
-}
-EXPECTED_TRAINING_EXCLUSION_COUNTS = {
-    "ss64": 0,
-    "shape512": 3,
-    "shape1024": 26,
-    "pbr1024": 62,
-}
+EXPECTED_CANDIDATE_COUNTS = EXPECTED_CANDIDATE_STAGE_COUNTS
+EXPECTED_STAGE_COUNTS = EXPECTED_FINAL_STAGE_COUNTS
 EXPECTED_WAIVER_COUNTS = {
-    "frozen_assets": 4485,
-    "quarantined_assets": 825,
-    "shape512_exclusions": 29,
+    "frozen_assets": EXPECTED_FROZEN_COUNT,
+    "quarantined_assets": EXPECTED_GLOBAL_QUARANTINE_COUNT,
+    "shape512_exclusions": EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT,
 }
 _FAMILY_ROOTS = {
     "SS-64": "ss_latents/ss_enc_conv3d_16l8_fp16_64_view",
@@ -418,9 +409,11 @@ def materialize_stage(
     candidate_scopes = compute_stage_scopes(catalog, expected_counts)
     waiver = _validate_waiver(catalog, expected_waiver)
     candidate_assets = candidate_scopes[stage]
-    if expected_stage_counts is None:
+    using_default_stage_counts = expected_stage_counts is None
+    if using_default_stage_counts:
         expected_stage_counts = EXPECTED_STAGE_COUNTS
-    if expected_training_exclusion_counts is None:
+    using_default_exclusion_counts = expected_training_exclusion_counts is None
+    if using_default_exclusion_counts:
         expected_training_exclusion_counts = EXPECTED_TRAINING_EXCLUSION_COUNTS
     final.parent.mkdir(parents=True, exist_ok=True)
     lock = _acquire_destination_lock(final)
@@ -445,6 +438,22 @@ def materialize_stage(
             raise ValueError(f"unexpected {stage} final scope count: {len(assets)}")
         if len(exclusions) != expected_training_exclusion_counts[stage]:
             raise ValueError(f"unexpected {stage} training exclusion count: {len(exclusions)}")
+        candidate_count_contract = {
+            name: len(scope) for name, scope in candidate_scopes.items()
+        }
+        final_count_contract = (
+            dict(expected_stage_counts)
+            if using_default_stage_counts
+            else {**candidate_count_contract, **expected_stage_counts}
+        )
+        exclusion_count_contract = (
+            dict(expected_training_exclusion_counts)
+            if using_default_exclusion_counts
+            else {
+                **{name: 0 for name in candidate_count_contract},
+                **expected_training_exclusion_counts,
+            }
+        )
         _write_metadata(temporary / "renders_cond", assets, {"cond_rendered": True})
         for family in STAGE_FAMILIES[stage]:
             if family == "common":
@@ -462,11 +471,14 @@ def materialize_stage(
             "source_index": {"path": str(Path(index_path).resolve()), "sha256": file_sha(Path(index_path))},
             "acceptance_mode": "valid_subset_user_waiver",
             "original_90_percent_gate_passed": False,
-            "counts": {
-                "frozen": waiver["frozen_assets"], "global_quarantine": waiver["quarantined_assets"],
-                "shape512_family_exclusions": waiver["shape512_exclusions"],
-                "stages": {name: len(scope) for name, scope in candidate_scopes.items()},
-            },
+            "counts": canonical_count_contract(
+                frozen=waiver["frozen_assets"],
+                global_quarantine=waiver["quarantined_assets"],
+                shape512_family_exclusions=waiver["shape512_exclusions"],
+                candidate_stages=candidate_count_contract,
+                training_exclusions=exclusion_count_contract,
+                stages=final_count_contract,
+            ),
             "candidate_asset_count": len(candidate_assets),
             "candidate_stage_scope": list(candidate_assets),
             "candidate_stage_scope_sha256": _scope_sha256(candidate_assets),

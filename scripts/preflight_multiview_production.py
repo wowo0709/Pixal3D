@@ -22,9 +22,16 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
+    EXPECTED_CANDIDATE_STAGE_COUNTS,
+    EXPECTED_FINAL_STAGE_COUNTS,
+    EXPECTED_FROZEN_COUNT,
+    EXPECTED_GLOBAL_QUARANTINE_COUNT,
+    EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT,
+    EXPECTED_TRAINING_EXCLUSION_COUNTS,
     SCALE_ATOL,
     SCALE_RTOL,
     TOKEN_LIMITS,
+    canonical_count_contract,
     policy_evidence,
 )
 
@@ -67,35 +74,23 @@ DEFAULT_HANDOFF = Path(
     "ABO-00000-valid-subset-handoff.json"
 )
 DEFAULT_TRAINING_DATA = DEFAULT_ROOT / "training_data.json"
-HANDOFF_CANDIDATE_STAGE_COUNTS = {
-    "ss64": 3660,
-    "shape512": 3631,
-    "shape1024": 3660,
-    "pbr1024": 3660,
-}
-HANDOFF_TRAINING_EXCLUSION_COUNTS = {
-    "ss64": 0,
-    "shape512": 3,
-    "shape1024": 26,
-    "pbr1024": 62,
-}
-HANDOFF_STAGE_COUNTS = {
-    "ss64": 3660,
-    "shape512": 3628,
-    "shape1024": 3634,
-    "pbr1024": 3598,
-}
+HANDOFF_CANDIDATE_STAGE_COUNTS = EXPECTED_CANDIDATE_STAGE_COUNTS
+HANDOFF_TRAINING_EXCLUSION_COUNTS = EXPECTED_TRAINING_EXCLUSION_COUNTS
+HANDOFF_STAGE_COUNTS = EXPECTED_FINAL_STAGE_COUNTS
+HANDOFF_FROZEN_COUNT = EXPECTED_FROZEN_COUNT
+HANDOFF_GLOBAL_QUARANTINE_COUNT = EXPECTED_GLOBAL_QUARANTINE_COUNT
+HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT = EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT
 
 
 def _handoff_counts() -> dict[str, object]:
-    return {
-        "frozen": 4485,
-        "global_quarantine": 825,
-        "shape512_family_exclusions": 29,
-        "candidate_stages": HANDOFF_CANDIDATE_STAGE_COUNTS,
-        "training_exclusions": HANDOFF_TRAINING_EXCLUSION_COUNTS,
-        "stages": HANDOFF_STAGE_COUNTS,
-    }
+    return canonical_count_contract(
+        frozen=HANDOFF_FROZEN_COUNT,
+        global_quarantine=HANDOFF_GLOBAL_QUARANTINE_COUNT,
+        shape512_family_exclusions=HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT,
+        candidate_stages=HANDOFF_CANDIDATE_STAGE_COUNTS,
+        training_exclusions=HANDOFF_TRAINING_EXCLUSION_COUNTS,
+        stages=HANDOFF_STAGE_COUNTS,
+    )
 
 
 @dataclass(frozen=True)
@@ -106,7 +101,11 @@ class StagePreflight:
     asset_scope_sha256: str
     anchors_checked: int
     validation_counts: dict[str, int]
-    materialization_sha256: str
+    materialization_bytes: bytes
+
+    @property
+    def materialization_sha256(self) -> str:
+        return sha256(self.materialization_bytes).hexdigest()
 
 
 def _error(stage: str, asset: str | None, message: str, anchor: str | None = None) -> ValueError:
@@ -490,7 +489,7 @@ def _eligibility_evidence_is_valid(stage: str, evidence: Mapping[str, object]) -
     return True
 
 
-def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str, str]:
+def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str, bytes]:
     path = Path(root) / "materialization.json"
     _regular(path, stage, None, "materialization.json")
     try:
@@ -533,14 +532,16 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
         for asset in excluded:
             if os.path.lexists(Path(root) / relative / asset):
                 raise _error(stage, asset, f"training-excluded asset remains in final component: {relative}")
-    return tuple(assets), digest, sha256(raw).hexdigest()
+    return tuple(assets), digest, raw
 
 
 def preflight_stage(stage: str, root: Path, config_path: Path) -> StagePreflight:
-    assets, digest, evidence_digest = _materialization_scope(stage, root)
+    assets, digest, evidence_bytes = _materialization_scope(stage, root)
     counts = validate_stage_structure(stage, root, assets)
     anchors = validate_direct_loader(stage, root, assets, config_path)
-    return StagePreflight(stage, Path(root), len(assets), digest, anchors, counts, evidence_digest)
+    return StagePreflight(
+        stage, Path(root), len(assets), digest, anchors, counts, evidence_bytes
+    )
 
 
 def _canonical_json_bytes(value: Mapping[str, object]) -> bytes:
@@ -659,6 +660,10 @@ def _validated_handoff_inputs(
         scope = evidence.get("stage_scope")
         scope_digest = sha256("\n".join(scope).encode()).hexdigest() if isinstance(scope, list) and all(isinstance(asset, str) for asset in scope) else None
         source_index = evidence.get("source_index")
+        try:
+            validated_evidence = json.loads(result.materialization_bytes)
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+            validated_evidence = None
         if (
             evidence.get("schema_version") != 1
             or not isinstance(evidence.get("created_at"), str)
@@ -685,13 +690,15 @@ def _validated_handoff_inputs(
             or scope_digest != result.asset_scope_sha256
             or not isinstance(result.materialization_sha256, str)
             or len(result.materialization_sha256) != 64
-            or sha256(_canonical_json_bytes(evidence)).hexdigest() != result.materialization_sha256
+            or not isinstance(result.materialization_bytes, bytes)
+            or validated_evidence != evidence
             or (index_sha256 is not None and evidence.get("index_sha256") != index_sha256)
         ):
             raise ValueError(f"materialization evidence does not match strict preflight for stage={stage}")
 
 
 def _materialization_evidence(
+    results: Mapping[str, StagePreflight],
     materializations: Mapping[str, Mapping[str, object]],
 ) -> tuple[dict[str, dict[str, object]], list[str]]:
     summaries: dict[str, dict[str, object]] = {}
@@ -710,7 +717,7 @@ def _materialization_evidence(
         observed.update(commits)
         observed.update(pack_commits)
         summaries[stage] = {
-            "sha256": sha256(_canonical_json_bytes(evidence)).hexdigest(),
+            "sha256": results[stage].materialization_sha256,
             "tool_commits": sorted(set(commits) | set(pack_commits)),
         }
     return summaries, sorted(observed)
@@ -740,7 +747,7 @@ def build_report(
     """Build the immutable evidence report for the approved ABO valid subset."""
     index_path = Path(index_path).resolve()
     _validated_handoff_inputs(results, materializations, index_sha256, index_path)
-    evidence, observed_tool_commits = _materialization_evidence(materializations)
+    evidence, observed_tool_commits = _materialization_evidence(results, materializations)
     stages = _stage_records(results)
     return {
         "schema_version": 1,
@@ -795,7 +802,7 @@ def build_handoff(
     )
     if report != expected_report:
         raise ValueError("report is not bound to supplied preflight evidence")
-    evidence, observed_tool_commits = _materialization_evidence(materializations)
+    evidence, observed_tool_commits = _materialization_evidence(results, materializations)
     return {
         "schema_version": 1,
         "created_at": created_at,
@@ -872,11 +879,18 @@ def publish_handoff(
     return Path(report_path), Path(handoff_path), Path(training_data_path)
 
 
-def _materialization_evidence_from_root(root: Path) -> dict[str, object]:
-    path = Path(root) / "materialization.json"
+def _materialization_evidence_from_result(
+    result: StagePreflight,
+) -> dict[str, object]:
+    path = Path(result.root) / "materialization.json"
     _regular(path, "handoff", None, "materialization.json")
+    current = _existing_regular_bytes(path)
+    if current != result.materialization_bytes:
+        raise ValueError(
+            f"materialization evidence bytes changed after strict preflight: {path}"
+        )
     try:
-        value = json.loads(_existing_regular_bytes(path))
+        value = json.loads(result.materialization_bytes)
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise ValueError(f"invalid materialization evidence: {path}") from error
     if not isinstance(value, dict):
@@ -896,7 +910,7 @@ def main() -> None:
     for stage in HANDOFF_STAGE_COUNTS:
         results[stage] = preflight_stage(stage, args.root / stage / "active", CONFIGS[stage])
     materializations = {
-        stage: _materialization_evidence_from_root(result.root)
+        stage: _materialization_evidence_from_result(result)
         for stage, result in results.items()
     }
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

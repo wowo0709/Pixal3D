@@ -327,6 +327,33 @@ def test_structure_rejects_pbr_shape_scale_above_shared_absolute_tolerance(tmp_p
         validate_stage_structure("pbr1024", root, [ASSET])
 
 
+@pytest.mark.parametrize(("ulp_count", "passes"), [(3, True), (4, False)])
+def test_structure_uses_exact_float32_ulp_tolerance_boundary(tmp_path, ulp_count, passes):
+    """Changing float32 conversion or the 3-ULP policy boundary must alter strict preflight."""
+    root = make_stage(tmp_path, "pbr1024")
+    shape = component_root("pbr1024", root, "shape1024") / ASSET
+    pbr = component_root("pbr1024", root, "pbr") / ASSET
+    base = np.float32(0.5)
+    shifted = base
+    for _ in range(ulp_count):
+        shifted = np.nextafter(shifted, np.float32(np.inf), dtype=np.float32)
+    assert shifted.view(np.uint32) - base.view(np.uint32) == ulp_count
+    write_scale(shape / "view00_scale.json", float(base))
+    write_scale(pbr / "view00_scale.json", float(shifted))
+    if passes:
+        assert validate_stage_structure("pbr1024", root, [ASSET])["assets"] == 1
+    else:
+        with pytest.raises(ValueError, match="float32 total_scale"):
+            validate_stage_structure("pbr1024", root, [ASSET])
+
+
+def test_shared_eligibility_and_strict_structure_consume_the_same_scale_json(tmp_path):
+    """The shared policy and strict structure checker must accept one real total_scale file."""
+    root = make_stage(tmp_path, "pbr1024")
+    assert training_eligibility.evaluate_stage_asset("pbr1024", root, ASSET) == ()
+    assert validate_stage_structure("pbr1024", root, [ASSET])["assets"] == 1
+
+
 def test_preflight_uses_shared_training_eligibility_policy_constants():
     """A local copy of the fine-tuning limits or tolerances can silently drift."""
     assert preflight.TOKEN_LIMITS is training_eligibility.TOKEN_LIMITS
@@ -454,6 +481,7 @@ def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(t
     assert result.asset_scope_sha256 == evidence["stage_scope_sha256"]
     assert result.anchors_checked == HANDOFF_STAGE_COUNTS["ss64"] * 2
     assert result.validation_counts == {"assets": 3660, "renders": 29280, "latents": 7320, "scales": 7320}
+    assert result.materialization_bytes == (root / "materialization.json").read_bytes()
     with pytest.raises((AttributeError, TypeError)):
         result.stage = "changed"
 
@@ -537,7 +565,7 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64, index_path: Pat
             asset_scope_sha256=scope_digest,
             anchors_checked=asset_count * 2,
             validation_counts={"assets": asset_count, "renders": asset_count * 8},
-            materialization_sha256="0" * 64,
+            materialization_bytes=b"",
         )
         materializations[stage] = {
             "schema_version": 1,
@@ -572,9 +600,10 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64, index_path: Pat
 
 def with_evidence_digests(results, materializations):
     return {
-        stage: replace(result, materialization_sha256=hashlib.sha256(
-            canonical_json_bytes(materializations[stage])
-        ).hexdigest())
+        stage: replace(
+            result,
+            materialization_bytes=canonical_json_bytes(materializations[stage]),
+        )
         for stage, result in results.items()
     }
 
@@ -622,12 +651,12 @@ def test_materialization_scope_rejects_a_training_excluded_directory(tmp_path):
         preflight._materialization_scope("shape512", root)
 
 
-@pytest.mark.parametrize("digest", ["", None, "not-a-sha"])
-def test_build_report_requires_a_valid_preflight_evidence_digest(tmp_path, digest):
-    """Omitting the preflight evidence digest would allow a TOCTOU publication."""
+@pytest.mark.parametrize("raw", [b"", b"not-json", b'{"different":true}'])
+def test_build_report_requires_materialization_bytes_bound_to_preflight(tmp_path, raw):
+    """Omitting or replacing preflight bytes would allow a TOCTOU publication."""
     results, materializations = handoff_inputs(tmp_path)
     results = with_evidence_digests(results, materializations)
-    results["ss64"] = replace(results["ss64"], materialization_sha256=digest)
+    results["ss64"] = replace(results["ss64"], materialization_bytes=raw)
     with pytest.raises(ValueError, match="materialization"):
         preflight.build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
 
@@ -836,11 +865,65 @@ def test_publish_rejects_evidence_reread_that_differs_from_preflight_bytes(tmp_p
         evidence["index_sha256"] = index_sha256
         evidence["source_index"]["sha256"] = index_sha256
     results = with_evidence_digests(results, materializations)
-    for stage, result in list(results.items()):
-        results[stage] = replace(result, materialization_sha256=hashlib.sha256(canonical_json_bytes(materializations[stage])).hexdigest())
     materializations["ss64"]["tool_commits"] = ["later-mutation"]
     with pytest.raises(ValueError, match="materialization evidence"):
         preflight.publish_handoff(index, results, materializations, tmp_path / "report.json", tmp_path / "handoff.json", tmp_path / "training.json", "2026-01-01T00:00:00Z")
+
+
+def test_cli_rejects_byte_only_materialization_change_after_validation_without_publication(
+    tmp_path, monkeypatch
+):
+    """Whitespace or key-order mutation after validation must withhold every artifact."""
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    results, materializations = handoff_inputs(
+        tmp_path, index_sha256=index_sha256, index_path=index
+    )
+    for stage, evidence in materializations.items():
+        root = results[stage].root
+        root.mkdir(parents=True)
+        (root / "materialization.json").write_bytes(canonical_json_bytes(evidence))
+
+    seen = []
+
+    def fake_preflight(stage: str, root: Path, _config: Path) -> preflight.StagePreflight:
+        seen.append(stage)
+        result = results[stage]
+        if stage == "pbr1024":
+            target = results["ss64"].root / "materialization.json"
+            value = json.loads(target.read_bytes())
+            target.write_text(
+                json.dumps(dict(reversed(list(value.items()))), separators=(",", ":"))
+            )
+        return result
+
+    report_path = tmp_path / "shared" / "report.json"
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    training_path = tmp_path / "local" / "training_data.json"
+    monkeypatch.setattr(preflight, "preflight_stage", fake_preflight)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "preflight_multiview_production.py",
+            "--root",
+            str(tmp_path / "isolated"),
+            "--index",
+            str(index),
+            "--report",
+            str(report_path),
+            "--handoff",
+            str(handoff_path),
+            "--training-data",
+            str(training_path),
+        ],
+    )
+    with pytest.raises(ValueError, match="materialization evidence"):
+        preflight.main()
+    assert seen == list(HANDOFF_STAGE_COUNTS)
+    assert not report_path.exists()
+    assert not handoff_path.exists()
+    assert not training_path.exists()
 
 
 def test_create_only_json_is_idempotent_but_refuses_different_or_symlinked_content(tmp_path):
@@ -889,7 +972,7 @@ def test_publish_handoff_withholds_all_outputs_until_every_stage_passes(tmp_path
         failed = results["pbr1024"]
         results["pbr1024"] = preflight.StagePreflight(
             failed.stage, failed.root, failed.asset_count, failed.asset_scope_sha256,
-            failed.anchors_checked - 1, failed.validation_counts, failed.materialization_sha256,
+            failed.anchors_checked - 1, failed.validation_counts, failed.materialization_bytes,
         )
     index = tmp_path / "index.json"
     index.write_text('{"source":"ABO"}\n')

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -13,6 +13,27 @@ import numpy as np
 TOKEN_LIMITS = {"shape512": 8192, "shape1024": 32768, "pbr1024": 32768}
 SCALE_RTOL = 0.0
 SCALE_ATOL = 2e-7
+EXPECTED_FROZEN_COUNT = 4485
+EXPECTED_GLOBAL_QUARANTINE_COUNT = 825
+EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT = 29
+EXPECTED_CANDIDATE_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3631,
+    "shape1024": 3660,
+    "pbr1024": 3660,
+}
+EXPECTED_TRAINING_EXCLUSION_COUNTS = {
+    "ss64": 0,
+    "shape512": 3,
+    "shape1024": 26,
+    "pbr1024": 62,
+}
+EXPECTED_FINAL_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3628,
+    "shape1024": 3634,
+    "pbr1024": 3598,
+}
 
 _SHAPE_ROOTS = {
     "shape512": "shape_latents/shape_enc_next_dc_f16c32_fp16_512_view",
@@ -26,6 +47,26 @@ _PBR_ROOT = "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix"
 class EligibilityExclusion:
     asset: str
     reasons: tuple[str, ...]
+
+
+def canonical_count_contract(
+    *,
+    frozen: int = EXPECTED_FROZEN_COUNT,
+    global_quarantine: int = EXPECTED_GLOBAL_QUARANTINE_COUNT,
+    shape512_family_exclusions: int = EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT,
+    candidate_stages: Mapping[str, int] = EXPECTED_CANDIDATE_STAGE_COUNTS,
+    training_exclusions: Mapping[str, int] = EXPECTED_TRAINING_EXCLUSION_COUNTS,
+    stages: Mapping[str, int] = EXPECTED_FINAL_STAGE_COUNTS,
+) -> dict[str, object]:
+    """Return the one canonical count shape consumed across publication boundaries."""
+    return {
+        "frozen": frozen,
+        "global_quarantine": global_quarantine,
+        "shape512_family_exclusions": shape512_family_exclusions,
+        "candidate_stages": dict(candidate_stages),
+        "training_exclusions": dict(training_exclusions),
+        "stages": dict(stages),
+    }
 
 
 def policy_evidence() -> dict[str, object]:
@@ -80,9 +121,12 @@ def _load_latent(root: Path, component: str, asset: str, anchor: int) -> tuple[n
 def _load_scale(root: Path, component: str, asset: str, anchor: int) -> np.float32:
     path = _asset_path(root, component, asset, f"view{anchor:02d}_scale.json")
     try:
-        value = json.loads(path.read_text())
+        document = json.loads(path.read_text())
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid scale for {asset} view{anchor:02d}: {path}: {error}") from error
+    if not isinstance(document, dict) or "total_scale" not in document:
+        raise ValueError(f"invalid scale for {asset} view{anchor:02d}: {path}")
+    value = document["total_scale"]
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"invalid scale for {asset} view{anchor:02d}: {path}")
     with np.errstate(over="ignore", invalid="ignore"):

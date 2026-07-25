@@ -18,6 +18,7 @@ from data_toolkit.pipeline.training_eligibility import (
     policy_evidence,
 )
 import scripts.materialize_multiview_production as materializer
+import scripts.preflight_multiview_production as strict_preflight
 from scripts.materialize_multiview_production import (
     FamilyPack,
     compute_stage_scopes,
@@ -101,7 +102,7 @@ def write_eligibility_stage(
                 _npz_payload(count, coords=anchor_coords)
             )
             (root / family_root / asset / f"view{anchor:02d}_scale.json").write_text(
-                json.dumps(scales[anchor])
+                json.dumps({"total_scale": scales[anchor]})
             )
     return root, asset
 
@@ -174,14 +175,56 @@ def test_training_eligibility_rejects_scale_drift_above_float32_tolerance(tmp_pa
     )
 
 
-@pytest.mark.parametrize("invalid_scale", ["0.5", [0.5], float("nan"), 0, -1])
-def test_training_eligibility_rejects_invalid_scale_json_with_asset_context(tmp_path, invalid_scale):
+@pytest.mark.parametrize(
+    "scale_document",
+    [
+        0.5,
+        {},
+        {"total_scale": "0.5"},
+        {"total_scale": [0.5]},
+        {"total_scale": True},
+        {"total_scale": float("nan")},
+        {"total_scale": 0},
+        {"total_scale": -1},
+    ],
+)
+def test_training_eligibility_rejects_invalid_total_scale_schema_with_asset_context(
+    tmp_path, scale_document
+):
     """Permitting malformed, non-finite, or non-positive scales must stop policy evaluation."""
     root, asset = write_eligibility_stage(tmp_path, "pbr1024")
     scale_path = root / _ELIGIBILITY_ROOTS["pbr1024"][0] / asset / "view00_scale.json"
-    scale_path.write_text(json.dumps(invalid_scale))
+    scale_path.write_text(json.dumps(scale_document))
     with pytest.raises(ValueError, match=asset):
         evaluate_stage_asset("pbr1024", root, asset)
+
+
+@pytest.mark.parametrize(
+    ("ulp_count", "expected"),
+    [(3, ()), (4, ("pbr_shape_scale_view00_mismatch",))],
+)
+def test_training_eligibility_uses_exact_float32_ulp_tolerance_boundary(
+    tmp_path, ulp_count, expected
+):
+    """Changing float32 conversion or the 3-ULP policy boundary must alter this result."""
+    base = np.float32(0.5)
+    shifted = base
+    for _ in range(ulp_count):
+        shifted = np.nextafter(shifted, np.float32(np.inf), dtype=np.float32)
+    assert shifted.view(np.uint32) - base.view(np.uint32) == ulp_count
+    expected_difference = (
+        np.float32(1.7881393432617188e-7)
+        if ulp_count == 3
+        else np.float32(2.384185791015625e-7)
+    )
+    assert shifted - base == expected_difference
+    root, asset = write_eligibility_stage(
+        tmp_path,
+        "pbr1024",
+        shape_scales=(float(base), float(base)),
+        pbr_scales=(float(shifted), float(base)),
+    )
+    assert evaluate_stage_asset("pbr1024", root, asset) == expected
 
 
 def test_training_eligibility_filters_in_canonical_order_with_sorted_unique_reasons(tmp_path):
@@ -232,7 +275,7 @@ def _members(family, assets, latent_specs=None):
                     spec.get("count", 1), coords=spec.get("coords")
                 )
                 values[f"{root}/{asset}/view{anchor:02d}_scale.json"] = json.dumps(
-                    spec.get("scale", 0.5)
+                    {"total_scale": spec.get("scale", 0.5)}
                 ).encode()
     return values
 
@@ -542,10 +585,72 @@ def test_materialize_records_checked_waiver_and_sorted_evidence(tmp_path):
         "frozen": 2,
         "global_quarantine": 0,
         "shape512_family_exclusions": 1,
+        "candidate_stages": {
+            "ss64": 2,
+            "shape512": 1,
+            "shape1024": 2,
+            "pbr1024": 2,
+        },
+        "training_exclusions": {
+            "ss64": 0,
+            "shape512": 0,
+            "shape1024": 0,
+            "pbr1024": 0,
+        },
         "stages": {"ss64": 2, "shape512": 1, "shape1024": 2, "pbr1024": 2},
     }
     assert isinstance(evidence["created_at"], str) and evidence["created_at"]
     assert not list(final.parent.glob(".materializing-*"))
+
+
+def test_materializer_evidence_is_accepted_by_strict_materialization_scope(
+    tmp_path, monkeypatch
+):
+    """Diverging count assemblers must not make real materializer evidence fail strict preflight."""
+    index, _, catalog = load_fixture(tmp_path)
+    final = materialize_stage(
+        "shape512",
+        catalog,
+        tmp_path / "output",
+        index_path=index,
+        expected_counts={"shape512": 1},
+        expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"shape512": 1},
+        expected_training_exclusion_counts={"shape512": 0},
+    )
+    evidence = json.loads((final / "materialization.json").read_text())
+    monkeypatch.setattr(
+        strict_preflight,
+        "HANDOFF_CANDIDATE_STAGE_COUNTS",
+        evidence["counts"]["candidate_stages"],
+    )
+    monkeypatch.setattr(
+        strict_preflight,
+        "HANDOFF_TRAINING_EXCLUSION_COUNTS",
+        evidence["counts"]["training_exclusions"],
+    )
+    monkeypatch.setattr(
+        strict_preflight,
+        "HANDOFF_STAGE_COUNTS",
+        evidence["counts"]["stages"],
+    )
+    monkeypatch.setattr(
+        strict_preflight, "HANDOFF_FROZEN_COUNT", evidence["counts"]["frozen"]
+    )
+    monkeypatch.setattr(
+        strict_preflight,
+        "HANDOFF_GLOBAL_QUARANTINE_COUNT",
+        evidence["counts"]["global_quarantine"],
+    )
+    monkeypatch.setattr(
+        strict_preflight,
+        "HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT",
+        evidence["counts"]["shape512_family_exclusions"],
+    )
+    assert strict_preflight._materialization_scope("shape512", final)[:2] == (
+        tuple(evidence["stage_scope"]),
+        evidence["stage_scope_sha256"],
+    )
 
 
 def test_materialize_rejects_dangling_active_symlink_lexically(tmp_path):
