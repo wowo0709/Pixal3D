@@ -59,6 +59,24 @@ _FAMILY_ROOTS = {
     "shape-1024": "shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view",
     "PBR-1024": "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix",
 }
+_FAMILY_METADATA_FIELDS = {
+    "SS-64": (
+        "ss_latent_view_scale00_encoded",
+        "ss_latent_view_scale01_encoded",
+    ),
+    "shape-512": (
+        "shape_latent_view00_encoded",
+        "shape_latent_view01_encoded",
+    ),
+    "shape-1024": (
+        "shape_latent_view00_encoded",
+        "shape_latent_view01_encoded",
+    ),
+    "PBR-1024": (
+        "pbr_latent_view00_encoded",
+        "pbr_latent_view01_encoded",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -370,10 +388,11 @@ def materialize_stage(
         for family in STAGE_FAMILIES[stage]:
             if family == "common":
                 continue
-            field_prefix = {"SS-64": "ss_latent", "shape-512": "shape_latent", "shape-1024": "shape_latent", "PBR-1024": "pbr_latent"}[family]
-            _write_metadata(temporary / _FAMILY_ROOTS[family], assets, {
-                f"{field_prefix}_view00_encoded": True, f"{field_prefix}_view01_encoded": True,
-            })
+            _write_metadata(
+                temporary / _FAMILY_ROOTS[family],
+                assets,
+                {field: True for field in _FAMILY_METADATA_FIELDS[family]},
+            )
         evidence = {
             "schema_version": 1,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

@@ -417,3 +417,41 @@ def test_materialize_sorts_multi_asset_metadata_and_evidence_scope(tmp_path):
     with (final / "renders_cond" / "metadata.csv").open() as stream:
         assert [row["sha256"] for row in csv.DictReader(stream)] == [ASSET_A, ASSET_B]
     assert json.loads((final / "materialization.json").read_text())["stage_scope"] == [ASSET_A, ASSET_B]
+
+
+def test_materializer_emits_exact_preflight_latent_metadata_headers(tmp_path):
+    """Changing any producer header must fail before strict preflight sees drifted metadata."""
+    index, _, catalog = load_fixture(tmp_path)
+    cases = {
+        "ss64": (
+            ("ss_latents/ss_enc_conv3d_16l8_fp16_64_view",
+             "sha256,ss_latent_view_scale00_encoded,ss_latent_view_scale01_encoded"),
+        ),
+        "shape512": (
+            ("shape_latents/shape_enc_next_dc_f16c32_fp16_512_view",
+             "sha256,shape_latent_view00_encoded,shape_latent_view01_encoded"),
+        ),
+        "shape1024": (
+            ("shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view",
+             "sha256,shape_latent_view00_encoded,shape_latent_view01_encoded"),
+        ),
+        "pbr1024": (
+            ("shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view",
+             "sha256,shape_latent_view00_encoded,shape_latent_view01_encoded"),
+            ("pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix",
+             "sha256,pbr_latent_view00_encoded,pbr_latent_view01_encoded"),
+        ),
+    }
+    expected_counts = {
+        "ss64": 2, "shape512": 1, "shape1024": 2, "pbr1024": 2,
+    }
+    for stage, expected_headers in cases.items():
+        final = materialize_stage(
+            stage, catalog, tmp_path / "output", index_path=index,
+            expected_counts={stage: expected_counts[stage]},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+        assert [
+            (relative, (final / relative / "metadata.csv").read_text().splitlines()[0])
+            for relative, _ in expected_headers
+        ] == list(expected_headers)
