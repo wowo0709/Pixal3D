@@ -516,10 +516,22 @@ production source에서 제외한다. 별도 registry와 download 정책을 확�
 
 ABO `ABO-00000`의 원래 source-level 90% production gate는 통과하지 않았다. 그러나
 사용자는 검증된 valid subset의 사용을 승인했다. 이 예외의 고정 수치는 frozen 4,485,
-global quarantine 825, shape-512 추가 family exclusion 29이며, stage별 수치는
-`ss64=3,660`, `shape512=3,631`, `shape1024=3,660`, `pbr1024=3,660`이다. 따라서
-이 handoff는 `valid_subset_user_waiver`를 명시하며 원래 90% gate가 통과했다는 뜻이
-아니다.
+global quarantine 825, shape-512 추가 family exclusion 29이다. pack 교집합 후보 수는
+`ss64=3,660`, `shape512=3,631`, `shape1024=3,660`, `pbr1024=3,660`이고, training
+eligibility 적용 뒤 최종 수는 `ss64=3,660`, `shape512=3,628`, `shape1024=3,634`,
+`pbr1024=3,598`이다. training 제외 수는 각각 `0/3/26/62`이며, 이 수는 global
+quarantine 또는 pack-family exclusion과 합치거나 바꾸지 않는다. 따라서 이 handoff는
+`valid_subset_user_waiver`를 명시하며 원래 90% gate가 통과했다는 뜻이 아니다.
+
+Training eligibility는 모델 설정을 바꾸지 않는다. Shape-512 token 한도는 8,192,
+Shape-1024 및 PBR-1024 token 한도는 32,768이며 두 anchor 모두 검사한다. PBR/Shape
+coordinate는 정확히 동일해야 하고, finite positive float32 `total_scale`만
+`rtol=0`, `atol=2e-7`까지 허용한다. 제외 이유는 다음 고정 식별자만 사용한다.
+
+- `shape_tokens_view00_exceed_<limit>`, `shape_tokens_view01_exceed_<limit>`
+- `pbr_tokens_view00_exceed_32768`, `pbr_tokens_view01_exceed_32768`
+- `pbr_shape_coords_view00_mismatch`, `pbr_shape_coords_view01_mismatch`
+- `pbr_shape_scale_view00_mismatch`, `pbr_shape_scale_view01_mismatch`
 
 입력은 다음의 변경 불가 production index와 pack만 사용한다.
 
@@ -532,6 +544,19 @@ global quarantine 825, shape-512 추가 family exclusion 29이며, stage별 수�
 `/root/node17/data/pixal3d/train/production/abo/{ss64,shape512,shape1024,pbr1024}/active`
 이며, 기존 `active` root는 절대로 덮어쓰지 않는다. 다음 두 명령은 낮은 CPU/I/O
 우선순위로 실행하고 GPU를 사용하지 않는다.
+
+실행 전에는 ABO publisher 또는 materializer/preflight가 active 상태가 아닌지 확인하고,
+`/root/node17/data/pixal3d/train/production`에 최소 70 GiB의 여유 공간이 있는지
+확인한다. 현재 실패한 두 번째 시도는 같은 filesystem의
+`/root/node17/data/pixal3d/train/production/rejected/` 아래 고유 child로 **move**하여
+보존한다. `rm`, 다른 filesystem으로의 copy, 또는 기존 `active`/shared 문서의 덮어쓰기는
+금지한다. shared report/handoff/local manifest가 이미 있으면 먼저 중단하고 operator가
+byte digest와 recovery 상태를 확인한다.
+
+```bash
+pgrep -af 'materialize_multiview_production|preflight_multiview_production' || true
+df -BG /root/node17/data/pixal3d/train/production
+```
 
 ```bash
 CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
@@ -557,6 +582,9 @@ convenience manifest가 생성된다.
 문서가 모두 성공한 뒤에만 원자적으로 쓴다. 이 명령들은 training을 시작하지 않으며
 training-input 사용만 승인한다. 실패 시 명령으로 기존 `active`나 문서를 삭제하지 말고,
 operator가 evidence, digest, stage scope를 먼저 점검한 뒤 복구 방법을 결정한다.
+네 final scope의 structural/direct-loader 검증, report/handoff/training-data cross-digest,
+그리고 CUDA context 또는 training process가 생성되지 않았음을 확인한 뒤에도 여기서
+멈춘다. fine-tuning 실행 명령은 이 runbook의 이 단계에 포함하지 않는다.
 
 ## 8. 모델 구현 시점
 

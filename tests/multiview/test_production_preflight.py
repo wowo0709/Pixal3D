@@ -14,6 +14,8 @@ import pytest
 import torch
 from PIL import Image
 
+from data_toolkit.pipeline import training_eligibility
+from data_toolkit.pipeline.training_eligibility import policy_evidence
 from scripts import preflight_multiview_production as preflight
 from scripts.preflight_multiview_production import validate_stage_structure
 
@@ -304,6 +306,34 @@ def test_structure_requires_pbr_shape_alignment_after_float32_conversion(tmp_pat
     assert_context(caught, "pbr1024", "view00")
 
 
+def test_structure_accepts_pbr_shape_scale_at_shared_absolute_tolerance(tmp_path):
+    """Changing the shared tolerance must reject the approved float32 boundary."""
+    root = make_stage(tmp_path, "pbr1024")
+    shape = component_root("pbr1024", root, "shape1024") / ASSET
+    pbr = component_root("pbr1024", root, "pbr") / ASSET
+    write_scale(shape / "view00_scale.json", 0.5)
+    write_scale(pbr / "view00_scale.json", 0.5000002)
+    assert validate_stage_structure("pbr1024", root, [ASSET])["assets"] == 1
+
+
+def test_structure_rejects_pbr_shape_scale_above_shared_absolute_tolerance(tmp_path):
+    """Permitting a scale larger than the policy tolerance must stop preflight."""
+    root = make_stage(tmp_path, "pbr1024")
+    shape = component_root("pbr1024", root, "shape1024") / ASSET
+    pbr = component_root("pbr1024", root, "pbr") / ASSET
+    write_scale(shape / "view00_scale.json", 0.5)
+    write_scale(pbr / "view00_scale.json", 0.5000003)
+    with pytest.raises(ValueError, match="float32 total_scale"):
+        validate_stage_structure("pbr1024", root, [ASSET])
+
+
+def test_preflight_uses_shared_training_eligibility_policy_constants():
+    """A local copy of the fine-tuning limits or tolerances can silently drift."""
+    assert preflight.TOKEN_LIMITS is training_eligibility.TOKEN_LIMITS
+    assert preflight.SCALE_RTOL == training_eligibility.SCALE_RTOL
+    assert preflight.SCALE_ATOL == training_eligibility.SCALE_ATOL
+
+
 def write_loader_config(tmp_path: Path, stage: str) -> Path:
     args = {
         "min_aesthetic_score": 4.5,
@@ -405,23 +435,25 @@ def test_direct_loader_surfaces_damaged_anchor_instead_of_retrying_another_sampl
         preflight.validate_direct_loader("ss64", root, [ASSET], config)
 
 
-def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(tmp_path):
+def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(tmp_path, monkeypatch):
     root = make_stage(tmp_path)
-    digest = __import__("hashlib").sha256(ASSET.encode()).hexdigest()
-    (root / "materialization.json").write_text(json.dumps({
-        "schema_version": 1, "created_at": "2026-07-25T00:00:00Z", "source": "ABO", "shard_id": "ABO-00000",
-        "source_index": {"path": "/synthetic/index.json", "sha256": "i" * 64}, "index_sha256": "i" * 64,
-        "acceptance_mode": "valid_subset_user_waiver", "original_90_percent_gate_passed": False,
-        "counts": {"frozen": 4485, "global_quarantine": 825, "shape512_family_exclusions": 29, "stages": {"ss64": 3660, "shape512": 3631, "shape1024": 3660, "pbr1024": 3660}},
-        "stage": "ss64", "asset_count": 1, "stage_scope": [ASSET],
-        "stage_scope_sha256": digest, "stage_root": str(root.resolve()),
-    }))
+    results, materializations = handoff_inputs(tmp_path)
+    evidence = materializations["ss64"]
+    evidence["stage_root"] = str(root.resolve())
+    results["ss64"] = replace(results["ss64"], root=root)
+    results = with_evidence_digests(results, materializations)
+    (root / "materialization.json").write_text(json.dumps(evidence))
+    monkeypatch.setattr(preflight, "validate_stage_structure", lambda _stage, _root, assets: {
+        "assets": len(assets), "renders": len(assets) * 8, "latents": len(assets) * 2, "scales": len(assets) * 2,
+    })
+    monkeypatch.setattr(preflight, "validate_direct_loader", lambda _stage, _root, assets, _config: len(assets) * 2)
     result = preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
     assert result.stage == "ss64"
     assert result.root == root
-    assert result.asset_count == 1 and result.asset_scope_sha256 == digest
-    assert result.anchors_checked == 2
-    assert result.validation_counts == {"assets": 1, "renders": 8, "latents": 2, "scales": 2}
+    assert result.asset_count == HANDOFF_STAGE_COUNTS["ss64"]
+    assert result.asset_scope_sha256 == evidence["stage_scope_sha256"]
+    assert result.anchors_checked == HANDOFF_STAGE_COUNTS["ss64"] * 2
+    assert result.validation_counts == {"assets": 3660, "renders": 29280, "latents": 7320, "scales": 7320}
     with pytest.raises((AttributeError, TypeError)):
         result.stage = "changed"
 
@@ -449,11 +481,31 @@ def test_preflight_rejects_missing_altered_or_mismatched_materialization_root(tm
         preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
 
 
-HANDOFF_STAGE_COUNTS = {
+HANDOFF_CANDIDATE_STAGE_COUNTS = {
     "ss64": 3660,
     "shape512": 3631,
     "shape1024": 3660,
     "pbr1024": 3660,
+}
+HANDOFF_TRAINING_EXCLUSION_COUNTS = {
+    "ss64": 0,
+    "shape512": 3,
+    "shape1024": 26,
+    "pbr1024": 62,
+}
+HANDOFF_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3628,
+    "shape1024": 3634,
+    "pbr1024": 3598,
+}
+HANDOFF_COUNTS = {
+    "frozen": 4485,
+    "global_quarantine": 825,
+    "shape512_family_exclusions": 29,
+    "candidate_stages": HANDOFF_CANDIDATE_STAGE_COUNTS,
+    "training_exclusions": HANDOFF_TRAINING_EXCLUSION_COUNTS,
+    "stages": HANDOFF_STAGE_COUNTS,
 }
 
 
@@ -468,6 +520,16 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64, index_path: Pat
         root = tmp_path / "isolated" / stage / "active"
         scope = [f"{stage}-{index:05d}" for index in range(asset_count)]
         scope_digest = hashlib.sha256("\n".join(scope).encode()).hexdigest()
+        excluded_count = HANDOFF_TRAINING_EXCLUSION_COUNTS[stage]
+        candidate_scope = sorted(list(scope) + [f"{stage}-excluded-{index:05d}" for index in range(excluded_count)])
+        exclusions = [
+            {"asset": asset, "reasons": [
+                "shape_tokens_view00_exceed_8192" if stage == "shape512"
+                else f"shape_tokens_view00_exceed_{training_eligibility.TOKEN_LIMITS[stage]}"
+            ]}
+            for asset in sorted(set(candidate_scope) - set(scope))
+        ] if excluded_count else []
+        candidate_digest = hashlib.sha256("\n".join(candidate_scope).encode()).hexdigest()
         results[stage] = preflight.StagePreflight(
             stage=stage,
             root=root,
@@ -485,12 +547,22 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64, index_path: Pat
             "source_index": {"path": str((index_path or tmp_path / "index.json").resolve()), "sha256": index_sha256},
             "acceptance_mode": "valid_subset_user_waiver",
             "original_90_percent_gate_passed": False,
-            "counts": {"frozen": 4485, "global_quarantine": 825, "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS},
+            "counts": HANDOFF_COUNTS,
             "stage": stage,
             "stage_root": str(root),
+            "candidate_asset_count": len(candidate_scope),
+            "candidate_stage_scope": candidate_scope,
+            "candidate_stage_scope_sha256": candidate_digest,
             "asset_count": asset_count,
             "stage_scope": scope,
             "stage_scope_sha256": scope_digest,
+            "training_exclusion_count": excluded_count,
+            "training_exclusions": exclusions,
+            "training_exclusion_reason_counts": {
+                reason: sum(reason in exclusion["reasons"] for exclusion in exclusions)
+                for reason in sorted({reason for exclusion in exclusions for reason in exclusion["reasons"]})
+            },
+            "eligibility_policy": policy_evidence(),
             "index_sha256": index_sha256,
             "tool_commits": [f"{stage}-tool"],
             "packs": [{"tool_commit": f"{stage}-pack-tool"}],
@@ -505,6 +577,49 @@ def with_evidence_digests(results, materializations):
         ).hexdigest())
         for stage, result in results.items()
     }
+
+
+@pytest.mark.parametrize("mutation", ["missing", "reordered", "duplicated", "scope_difference", "policy", "candidate_count", "reason"])
+def test_build_report_rejects_any_eligibility_contract_mutation(tmp_path, mutation):
+    """Publication must be blocked even when only Task 1 eligibility evidence changes."""
+    results, materializations = handoff_inputs(tmp_path)
+    evidence = materializations["shape512"]
+    if mutation == "missing":
+        evidence.pop("training_exclusions")
+    elif mutation == "reordered":
+        evidence["training_exclusions"] = list(reversed(evidence["training_exclusions"]))
+    elif mutation == "duplicated":
+        evidence["training_exclusions"][1]["asset"] = evidence["training_exclusions"][0]["asset"]
+    elif mutation == "scope_difference":
+        evidence["training_exclusions"][0]["asset"] = evidence["stage_scope"][0]
+    elif mutation == "policy":
+        evidence["eligibility_policy"]["token_limits"]["shape512"] = 8193
+    elif mutation == "candidate_count":
+        evidence["candidate_asset_count"] -= 1
+    else:
+        evidence["training_exclusions"][0]["reasons"] = ["changed_reason"]
+        evidence["training_exclusion_reason_counts"] = {
+            reason: 1
+            for exclusion in evidence["training_exclusions"]
+            for reason in exclusion["reasons"]
+        }
+    results = with_evidence_digests(results, materializations)
+    with pytest.raises(ValueError, match="materialization"):
+        preflight.build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+
+
+def test_materialization_scope_rejects_a_training_excluded_directory(tmp_path):
+    """A removed asset cannot remain hidden under even one final component."""
+    results, materializations = handoff_inputs(tmp_path)
+    root = tmp_path / "isolated" / "shape512" / "active"
+    root.mkdir(parents=True)
+    evidence = materializations["shape512"]
+    evidence["stage_root"] = str(root.resolve())
+    (root / "materialization.json").write_text(json.dumps(evidence))
+    excluded = evidence["training_exclusions"][0]["asset"]
+    (root / "renders_cond" / excluded).mkdir(parents=True)
+    with pytest.raises(ValueError, match="training-excluded"):
+        preflight._materialization_scope("shape512", root)
 
 
 @pytest.mark.parametrize("digest", ["", None, "not-a-sha"])
@@ -540,10 +655,7 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
     assert report["acceptance_mode"] == "valid_subset_user_waiver"
     assert report["original_90_percent_gate_passed"] is False
     assert report["counts"] == {
-        "frozen": 4485,
-        "global_quarantine": 825,
-        "shape512_family_exclusions": 29,
-        "stages": HANDOFF_STAGE_COUNTS,
+        **HANDOFF_COUNTS,
     }
     assert report["observed_tool_commits"] == sorted([
         "pbr1024-pack-tool", "pbr1024-tool", "shape1024-pack-tool", "shape1024-tool",
@@ -572,6 +684,8 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
     }
     assert handoff["authorization"] == "training-input use only"
     assert handoff["original_90_percent_gate_passed"] is False
+    assert report["eligibility_policy"] == policy_evidence()
+    assert handoff["eligibility_policy"] == policy_evidence()
     assert handoff["stages"]["pbr1024"]["data_dir"] == {
         "ABO": {
             "base": str(tmp_path / "isolated" / "pbr1024" / "active"),
@@ -802,6 +916,8 @@ def test_publish_handoff_cross_links_canonical_shared_artifacts_before_local_man
         "sha256": hashlib.sha256(handoff_path.read_bytes()).hexdigest(),
     }
     assert training_data["authorization"] == "training-input use only"
+    assert report["counts"] == handoff["counts"] == training_data["counts"] == HANDOFF_COUNTS
+    assert report["eligibility_policy"] == handoff["eligibility_policy"] == training_data["eligibility_policy"] == policy_evidence()
     assert training_data["materialization_evidence"] == handoff["materialization_evidence"]
     assert training_data["observed_tool_commits"] == handoff["observed_tool_commits"]
     assert handoff["source_index"] == report["source_index"]

@@ -21,6 +21,13 @@ import torch
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
+    SCALE_ATOL,
+    SCALE_RTOL,
+    TOKEN_LIMITS,
+    policy_evidence,
+)
+
 
 SOURCE = "ABO"
 RENDER_ROOT = "renders_cond"
@@ -60,12 +67,35 @@ DEFAULT_HANDOFF = Path(
     "ABO-00000-valid-subset-handoff.json"
 )
 DEFAULT_TRAINING_DATA = DEFAULT_ROOT / "training_data.json"
-HANDOFF_STAGE_COUNTS = {
+HANDOFF_CANDIDATE_STAGE_COUNTS = {
     "ss64": 3660,
     "shape512": 3631,
     "shape1024": 3660,
     "pbr1024": 3660,
 }
+HANDOFF_TRAINING_EXCLUSION_COUNTS = {
+    "ss64": 0,
+    "shape512": 3,
+    "shape1024": 26,
+    "pbr1024": 62,
+}
+HANDOFF_STAGE_COUNTS = {
+    "ss64": 3660,
+    "shape512": 3628,
+    "shape1024": 3634,
+    "pbr1024": 3598,
+}
+
+
+def _handoff_counts() -> dict[str, object]:
+    return {
+        "frozen": 4485,
+        "global_quarantine": 825,
+        "shape512_family_exclusions": 29,
+        "candidate_stages": HANDOFF_CANDIDATE_STAGE_COUNTS,
+        "training_exclusions": HANDOFF_TRAINING_EXCLUSION_COUNTS,
+        "stages": HANDOFF_STAGE_COUNTS,
+    }
 
 
 @dataclass(frozen=True)
@@ -245,7 +275,7 @@ def _latent(stage: str, asset: str, component: str, directory: Path, anchor_inde
                     raise _error(stage, asset, "coords exceed stage grid bounds", anchor)
                 if len(np.unique(integer_coords, axis=0)) != len(integer_coords):
                     raise _error(stage, asset, "coords must be unique", anchor)
-                maximum = 8192 if stage == "shape512" else 32768
+                maximum = TOKEN_LIMITS[stage]
                 if len(integer_coords) > maximum:
                     raise _error(stage, asset, "sparse token count exceeds stage maximum", anchor)
                 coords = integer_coords
@@ -284,8 +314,8 @@ def validate_stage_structure(stage: str, root: Path, expected_assets: Sequence[s
                 anchor_name = f"view{anchor:02d}"
                 if not np.array_equal(shape_coords, pbr_coords):
                     raise _error(stage, asset, "PBR and Shape coordinates must match", anchor_name)
-                if shape_scale != pbr_scale:
-                    raise _error(stage, asset, "PBR and Shape float32 total_scale must match", anchor_name)
+                if not np.isclose(shape_scale, pbr_scale, rtol=SCALE_RTOL, atol=SCALE_ATOL):
+                    raise _error(stage, asset, "PBR and Shape float32 total_scale exceeds policy tolerance", anchor_name)
     return {"assets": len(expected_assets), "renders": renders, "latents": latents, "scales": scales}
 
 
@@ -385,6 +415,81 @@ def validate_direct_loader(stage: str, root: Path, expected_assets: Sequence[str
     return checked
 
 
+def _scope_digest(scope: Sequence[str]) -> str:
+    return sha256("\n".join(scope).encode()).hexdigest()
+
+
+def _allowed_exclusion_reasons(stage: str) -> set[str]:
+    if stage == "ss64":
+        return set()
+    limit = TOKEN_LIMITS[stage]
+    reasons = {f"shape_tokens_view{anchor:02d}_exceed_{limit}" for anchor in (0, 1)}
+    if stage == "pbr1024":
+        reasons.update(f"pbr_tokens_view{anchor:02d}_exceed_{limit}" for anchor in (0, 1))
+        reasons.update(f"pbr_shape_coords_view{anchor:02d}_mismatch" for anchor in (0, 1))
+        reasons.update(f"pbr_shape_scale_view{anchor:02d}_mismatch" for anchor in (0, 1))
+    return reasons
+
+
+def _eligibility_evidence_is_valid(stage: str, evidence: Mapping[str, object]) -> bool:
+    """Check the exact Task 1 candidate/final eligibility contract."""
+    candidate = evidence.get("candidate_stage_scope")
+    final = evidence.get("stage_scope")
+    exclusions = evidence.get("training_exclusions")
+    if (
+        evidence.get("counts") != _handoff_counts()
+        or evidence.get("eligibility_policy") != policy_evidence()
+        or evidence.get("candidate_asset_count") != HANDOFF_CANDIDATE_STAGE_COUNTS[stage]
+        or evidence.get("asset_count") != HANDOFF_STAGE_COUNTS[stage]
+        or evidence.get("training_exclusion_count") != HANDOFF_TRAINING_EXCLUSION_COUNTS[stage]
+        or not isinstance(candidate, list)
+        or not all(isinstance(asset, str) and asset for asset in candidate)
+        or candidate != sorted(candidate)
+        or len(candidate) != len(set(candidate))
+        or len(candidate) != evidence.get("candidate_asset_count")
+        or evidence.get("candidate_stage_scope_sha256") != _scope_digest(candidate)
+        or not isinstance(final, list)
+        or not all(isinstance(asset, str) and asset for asset in final)
+        or final != sorted(final)
+        or len(final) != len(set(final))
+        or len(final) != evidence.get("asset_count")
+        or evidence.get("stage_scope_sha256") != _scope_digest(final)
+        or not isinstance(exclusions, list)
+        or len(exclusions) != HANDOFF_TRAINING_EXCLUSION_COUNTS[stage]
+    ):
+        return False
+    excluded_assets: list[str] = []
+    reasons: list[str] = []
+    for exclusion in exclusions:
+        if not isinstance(exclusion, Mapping):
+            return False
+        asset = exclusion.get("asset")
+        exclusion_reasons = exclusion.get("reasons")
+        if (
+            not isinstance(asset, str)
+            or not asset
+            or not isinstance(exclusion_reasons, list)
+            or not exclusion_reasons
+            or not all(isinstance(reason, str) and reason for reason in exclusion_reasons)
+            or exclusion_reasons != sorted(exclusion_reasons)
+            or len(exclusion_reasons) != len(set(exclusion_reasons))
+            or not set(exclusion_reasons).issubset(_allowed_exclusion_reasons(stage))
+        ):
+            return False
+        excluded_assets.append(asset)
+        reasons.extend(exclusion_reasons)
+    if (
+        excluded_assets != sorted(excluded_assets)
+        or len(excluded_assets) != len(set(excluded_assets))
+        or not set(excluded_assets).issubset(candidate)
+        or [asset for asset in candidate if asset not in set(excluded_assets)] != final
+        or evidence.get("training_exclusion_reason_counts")
+        != {reason: reasons.count(reason) for reason in sorted(set(reasons))}
+    ):
+        return False
+    return True
+
+
 def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str, str]:
     path = Path(root) / "materialization.json"
     _regular(path, stage, None, "materialization.json")
@@ -399,10 +504,6 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
     if "stage_root" not in evidence:
         raise _error(stage, None, "materialization stage root identity is missing")
     source_index = evidence.get("source_index")
-    expected_counts = {
-        "frozen": 4485, "global_quarantine": 825,
-        "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS,
-    }
     if (
         evidence.get("schema_version") != 1
         or not isinstance(evidence.get("created_at"), str)
@@ -411,7 +512,6 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
         or evidence.get("shard_id") != "ABO-00000"
         or evidence.get("acceptance_mode") != "valid_subset_user_waiver"
         or evidence.get("original_90_percent_gate_passed") is not False
-        or evidence.get("counts") != expected_counts
         or not isinstance(source_index, Mapping)
         or not isinstance(source_index.get("path"), str)
         or not source_index.get("path")
@@ -424,11 +524,15 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
     canonical_root = str(Path(root).resolve())
     if not isinstance(stage_root, str) or stage_root != canonical_root:
         raise _error(stage, None, "materialization stage root identity mismatch")
-    if assets != sorted(assets) or len(set(assets)) != len(assets) or count != len(assets):
+    if not _eligibility_evidence_is_valid(stage, evidence):
+        raise _error(stage, None, "materialization eligibility evidence is invalid")
+    if count != len(assets) or digest != _scope_digest(assets):
         raise _error(stage, None, "materialization asset scope is not canonical")
-    computed = sha256("\n".join(assets).encode()).hexdigest()
-    if digest != computed:
-        raise _error(stage, None, "materialization asset scope digest mismatch")
+    excluded = {exclusion["asset"] for exclusion in evidence["training_exclusions"]}
+    for relative in (RENDER_ROOT, *(relative for relative, _component, _fields in COMPONENTS[stage])):
+        for asset in excluded:
+            if os.path.lexists(Path(root) / relative / asset):
+                raise _error(stage, asset, f"training-excluded asset remains in final component: {relative}")
     return tuple(assets), digest, sha256(raw).hexdigest()
 
 
@@ -555,11 +659,6 @@ def _validated_handoff_inputs(
         scope = evidence.get("stage_scope")
         scope_digest = sha256("\n".join(scope).encode()).hexdigest() if isinstance(scope, list) and all(isinstance(asset, str) for asset in scope) else None
         source_index = evidence.get("source_index")
-        counts = evidence.get("counts")
-        expected_counts = {
-            "frozen": 4485, "global_quarantine": 825,
-            "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS,
-        }
         if (
             evidence.get("schema_version") != 1
             or not isinstance(evidence.get("created_at"), str)
@@ -568,7 +667,7 @@ def _validated_handoff_inputs(
             or evidence.get("shard_id") != "ABO-00000"
             or evidence.get("acceptance_mode") != "valid_subset_user_waiver"
             or evidence.get("original_90_percent_gate_passed") is not False
-            or counts != expected_counts
+            or not _eligibility_evidence_is_valid(stage, evidence)
             or not isinstance(source_index, Mapping)
             or not isinstance(source_index.get("path"), str)
             or not source_index.get("path")
@@ -652,12 +751,8 @@ def build_report(
         "acceptance_mode": "valid_subset_user_waiver",
         "original_90_percent_gate_passed": False,
         "authorization": "training-input use only",
-        "counts": {
-            "frozen": 4485,
-            "global_quarantine": 825,
-            "shape512_family_exclusions": 29,
-            "stages": HANDOFF_STAGE_COUNTS,
-        },
+        "counts": _handoff_counts(),
+        "eligibility_policy": policy_evidence(),
         "stages": stages,
         "materialization_evidence": evidence,
         "observed_tool_commits": observed_tool_commits,
@@ -695,6 +790,8 @@ def build_handoff(
     evidence, observed_tool_commits = _materialization_evidence(materializations)
     if (
         report.get("stages") != _stage_records(results)
+        or report.get("counts") != _handoff_counts()
+        or report.get("eligibility_policy") != policy_evidence()
         or report.get("materialization_evidence") != evidence
         or report.get("observed_tool_commits") != observed_tool_commits
     ):
@@ -708,6 +805,7 @@ def build_handoff(
         "original_90_percent_gate_passed": False,
         "authorization": "training-input use only",
         "counts": report["counts"],
+        "eligibility_policy": policy_evidence(),
         "stages": report["stages"],
         "source_index": {"path": canonical_index_path, "sha256": index_sha256},
         "materialization_evidence": evidence,
@@ -762,6 +860,7 @@ def publish_handoff(
         "original_90_percent_gate_passed": False,
         "authorization": "training-input use only",
         "counts": report["counts"],
+        "eligibility_policy": handoff["eligibility_policy"],
         "stages": report["stages"],
         "source_index": report["source_index"],
         "materialization_evidence": handoff["materialization_evidence"],
