@@ -234,6 +234,18 @@ def test_materialize_records_checked_waiver_and_sorted_evidence(tmp_path):
     assert evidence["tool_commits"] == ["deadbeef"]
     assert len(evidence["packs"]) == 4
     assert all(set(pack) == {"batch_id", "family", "pack", "manifest", "pack_sha256", "manifest_sha256", "tool_commit"} for pack in evidence["packs"])
+    assert evidence["schema_version"] == 1
+    assert evidence["source"] == "ABO" and evidence["shard_id"] == "ABO-00000"
+    assert evidence["source_index"] == {"path": str(index.resolve()), "sha256": sha256(index.read_bytes()).hexdigest()}
+    assert evidence["acceptance_mode"] == "valid_subset_user_waiver"
+    assert evidence["original_90_percent_gate_passed"] is False
+    assert evidence["counts"] == {
+        "frozen": 2,
+        "global_quarantine": 0,
+        "shape512_family_exclusions": 1,
+        "stages": {"ss64": 2, "shape512": 1, "shape1024": 2, "pbr1024": 2},
+    }
+    assert isinstance(evidence["created_at"], str) and evidence["created_at"]
     assert not list(final.parent.glob(".materializing-*"))
 
 

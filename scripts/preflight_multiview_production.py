@@ -72,6 +72,7 @@ class StagePreflight:
     asset_scope_sha256: str
     anchors_checked: int
     validation_counts: dict[str, int]
+    materialization_sha256: str = ""
 
 
 def _error(stage: str, asset: str | None, message: str, anchor: str | None = None) -> ValueError:
@@ -380,11 +381,12 @@ def validate_direct_loader(stage: str, root: Path, expected_assets: Sequence[str
     return checked
 
 
-def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str]:
+def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str, str]:
     path = Path(root) / "materialization.json"
     _regular(path, stage, None, "materialization.json")
     try:
-        evidence = json.loads(path.read_text())
+        raw = _existing_regular_bytes(path)
+        evidence = json.loads(raw)
         assets = evidence["stage_scope"]
         digest = evidence["stage_scope_sha256"]
         count = evidence["asset_count"]
@@ -392,8 +394,28 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
         raise _error(stage, None, "invalid materialization evidence") from error
     if "stage_root" not in evidence:
         raise _error(stage, None, "materialization stage root identity is missing")
+    source_index = evidence.get("source_index")
+    expected_counts = {
+        "frozen": 4485, "global_quarantine": 825,
+        "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS,
+    }
+    if (
+        evidence.get("schema_version") != 1
+        or not isinstance(evidence.get("created_at"), str)
+        or not evidence.get("created_at")
+        or evidence.get("source") != SOURCE
+        or evidence.get("shard_id") != "ABO-00000"
+        or evidence.get("acceptance_mode") != "valid_subset_user_waiver"
+        or evidence.get("original_90_percent_gate_passed") is not False
+        or evidence.get("counts") != expected_counts
+        or not isinstance(source_index, Mapping)
+        or not isinstance(source_index.get("path"), str)
+        or not source_index.get("path")
+        or source_index.get("sha256") != evidence.get("index_sha256")
+    ):
+        raise _error(stage, None, "materialization provenance is invalid")
     stage_root = evidence["stage_root"]
-    if evidence.get("stage") != stage or not isinstance(assets, list) or not all(isinstance(asset, str) for asset in assets):
+    if evidence.get("stage") != stage or not isinstance(assets, list) or not assets or not all(isinstance(asset, str) for asset in assets):
         raise _error(stage, None, "materialization stage identity is invalid")
     canonical_root = str(Path(root).resolve())
     if not isinstance(stage_root, str) or stage_root != canonical_root:
@@ -403,14 +425,14 @@ def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str
     computed = sha256("\n".join(assets).encode()).hexdigest()
     if digest != computed:
         raise _error(stage, None, "materialization asset scope digest mismatch")
-    return tuple(assets), digest
+    return tuple(assets), digest, sha256(raw).hexdigest()
 
 
 def preflight_stage(stage: str, root: Path, config_path: Path) -> StagePreflight:
-    assets, digest = _materialization_scope(stage, root)
+    assets, digest, evidence_digest = _materialization_scope(stage, root)
     counts = validate_stage_structure(stage, root, assets)
     anchors = validate_direct_loader(stage, root, assets, config_path)
-    return StagePreflight(stage, Path(root), len(assets), digest, anchors, counts)
+    return StagePreflight(stage, Path(root), len(assets), digest, anchors, counts, evidence_digest)
 
 
 def _canonical_json_bytes(value: Mapping[str, object]) -> bytes:
@@ -493,6 +515,20 @@ def _write_atomic_json(path: Path, value: Mapping[str, object]) -> str:
     return sha256(payload).hexdigest()
 
 
+def _load_existing_json(path: Path, label: str) -> tuple[dict[str, object], bytes] | None:
+    path = Path(path)
+    if not os.path.lexists(path):
+        return None
+    raw = _existing_regular_bytes(path)
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError(f"invalid existing {label}: {path}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid existing {label}: {path}")
+    return value, raw
+
+
 def _validated_handoff_inputs(
     results: Mapping[str, StagePreflight],
     materializations: Mapping[str, Mapping[str, object]],
@@ -511,11 +547,38 @@ def _validated_handoff_inputs(
         ):
             raise ValueError(f"strict preflight did not complete successfully for stage={stage}")
         evidence = materializations[stage]
+        scope = evidence.get("stage_scope")
+        scope_digest = sha256("\n".join(scope).encode()).hexdigest() if isinstance(scope, list) and all(isinstance(asset, str) for asset in scope) else None
+        source_index = evidence.get("source_index")
+        counts = evidence.get("counts")
+        expected_counts = {
+            "frozen": 4485, "global_quarantine": 825,
+            "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS,
+        }
         if (
-            evidence.get("stage") != stage
+            evidence.get("schema_version") != 1
+            or not isinstance(evidence.get("created_at"), str)
+            or not evidence.get("created_at")
+            or evidence.get("source") != SOURCE
+            or evidence.get("shard_id") != "ABO-00000"
+            or evidence.get("acceptance_mode") != "valid_subset_user_waiver"
+            or evidence.get("original_90_percent_gate_passed") is not False
+            or counts != expected_counts
+            or not isinstance(source_index, Mapping)
+            or not isinstance(source_index.get("path"), str)
+            or not source_index.get("path")
+            or source_index.get("sha256") != evidence.get("index_sha256")
+            or evidence.get("stage") != stage
             or evidence.get("stage_root") != str(result.root.resolve())
             or evidence.get("asset_count") != result.asset_count
             or evidence.get("stage_scope_sha256") != result.asset_scope_sha256
+            or not isinstance(scope, list)
+            or not scope
+            or scope != sorted(scope)
+            or len(set(scope)) != len(scope)
+            or len(scope) != result.asset_count
+            or scope_digest != result.asset_scope_sha256
+            or (result.materialization_sha256 and sha256(_canonical_json_bytes(evidence)).hexdigest() != result.materialization_sha256)
             or (index_sha256 is not None and evidence.get("index_sha256") != index_sha256)
         ):
             raise ValueError(f"materialization evidence does not match strict preflight for stage={stage}")
@@ -654,12 +717,31 @@ def publish_handoff(
     _validated_handoff_inputs(results, materializations)
     index_path = Path(index_path)
     index_sha256 = sha256(_existing_regular_bytes(index_path)).hexdigest()
-    report = build_report(index_path, index_sha256, results, materializations, created_at)
-    report_sha256 = write_create_only_json(Path(report_path), report)
+    existing_report = _load_existing_json(report_path, "report")
+    if existing_report is not None:
+        report, raw_report = existing_report
+        report_created_at = report.get("created_at")
+        if not isinstance(report_created_at, str) or not report_created_at:
+            raise ValueError("invalid existing report creation time")
+        expected_report = build_report(index_path, index_sha256, results, materializations, report_created_at)
+        if raw_report != _canonical_json_bytes(expected_report):
+            raise ValueError("existing report does not match current strict preflight evidence")
+        report_sha256 = sha256(raw_report).hexdigest()
+        created_at = report_created_at
+    else:
+        report = build_report(index_path, index_sha256, results, materializations, created_at)
+        report_sha256 = write_create_only_json(Path(report_path), report)
     handoff = build_handoff(
         Path(report_path), report_sha256, report, results, materializations, created_at
     )
-    handoff_sha256 = write_create_only_json(Path(handoff_path), handoff)
+    existing_handoff = _load_existing_json(handoff_path, "handoff")
+    if existing_handoff is not None:
+        existing_value, raw_handoff = existing_handoff
+        if raw_handoff != _canonical_json_bytes(handoff):
+            raise ValueError("existing handoff does not match current report transaction")
+        handoff_sha256 = sha256(raw_handoff).hexdigest()
+    else:
+        handoff_sha256 = write_create_only_json(Path(handoff_path), handoff)
     training_data = {
         "schema_version": 1,
         "created_at": created_at,

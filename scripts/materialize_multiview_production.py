@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import csv
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -374,6 +375,18 @@ def materialize_stage(
                 f"{field_prefix}_view00_encoded": True, f"{field_prefix}_view01_encoded": True,
             })
         evidence = {
+            "schema_version": 1,
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "source": SOURCE,
+            "shard_id": SHARD_ID,
+            "source_index": {"path": str(Path(index_path).resolve()), "sha256": file_sha(Path(index_path))},
+            "acceptance_mode": "valid_subset_user_waiver",
+            "original_90_percent_gate_passed": False,
+            "counts": {
+                "frozen": waiver["frozen_assets"], "global_quarantine": waiver["quarantined_assets"],
+                "shape512_family_exclusions": waiver["shape512_exclusions"],
+                "stages": {name: len(scope) for name, scope in scopes.items()},
+            },
             "asset_count": len(assets), "index_sha256": file_sha(Path(index_path)),
             "packs": sorted(evidence_packs, key=lambda value: (value["family"], value["batch_id"])),
             "stage": stage, "stage_root": str(final.resolve()), "stage_scope": list(assets),

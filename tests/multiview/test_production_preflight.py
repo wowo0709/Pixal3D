@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -364,6 +365,10 @@ def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(t
     root = make_stage(tmp_path)
     digest = __import__("hashlib").sha256(ASSET.encode()).hexdigest()
     (root / "materialization.json").write_text(json.dumps({
+        "schema_version": 1, "created_at": "2026-07-25T00:00:00Z", "source": "ABO", "shard_id": "ABO-00000",
+        "source_index": {"path": "/synthetic/index.json", "sha256": "i" * 64}, "index_sha256": "i" * 64,
+        "acceptance_mode": "valid_subset_user_waiver", "original_90_percent_gate_passed": False,
+        "counts": {"frozen": 4485, "global_quarantine": 825, "shape512_family_exclusions": 29, "stages": {"ss64": 3660, "shape512": 3631, "shape1024": 3660, "pbr1024": 3660}},
         "stage": "ss64", "asset_count": 1, "stage_scope": [ASSET],
         "stage_scope_sha256": digest, "stage_root": str(root.resolve()),
     }))
@@ -382,6 +387,10 @@ def test_preflight_rejects_missing_altered_or_mismatched_materialization_root(tm
     root = make_stage(tmp_path)
     digest = __import__("hashlib").sha256(ASSET.encode()).hexdigest()
     evidence = {
+        "schema_version": 1, "created_at": "2026-07-25T00:00:00Z", "source": "ABO", "shard_id": "ABO-00000",
+        "source_index": {"path": "/synthetic/index.json", "sha256": "i" * 64}, "index_sha256": "i" * 64,
+        "acceptance_mode": "valid_subset_user_waiver", "original_90_percent_gate_passed": False,
+        "counts": {"frozen": 4485, "global_quarantine": 825, "shape512_family_exclusions": 29, "stages": {"ss64": 3660, "shape512": 3631, "shape1024": 3660, "pbr1024": 3660}},
         "stage": "ss64", "asset_count": 1, "stage_scope": [ASSET],
         "stage_scope_sha256": digest, "stage_root": str(root.resolve()),
     }
@@ -413,19 +422,30 @@ def handoff_inputs(tmp_path: Path, index_sha256: str = "i" * 64) -> tuple[dict[s
     materializations = {}
     for stage, asset_count in HANDOFF_STAGE_COUNTS.items():
         root = tmp_path / "isolated" / stage / "active"
+        scope = [f"{stage}-{index:05d}" for index in range(asset_count)]
+        scope_digest = hashlib.sha256("\n".join(scope).encode()).hexdigest()
         results[stage] = preflight.StagePreflight(
             stage=stage,
             root=root,
             asset_count=asset_count,
-            asset_scope_sha256=(stage[0] * 64),
+            asset_scope_sha256=scope_digest,
             anchors_checked=asset_count * 2,
             validation_counts={"assets": asset_count, "renders": asset_count * 8},
         )
         materializations[stage] = {
+            "schema_version": 1,
+            "created_at": "2026-07-25T00:00:00Z",
+            "source": "ABO",
+            "shard_id": "ABO-00000",
+            "source_index": {"path": "/synthetic/index.json", "sha256": index_sha256},
+            "acceptance_mode": "valid_subset_user_waiver",
+            "original_90_percent_gate_passed": False,
+            "counts": {"frozen": 4485, "global_quarantine": 825, "shape512_family_exclusions": 29, "stages": HANDOFF_STAGE_COUNTS},
             "stage": stage,
             "stage_root": str(root),
             "asset_count": asset_count,
-            "stage_scope_sha256": stage[0] * 64,
+            "stage_scope": scope,
+            "stage_scope_sha256": scope_digest,
             "index_sha256": index_sha256,
             "tool_commits": [f"{stage}-tool"],
             "packs": [{"tool_commit": f"{stage}-pack-tool"}],
@@ -518,6 +538,85 @@ def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(t
         )
 
 
+@pytest.mark.parametrize("mutation", ["missing", "reordered", "digest"])
+def test_handoff_rejects_noncanonical_materialization_scope(tmp_path, mutation):
+    """A published handoff must not certify evidence whose claimed scope was not proven."""
+    results, materializations = handoff_inputs(tmp_path)
+    evidence = materializations["ss64"]
+    if mutation == "missing":
+        evidence.pop("stage_scope", None)
+    elif mutation == "reordered":
+        evidence["stage_scope"] = ["b", "a"]
+    else:
+        evidence["stage_scope"] = ["a"]
+        evidence["stage_scope_sha256"] = "b" * 64
+    with pytest.raises(ValueError):
+        preflight.build_report(
+            tmp_path / "index.json", "i" * 64, results, materializations,
+            "2026-07-25T00:00:00Z",
+        )
+
+
+def test_publish_recovers_an_existing_report_with_its_original_timestamp(tmp_path):
+    """A rerun after report-only publication must finish locally without changing shared bytes."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    for evidence in materializations.values():
+        evidence["index_sha256"] = index_sha256
+        evidence["source_index"]["sha256"] = index_sha256
+    report_path = tmp_path / "shared" / "report.json"
+    report = preflight.build_report(index, index_sha256, results, materializations, "2026-01-01T00:00:00Z")
+    preflight.write_create_only_json(report_path, report)
+    original = report_path.read_bytes()
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    training_path = tmp_path / "local" / "training_data.json"
+    preflight.publish_handoff(
+        index, results, materializations, report_path, handoff_path, training_path,
+        "2026-12-31T23:59:59Z",
+    )
+    assert report_path.read_bytes() == original
+    assert json.loads(handoff_path.read_text())["created_at"] == "2026-01-01T00:00:00Z"
+    assert training_path.exists()
+
+
+def test_publish_recovers_existing_report_and_handoff_after_local_failure(tmp_path):
+    """A local-only interruption must not require changing immutable shared transaction bytes."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    for evidence in materializations.values():
+        evidence["index_sha256"] = index_sha256
+        evidence["source_index"]["sha256"] = index_sha256
+    report_path = tmp_path / "shared" / "report.json"
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    training_path = tmp_path / "local" / "training_data.json"
+    preflight.publish_handoff(index, results, materializations, report_path, handoff_path, training_path, "2026-01-01T00:00:00Z")
+    shared = (report_path.read_bytes(), handoff_path.read_bytes())
+    training_path.unlink()
+    preflight.publish_handoff(index, results, materializations, report_path, handoff_path, training_path, "2026-12-31T23:59:59Z")
+    assert (report_path.read_bytes(), handoff_path.read_bytes()) == shared
+    assert training_path.exists()
+
+
+def test_publish_rejects_evidence_reread_that_differs_from_preflight_bytes(tmp_path):
+    """A valid but later-mutated evidence object must not replace the preflight-proven bytes."""
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    for evidence in materializations.values():
+        evidence["index_sha256"] = index_sha256
+        evidence["source_index"]["sha256"] = index_sha256
+    for stage, result in list(results.items()):
+        results[stage] = replace(result, materialization_sha256=hashlib.sha256(canonical_json_bytes(materializations[stage])).hexdigest())
+    materializations["ss64"]["tool_commits"] = ["later-mutation"]
+    with pytest.raises(ValueError, match="materialization evidence"):
+        preflight.publish_handoff(index, results, materializations, tmp_path / "report.json", tmp_path / "handoff.json", tmp_path / "training.json", "2026-01-01T00:00:00Z")
+
+
 def test_create_only_json_is_idempotent_but_refuses_different_or_symlinked_content(tmp_path):
     """Replacing a published shared document must be rejected rather than overwritten."""
     path = tmp_path / "shared" / "artifact.json"
@@ -589,6 +688,7 @@ def test_publish_handoff_cross_links_canonical_shared_artifacts_before_local_man
     index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
+        evidence["source_index"]["sha256"] = index_sha256
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
@@ -620,12 +720,13 @@ def test_publish_handoff_withholds_local_manifest_when_shared_handoff_rejects_co
     index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
     for evidence in materializations.values():
         evidence["index_sha256"] = index_sha256
+        evidence["source_index"]["sha256"] = index_sha256
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     handoff_path.parent.mkdir(parents=True)
     handoff_path.write_text('{"different":true}\n')
     training_path = tmp_path / "local" / "training_data.json"
-    with pytest.raises(FileExistsError, match="different"):
+    with pytest.raises(ValueError, match="existing handoff"):
         preflight.publish_handoff(
             index, results, materializations, report_path, handoff_path, training_path,
             "2026-07-25T00:00:00Z",
