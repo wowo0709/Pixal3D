@@ -164,6 +164,8 @@ For both `view00` and `view01` of every admitted asset:
 - Shape-512 has `N <= 8,192`;
 - Shape-1024 and PBR-1024 have `N <= 32,768`;
 - PBR and Shape coordinates are exactly equal for the same asset and anchor.
+- PBR and Shape `total_scale` values are exactly equal after float32
+  conversion for the same asset and anchor.
 
 ### Direct Loader Contract
 
@@ -281,4 +283,3 @@ by the minimum implementation needed to pass it.
    state, and worktree state.
 7. Stop before fine-tuning and report whether the ABO valid subset is released
    for the next training step.
-
