@@ -637,6 +637,161 @@ operator가 evidence, digest, stage scope를 먼저 점검한 뒤 복구 방법�
 그리고 CUDA context 또는 training process가 생성되지 않았음을 확인한 뒤에도 여기서
 멈춘다. fine-tuning 실행 명령은 이 runbook의 이 단계에 포함하지 않는다.
 
+## 7-4. 3D-FUTURE 및 ABO 결합 training publication
+
+이 절은 아직 실제 publication을 실행했다는 기록이 아니라 operator용 절차다.
+3D-FUTURE는 두 frozen index의 모든 stage-eligible asset을 ABO와 함께 사용하며 내부
+train/validation/test split이나 source weight를 만들지 않는다. 결합 sampling 표식은
+`proportional-unweighted-concatenation`이다.
+
+먼저 다른 materializer, preflight, training이 실행 중이지 않고 production filesystem에
+최소 150 GiB가 남아 있는지 읽기 전용으로 확인한다. 다음 create-only 3D-FUTURE
+artifact가 하나라도 있으면 새 실행을 시작하지 말고 아래 digest inspection으로 이동한다.
+
+```bash
+pgrep -af 'materialize_multiview_production|preflight_multiview_production|preflight_multisource_training|python train.py' || true
+df -h /root/node17/data/pixal3d/train/production /root/data2 /root/data3
+test ! -e /root/node17/data/pixal3d/train/production/3d-future
+test ! -e /root/data2/pixal3d/control/reports/gates/3D-FUTURE/3D-FUTURE-production-training.json
+test ! -e /root/data2/pixal3d/control/splits/3D-FUTURE/3D-FUTURE-production-training-handoff.json
+```
+
+3D-FUTURE materialization과 source preflight는 CUDA를 숨기고 낮은 CPU/I/O 우선순위로
+실행한다. 두 명령이 모두 성공해야 네 `active` root, source report/handoff, local
+`training_data.json`이 완성된다.
+
+```bash
+CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
+  conda run --no-capture-output -n pixal3d \
+  python scripts/materialize_multiview_production.py --profile 3d-future
+
+CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
+  conda run --no-capture-output -n pixal3d \
+  python scripts/preflight_multiview_production.py --profile 3d-future
+```
+
+중간 실패 또는 preflight 거부가 발생하면 정확한 failed attempt를 삭제하거나 성공한
+ABO evidence를 바꾸지 않는다. 3D-FUTURE shared report/handoff/local manifest가 모두
+없는 것을 확인한 경우에만 exact
+`/root/node17/data/pixal3d/train/production/3d-future` directory를 같은 filesystem의
+`production/rejected` 아래 고유 timestamp child로 `mv -T -n`하여 보존한다. symlink,
+다른 filesystem, 기존 target, 또는 publication artifact가 있으면 중단한다. 결합
+manifest 검증이 실패했다면 그 파일도 덮어쓰기 전에 digest를 기록하고, 같은 방식으로
+결합 directory 전체를 고유 rejected child로 rename한 뒤 원인을 조사한다. `rm`,
+cross-filesystem copy, shared evidence 덮어쓰기는 recovery가 아니다.
+
+다음 guarded recovery block은 publication artifact가 전혀 없는 rejected
+3D-FUTURE attempt에만 사용한다. 어느 guard라도 실패하면 아무 것도 이동하지 않는다.
+
+```bash
+set -euo pipefail
+
+SOURCE=/root/node17/data/pixal3d/train/production/3d-future
+REJECTED=/root/node17/data/pixal3d/train/production/rejected
+REPORT=/root/data2/pixal3d/control/reports/gates/3D-FUTURE/3D-FUTURE-production-training.json
+HANDOFF=/root/data2/pixal3d/control/splits/3D-FUTURE/3D-FUTURE-production-training-handoff.json
+LOCAL_MANIFEST="$SOURCE/training_data.json"
+
+for artifact in "$REPORT" "$HANDOFF" "$LOCAL_MANIFEST"; do
+  if [ -e "$artifact" ] || [ -L "$artifact" ]; then
+    echo "refusing recovery: publication artifact exists: $artifact" >&2
+    exit 1
+  fi
+done
+if [ ! -d "$SOURCE" ] || [ -L "$SOURCE" ]; then
+  echo "refusing recovery: source is not the exact real directory" >&2
+  exit 1
+fi
+mkdir -p -- "$REJECTED"
+if [ -L "$REJECTED" ]; then
+  echo "refusing recovery: rejected root is a symlink" >&2
+  exit 1
+fi
+if [ "$(stat -c %d -- "$SOURCE")" != "$(stat -c %d -- "$REJECTED")" ]; then
+  echo "refusing recovery: different filesystems" >&2
+  exit 1
+fi
+
+TARGET="$REJECTED/3d-future-rejected-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+while [ -e "$TARGET" ] || [ -L "$TARGET" ]; do
+  TARGET="$REJECTED/3d-future-rejected-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+done
+mv -T -n -- "$SOURCE" "$TARGET"
+if [ -e "$SOURCE" ] || [ -L "$SOURCE" ] || [ ! -d "$TARGET" ] || [ -L "$TARGET" ]; then
+  echo "recovery rename did not produce the expected state" >&2
+  exit 1
+fi
+printf 'preserved rejected attempt at %s\n' "$TARGET"
+```
+
+source publication 뒤에는 두 source의 기존 artifact를 쓰기 없이 다시 검증하고 digest를
+기록한다.
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python scripts/preflight_multiview_production.py \
+  --profile abo --verify-existing
+
+conda run --no-capture-output -n pixal3d \
+  python scripts/preflight_multiview_production.py \
+  --profile 3d-future --verify-existing
+
+sha256sum \
+  /root/node17/data/pixal3d/train/production/abo/training_data.json \
+  /root/node17/data/pixal3d/train/production/3d-future/training_data.json
+```
+
+두 source digest가 승인된 evidence와 일치할 때만 local combined manifest를 원자적으로
+publication한다. 이어지는 verification은 CUDA/model/trainer/W&B를 초기화하지 않고 네
+configured Dataset의 exact disjoint union, source count, boundary instance direct load,
+실제 cross-source `collate_fn`을 zero-worker DataLoader로 검사한다.
+
+```bash
+CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
+  conda run --no-capture-output -n pixal3d \
+  python scripts/publish_multisource_training.py
+
+TRAINING_DATA=/root/node17/data/pixal3d/train/production/abo-3d-future/training_data.json
+CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
+  conda run --no-capture-output -n pixal3d \
+  python scripts/preflight_multisource_training.py \
+  --training-data "$TRAINING_DATA"
+
+sha256sum "$TRAINING_DATA"
+```
+
+combined verification이 exit 0으로 끝난 뒤에만 training을 고려한다. operator는 먼저
+`nvidia-smi`와 운영자별 할당 기록으로 GPU ownership 및 여유 memory를 확인하고, 사용할
+여섯 physical GPU ID를 직접 선택해 `CUDA_VISIBLE_DEVICES`에 설정해야 한다.
+`CUDA_VISIBLE_DEVICES=0,...` 같은 기본값은 없으며 GPU 0을 가정하지 않는다.
+
+```bash
+# 아래 placeholder를 실제로 확인한 여섯 physical GPU ID로 바꾼 뒤에만 export한다.
+export CUDA_VISIBLE_DEVICES="<operator-selected-id-1>,<operator-selected-id-2>,<operator-selected-id-3>,<operator-selected-id-4>,<operator-selected-id-5>,<operator-selected-id-6>"
+
+TRAINING_DATA=/root/node17/data/pixal3d/train/production/abo-3d-future/training_data.json
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+```
+
+네 명령은 독립 launch다. 한 명령의 checkpoint/output/W&B 상태와 GPU allocation을
+operator가 확인하고 종료 또는 승인한 뒤 다음 stage를 시작한다. 이 절의 preflight나
+publication 명령 자체는 training 시작 권한이 아니다.
+
 ## 8. 모델 구현 시점
 
 데이터 단계에서 최소한 다음 조건을 만족한 뒤 모델 구현으로 이동한다.

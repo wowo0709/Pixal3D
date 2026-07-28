@@ -170,6 +170,39 @@ resolved output directory.
 | Shape | `base`, `shape_latent`, `render_cond` |
 | Texture | `base`, `shape_latent`, `pbr_latent`, `render_cond` |
 
+### Verified ABO + 3D-FUTURE launches
+
+The combined manifest uses every stage-eligible asset from both sources with
+proportional, unweighted concatenation. Before launching, follow the
+publication, recovery, digest-inspection, and CPU-only combined-loader
+verification procedure in
+[docs/data_preprocessing_runbook_ko.md](docs/data_preprocessing_runbook_ko.md).
+
+The operator must first check GPU ownership and available memory, then set
+`CUDA_VISIBLE_DEVICES` to six explicitly selected physical GPU IDs. These
+commands intentionally do not select devices and do not assume that GPU 0 is
+available.
+
+```bash
+TRAINING_DATA=/root/node17/data/pixal3d/train/production/abo-3d-future/training_data.json
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+```
+
 ### Example: Training All Three Stages
 
 Below we show the full training sequence using ObjaverseXL as an example. Each higher-resolution step requires updating `finetune_ckpt` in its config JSON to point to the previous checkpoint.
