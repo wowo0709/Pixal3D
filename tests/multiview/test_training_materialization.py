@@ -1,10 +1,51 @@
+from pathlib import Path
+
 import pytest
 
+from data_toolkit.pipeline.training_materialization import (
+    THREED_FUTURE_SOURCE_SPEC,
+)
 from data_toolkit.pipeline.training_eligibility import (
     ABO_COUNT_CONTRACT,
     EXPECTED_FINAL_STAGE_COUNTS,
     observed_count_contract,
 )
+
+
+def test_3d_future_profile_has_exact_two_shards():
+    """Dropping or renaming a completed shard must break the source contract."""
+    assert THREED_FUTURE_SOURCE_SPEC.source == "3D-FUTURE"
+    assert THREED_FUTURE_SOURCE_SPEC.indexes == (
+        Path(
+            "/root/data2/pixal3d/prepared/index/3D-FUTURE/"
+            "3D-FUTURE-00000.json"
+        ),
+        Path(
+            "/root/data2/pixal3d/prepared/index/3D-FUTURE/"
+            "3D-FUTURE-00001.json"
+        ),
+    )
+    assert THREED_FUTURE_SOURCE_SPEC.expected_batches == {
+        "3D-FUTURE-00000": tuple(f"batch{i:03d}" for i in range(20)),
+        "3D-FUTURE-00001": tuple(f"batch{i:03d}" for i in range(18)),
+    }
+    assert THREED_FUTURE_SOURCE_SPEC.expected_frozen == 9472
+
+
+def test_3d_future_profile_preserves_observed_candidate_counts():
+    """Changing a pack-family intersection count must invalidate the profile."""
+    assert THREED_FUTURE_SOURCE_SPEC.expected_candidate_stages == {
+        "ss64": 8495,
+        "shape512": 8513,
+        "shape1024": 8495,
+        "pbr1024": 8495,
+    }
+    assert THREED_FUTURE_SOURCE_SPEC.fixed_count_contract is None
+    assert (
+        THREED_FUTURE_SOURCE_SPEC.acceptance_mode
+        == "valid_subset_user_waiver"
+    )
+    assert THREED_FUTURE_SOURCE_SPEC.original_90_percent_gate_passed is False
 
 
 def test_abo_count_contract_preserves_published_values():

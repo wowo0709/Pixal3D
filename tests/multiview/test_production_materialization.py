@@ -2,7 +2,10 @@ import csv
 import io
 import json
 import os
+import subprocess
+import sys
 import tarfile
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 
@@ -17,6 +20,11 @@ from data_toolkit.pipeline.training_eligibility import (
     filter_stage_scope,
     policy_evidence,
 )
+from data_toolkit.pipeline.training_materialization import (
+    ProductionSourceSpec,
+    load_source_catalog,
+)
+import data_toolkit.pipeline.training_materialization as training_materializer
 import scripts.materialize_multiview_production as materializer
 import scripts.preflight_multiview_production as strict_preflight
 from scripts.materialize_multiview_production import (
@@ -280,7 +288,16 @@ def _members(family, assets, latent_specs=None):
     return values
 
 
-def write_pack(path, *, batch, family, frozen, included, latent_specs=None):
+def write_pack(
+    path,
+    *,
+    batch,
+    family,
+    frozen,
+    included,
+    latent_specs=None,
+    shard="ABO-00000",
+):
     members = _members(family, frozen, latent_specs)
     manifest_members = []
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -292,7 +309,7 @@ def write_pack(path, *, batch, family, frozen, included, latent_specs=None):
             bundle.addfile(info, io.BytesIO(payload))
             manifest_members.append({"path": name, "size": len(payload), "sha256": sha256(payload).hexdigest()})
     manifest = {
-        "schema_version": 2, "shard_id": "ABO-00000", "batch_id": batch,
+        "schema_version": 2, "shard_id": shard, "batch_id": batch,
         "family": family, "config_hash": "c" * 64, "tool_commit": "deadbeef",
         "asset_sha256s": sorted(frozen), "included_asset_sha256s": sorted(included),
         "completed_count": len(included), "quarantined_count": len(frozen) - len(included),
@@ -346,6 +363,220 @@ def update_manifest_index(index, prepared, batch="batch000", family="common"):
     manifest = prepared / value["batches"][batch][family]["manifest"]
     value["batches"][batch][family]["manifest_sha256"] = sha256(manifest.read_bytes()).hexdigest()
     index.write_text(json.dumps(value))
+
+
+def make_two_shard_source(tmp_path, *, overlapping_assets=False):
+    """Build two real verified indexes whose batch names intentionally collide."""
+    prepared = tmp_path / "prepared"
+    indexes = []
+    assets = (ASSET_A, ASSET_A if overlapping_assets else ASSET_B)
+    for shard, asset in zip(("Fixture-00000", "Fixture-00001"), assets):
+        index = {
+            "gate": "production",
+            "source": "Fixture",
+            "shard_id": shard,
+            "batches": {},
+        }
+        records = {}
+        for family in FAMILIES:
+            pack = (
+                prepared / DIRS[family] / "Fixture" / shard / "batch000.tar"
+            )
+            manifest = write_pack(
+                pack,
+                batch="batch000",
+                family=family,
+                frozen=(asset,),
+                included=(asset,),
+                shard=shard,
+            )
+            records[family] = {
+                "pack": pack.relative_to(prepared).as_posix(),
+                "pack_sha256": sha256(pack.read_bytes()).hexdigest(),
+                "manifest": manifest.relative_to(prepared).as_posix(),
+                "manifest_sha256": sha256(manifest.read_bytes()).hexdigest(),
+            }
+        index["batches"]["batch000"] = records
+        index_path = tmp_path / f"{shard}.json"
+        index_path.write_text(json.dumps(index, sort_keys=True))
+        indexes.append(index_path)
+    spec = ProductionSourceSpec(
+        source="Fixture",
+        indexes=tuple(indexes),
+        expected_batches={
+            "Fixture-00000": ("batch000",),
+            "Fixture-00001": ("batch000",),
+        },
+        expected_frozen=2,
+        expected_candidate_stages={
+            "ss64": 2,
+            "shape512": 2,
+            "shape1024": 2,
+            "pbr1024": 2,
+        },
+        fixed_count_contract=None,
+        acceptance_mode="fixture",
+        original_90_percent_gate_passed=True,
+    )
+    return spec, prepared
+
+
+def test_multi_index_catalog_accepts_duplicate_batch_names_across_shards(tmp_path):
+    """Treating batch ID alone as identity must incorrectly reject this catalog."""
+    spec, prepared = make_two_shard_source(tmp_path)
+    catalog = load_source_catalog(spec, prepared)
+    assert {
+        (pack.shard_id, pack.batch_id) for pack in catalog["common"]
+    } == {
+        ("Fixture-00000", "batch000"),
+        ("Fixture-00001", "batch000"),
+    }
+
+
+def test_multi_index_catalog_rejects_asset_overlap_across_shards(tmp_path):
+    """The same frozen asset in two source shards must never be materialized twice."""
+    spec, prepared = make_two_shard_source(tmp_path, overlapping_assets=True)
+    with pytest.raises(ValueError, match="asset overlap across shards"):
+        load_source_catalog(spec, prepared)
+
+
+def test_source_aware_materialize_stage_records_both_shards(tmp_path):
+    """Losing source or shard provenance must alter observed-source evidence."""
+    spec, prepared = make_two_shard_source(tmp_path)
+    spec = replace(
+        spec,
+        expected_batches={
+            "Fixture-00001": ("batch000",),
+            "Fixture-00000": ("batch000",),
+        },
+    )
+    catalog = load_source_catalog(spec, prepared)
+    final = training_materializer.materialize_stage(
+        spec, "shape512", catalog, tmp_path / "output"
+    )
+    evidence = json.loads((final / "materialization.json").read_text())
+    assert evidence["source"] == "Fixture"
+    assert [entry["shard_id"] for entry in evidence["source_indexes"]] == [
+        "Fixture-00000",
+        "Fixture-00001",
+    ]
+    assert evidence["candidate_asset_count"] == 2
+    assert evidence["asset_count"] == 2
+    assert evidence["counts"]["candidate_stages"] == {"shape512": 2}
+    assert evidence["counts"]["pack_exclusions"] == {"shape512": 0}
+    assert evidence["counts"]["training_exclusions"] == {"shape512": 0}
+    assert evidence["counts"]["stages"] == {"shape512": 2}
+    assert {
+        (pack["shard_id"], pack["batch_id"]) for pack in evidence["packs"]
+    } == {
+        ("Fixture-00000", "batch000"),
+        ("Fixture-00001", "batch000"),
+    }
+
+
+def test_source_aware_materialize_all_publishes_each_stage(tmp_path):
+    """Skipping any declared stage must leave this source publication incomplete."""
+    spec, prepared = make_two_shard_source(tmp_path)
+    outputs = training_materializer.materialize_all(
+        spec, prepared, tmp_path / "output"
+    )
+    assert outputs == {
+        stage: tmp_path / "output" / stage / "active"
+        for stage in ("ss64", "shape512", "shape1024", "pbr1024")
+    }
+    assert all(path.is_dir() for path in outputs.values())
+
+
+def test_source_aware_materialize_stage_rejects_foreign_catalog(tmp_path):
+    """A caller must not relabel verified packs with another source spec."""
+    spec, prepared = make_two_shard_source(tmp_path)
+    catalog = load_source_catalog(spec, prepared)
+    with pytest.raises(ValueError, match="catalog identity"):
+        training_materializer.materialize_stage(
+            replace(spec, source="Other"),
+            "ss64",
+            catalog,
+            tmp_path / "output",
+        )
+
+
+def test_source_aware_materialize_stage_rejects_duplicate_pack_identity(tmp_path):
+    """Every expected shard/batch identity must occur exactly once per family."""
+    spec, prepared = make_two_shard_source(tmp_path)
+    catalog = load_source_catalog(spec, prepared)
+    tampered = {
+        family: (*records, records[0])
+        for family, records in catalog.items()
+    }
+    with pytest.raises(ValueError, match="catalog identity"):
+        training_materializer.materialize_stage(
+            spec, "ss64", tampered, tmp_path / "output"
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        (lambda value: value.update(source="OTHER"), "index identity"),
+        (lambda value: value.update(shard_id="Fixture-99999"), "index identity"),
+        (lambda value: value["batches"].pop("batch000"), "batch set"),
+        (
+            lambda value: value["batches"]["batch000"]["common"].update(
+                manifest_sha256="0" * 64
+            ),
+            "manifest digest mismatch",
+        ),
+    ],
+)
+def test_multi_index_catalog_rejects_unbound_index_or_manifest(
+    tmp_path, mutation, match
+):
+    """Every shard identity, batch set, and manifest byte digest stays bound."""
+    spec, prepared = make_two_shard_source(tmp_path)
+    index = spec.indexes[0]
+    value = json.loads(index.read_text())
+    mutation(value)
+    index.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match=match):
+        load_source_catalog(spec, prepared)
+
+
+def test_materializer_cli_exposes_source_profiles_and_repeatable_stages():
+    """Removing either profile or stage selection must break the public CLI."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/materialize_multiview_production.py",
+            "--help",
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--profile {abo,3d-future}" in result.stdout
+    assert "--stage {ss64,shape512,shape1024,pbr1024}" in result.stdout
+
+
+def test_materializer_cli_rejects_index_from_another_profile():
+    """A selected profile must not be combined with an unrelated index."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/materialize_multiview_production.py",
+            "--profile",
+            "3d-future",
+            "--index",
+            "/root/data2/pixal3d/prepared/index/ABO/ABO-00000.json",
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "--index must match the selected profile" in result.stderr
 
 
 def test_catalog_computes_exact_family_intersections(tmp_path):
