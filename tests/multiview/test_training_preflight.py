@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from data_toolkit.pipeline.training_eligibility import (
-    observed_count_contract,
     policy_evidence,
 )
 from data_toolkit.pipeline.training_materialization import ProductionSourceSpec
@@ -47,11 +46,6 @@ def two_index_preflight(tmp_path):
         )
     candidates = {stage: 2 for stage in STAGES}
     exclusions = {stage: int(stage == "shape512") for stage in STAGES}
-    counts = observed_count_contract(
-        frozen=2,
-        candidate_stages=candidates,
-        training_exclusions=exclusions,
-    )
     spec = ProductionSourceSpec(
         source="Fixture",
         indexes=tuple(indexes),
@@ -70,6 +64,16 @@ def two_index_preflight(tmp_path):
     for stage in STAGES:
         root = tmp_path / "production" / stage / "active"
         root.mkdir(parents=True)
+        exclusion_count = exclusions[stage]
+        counts = {
+            "frozen": 2,
+            "global_quarantine": 0,
+            "shape512_family_exclusions": 0,
+            "candidate_stages": {stage: 2},
+            "pack_exclusions": {stage: 0},
+            "training_exclusions": {stage: exclusion_count},
+            "stages": {stage: 2 - exclusion_count},
+        }
         final_scope = [f"{stage}-asset-0"]
         if stage != "shape512":
             final_scope.append(f"{stage}-asset-1")
@@ -116,6 +120,9 @@ def two_index_preflight(tmp_path):
             "training_exclusion_reason_counts": (
                 {"shape_tokens_view00_exceed_8192": 1} if excluded else {}
             ),
+            "frozen_assets": 2,
+            "quarantined_assets": 0,
+            "shape512_exclusions": 0,
             "eligibility_policy": policy_evidence(),
             "tool_commits": [f"{stage}-tool"],
         }
@@ -206,6 +213,43 @@ def test_preflight_stage_preserves_source_identity(
         "assets": 2,
         "source_checked": 1,
     }
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_asset_count"),
+    [
+        ("ss64", 2),
+        ("shape512", 1),
+        ("shape1024", 2),
+        ("pbr1024", 2),
+    ],
+)
+def test_preflight_stage_accepts_stage_local_materializer_count_evidence(
+    two_index_preflight, monkeypatch, stage, expected_asset_count
+):
+    spec, existing_results, _materializations, _created_at = (
+        two_index_preflight
+    )
+    expected = existing_results[stage]
+    monkeypatch.setattr(
+        training_preflight,
+        "validate_stage_structure",
+        lambda source, received_stage, root, assets: {
+            "assets": len(assets),
+        },
+    )
+    monkeypatch.setattr(
+        training_preflight,
+        "validate_direct_loader",
+        lambda source, received_stage, root, assets, config: len(assets) * 2,
+    )
+
+    result = preflight_stage(
+        spec, stage, expected.root, Path("unused-config.json")
+    )
+
+    assert result.asset_count == expected_asset_count
+    assert result.anchors_checked == expected_asset_count * 2
 
 
 @pytest.mark.parametrize(

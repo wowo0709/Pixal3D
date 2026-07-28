@@ -780,20 +780,64 @@ def _source_count_contract(
     )
 
 
+def _source_stage_count_contract(
+    spec: ProductionSourceSpec,
+    stage: str,
+    evidence: Mapping[str, object],
+) -> dict[str, object] | None:
+    """Rebuild the stage-local count view persisted by the materializer."""
+    frozen = evidence.get("frozen_assets")
+    quarantined = evidence.get("quarantined_assets")
+    shape512_exclusions = evidence.get("shape512_exclusions")
+    training_exclusions = evidence.get("training_exclusion_count")
+    values = (frozen, quarantined, shape512_exclusions, training_exclusions)
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in values
+    ):
+        return None
+    if (
+        frozen != spec.expected_frozen
+        or quarantined > frozen
+        or shape512_exclusions > frozen
+    ):
+        return None
+    candidate = spec.expected_candidate_stages[stage]
+    if training_exclusions > candidate:
+        return None
+    return {
+        "frozen": frozen,
+        "global_quarantine": quarantined,
+        "shape512_family_exclusions": shape512_exclusions,
+        "candidate_stages": {stage: candidate},
+        "pack_exclusions": {stage: frozen - candidate},
+        "training_exclusions": {stage: training_exclusions},
+        "stages": {stage: candidate - training_exclusions},
+    }
+
+
 def _source_eligibility_evidence_is_valid(
     spec: ProductionSourceSpec,
     stage: str,
     evidence: Mapping[str, object],
     counts: Mapping[str, object],
 ) -> bool:
+    stage_counts = _source_stage_count_contract(spec, stage, evidence)
+    if stage_counts is None:
+        return False
     candidate = evidence.get("candidate_stage_scope")
     final = evidence.get("stage_scope")
     exclusions = evidence.get("training_exclusions")
     candidate_count = spec.expected_candidate_stages[stage]
-    exclusion_count = counts["training_exclusions"][stage]
-    final_count = counts["stages"][stage]
+    try:
+        exclusion_count = counts["training_exclusions"][stage]
+        final_count = counts["stages"][stage]
+    except (KeyError, TypeError):
+        return False
     if (
-        evidence.get("counts") != counts
+        evidence.get("counts") != stage_counts
+        or stage_counts["training_exclusions"][stage] != exclusion_count
+        or stage_counts["stages"][stage] != final_count
         or evidence.get("eligibility_policy") != policy_evidence()
         or evidence.get("candidate_asset_count") != candidate_count
         or evidence.get("asset_count") != final_count
@@ -951,10 +995,16 @@ def preflight_stage(
         raise ValueError(
             f"invalid materialization count evidence for stage={stage}"
         )
+    if set(persisted_exclusions) != {stage}:
+        raise ValueError(
+            f"invalid materialization count evidence for stage={stage}"
+        )
+    stage_exclusions = {name: 0 for name in COMPONENTS}
+    stage_exclusions[stage] = persisted_exclusions[stage]
     counts = observed_count_contract(
         frozen=spec.expected_frozen,
         candidate_stages=spec.expected_candidate_stages,
-        training_exclusions=persisted_exclusions,
+        training_exclusions=stage_exclusions,
     )
     indexes = _expected_source_indexes(spec)
     assets, digest, evidence_bytes, _evidence = _validated_source_materialization(
