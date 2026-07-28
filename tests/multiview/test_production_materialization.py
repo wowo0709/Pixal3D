@@ -1037,10 +1037,22 @@ def test_materialize_never_replaces_active_created_during_publication(tmp_path, 
     rejected = tmp_path / "rejected"
     rejected.mkdir()
 
-    def create_racer(temporary, final):
-        final.mkdir()
-        (final / "sentinel").write_text("racer")
-        original(temporary, final)
+    def create_racer(temporary, final, **kwargs):
+        parent_fd = kwargs.get("parent_fd")
+        if parent_fd is None:
+            final.mkdir()
+            (final / "sentinel").write_text("racer")
+        else:
+            os.mkdir(final.name, dir_fd=parent_fd)
+            descriptor = os.open(
+                f"{final.name}/sentinel",
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            with os.fdopen(descriptor, "w") as stream:
+                stream.write("racer")
+        original(temporary, final, **kwargs)
 
     monkeypatch.setattr(materializer, "_publish_no_replace", create_racer)
     with pytest.raises(FileExistsError):
@@ -1054,6 +1066,52 @@ def test_materialize_never_replaces_active_created_during_publication(tmp_path, 
     assert (active / "sentinel").read_text() == "racer"
     assert not list(active.parent.glob(".materializing-*"))
     assert len(list(rejected.iterdir())) == 1
+
+
+def test_materialize_success_parent_swap_publishes_exact_attempt_only_to_pinned_parent(
+    tmp_path, monkeypatch
+):
+    index, _, catalog = load_fixture(tmp_path)
+    stage_parent = tmp_path / "output" / "shape512"
+    original_stage_parent = tmp_path / "original-shape512"
+    original_publish = materializer._publish_no_replace
+
+    def swap_parent_with_decoy_then_publish(
+        temporary, final, **kwargs
+    ):
+        stage_parent.rename(original_stage_parent)
+        stage_parent.mkdir()
+        decoy = stage_parent / Path(temporary).name
+        decoy.mkdir()
+        (decoy / "sentinel").write_text("decoy")
+        return original_publish(temporary, final, **kwargs)
+
+    monkeypatch.setattr(
+        materializer,
+        "_publish_no_replace",
+        swap_parent_with_decoy_then_publish,
+    )
+
+    materialize_stage(
+        "shape512",
+        catalog,
+        tmp_path / "output",
+        index_path=index,
+        expected_counts={"shape512": 1},
+        expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"shape512": 1},
+        expected_training_exclusion_counts={"shape512": 0},
+    )
+
+    active = original_stage_parent / "active"
+    assert (
+        active / "renders_cond" / ASSET_A / "000.png"
+    ).read_bytes() == f"{ASSET_A}-0".encode()
+    assert not (active / "sentinel").exists()
+    assert not (stage_parent / "active").exists()
+    decoys = list(stage_parent.glob(".materializing-*"))
+    assert len(decoys) == 1
+    assert (decoys[0] / "sentinel").read_text() == "decoy"
 
 
 @pytest.mark.parametrize("field, replacement", [
@@ -1335,6 +1393,53 @@ def test_materialize_rejected_parent_swap_cannot_redirect_attempt(
     assert not list(
         (tmp_path / "output" / "shape512").glob(".materializing-*")
     )
+
+
+def test_materialize_failure_parent_swap_preserves_exact_attempt(
+    tmp_path, monkeypatch
+):
+    index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
+    stage_parent = tmp_path / "output" / "shape512"
+    original_stage_parent = tmp_path / "original-shape512"
+    original_copy = training_materializer._copy_selected
+
+    def copy_then_swap_parent_and_fail(pack, assets, temporary):
+        original_copy(pack, assets, temporary)
+        attempt = next(stage_parent.glob(".materializing-*"))
+        stage_parent.rename(original_stage_parent)
+        stage_parent.mkdir()
+        decoy = stage_parent / attempt.name
+        decoy.mkdir()
+        (decoy / "sentinel").write_text("decoy")
+        raise ValueError("synthetic post-staging failure")
+
+    monkeypatch.setattr(
+        training_materializer,
+        "_copy_selected",
+        copy_then_swap_parent_and_fail,
+    )
+
+    with pytest.raises(ValueError, match="synthetic post-staging"):
+        materialize_stage(
+            "shape512",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+    attempts = list(rejected.iterdir())
+    assert len(attempts) == 1
+    assert (
+        attempts[0] / "renders_cond" / ASSET_A / "000.png"
+    ).read_bytes() == f"{ASSET_A}-0".encode()
+    assert not list(original_stage_parent.glob(".materializing-*"))
+    decoys = list(stage_parent.glob(".materializing-*"))
+    assert len(decoys) == 1
+    assert (decoys[0] / "sentinel").read_text() == "decoy"
 
 
 @pytest.mark.parametrize("unsafe_rejected", ("missing", "symlink"))

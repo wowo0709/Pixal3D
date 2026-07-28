@@ -11,10 +11,10 @@ import json
 import os
 import errno
 from pathlib import Path, PurePosixPath
+import secrets
 import shutil
 import stat
 import tarfile
-import tempfile
 from typing import Mapping, Sequence
 
 from data_toolkit.pipeline.packing import (  # noqa: E402
@@ -774,10 +774,24 @@ def _rename_no_replace(
         )
 
 
-def _publish_no_replace(temporary: Path, final: Path) -> None:
+def _publish_no_replace(
+    temporary: Path,
+    final: Path,
+    *,
+    parent_fd: int | None = None,
+) -> None:
     """Atomically publish a directory only while its lexical destination is absent."""
     try:
-        _rename_no_replace(temporary, final)
+        _rename_no_replace(
+            temporary,
+            final,
+            source_dir_fd=(
+                parent_fd if parent_fd is not None else _AT_FDCWD
+            ),
+            destination_dir_fd=(
+                parent_fd if parent_fd is not None else _AT_FDCWD
+            ),
+        )
     except FileExistsError as error:
         raise FileExistsError(
             f"refusing to overwrite existing stage root: {final}"
@@ -788,6 +802,8 @@ def _preserve_failed_attempt(
     temporary: Path,
     output_root: Path,
     stage: str,
+    *,
+    source_parent_fd: int | None = None,
 ) -> Path:
     """Move one failed staging tree to the trusted production reject root."""
     rejected = Path(output_root).parent / "rejected"
@@ -797,14 +813,15 @@ def _preserve_failed_attempt(
         raise RuntimeError(
             f"rejected directory is not a safe directory: {rejected}"
         ) from error
-    source_parent_fd = None
+    owns_source_parent_fd = source_parent_fd is None
     try:
         rejected_stat = os.fstat(rejected_fd)
         if not stat.S_ISDIR(rejected_stat.st_mode):
             raise RuntimeError(
                 f"rejected directory is not a directory: {rejected}"
             )
-        source_parent_fd = _open_directory_nofollow(temporary.parent)
+        if source_parent_fd is None:
+            source_parent_fd = _open_directory_nofollow(temporary.parent)
         temporary_stat = os.stat(
             temporary.name,
             dir_fd=source_parent_fd,
@@ -831,22 +848,61 @@ def _preserve_failed_attempt(
         )
         return rejected / destination_name
     finally:
-        if source_parent_fd is not None:
+        if owns_source_parent_fd and source_parent_fd is not None:
             os.close(source_parent_fd)
         os.close(rejected_fd)
 
 
-def _acquire_destination_lock(final: Path) -> Path:
-    if os.path.lexists(final):
+def _entry_exists(parent_fd: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _create_staging_directory(parent_fd: int) -> str:
+    for _attempt in range(100):
+        name = f".materializing-{secrets.token_hex(8)}"
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            continue
+        return name
+    raise FileExistsError("could not allocate a unique staging directory")
+
+
+def _acquire_destination_lock(
+    final: Path,
+    *,
+    parent_fd: int | None = None,
+) -> Path:
+    if (
+        _entry_exists(parent_fd, final.name)
+        if parent_fd is not None
+        else os.path.lexists(final)
+    ):
         raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
     lock = final.with_name(".active.materialize.lock")
     try:
-        descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
+        descriptor = os.open(
+            lock.name if parent_fd is not None else lock,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+            0o600,
+            dir_fd=parent_fd,
+        )
     except FileExistsError as error:
         raise FileExistsError(f"stage materialization already active: {final}") from error
     os.close(descriptor)
-    if os.path.lexists(final):
-        lock.unlink(missing_ok=True)
+    if (
+        _entry_exists(parent_fd, final.name)
+        if parent_fd is not None
+        else os.path.lexists(final)
+    ):
+        if parent_fd is None:
+            lock.unlink(missing_ok=True)
+        else:
+            os.unlink(lock.name, dir_fd=parent_fd)
         raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
     return lock
 
@@ -904,10 +960,26 @@ def _materialize_stage(
         raise ValueError("materialization index path does not match catalog")
     _validate_pinned_indexes(source_indexes)
     final.parent.mkdir(parents=True, exist_ok=True)
-    lock = _acquire_destination_lock(final)
+    stage_parent_fd = _open_directory_nofollow(final.parent)
+    lock: Path | None = None
     temporary: Path | None = None
+    temporary_name: str | None = None
+    temporary_fd: int | None = None
     try:
-        temporary = Path(tempfile.mkdtemp(prefix=".materializing-", dir=final.parent))
+        lock = _acquire_destination_lock(
+            final,
+            parent_fd=stage_parent_fd,
+        )
+        temporary_name = _create_staging_directory(stage_parent_fd)
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_NOFOLLOW
+            | os.O_CLOEXEC,
+            dir_fd=stage_parent_fd,
+        )
+        temporary = Path(f"/proc/self/fd/{temporary_fd}")
         evidence_packs = []
         for family in STAGE_FAMILIES[stage]:
             records = catalog[family]
@@ -1062,24 +1134,42 @@ def _materialize_stage(
             evidence["source_indexes"] = source_indexes
         (temporary / "materialization.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
         _validate_pinned_indexes(source_indexes)
-        _publish_no_replace(temporary, final)
+        _publish_no_replace(
+            Path(temporary_name),
+            Path(final.name),
+            parent_fd=stage_parent_fd,
+        )
     except BaseException as error:
-        if temporary is not None and os.path.lexists(temporary):
+        if (
+            temporary_name is not None
+            and _entry_exists(stage_parent_fd, temporary_name)
+        ):
             try:
                 rejected_attempt = _preserve_failed_attempt(
-                    temporary, output_root, stage
+                    Path(temporary_name),
+                    output_root,
+                    stage,
+                    source_parent_fd=stage_parent_fd,
                 )
             except BaseException as preservation_error:
                 raise RuntimeError(
                     "failed to preserve materialization attempt; "
-                    f"staging retained at {temporary}"
+                    "staging retained in pinned stage parent as "
+                    f"{temporary_name}"
                 ) from preservation_error
             error.add_note(
                 f"failed materialization preserved at {rejected_attempt}"
             )
         raise
     finally:
-        lock.unlink(missing_ok=True)
+        if temporary_fd is not None:
+            os.close(temporary_fd)
+        if lock is not None:
+            try:
+                os.unlink(lock.name, dir_fd=stage_parent_fd)
+            except FileNotFoundError:
+                pass
+        os.close(stage_parent_fd)
     return final
 
 
