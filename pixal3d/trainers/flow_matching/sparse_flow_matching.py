@@ -10,7 +10,12 @@ from easydict import EasyDict as edict
 
 from ...modules import sparse as sp
 from ...utils.general_utils import dict_reduce
-from ...utils.data_utils import recursive_to_device, cycle, BalancedResumableSampler
+from ...utils.data_utils import (
+    recursive_to_device,
+    cycle,
+    BalancedResumableSampler,
+    ResumableSampler,
+)
 from .flow_matching import FlowMatchingTrainer
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
@@ -58,15 +63,23 @@ class SparseFlowMatchingTrainer(FlowMatchingTrainer):
         sigma_min (float): Minimum noise level.
     """
     
-    def prepare_dataloader(self, **kwargs):
+    def prepare_dataloader(self, balanced_sampler: bool = True, **kwargs):
         """
         Prepare dataloader.
         """
-        self.data_sampler = BalancedResumableSampler(
-            self.dataset,
-            shuffle=True,
-            batch_size=self.batch_size_per_gpu,
-        )
+        if not isinstance(balanced_sampler, bool):
+            raise ValueError("balanced_sampler must be a boolean")
+        if balanced_sampler:
+            self.data_sampler = BalancedResumableSampler(
+                self.dataset,
+                shuffle=True,
+                batch_size=self.batch_size_per_gpu,
+            )
+        else:
+            self.data_sampler = ResumableSampler(
+                self.dataset,
+                shuffle=True,
+            )
         if self.num_workers is None or self.num_workers == -1:
             num_workers = max(1, int(np.ceil((os.cpu_count() - 16) / torch.cuda.device_count())))
         else:

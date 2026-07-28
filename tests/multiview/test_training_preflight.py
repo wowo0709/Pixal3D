@@ -407,6 +407,44 @@ def test_source_handoff_publication_cross_links_schema_two_artifacts(
     assert handoff["report"]["sha256"] == hashlib.sha256(
         report_path.read_bytes()
     ).hexdigest()
+    original_inode = training_path.stat().st_ino
+    original_bytes = training_path.read_bytes()
+
+    publish_source_handoff(
+        spec,
+        results,
+        report_path,
+        handoff_path,
+        training_path,
+    )
+
+    assert training_path.stat().st_ino == original_inode
+    assert training_path.read_bytes() == original_bytes
+
+
+def test_source_handoff_publication_preserves_different_local_manifest(
+    two_index_preflight, tmp_path
+):
+    spec, results, _materializations, _created_at = two_index_preflight
+    report_path = tmp_path / "shared" / "report.json"
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    training_path = tmp_path / "local" / "training_data.json"
+    training_path.parent.mkdir()
+    training_path.write_text('{"existing":"different"}\n')
+    original_inode = training_path.stat().st_ino
+    original_bytes = training_path.read_bytes()
+
+    with pytest.raises(FileExistsError, match="different"):
+        publish_source_handoff(
+            spec,
+            results,
+            report_path,
+            handoff_path,
+            training_path,
+        )
+
+    assert training_path.stat().st_ino == original_inode
+    assert training_path.read_bytes() == original_bytes
 
 
 def test_direct_loader_rejects_instances_with_wrong_source_name(
@@ -437,3 +475,46 @@ def test_direct_loader_rejects_instances_with_wrong_source_name(
         validate_direct_loader(
             "3D-FUTURE", "ss64", tmp_path, ["asset"], config
         )
+
+
+def test_direct_loader_wraps_plain_dataset_error_with_forced_anchor_context(
+    tmp_path, monkeypatch
+):
+    class PlainFailureDataset:
+        def __init__(self, _roots, **_kwargs):
+            self.instances = [
+                ({"base": str(tmp_path)}, "asset-a", "3D-FUTURE")
+            ]
+
+        def get_instance(self, _root, _asset):
+            raise LookupError("plain loader failure")
+
+    from pixal3d import datasets
+
+    monkeypatch.setattr(
+        datasets, "PlainFailureDataset", PlainFailureDataset, raising=False
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "dataset": {
+                    "name": "PlainFailureDataset",
+                    "args": {"image_size": 512},
+                }
+            }
+        )
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            r"source=3D-FUTURE stage=ss64 asset=asset-a "
+            r"anchor=view00"
+        ),
+    ) as captured:
+        validate_direct_loader(
+            "3D-FUTURE", "ss64", tmp_path, ["asset-a"], config
+        )
+
+    assert isinstance(captured.value.__cause__, LookupError)

@@ -162,16 +162,45 @@ class FamilyPack:
     tool_commit: str
     pack_sha256: str
     manifest_sha256: str
+    source_index_path: Path
+    source_index_sha256: str
 
 
-def _read_json(path: Path, description: str) -> dict:
+def _read_regular_bytes(path: Path, description: str) -> bytes:
+    path = Path(path)
     try:
-        value = json.loads(path.read_text())
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as error:
+        mode = os.lstat(path).st_mode
+    except OSError as error:
+        raise ValueError(f"missing {description}: {path}") from error
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"non-regular {description}: {path}")
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"non-regular {description}: {path}") from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"non-regular {description}: {path}")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            return stream.read()
+    finally:
+        os.close(descriptor)
+
+
+def _read_json(path: Path, description: str) -> tuple[dict, bytes]:
+    raw = _read_regular_bytes(path, description)
+    try:
+        value = json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError, TypeError) as error:
         raise ValueError(f"invalid {description}: {path}: {error}") from error
     if not isinstance(value, dict):
         raise ValueError(f"invalid {description}: {path}")
-    return value
+    return value, raw
 
 
 def _safe_relative(value: object, prepared_root: Path, description: str) -> Path:
@@ -213,7 +242,10 @@ def _load_shard_catalog(
     expected_batches: Sequence[str] = EXPECTED_BATCHES,
 ) -> dict[str, tuple[FamilyPack, ...]]:
     """Load only verified, production-gated packs from a complete shard index."""
-    index = _read_json(Path(index_path), "production index")
+    index_path = Path(index_path)
+    index, index_raw = _read_json(index_path, "production index")
+    canonical_index_path = index_path.resolve()
+    index_sha256 = sha256(index_raw).hexdigest()
     if (index.get("gate"), index.get("source"), index.get("shard_id")) != (
         "production", source, shard_id
     ):
@@ -278,6 +310,8 @@ def _load_shard_catalog(
                         tool_commit=manifest.tool_commit,
                         pack_sha256=manifest.pack_sha256,
                         manifest_sha256=manifest_sha,
+                        source_index_path=canonical_index_path,
+                        source_index_sha256=index_sha256,
                     )
                 )
     return {family: tuple(records) for family, records in catalog.items()}
@@ -432,6 +466,65 @@ def _validate_catalog_identity(
                 not in spec.expected_batches[record.shard_id]
             ):
                 raise ValueError(f"catalog identity mismatch: {family}")
+
+
+def _pinned_source_indexes(
+    spec: ProductionSourceSpec,
+    catalog: Mapping[str, Sequence[FamilyPack]],
+) -> list[dict[str, str]]:
+    """Recover one immutable index pin per source shard from the catalog."""
+    pins = []
+    for index_path in spec.indexes:
+        expected_path = Path(index_path).resolve()
+        path_shard = Path(index_path).stem
+        if path_shard in spec.expected_batches:
+            shard_id = path_shard
+        elif len(spec.indexes) == len(spec.expected_batches) == 1:
+            shard_id = next(iter(spec.expected_batches))
+        else:
+            raise ValueError(
+                f"catalog index pin cannot resolve shard: {expected_path}"
+            )
+        observed = {
+            (record.source_index_path, record.source_index_sha256)
+            for records in catalog.values()
+            for record in records
+            if record.shard_id == shard_id
+        }
+        if len(observed) != 1:
+            raise ValueError(
+                f"catalog index pin is inconsistent: {expected_path}"
+            )
+        pinned_path, pinned_digest = observed.pop()
+        if (
+            pinned_path != expected_path
+            or len(pinned_digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in pinned_digest
+            )
+        ):
+            raise ValueError(f"catalog index pin is invalid: {shard_id}")
+        pins.append(
+            {
+                "shard_id": shard_id,
+                "path": str(expected_path),
+                "sha256": pinned_digest,
+            }
+        )
+    return pins
+
+
+def _validate_pinned_indexes(
+    source_indexes: Sequence[Mapping[str, str]],
+) -> None:
+    for record in source_indexes:
+        path = Path(record["path"])
+        current = sha256(
+            _read_regular_bytes(path, "production index")
+        ).hexdigest()
+        if current != record["sha256"]:
+            raise ValueError(f"production index bytes changed: {path}")
 
 
 def compute_stage_scopes(
@@ -629,19 +722,72 @@ _AT_FDCWD = -100
 _RENAME_NOREPLACE = 1
 
 
-def _publish_no_replace(temporary: Path, final: Path) -> None:
-    """Atomically publish a directory only while its lexical destination is absent."""
+def _rename_no_replace(source: Path, destination: Path) -> None:
+    """Atomically rename one path while its lexical destination is absent."""
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
     except AttributeError as error:
         raise RuntimeError("atomic no-replace publication is unavailable") from error
     renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
     renameat2.restype = ctypes.c_int
-    if renameat2(_AT_FDCWD, os.fsencode(temporary), _AT_FDCWD, os.fsencode(final), _RENAME_NOREPLACE) != 0:
+    if renameat2(
+        _AT_FDCWD,
+        os.fsencode(source),
+        _AT_FDCWD,
+        os.fsencode(destination),
+        _RENAME_NOREPLACE,
+    ) != 0:
         error_number = ctypes.get_errno()
         if error_number in (errno.EEXIST, errno.ENOTEMPTY):
-            raise FileExistsError(f"refusing to overwrite existing stage root: {final}")
-        raise OSError(error_number, os.strerror(error_number), final)
+            raise FileExistsError(
+                f"refusing to overwrite existing destination: {destination}"
+            )
+        raise OSError(
+            error_number, os.strerror(error_number), destination
+        )
+
+
+def _publish_no_replace(temporary: Path, final: Path) -> None:
+    """Atomically publish a directory only while its lexical destination is absent."""
+    try:
+        _rename_no_replace(temporary, final)
+    except FileExistsError as error:
+        raise FileExistsError(
+            f"refusing to overwrite existing stage root: {final}"
+        ) from error
+
+
+def _preserve_failed_attempt(
+    temporary: Path,
+    output_root: Path,
+    stage: str,
+) -> Path:
+    """Move one failed staging tree to the trusted production reject root."""
+    rejected = Path(output_root).parent / "rejected"
+    try:
+        rejected_stat = os.lstat(rejected)
+    except OSError as error:
+        raise RuntimeError(
+            f"rejected directory is missing: {rejected}"
+        ) from error
+    if not stat.S_ISDIR(rejected_stat.st_mode) or stat.S_ISLNK(
+        rejected_stat.st_mode
+    ):
+        raise RuntimeError(
+            f"rejected directory is not a non-symlink directory: {rejected}"
+        )
+    temporary_stat = os.lstat(temporary)
+    if temporary_stat.st_dev != rejected_stat.st_dev:
+        raise RuntimeError(
+            "rejected directory is not on the staging filesystem: "
+            f"{rejected}"
+        )
+    suffix = temporary.name.removeprefix(".materializing-")
+    destination = rejected / (
+        f"{Path(output_root).name}-{stage}-materializing-{suffix}"
+    )
+    _rename_no_replace(temporary, destination)
+    return destination
 
 
 def _acquire_destination_lock(final: Path) -> Path:
@@ -704,6 +850,13 @@ def _materialize_stage(
         expected_training_exclusion_counts = spec.fixed_count_contract[
             "training_exclusions"
         ]
+    source_indexes = _pinned_source_indexes(spec, catalog)
+    if (
+        Path(index_path).resolve()
+        != Path(source_indexes[0]["path"])
+    ):
+        raise ValueError("materialization index path does not match catalog")
+    _validate_pinned_indexes(source_indexes)
     final.parent.mkdir(parents=True, exist_ok=True)
     lock = _acquire_destination_lock(final)
     temporary: Path | None = None
@@ -779,26 +932,6 @@ def _materialize_stage(
                 assets,
                 {field: True for field in _FAMILY_METADATA_FIELDS[family]},
             )
-        if len(spec.indexes) == 1:
-            evidence_shards = tuple(
-                dict.fromkeys(
-                    record.shard_id for record in catalog.get("common", ())
-                )
-            )
-            if len(evidence_shards) != 1:
-                raise ValueError("single-index catalog has invalid shard identity")
-        else:
-            evidence_shards = tuple(path.stem for path in spec.indexes)
-        source_indexes = [
-            {
-                "shard_id": shard_id,
-                "path": str(path.resolve()),
-                "sha256": file_sha(path),
-            }
-            for path, shard_id in zip(
-                spec.indexes, evidence_shards
-            )
-        ]
         if spec.fixed_count_contract is None:
             observed_counts = observed_count_contract(
                 frozen=waiver["frozen_assets"],
@@ -882,10 +1015,22 @@ def _materialize_stage(
         else:
             evidence["source_indexes"] = source_indexes
         (temporary / "materialization.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+        _validate_pinned_indexes(source_indexes)
         _publish_no_replace(temporary, final)
-    except Exception:
-        if temporary is not None:
-            shutil.rmtree(temporary, ignore_errors=True)
+    except BaseException as error:
+        if temporary is not None and os.path.lexists(temporary):
+            try:
+                rejected_attempt = _preserve_failed_attempt(
+                    temporary, output_root, stage
+                )
+            except BaseException as preservation_error:
+                raise RuntimeError(
+                    "failed to preserve materialization attempt; "
+                    f"staging retained at {temporary}"
+                ) from preservation_error
+            error.add_note(
+                f"failed materialization preserved at {rejected_attempt}"
+            )
         raise
     finally:
         lock.unlink(missing_ok=True)

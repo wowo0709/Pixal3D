@@ -625,6 +625,23 @@ def test_catalog_rejects_symlinked_pack_even_when_target_is_valid(tmp_path):
         load_production_catalog(index, prepared, "ABO", "ABO-00000", expected_batches=("batch000", "batch001"))
 
 
+def test_catalog_rejects_symlinked_index_even_when_target_is_valid(tmp_path):
+    index, prepared, *_ = write_catalog_fixture(tmp_path)
+    target = tmp_path / "index-target.json"
+    target.write_bytes(index.read_bytes())
+    index.unlink()
+    index.symlink_to(target)
+
+    with pytest.raises(ValueError, match="non-regular production index"):
+        load_production_catalog(
+            index,
+            prepared,
+            "ABO",
+            "ABO-00000",
+            expected_batches=("batch000", "batch001"),
+        )
+
+
 def test_catalog_rejects_noncanonical_included_scope(tmp_path):
     """A duplicate or unsorted included scope must not silently alter selected assets."""
     index, prepared, *_ = write_catalog_fixture(tmp_path)
@@ -745,8 +762,8 @@ def test_materialize_stage_keeps_tolerant_pbr_scale_and_removes_coordinate_misma
         assert not (component / rejected).exists()
 
 
-def test_materialize_stage_cleans_hidden_temporary_when_final_eligibility_count_mismatches(tmp_path):
-    """Publishing a final scope with the wrong approved count must leave no active or hidden tree."""
+def test_materialize_stage_rejects_final_count_and_preserves_attempt(tmp_path):
+    """A wrong approved count must preserve the rejected staging attempt."""
     latent_specs = {("shape-512", ASSET_B, 1): {"count": 8193}}
     index, prepared, _, _ = write_catalog_fixture(
         tmp_path, shape512_includes_all=True, latent_specs=latent_specs
@@ -754,6 +771,8 @@ def test_materialize_stage_cleans_hidden_temporary_when_final_eligibility_count_
     catalog = load_production_catalog(
         index, prepared, "ABO", "ABO-00000", expected_batches=("batch000", "batch001")
     )
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
     with pytest.raises(ValueError, match="final|training exclusion"):
         materialize_stage(
             "shape512", catalog, tmp_path / "output", index_path=index,
@@ -766,6 +785,7 @@ def test_materialize_stage_cleans_hidden_temporary_when_final_eligibility_count_
     parent = tmp_path / "output" / "shape512"
     assert not (parent / "active").exists()
     assert not list(parent.glob(".materializing-*"))
+    assert len(list(rejected.iterdir())) == 1
 
 
 def test_materialize_stage_refuses_existing_active_before_temporary_creation(tmp_path):
@@ -832,6 +852,116 @@ def test_materialize_records_checked_waiver_and_sorted_evidence(tmp_path):
     }
     assert isinstance(evidence["created_at"], str) and evidence["created_at"]
     assert not list(final.parent.glob(".materializing-*"))
+
+
+def test_materialize_rejects_index_drift_before_staging(tmp_path):
+    index, _, catalog = load_fixture(tmp_path)
+    index.write_bytes(index.read_bytes() + b" ")
+
+    with pytest.raises(ValueError, match="index bytes changed"):
+        materialize_stage(
+            "shape512",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+    assert not (tmp_path / "output" / "shape512").exists()
+
+
+def test_materialize_rejects_inconsistent_catalog_index_pin_before_staging(
+    tmp_path,
+):
+    index, _, catalog = load_fixture(tmp_path)
+    tampered = dict(catalog)
+    tampered["common"] = (
+        replace(
+            catalog["common"][0],
+            source_index_path=tmp_path / "other-index.json",
+        ),
+        *catalog["common"][1:],
+    )
+
+    with pytest.raises(ValueError, match="catalog index pin"):
+        materialize_stage(
+            "shape512",
+            tampered,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+    assert not (tmp_path / "output" / "shape512").exists()
+
+
+def test_materialize_rejects_index_drift_immediately_before_publication(
+    tmp_path, monkeypatch
+):
+    index, _, catalog = load_fixture(tmp_path)
+    pinned_digest = sha256(index.read_bytes()).hexdigest()
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
+    original_copy = training_materializer._copy_selected
+    changed = False
+
+    def mutate_index_after_copy(pack, assets, temporary):
+        nonlocal changed
+        original_copy(pack, assets, temporary)
+        if not changed:
+            index.write_bytes(index.read_bytes() + b" ")
+            changed = True
+
+    monkeypatch.setattr(
+        training_materializer, "_copy_selected", mutate_index_after_copy
+    )
+
+    with pytest.raises(ValueError, match="index bytes changed"):
+        materialize_stage(
+            "shape512",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+            expected_stage_counts={"shape512": 1},
+            expected_training_exclusion_counts={"shape512": 0},
+        )
+
+    attempts = list(rejected.iterdir())
+    assert len(attempts) == 1
+    evidence = json.loads(
+        (attempts[0] / "materialization.json").read_text()
+    )
+    assert evidence["source_index"]["sha256"] == pinned_digest
+    assert not (tmp_path / "output" / "shape512" / "active").exists()
+
+
+def test_materialization_evidence_uses_catalogued_index_digest(
+    tmp_path, monkeypatch
+):
+    index, _, catalog = load_fixture(tmp_path)
+    pinned_digest = sha256(index.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        training_materializer, "file_sha", lambda _path: "f" * 64
+    )
+
+    final = materialize_stage(
+        "shape512",
+        catalog,
+        tmp_path / "output",
+        index_path=index,
+        expected_counts={"shape512": 1},
+        expected_waiver=FIXTURE_WAIVER,
+        expected_stage_counts={"shape512": 1},
+        expected_training_exclusion_counts={"shape512": 0},
+    )
+
+    evidence = json.loads((final / "materialization.json").read_text())
+    assert evidence["index_sha256"] == pinned_digest
+    assert evidence["source_index"]["sha256"] == pinned_digest
 
 
 def test_materializer_evidence_is_accepted_by_strict_materialization_scope(
@@ -904,6 +1034,8 @@ def test_materialize_never_replaces_active_created_during_publication(tmp_path, 
     """A racing active creation must win over publication and preserve its sentinel contents."""
     index, _, catalog = load_fixture(tmp_path)
     original = materializer._publish_no_replace
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
 
     def create_racer(temporary, final):
         final.mkdir()
@@ -921,6 +1053,7 @@ def test_materialize_never_replaces_active_created_during_publication(tmp_path, 
     active = tmp_path / "output" / "shape512" / "active"
     assert (active / "sentinel").read_text() == "racer"
     assert not list(active.parent.glob(".materializing-*"))
+    assert len(list(rejected.iterdir())) == 1
 
 
 @pytest.mark.parametrize("field, replacement", [
@@ -1015,9 +1148,11 @@ def _rewrite_tar(path, entries):
 
 
 @pytest.mark.parametrize("fault", ["unsafe", "link", "unexpected", "size", "sha256"])
-def test_materialize_rejects_each_selected_tar_fault_and_cleans_temporary(tmp_path, fault):
-    """Selected tar members must be safe, exact, and leave no failed materialization tree."""
+def test_materialize_rejects_each_selected_tar_fault_and_preserves_attempt(tmp_path, fault):
+    """Selected tar faults must be rejected into one preserved attempt tree."""
     index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
     record = catalog["common"][0]
     expected = materializer._expected_member_paths("common", ASSET_A)
     if fault == "unsafe":
@@ -1036,17 +1171,156 @@ def test_materialize_rejects_each_selected_tar_fault_and_cleans_temporary(tmp_pa
         materialize_stage("shape512", catalog, tmp_path / "output", index_path=index, expected_counts={"shape512": 1}, expected_waiver=FIXTURE_WAIVER)
     parent = tmp_path / "output" / "shape512"
     assert not list(parent.glob(".materializing-*"))
+    assert len(list(rejected.iterdir())) == 1
 
 
-def test_materialize_cleans_temporary_after_mid_extraction_failure(tmp_path):
-    """A later-family extraction error must remove files already copied from the common pack."""
+def test_materialize_preserves_attempt_after_mid_extraction_failure(tmp_path):
+    """A later-family extraction error must preserve earlier copied files."""
     index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
     record = catalog["shape-512"][0]
     _rewrite_tar(record.pack, [(materializer._expected_member_paths("shape-512", ASSET_A)[0], b"wrong", "file")])
     with pytest.raises(ValueError, match="digest"):
         materialize_stage("shape512", catalog, tmp_path / "output", index_path=index, expected_counts={"shape512": 1}, expected_waiver=FIXTURE_WAIVER)
     parent = tmp_path / "output" / "shape512"
     assert not list(parent.glob(".materializing-*")) and not (parent / "active").exists()
+    attempts = list(rejected.iterdir())
+    assert len(attempts) == 1
+    assert (
+        attempts[0] / "renders_cond" / ASSET_A / "000.png"
+    ).read_bytes() == f"{ASSET_A}-0".encode()
+
+
+def test_materialize_preserves_each_failed_attempt_in_unique_rejected_child(
+    tmp_path,
+):
+    index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
+    record = catalog["shape-512"][0]
+    _rewrite_tar(
+        record.pack,
+        [
+            (
+                materializer._expected_member_paths(
+                    "shape-512", ASSET_A
+                )[0],
+                b"wrong",
+                "file",
+            )
+        ],
+    )
+
+    for _attempt in range(2):
+        with pytest.raises(ValueError, match="digest"):
+            materialize_stage(
+                "shape512",
+                catalog,
+                tmp_path / "output",
+                index_path=index,
+                expected_counts={"shape512": 1},
+                expected_waiver=FIXTURE_WAIVER,
+            )
+
+    attempts = sorted(rejected.iterdir())
+    assert len(attempts) == 2
+    assert attempts[0].name != attempts[1].name
+    assert all(attempt.is_dir() and not attempt.is_symlink() for attempt in attempts)
+    assert all(
+        (
+            attempt
+            / "renders_cond"
+            / ASSET_A
+            / "000.png"
+        ).read_bytes()
+        == f"{ASSET_A}-0".encode()
+        for attempt in attempts
+    )
+    stage_parent = tmp_path / "output" / "shape512"
+    assert not list(stage_parent.glob(".materializing-*"))
+    assert not (stage_parent / "active").exists()
+
+
+def test_materialize_preserves_interrupted_attempt_after_staging(
+    tmp_path, monkeypatch
+):
+    index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
+    original_copy = training_materializer._copy_selected
+
+    def interrupt_after_copy(pack, assets, temporary):
+        original_copy(pack, assets, temporary)
+        raise KeyboardInterrupt("synthetic interruption")
+
+    monkeypatch.setattr(
+        training_materializer, "_copy_selected", interrupt_after_copy
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="synthetic"):
+        materialize_stage(
+            "shape512",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+    attempts = list(rejected.iterdir())
+    assert len(attempts) == 1
+    assert (
+        attempts[0] / "renders_cond" / ASSET_A / "000.png"
+    ).exists()
+    assert not list(
+        (tmp_path / "output" / "shape512").glob(".materializing-*")
+    )
+
+
+@pytest.mark.parametrize("unsafe_rejected", ("missing", "symlink"))
+def test_materialize_preservation_failure_leaves_staging_tree_intact(
+    tmp_path, unsafe_rejected
+):
+    index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    if unsafe_rejected == "symlink":
+        target = tmp_path / "other-rejected"
+        target.mkdir()
+        rejected.symlink_to(target, target_is_directory=True)
+    record = catalog["shape-512"][0]
+    _rewrite_tar(
+        record.pack,
+        [
+            (
+                materializer._expected_member_paths(
+                    "shape-512", ASSET_A
+                )[0],
+                b"wrong",
+                "file",
+            )
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="preserve.*staging retained"):
+        materialize_stage(
+            "shape512",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+    staging = list(
+        (tmp_path / "output" / "shape512").glob(".materializing-*")
+    )
+    assert len(staging) == 1
+    assert (
+        staging[0] / "renders_cond" / ASSET_A / "000.png"
+    ).read_bytes() == f"{ASSET_A}-0".encode()
+    if unsafe_rejected == "symlink":
+        assert not list((tmp_path / "other-rejected").iterdir())
 
 
 def test_materialize_sorts_multi_asset_metadata_and_evidence_scope(tmp_path):

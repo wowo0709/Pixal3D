@@ -159,6 +159,11 @@ def _validate_instances(dataset, resolved: ResolvedTrainingData) -> None:
             f"stage={resolved.stage}: configured dataset instance roots "
             f"do not match resolved data_dir: {wrong_roots}"
         )
+    if actual != expected:
+        raise ValueError(
+            f"stage={resolved.stage}: configured dataset instances do not "
+            "match canonical order"
+        )
     observed_counts = Counter(source for _root, _asset, source in actual)
     if dict(observed_counts) != resolved.source_counts:
         raise ValueError(
@@ -196,8 +201,8 @@ def _boundary_samples(
                     )
             except Exception as error:
                 raise RuntimeError(
-                    f"source={source} stage={resolved.stage} asset={asset}: "
-                    "direct dataset load failed"
+                    f"source={source} stage={resolved.stage} asset={asset} "
+                    "anchor=view00: direct dataset load failed"
                 ) from error
             checked += 1
             if asset == scope[0]:

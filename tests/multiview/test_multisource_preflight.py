@@ -196,7 +196,9 @@ def test_combined_preflight_matches_disjoint_union(
     assert result["collated_sources"] == ["ABO", "3D-FUTURE"]
 
 
-def _fake_dataset(resolved, *, instances=None, collate_error=None):
+def _fake_dataset(
+    resolved, *, instances=None, load_error=None, collate_error=None
+):
     class FakeDataset:
         def __init__(self):
             self.instances = (
@@ -214,6 +216,8 @@ def _fake_dataset(resolved, *, instances=None, collate_error=None):
             )
 
         def get_instance(self, _root, asset):
+            if load_error is not None:
+                raise load_error
             return {"asset": asset}
 
         def collate_fn(self, batch):
@@ -230,6 +234,7 @@ def _fake_dataset(resolved, *, instances=None, collate_error=None):
         ("omitted", "omitted"),
         ("unexpected_source", "unexpected source"),
         ("duplicate", "duplicate source/SHA"),
+        ("permuted", "canonical order"),
     ],
 )
 def test_combined_preflight_rejects_nonexact_dataset_instances(
@@ -249,6 +254,8 @@ def test_combined_preflight_rejects_nonexact_dataset_instances(
         instances = exact[:-1]
     elif mutation == "unexpected_source":
         instances = [*exact[:-1], (exact[-1][0], exact[-1][1], "OTHER")]
+    elif mutation == "permuted":
+        instances = list(reversed(exact))
     else:
         instances = [*exact, exact[0]]
     monkeypatch.setattr(
@@ -307,3 +314,36 @@ def test_combined_preflight_rejects_cross_source_collate_failure(
             "shape512",
             CONFIGS["shape512"],
         )
+
+
+def test_combined_preflight_wraps_plain_loader_error_with_anchor_context(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    first_asset = resolved.source_scopes["ABO"][0]
+    monkeypatch.setattr(
+        preflight,
+        "_construct_configured_dataset",
+        lambda _resolved, _config: _fake_dataset(
+            resolved, load_error=LookupError("plain loader failure")
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            rf"source=ABO stage=ss64 asset={first_asset} "
+            r"anchor=view00"
+        ),
+    ) as captured:
+        preflight_multisource_stage(
+            two_source_fixture.training_data,
+            "ss64",
+            CONFIGS["ss64"],
+        )
+
+    assert isinstance(captured.value.__cause__, LookupError)

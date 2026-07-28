@@ -17,6 +17,37 @@ STAGES = ("ss64", "shape512", "shape1024", "pbr1024")
 SAMPLING = "proportional-unweighted-concatenation"
 AUTHORIZATION = "training-input use only"
 _SOURCE_SCHEMAS = {"ABO": 1, "3D-FUTURE": 2}
+_REPORT_FIELDS = {
+    1: (
+        "schema_version",
+        "created_at",
+        "source",
+        "shard_id",
+        "source_index",
+        "acceptance_mode",
+        "original_90_percent_gate_passed",
+        "authorization",
+        "counts",
+        "eligibility_policy",
+        "stages",
+        "materialization_evidence",
+        "observed_tool_commits",
+    ),
+    2: (
+        "schema_version",
+        "created_at",
+        "source",
+        "source_indexes",
+        "acceptance_mode",
+        "original_90_percent_gate_passed",
+        "authorization",
+        "counts",
+        "eligibility_policy",
+        "stages",
+        "materialization_evidence",
+        "observed_tool_commits",
+    ),
+}
 _STAGE_COMPONENTS = {
     "ss64": {
         "base": Path(),
@@ -194,6 +225,40 @@ def _expected_data_dir(
             for component, relative in _STAGE_COMPONENTS[stage].items()
         }
     }
+
+
+def _validate_report_chain(
+    source: str, handoff: Mapping[str, object]
+) -> Path:
+    reference = _exact_keys(
+        handoff.get("report"),
+        {"path", "sha256"},
+        f"source={source} report reference",
+    )
+    path_value = reference["path"]
+    pinned_digest = reference["sha256"]
+    if (
+        not isinstance(path_value, str)
+        or not path_value
+        or not _valid_digest(pinned_digest)
+    ):
+        raise ValueError(f"source={source} report reference is invalid")
+    path = Path(path_value)
+    report, raw = _load_json(path, f"source={source} report")
+    canonical_path = _canonical_path(path, f"source={source} report")
+    if _digest(raw) != pinned_digest:
+        raise ValueError(f"source={source} report digest changed")
+    schema = _SOURCE_SCHEMAS[source]
+    fields = _REPORT_FIELDS[schema]
+    _exact_keys(report, set(fields), f"source={source} report")
+    expected_handoff = {
+        key: report[key] for key in fields
+    } | {"report": dict(reference)}
+    if dict(handoff) != expected_handoff:
+        raise ValueError(
+            f"source={source} handoff does not match report projection"
+        )
+    return canonical_path
 
 
 def _validate_materialization(
@@ -380,6 +445,7 @@ def _validate_source_training_data(
     )
     if _digest(handoff_raw) != handoff_digest:
         raise ValueError(f"source={source} handoff digest changed")
+    _validate_report_chain(source, handoff)
     expected_training_data = {
         **handoff,
         "handoff": dict(handoff_reference),
@@ -529,17 +595,17 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
-def publish_combined_training_data(
-    source_paths: Mapping[str, Path], output_path: Path
-) -> Path:
-    """Atomically publish a validated local combined training manifest."""
-    output_path = Path(output_path)
-    payload = _canonical_json_bytes(
-        build_combined_training_data(source_paths)
-    )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+def _publish_create_only(path: Path, payload: bytes) -> None:
+    """Publish bytes once without replacing an existing identical inode."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if os.path.lexists(path):
+        if _regular_bytes(path, "existing combined training manifest") != payload:
+            raise ValueError(
+                f"existing combined training manifest has different content: {path}"
+            )
+        return
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{output_path.name}.", dir=output_path.parent
+        prefix=f".{path.name}.", dir=path.parent
     )
     temporary = Path(temporary_name)
     try:
@@ -547,10 +613,34 @@ def publish_combined_training_data(
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, output_path)
-        _fsync_directory(output_path.parent)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if (
+                _regular_bytes(
+                    path, "existing combined training manifest"
+                )
+                != payload
+            ):
+                raise ValueError(
+                    "existing combined training manifest has different "
+                    f"content: {path}"
+                )
+        else:
+            _fsync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def publish_combined_training_data(
+    source_paths: Mapping[str, Path], output_path: Path
+) -> Path:
+    """Create a validated local combined training manifest without replacement."""
+    output_path = Path(output_path)
+    payload = _canonical_json_bytes(
+        build_combined_training_data(source_paths)
+    )
+    _publish_create_only(output_path, payload)
     return output_path
 
 

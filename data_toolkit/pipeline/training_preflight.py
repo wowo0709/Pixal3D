@@ -549,7 +549,8 @@ def _validate_direct_loader(
                     pack = dataset.get_instance(root_record, asset)
             except Exception as error:
                 raise RuntimeError(
-                    f"source={source} {error} stage={stage}"
+                    f"source={source} stage={stage} asset={asset} "
+                    f"anchor=view{anchor:02d}: direct dataset load failed"
                 ) from error
             _validate_loader_pack(stage, asset, anchor, pack, image_size)
             checked += 1
@@ -1459,7 +1460,7 @@ def publish_source_handoff(
             "sha256": handoff_sha256,
         },
     }
-    _write_atomic_json(training_data_path, training_data)
+    write_create_only_json(training_data_path, training_data)
     return Path(report_path), Path(handoff_path), Path(training_data_path)
 
 
@@ -1601,7 +1602,7 @@ def publish_handoff(
         "report": handoff["report"],
         "handoff": {"path": str(handoff_path), "sha256": handoff_sha256},
     }
-    _write_atomic_json(Path(training_data_path), training_data)
+    write_create_only_json(Path(training_data_path), training_data)
     return Path(report_path), Path(handoff_path), Path(training_data_path)
 
 

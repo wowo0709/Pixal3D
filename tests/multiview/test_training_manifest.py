@@ -112,8 +112,8 @@ def _write_source(tmp_path, source, schema_version, count):
             "tool_commits": [f"{source}-{stage}-tool"],
         }
 
-    handoff_path = tmp_path / source / "handoff.json"
-    handoff = {
+    report_path = tmp_path / source / "report.json"
+    report = {
         "schema_version": schema_version,
         "created_at": "2026-07-28T00:00:00Z",
         "source": source,
@@ -125,25 +125,30 @@ def _write_source(tmp_path, source, schema_version, count):
         "stages": stages,
         "materialization_evidence": materialization_evidence,
         "observed_tool_commits": [f"{source}-tool"],
-        "report": {
-            "path": str(tmp_path / source / "report.json"),
-            "sha256": "a" * 64,
-        },
     }
     if schema_version == 1:
-        handoff["shard_id"] = "ABO-00000"
-        handoff["source_index"] = {
+        report["shard_id"] = "ABO-00000"
+        report["source_index"] = {
             "path": str(tmp_path / source / "ABO-00000.json"),
             "sha256": "b" * 64,
         }
     else:
-        handoff["source_indexes"] = [
+        report["source_indexes"] = [
             {
                 "shard_id": f"{source}-00000",
                 "path": str(tmp_path / source / f"{source}-00000.json"),
                 "sha256": "b" * 64,
             }
         ]
+    report_path.write_bytes(_canonical_json_bytes(report))
+    handoff_path = tmp_path / source / "handoff.json"
+    handoff = {
+        **report,
+        "report": {
+            "path": str(report_path),
+            "sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+        },
+    }
     handoff_path.write_bytes(_canonical_json_bytes(handoff))
     training_path = tmp_path / source / "training_data.json"
     training = {
@@ -161,7 +166,40 @@ def _rewrite_source_chain(training_path, mutate):
     training = json.loads(training_path.read_text())
     handoff_path = Path(training["handoff"]["path"])
     handoff = json.loads(handoff_path.read_text())
-    mutate(handoff)
+    report_path = Path(handoff["report"]["path"])
+    report = json.loads(report_path.read_text())
+    mutate(report)
+    report_path.write_bytes(_canonical_json_bytes(report))
+    handoff = {
+        **report,
+        "report": {
+            "path": str(report_path),
+            "sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+        },
+    }
+    handoff_path.write_bytes(_canonical_json_bytes(handoff))
+    training = {
+        **handoff,
+        "handoff": {
+            "path": str(handoff_path),
+            "sha256": hashlib.sha256(handoff_path.read_bytes()).hexdigest(),
+        },
+    }
+    training_path.write_bytes(_canonical_json_bytes(training))
+
+
+def _rewrite_report_reference_only(training_path, mutate):
+    """Mutate the report and repin it without updating the handoff projection."""
+    training = json.loads(training_path.read_text())
+    handoff_path = Path(training["handoff"]["path"])
+    handoff = json.loads(handoff_path.read_text())
+    report_path = Path(handoff["report"]["path"])
+    report = json.loads(report_path.read_text())
+    mutate(report)
+    report_path.write_bytes(_canonical_json_bytes(report))
+    handoff["report"]["sha256"] = hashlib.sha256(
+        report_path.read_bytes()
+    ).hexdigest()
     handoff_path.write_bytes(_canonical_json_bytes(handoff))
     training = {
         **handoff,
@@ -268,6 +306,62 @@ def test_combined_manifest_rejects_changed_handoff_digest(source_inputs):
         build_combined_training_data(source_inputs)
 
 
+def test_combined_manifest_rejects_report_digest_drift(source_inputs):
+    training = json.loads(source_inputs["ABO"].read_text())
+    handoff = json.loads(Path(training["handoff"]["path"]).read_text())
+    report_path = Path(handoff["report"]["path"])
+    report_path.write_bytes(report_path.read_bytes() + b" ")
+
+    with pytest.raises(ValueError, match="report digest"):
+        build_combined_training_data(source_inputs)
+
+
+def test_combined_manifest_rejects_handoff_not_projected_from_report(
+    source_inputs,
+):
+    _rewrite_report_reference_only(
+        source_inputs["3D-FUTURE"],
+        lambda report: report["counts"]["stages"].__setitem__("ss64", 6),
+    )
+
+    with pytest.raises(ValueError, match="handoff.*report"):
+        build_combined_training_data(source_inputs)
+
+
+@pytest.mark.parametrize("unsafe", ("symlink", "noncanonical"))
+def test_combined_manifest_rejects_unsafe_report_reference(
+    source_inputs, tmp_path, unsafe
+):
+    training_path = source_inputs["ABO"]
+    training = json.loads(training_path.read_text())
+    handoff_path = Path(training["handoff"]["path"])
+    handoff = json.loads(handoff_path.read_text())
+    report_path = Path(handoff["report"]["path"])
+    if unsafe == "symlink":
+        target = tmp_path / "report-copy.json"
+        target.write_bytes(report_path.read_bytes())
+        report_path.unlink()
+        report_path.symlink_to(target)
+    else:
+        handoff["report"]["path"] = str(
+            report_path.parent / "nested" / ".." / report_path.name
+        )
+        handoff_path.write_bytes(_canonical_json_bytes(handoff))
+        training = {
+            **handoff,
+            "handoff": {
+                "path": str(handoff_path),
+                "sha256": hashlib.sha256(
+                    handoff_path.read_bytes()
+                ).hexdigest(),
+            },
+        }
+        training_path.write_bytes(_canonical_json_bytes(training))
+
+    with pytest.raises(ValueError, match="report.*(regular|canonical)"):
+        build_combined_training_data(source_inputs)
+
+
 def test_combined_manifest_rejects_symlinked_handoff(source_inputs, tmp_path):
     training = json.loads(source_inputs["ABO"].read_text())
     handoff_path = Path(training["handoff"]["path"])
@@ -336,12 +430,10 @@ def test_combined_manifest_requires_schema_one_abo_and_schema_two_future(
         build_combined_training_data(source_inputs)
 
 
-def test_publish_combined_training_data_atomically_replaces_local_manifest(
+def test_publish_combined_training_data_is_create_only_and_idempotent(
     source_inputs, tmp_path
 ):
     output = tmp_path / "combined" / "training_data.json"
-    output.parent.mkdir()
-    output.write_text('{"stale":true}\n')
     assert publish_combined_training_data(source_inputs, output) == output
     published = json.loads(output.read_text())
     assert published == build_combined_training_data(source_inputs)
@@ -350,7 +442,30 @@ def test_publish_combined_training_data_atomically_replaces_local_manifest(
         "ABO",
         "3D-FUTURE",
     ]
+    original_inode = output.stat().st_ino
+    original_bytes = output.read_bytes()
+
+    assert publish_combined_training_data(source_inputs, output) == output
+
+    assert output.stat().st_ino == original_inode
+    assert output.read_bytes() == original_bytes
     assert not list(output.parent.glob(f".{output.name}.*"))
+
+
+def test_publish_combined_training_data_preserves_different_existing_manifest(
+    source_inputs, tmp_path
+):
+    output = tmp_path / "combined" / "training_data.json"
+    output.parent.mkdir()
+    output.write_text('{"stale":true}\n')
+    original_inode = output.stat().st_ino
+    original_bytes = output.read_bytes()
+
+    with pytest.raises(ValueError, match="different"):
+        publish_combined_training_data(source_inputs, output)
+
+    assert output.stat().st_ino == original_inode
+    assert output.read_bytes() == original_bytes
 
 
 def test_publish_script_accepts_explicit_safe_paths(source_inputs, tmp_path):
@@ -397,6 +512,18 @@ def test_resolve_training_data_rejects_source_changed_after_publication(
 ):
     source_inputs["ABO"].write_bytes(source_inputs["ABO"].read_bytes() + b" ")
     with pytest.raises(ValueError, match="training data digest"):
+        resolve_training_data(manifest, "ss64")
+
+
+def test_resolve_training_data_rechecks_report_digest_at_launch(
+    source_inputs, manifest
+):
+    training = json.loads(source_inputs["3D-FUTURE"].read_text())
+    handoff = json.loads(Path(training["handoff"]["path"]).read_text())
+    report_path = Path(handoff["report"]["path"])
+    report_path.write_bytes(report_path.read_bytes() + b" ")
+
+    with pytest.raises(ValueError, match="report digest"):
         resolve_training_data(manifest, "ss64")
 
 

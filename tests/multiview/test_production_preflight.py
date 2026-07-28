@@ -855,6 +855,36 @@ def test_publish_recovers_existing_report_and_handoff_after_local_failure(tmp_pa
     assert training_path.exists()
 
 
+def test_publish_handoff_reuses_identical_local_manifest_without_replacement(
+    tmp_path,
+):
+    results, materializations = handoff_inputs(tmp_path)
+    index = tmp_path / "index.json"
+    index.write_text('{"source":"ABO"}\n')
+    index_sha256 = hashlib.sha256(index.read_bytes()).hexdigest()
+    for evidence in materializations.values():
+        evidence["index_sha256"] = index_sha256
+        evidence["source_index"]["sha256"] = index_sha256
+    results = with_evidence_digests(results, materializations)
+    report_path = tmp_path / "shared" / "report.json"
+    handoff_path = tmp_path / "shared" / "handoff.json"
+    training_path = tmp_path / "local" / "training_data.json"
+    preflight.publish_handoff(
+        index, results, materializations, report_path, handoff_path,
+        training_path, "2026-01-01T00:00:00Z",
+    )
+    original_inode = training_path.stat().st_ino
+    original_bytes = training_path.read_bytes()
+
+    preflight.publish_handoff(
+        index, results, materializations, report_path, handoff_path,
+        training_path, "2026-12-31T23:59:59Z",
+    )
+
+    assert training_path.stat().st_ino == original_inode
+    assert training_path.read_bytes() == original_bytes
+
+
 def test_publish_rejects_evidence_reread_that_differs_from_preflight_bytes(tmp_path):
     """A valid but later-mutated evidence object must not replace the preflight-proven bytes."""
     results, materializations = handoff_inputs(tmp_path)

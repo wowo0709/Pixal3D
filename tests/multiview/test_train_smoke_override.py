@@ -9,9 +9,14 @@ from easydict import EasyDict as edict
 import pytest
 import torch
 
+from pixal3d import trainers as trainer_module
 from pixal3d.trainers.basic import BasicTrainer
 from pixal3d.trainers.flow_matching.sparse_flow_matching import (
     SparseFlowMatchingTrainer,
+)
+from pixal3d.utils.data_utils import (
+    BalancedResumableSampler,
+    ResumableSampler,
 )
 from train import apply_smoke_overrides, resolve_output_dirs
 
@@ -312,6 +317,51 @@ def test_sparse_smoke_dataloader_disables_persistent_zero_workers():
 
     assert trainer.dataloader.num_workers == 0
     assert trainer.dataloader.persistent_workers is False
+
+
+def test_sparse_dataloader_preserves_balanced_legacy_default():
+    trainer = object.__new__(SparseFlowMatchingTrainer)
+    trainer.dataset = _SparseSmokeDataset()
+    trainer.batch_size_per_gpu = 1
+    trainer.batch_split = 1
+    trainer.num_workers = 0
+
+    SparseFlowMatchingTrainer.prepare_dataloader(trainer)
+
+    assert type(trainer.data_sampler) is BalancedResumableSampler
+
+
+def test_four_multiview_configs_select_unweighted_resumable_sampler():
+    configs = {
+        "ss64": REPO_ROOT
+        / "configs/gen/"
+        "ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json",
+        "shape512": REPO_ROOT
+        / "configs/gen/"
+        "slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json",
+        "shape1024": REPO_ROOT
+        / "configs/gen/"
+        "slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json",
+        "pbr1024": REPO_ROOT
+        / "configs/gen/"
+        "slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json",
+    }
+    for stage, path in configs.items():
+        config = json.loads(path.read_text())
+        trainer_args = config["trainer"]["args"]
+        trainer_class = getattr(trainer_module, config["trainer"]["name"])
+        trainer = object.__new__(trainer_class)
+        if issubclass(trainer_class, SparseFlowMatchingTrainer):
+            trainer.dataset = _SparseSmokeDataset()
+            trainer.batch_split = trainer_args["batch_split"]
+        else:
+            trainer.dataset = _DenseSmokeDataset()
+        trainer.batch_size_per_gpu = trainer_args["batch_size_per_gpu"]
+        trainer.num_workers = 0
+
+        trainer_class.prepare_dataloader(trainer, **trainer_args)
+
+        assert type(trainer.data_sampler) is ResumableSampler
 
 
 def test_basic_run_allows_master_without_writer_when_no_steps_or_snapshots(capsys):

@@ -61,6 +61,7 @@
             "snapshot_batch_size": 1,
             "snapshot_num_samples": 1,
             "num_workers": 14,
+            "balanced_sampler": false,
             "optimizer": {
                 "name": "AdamW",
                 "args": {
