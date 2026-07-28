@@ -44,6 +44,118 @@
 
 ---
 
+### Task 0: Remove Latent-Encoder Import-Time Grad-State Pollution
+
+**Files:**
+- Modify: `data_toolkit/encode_ss_latent.py`
+- Modify: `data_toolkit/encode_shape_latent.py`
+- Modify: `data_toolkit/encode_pbr_latent.py`
+- Modify: `data_toolkit/encode_ss_latent_view.py`
+- Modify: `data_toolkit/encode_shape_latent_view.py`
+- Modify: `data_toolkit/encode_pbr_latent_view.py`
+- Modify: `tests/data_toolkit/test_leaf_worker_contracts.py`
+
+**Interfaces:**
+- Consumes: the six existing latent encoder CLI modules.
+- Produces: importing any encoder preserves the caller's
+  `torch.is_grad_enabled()` state, while running each encoder CLI still disables
+  autograd before model construction and encoding.
+
+- [ ] **Step 1: Write the failing import-state regression test**
+
+Extend the existing fake-dependency import fixture and add:
+
+```python
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_ss_latent",
+        "data_toolkit.encode_shape_latent",
+        "data_toolkit.encode_pbr_latent",
+        "data_toolkit.encode_ss_latent_view",
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+    ),
+)
+def test_importing_latent_encoder_preserves_grad_mode(module_name):
+    previous = torch.is_grad_enabled()
+    torch.set_grad_enabled(True)
+    try:
+        import_worker_with_fake_dependencies(module_name)
+        assert torch.is_grad_enabled() is True
+    finally:
+        torch.set_grad_enabled(previous)
+```
+
+The production mutation this catches is any module-level
+`torch.set_grad_enabled(False)` that leaks into its importer.
+
+- [ ] **Step 2: Run the regression test and confirm RED**
+
+Run:
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m pytest \
+  tests/data_toolkit/test_leaf_worker_contracts.py \
+  -q -k importing_latent_encoder_preserves_grad_mode
+```
+
+Expected: six failures showing grad mode became disabled.
+
+- [ ] **Step 3: Move grad disabling to each CLI execution boundary**
+
+Delete the six module-level calls. At the beginning of each existing `main()`,
+before model creation or encoding, add:
+
+```python
+torch.set_grad_enabled(False)
+```
+
+Do not change worker arguments, encoding math, device selection, output paths,
+or subprocess behavior.
+
+- [ ] **Step 4: Run the focused pollution reproduction**
+
+Run:
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m pytest \
+  tests/data_toolkit/test_leaf_worker_contracts.py \
+  tests/multiview/test_wandb_multiview.py::test_run_step_adds_exact_multiview_k_without_changing_existing_logs \
+  -q
+```
+
+Expected: 69 tests pass and the W&B trainer loss retains a grad graph.
+
+- [ ] **Step 5: Run the complete CPU baseline**
+
+Run:
+
+```bash
+conda run --no-capture-output -n pixal3d \
+  python -m pytest tests/data_toolkit tests/multiview -q -m "not gpu"
+```
+
+Expected: no failures; previously observed baseline was 1,093 passed and one
+grad-state pollution failure.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add data_toolkit/encode_ss_latent.py \
+  data_toolkit/encode_shape_latent.py \
+  data_toolkit/encode_pbr_latent.py \
+  data_toolkit/encode_ss_latent_view.py \
+  data_toolkit/encode_shape_latent_view.py \
+  data_toolkit/encode_pbr_latent_view.py \
+  tests/data_toolkit/test_leaf_worker_contracts.py
+git commit -m "fix: preserve grad state when importing latent encoders"
+```
+
+---
+
 ### Task 1: Separate Eligibility Policy from the ABO Count Contract
 
 **Files:**
