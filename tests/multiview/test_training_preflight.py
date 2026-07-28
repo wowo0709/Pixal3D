@@ -208,6 +208,35 @@ def test_preflight_stage_preserves_source_identity(
     }
 
 
+@pytest.mark.parametrize(
+    "mutation, message",
+    [
+        ("missing", r"source=Fixture.*stage=ss64"),
+        (
+            "invalid_observed_count",
+            r"source=Fixture.*training exclusion exceeds candidate count",
+        ),
+    ],
+)
+def test_preflight_stage_count_failures_include_source_context(
+    two_index_preflight, mutation, message
+):
+    spec, results, _materializations, _created_at = two_index_preflight
+    result = results["ss64"]
+    evidence = json.loads(result.materialization_bytes)
+    if mutation == "missing":
+        evidence["counts"].pop("training_exclusions")
+    else:
+        evidence["counts"]["training_exclusions"]["ss64"] = 3
+    (result.root / "materialization.json").write_bytes(
+        canonical_json_bytes(evidence)
+    )
+    with pytest.raises(ValueError, match=message):
+        preflight_stage(
+            spec, "ss64", result.root, Path("unused-config.json")
+        )
+
+
 def test_observed_source_handoff_uses_materialization_counts(two_index_preflight):
     report = build_source_report(*two_index_preflight)
     assert report["counts"]["candidate_stages"]["shape512"] == 2
@@ -267,6 +296,34 @@ def test_source_report_rejects_noncanonical_materialization_index_path(
     )
     with pytest.raises(ValueError, match="index"):
         build_source_report(spec, results, materializations, created_at)
+
+
+@pytest.mark.parametrize(
+    "mutation, message",
+    [
+        ("index", r"source=Fixture.*stage=ss64"),
+        ("evidence", r"source=Fixture.*stage=ss64"),
+        (
+            "changed_materialization",
+            r"source=Fixture.*materialization evidence bytes changed",
+        ),
+    ],
+)
+def test_source_publication_validation_failures_include_source_context(
+    two_index_preflight, mutation, message
+):
+    spec, results, materializations, created_at = two_index_preflight
+    if mutation == "index":
+        spec.indexes[1].write_text('{"changed":true}\n')
+    elif mutation == "evidence":
+        materializations["ss64"]["stage"] = "other"
+    else:
+        path = results["ss64"].root / "materialization.json"
+        path.write_bytes(path.read_bytes() + b" ")
+    with pytest.raises(ValueError, match=message):
+        build_source_report(
+            spec, results, materializations, created_at
+        )
 
 
 def test_source_report_rejects_invalid_source_policy(two_index_preflight):
@@ -329,7 +386,10 @@ def test_direct_loader_rejects_instances_with_wrong_source_name(
             }
         )
     )
-    with pytest.raises(ValueError, match="instance set"):
+    with pytest.raises(
+        ValueError,
+        match=r"source=3D-FUTURE.*instance set",
+    ):
         validate_direct_loader(
             "3D-FUTURE", "ss64", tmp_path, ["asset"], config
         )

@@ -10,6 +10,7 @@ import tempfile
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import wraps
 from hashlib import sha256
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -91,6 +92,29 @@ def _validate_source_name(source: object) -> str:
     if not isinstance(source, str) or not source or source.strip() != source:
         raise ValueError("source must be a non-empty exact name")
     return source
+
+
+def _source_context_entrypoint(function):
+    """Add one exact source prefix to errors crossing a generic boundary."""
+
+    @wraps(function)
+    def wrapped(spec: ProductionSourceSpec, *args, **kwargs):
+        source = getattr(spec, "source", "<unknown>")
+        token = None
+        if isinstance(source, str) and source:
+            token = _VALIDATION_SOURCE.set(source)
+        try:
+            return function(spec, *args, **kwargs)
+        except (FileExistsError, RuntimeError, TypeError, ValueError) as error:
+            context = f"source={source}"
+            if context in str(error):
+                raise
+            raise type(error)(f"{context}: {error}") from error
+        finally:
+            if token is not None:
+                _VALIDATION_SOURCE.reset(token)
+
+    return wrapped
 
 
 def _validate_source_spec(spec: ProductionSourceSpec) -> tuple[str, ...]:
@@ -345,7 +369,7 @@ def validate_stage_structure(
     token = _VALIDATION_SOURCE.set(_validate_source_name(source))
     try:
         if stage not in COMPONENTS:
-            raise ValueError(f"unknown stage: {stage}")
+            raise _error(stage, None, "unknown stage")
         root = Path(root)
         expected = set(expected_assets)
         if len(expected) != len(expected_assets) or not expected:
@@ -410,7 +434,7 @@ def stage_data_dir(
         values["shape_latent"] = str(root / "shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view")
         values["pbr_latent"] = str(root / "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix")
     else:
-        raise ValueError(f"unknown stage: {stage}")
+        raise ValueError(f"source={source} stage={stage}: unknown stage")
     return {source: values}
 
 
@@ -477,7 +501,7 @@ def _validate_direct_loader(
     config_path: Path,
 ) -> int:
     if stage not in CONFIGS:
-        raise ValueError(f"unknown stage: {stage}")
+        raise _error(stage, None, "unknown stage")
     try:
         config = json.loads(Path(config_path).read_text())
         dataset_config = config["dataset"]
@@ -524,7 +548,9 @@ def _validate_direct_loader(
                 with patch.object(np.random, "randint", return_value=anchor):
                     pack = dataset.get_instance(root_record, asset)
             except Exception as error:
-                raise RuntimeError(f"{error} stage={stage}") from error
+                raise RuntimeError(
+                    f"source={source} {error} stage={stage}"
+                ) from error
             _validate_loader_pack(stage, asset, anchor, pack, image_size)
             checked += 1
     return checked
@@ -894,6 +920,7 @@ def _validated_source_materialization(
         _VALIDATION_SOURCE.reset(token)
 
 
+@_source_context_entrypoint
 def preflight_stage(
     spec: ProductionSourceSpec,
     stage: str,
@@ -1233,6 +1260,7 @@ def _validated_source_handoff_inputs(
     return counts, indexes, summaries, sorted(observed_commits)
 
 
+@_source_context_entrypoint
 def build_source_report(
     spec: ProductionSourceSpec,
     results: Mapping[str, StagePreflight],
@@ -1331,6 +1359,7 @@ def _source_handoff_document(
     }
 
 
+@_source_context_entrypoint
 def publish_source_handoff(
     spec: ProductionSourceSpec,
     results: Mapping[str, StagePreflight],
