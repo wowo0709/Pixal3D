@@ -139,3 +139,44 @@ def test_entrypoint_persists_resolved_training_evidence_before_cuda(
     )
     assert resolved_config["data_dir"] == '{"ABO":{},"3D-FUTURE":{}}'
     assert resolved_config["training_evidence"] == evidence
+
+
+def test_legacy_entrypoint_removes_spoofed_training_evidence(
+    tmp_path, monkeypatch, capsys
+):
+    output_path = tmp_path / "existing-output"
+    output_path.write_text("block output directory creation")
+    config_path = tmp_path / "experiment.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "default_output_dir": str(output_path),
+                "node_rank": 0,
+                "training_evidence": {
+                    "stage": "spoofed",
+                    "training_data": {
+                        "path": "/unverified/input.json",
+                        "sha256": "0" * 64,
+                    },
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train.py",
+            "--config",
+            str(config_path),
+            "--num_gpus",
+            "1",
+        ],
+    )
+    with pytest.raises(FileExistsError):
+        runpy.run_path(str(REPO_ROOT / "train.py"), run_name="__main__")
+    stdout = capsys.readouterr().out
+    resolved_config = json.loads(
+        stdout.split(RESOLVED_CONFIG_MARKER, 1)[1]
+    )
+    assert "training_evidence" not in resolved_config

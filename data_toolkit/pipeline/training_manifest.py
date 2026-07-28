@@ -696,7 +696,15 @@ def resolve_training_input(
         if not isinstance(data_dir, str):
             raise ValueError("data_dir must be a string")
         return data_dir, None
-    stage = config.get("multiview_stage") if isinstance(config, Mapping) else None
+    trainer = config.get("trainer") if isinstance(config, Mapping) else None
+    trainer_args = (
+        trainer.get("args") if isinstance(trainer, Mapping) else None
+    )
+    stage = (
+        trainer_args.get("multiview_stage")
+        if isinstance(trainer_args, Mapping)
+        else None
+    )
     if stage not in STAGES:
         raise ValueError(f"unknown multiview_stage: {stage}")
     resolved = resolve_training_data(Path(cli_training_data), stage)

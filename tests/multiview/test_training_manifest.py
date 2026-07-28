@@ -6,6 +6,7 @@ import sys
 
 from easydict import EasyDict as edict
 import pytest
+import torch
 
 from data_toolkit.pipeline.training_manifest import (
     CANONICAL_SOURCES,
@@ -15,6 +16,31 @@ from data_toolkit.pipeline.training_manifest import (
     publish_combined_training_data,
     resolve_training_data,
     resolve_training_input,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MULTIVIEW_CONFIGS = (
+    (
+        "configs/gen/"
+        "ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json",
+        "ss64",
+    ),
+    (
+        "configs/gen/"
+        "slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json",
+        "shape512",
+    ),
+    (
+        "configs/gen/"
+        "slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json",
+        "shape1024",
+    ),
+    (
+        "configs/gen/"
+        "slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json",
+        "pbr1024",
+    ),
 )
 
 
@@ -182,7 +208,7 @@ def manifest(source_inputs, tmp_path):
 
 @pytest.fixture
 def config():
-    return edict({"multiview_stage": "ss64"})
+    return edict({"trainer": {"args": {"multiview_stage": "ss64"}}})
 
 
 def test_combined_manifest_has_exact_sources_and_proportional_counts(
@@ -419,10 +445,25 @@ def test_resolve_training_input_uses_manifest_stage(manifest, config):
     assert evidence["source_counts"] == {"ABO": 2, "3D-FUTURE": 5}
 
 
+@pytest.mark.parametrize(("config_path", "expected_stage"), MULTIVIEW_CONFIGS)
+def test_resolve_training_input_uses_real_nested_config_stage_before_cuda(
+    manifest, monkeypatch, config_path, expected_stage
+):
+    config = json.loads((REPO_ROOT / config_path).read_text())
+    monkeypatch.setattr(
+        torch.cuda,
+        "device_count",
+        lambda: pytest.fail("CUDA queried before manifest resolution"),
+    )
+    _data_dir, evidence = resolve_training_input(config, None, manifest)
+    assert evidence["stage"] == expected_stage
+    assert evidence["stage"] == config["trainer"]["args"]["multiview_stage"]
+
+
 def test_resolve_training_input_rejects_unknown_multiview_stage(
     manifest, config
 ):
-    config.multiview_stage = "unknown"
+    config.trainer.args.multiview_stage = "unknown"
     with pytest.raises(ValueError, match="unknown multiview_stage"):
         resolve_training_input(config, None, manifest)
 

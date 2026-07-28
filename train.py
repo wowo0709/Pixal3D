@@ -252,6 +252,8 @@ if __name__ == '__main__':
     cfg.load_dir = resolved_load_dir
     if training_evidence is not None:
         cfg.training_evidence = training_evidence
+    else:
+        cfg.pop("training_evidence", None)
     apply_smoke_overrides(cfg, opt.smoke_steps)
     print('\n\nConfig:')
     print('=' * 80)
