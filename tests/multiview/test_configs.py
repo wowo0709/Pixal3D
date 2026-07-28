@@ -22,10 +22,8 @@ CHECKPOINTS = {
     "pbr1024": "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.pt",
 }
 OUTPUT_DIRS = {
-    "ss64": "/root/data3/pixal3d/ckpts/ss64",
-    "shape512": "/root/data3/pixal3d/ckpts/shape512",
-    "shape1024": "/root/data3/pixal3d/ckpts/shape1024",
-    "pbr1024": "/root/data3/pixal3d/ckpts/pbr1024",
+    stage: f"/file3/youngwoo/pixal3d/ckpts/{stage}"
+    for stage in CONFIGS
 }
 
 
@@ -44,17 +42,19 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         assert dataset_args["condition_num_views"] == 8
         assert dataset_args["min_condition_views"] == 2
         assert dataset_args["max_condition_views"] == 6
-        assert trainer_args["batch_size_per_gpu"] == 1
-        assert trainer_args["batch_split"] == 1
+        assert trainer_args["batch_size_per_gpu"] == 8
+        assert trainer_args["batch_split"] == 4
         assert trainer_args["i_sample"] == -1
         assert trainer_args["i_save"] == 5000
         assert trainer_args["max_checkpoints"] == 5
-        assert trainer_args["max_steps"] == 100_000
+        assert trainer_args["max_steps"] == 20_000
         assert trainer_args["multiview_stage"] == stage
         assert trainer_args["image_cond_model"]["name"] == "DinoV3ProjFeatureExtractor"
         assert trainer_args["finetune_ckpt"] == {
-            "denoiser": "/root/node17/data/pixal3d/train/checkpoints/single_view/"
-            + CHECKPOINTS[stage]
+            "denoiser": (
+                "/file3/youngwoo/pixal3d/train/checkpoints/single_view/"
+                + CHECKPOINTS[stage]
+            )
         }
         assert config["models"]["denoiser"]["args"]["image_attn_mode"] == "proj"
         assert config["default_output_dir"] == OUTPUT_DIRS[stage]
