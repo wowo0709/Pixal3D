@@ -35,9 +35,6 @@ from data_toolkit.encode_shape_latent_view import (
 import pixal3d.models as models
 import pixal3d.modules.sparse as sp
 
-torch.set_grad_enabled(False)
-
-
 def is_valid_sparse_tensor(tensor):
     return torch.isfinite(tensor.feats).all() and torch.isfinite(tensor.coords).all()
 
@@ -191,6 +188,7 @@ def _encode_sparse_output(
 
 
 if __name__ == '__main__':
+    torch.set_grad_enabled(False)
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
                         help='Directory to save the metadata')

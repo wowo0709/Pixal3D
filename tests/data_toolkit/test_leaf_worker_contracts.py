@@ -9,7 +9,8 @@ import sys
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -39,6 +40,42 @@ def _help(script):
         text=True,
         timeout=30,
     )
+
+
+def import_worker_with_fake_dependencies(module_name):
+    fake_utils = ModuleType("data_toolkit.utils")
+    fake_utils.parse_view_indices = lambda value: value
+    fake_dependencies = {
+        "data_toolkit.utils": fake_utils,
+        "o_voxel": ModuleType("o_voxel"),
+        "pixal3d.models": ModuleType("pixal3d.models"),
+        "pixal3d.modules": ModuleType("pixal3d.modules"),
+        "pixal3d.modules.sparse": ModuleType("pixal3d.modules.sparse"),
+    }
+    with patch.dict(sys.modules, fake_dependencies):
+        sys.modules.pop(module_name, None)
+        return importlib.import_module(module_name)
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "data_toolkit.encode_ss_latent",
+        "data_toolkit.encode_shape_latent",
+        "data_toolkit.encode_pbr_latent",
+        "data_toolkit.encode_ss_latent_view",
+        "data_toolkit.encode_shape_latent_view",
+        "data_toolkit.encode_pbr_latent_view",
+    ),
+)
+def test_importing_latent_encoder_preserves_grad_mode(module_name):
+    previous = torch.is_grad_enabled()
+    torch.set_grad_enabled(True)
+    try:
+        import_worker_with_fake_dependencies(module_name)
+        assert torch.is_grad_enabled() is True
+    finally:
+        torch.set_grad_enabled(previous)
 
 
 @pytest.mark.parametrize("script", CPU_SCRIPTS + ENCODERS)

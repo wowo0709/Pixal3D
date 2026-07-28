@@ -29,8 +29,6 @@ from data_toolkit.encode_shape_latent_view import _run_bounded_pipeline
 
 import pixal3d.models as models
 
-torch.set_grad_enabled(False)
-
 def clear_cuda_error():
     torch.cuda.synchronize()
     torch.cuda.empty_cache()
@@ -160,6 +158,7 @@ def _encode_ss_output(
 
 
 if __name__ == '__main__':
+    torch.set_grad_enabled(False)
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
                         help='Directory to save the metadata')
