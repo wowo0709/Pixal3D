@@ -2,6 +2,7 @@ from collections import Counter
 from hashlib import sha256
 import json
 from pathlib import Path
+import sys
 import tarfile
 from types import SimpleNamespace
 
@@ -99,6 +100,19 @@ class _SyntheticPsutil:
     def disk_usage(self, path):
         self.disk_paths.append(Path(path))
         return self._record("disk_usage", _synthetic_disk_usage(path))
+
+
+@pytest.fixture(autouse=True)
+def synthetic_voxel_reader(monkeypatch):
+    fake_voxel = SimpleNamespace(
+        io=SimpleNamespace(
+            read_vxz_info=lambda _path: {
+                "shape": (1, 1, 1),
+                "attributes": ("value",),
+            }
+        )
+    )
+    monkeypatch.setitem(sys.modules, "o_voxel", fake_voxel)
 
 
 @pytest.mark.integration

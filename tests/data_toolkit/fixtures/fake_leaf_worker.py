@@ -11,9 +11,6 @@ import pickle
 import tempfile
 
 
-_VXZ_TEMPLATE = None
-
-
 def _option(name):
     try:
         return os.sys.argv[os.sys.argv.index(name) + 1]
@@ -206,47 +203,8 @@ def _render():
 
 
 def _atomic_vxz(path):
-    global _VXZ_TEMPLATE
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    shared_template = os.environ.get("PIXAL3D_FAKE_VXZ_TEMPLATE")
-    if shared_template and Path(shared_template).is_file():
-        _atomic_bytes(path, Path(shared_template).read_bytes())
-        return
-    if os.environ.get("PIXAL3D_FAKE_FAST") == "1" and _VXZ_TEMPLATE is not None:
-        _atomic_bytes(path, _VXZ_TEMPLATE)
-        return
-    import o_voxel
-    import torch
-
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=path.parent,
-            prefix=f".{path.stem}.",
-            suffix=".vxz",
-            delete=False,
-        ) as stream:
-            temporary = Path(stream.name)
-        o_voxel.io.write_vxz(
-            str(temporary),
-            torch.tensor([[1, 2, 3]], dtype=torch.int32),
-            {"value": torch.tensor([[1]], dtype=torch.uint8)},
-            num_threads=1,
-        )
-        o_voxel.io.read_vxz_info(str(temporary))
-        with temporary.open("rb") as stream:
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        _sync_parent(path)
-        o_voxel.io.read_vxz_info(str(path))
-        if os.environ.get("PIXAL3D_FAKE_FAST") == "1":
-            _VXZ_TEMPLATE = path.read_bytes()
-            if shared_template:
-                _atomic_bytes(Path(shared_template), _VXZ_TEMPLATE)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    _atomic_bytes(path, b"pixal3d-synthetic-vxz-v1")
 
 
 def _voxel(directory):

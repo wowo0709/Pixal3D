@@ -16,6 +16,9 @@ from data_toolkit.pipeline import training_preflight as _core  # noqa: E402
 from data_toolkit.pipeline.training_materialization import (  # noqa: E402
     THREED_FUTURE_SOURCE_SPEC,
 )
+from data_toolkit.pipeline.training_manifest import (  # noqa: E402
+    validate_source_training_data,
+)
 
 
 SOURCE = _core.SOURCE
@@ -191,8 +194,37 @@ def preflight_stage(
     )
 
 
-def _verify_existing(paths: Mapping[str, Path]) -> None:
-    """Print byte digests without modifying or opening any output for writing."""
+def _validate_existing_chain(
+    source: str, paths: Mapping[str, Path]
+) -> None:
+    validated = validate_source_training_data(
+        source, Path(paths["training-data"])
+    )
+    expected = {
+        "report": validated.report_path,
+        "handoff": validated.handoff_path,
+        "training-data": validated.path,
+    }
+    for label, expected_path in expected.items():
+        selected = Path(paths[label])
+        canonical = selected.resolve()
+        if str(selected) != str(canonical):
+            raise ValueError(
+                f"source={source} selected {label} path must be canonical: "
+                f"{selected}"
+            )
+        if canonical != expected_path:
+            raise ValueError(
+                f"source={source} selected {label} path does not match "
+                f"validated chain: {selected}"
+            )
+
+
+def _verify_existing(
+    source: str, paths: Mapping[str, Path]
+) -> None:
+    """Validate the source chain, then print read-only byte digests."""
+    _validate_existing_chain(source, paths)
     for label, path in paths.items():
         raw = _core._existing_regular_bytes(Path(path))
         print(f"{label} {path} sha256={sha256(raw).hexdigest()}")
@@ -222,6 +254,7 @@ def main() -> None:
         training_data_path = args.training_data or DEFAULT_TRAINING_DATA
         if args.verify_existing:
             _verify_existing(
+                SOURCE,
                 {
                     "report": report_path,
                     "handoff": handoff_path,
@@ -263,6 +296,7 @@ def main() -> None:
         )
         if args.verify_existing:
             _verify_existing(
+                THREED_FUTURE_SOURCE_SPEC.source,
                 {
                     "report": report_path,
                     "handoff": handoff_path,

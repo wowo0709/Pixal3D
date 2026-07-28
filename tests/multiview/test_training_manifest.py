@@ -9,6 +9,7 @@ import pytest
 import torch
 
 import data_toolkit.pipeline.training_manifest as training_manifest
+from scripts import preflight_multiview_production as production_preflight
 from data_toolkit.pipeline.training_manifest import (
     CANONICAL_SOURCES,
     STAGES,
@@ -128,17 +129,34 @@ def _write_source(tmp_path, source, schema_version, count):
         "observed_tool_commits": [f"{source}-tool"],
     }
     if schema_version == 1:
+        index_path = tmp_path / source / "ABO-00000.json"
+        index_path.write_bytes(
+            _canonical_json_bytes(
+                {"shard_id": "ABO-00000", "assets": ["abo-asset"]}
+            )
+        )
         report["shard_id"] = "ABO-00000"
         report["source_index"] = {
-            "path": str(tmp_path / source / "ABO-00000.json"),
-            "sha256": "b" * 64,
+            "path": str(index_path),
+            "sha256": hashlib.sha256(index_path.read_bytes()).hexdigest(),
         }
     else:
+        index_path = tmp_path / source / f"{source}-00000.json"
+        index_path.write_bytes(
+            _canonical_json_bytes(
+                {
+                    "shard_id": f"{source}-00000",
+                    "assets": [f"{source.lower()}-asset"],
+                }
+            )
+        )
         report["source_indexes"] = [
             {
                 "shard_id": f"{source}-00000",
-                "path": str(tmp_path / source / f"{source}-00000.json"),
-                "sha256": "b" * 64,
+                "path": str(index_path),
+                "sha256": hashlib.sha256(
+                    index_path.read_bytes()
+                ).hexdigest(),
             }
         ]
     report_path.write_bytes(_canonical_json_bytes(report))
@@ -187,6 +205,14 @@ def _rewrite_source_chain(training_path, mutate):
         },
     }
     training_path.write_bytes(_canonical_json_bytes(training))
+
+
+def _source_chain_paths(training_path):
+    training = json.loads(training_path.read_text())
+    handoff_path = Path(training["handoff"]["path"])
+    handoff = json.loads(handoff_path.read_text())
+    report_path = Path(handoff["report"]["path"])
+    return report_path, handoff_path, training_path
 
 
 def _rewrite_report_reference_only(training_path, mutate):
@@ -248,6 +274,72 @@ def manifest(source_inputs, tmp_path):
 @pytest.fixture
 def config():
     return edict({"trainer": {"args": {"multiview_stage": "ss64"}}})
+
+
+@pytest.mark.parametrize(
+    ("source", "profile"),
+    (("ABO", "abo"), ("3D-FUTURE", "3d-future")),
+)
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "report-bytes",
+        "semantic-count",
+        "source-index-bytes",
+        "selected-report-path",
+    ),
+)
+def test_verify_existing_cli_rejects_tampered_source_chain(
+    source_inputs, monkeypatch, source, profile, tamper
+):
+    training_path = source_inputs[source]
+    report_path, handoff_path, _training_path = _source_chain_paths(
+        training_path
+    )
+    if tamper == "report-bytes":
+        report_path.write_bytes(report_path.read_bytes() + b" ")
+        expected = "report digest"
+    elif tamper == "semantic-count":
+
+        def change_count(report):
+            report["counts"]["stages"]["ss64"] += 1
+
+        _rewrite_source_chain(training_path, change_count)
+        expected = "count evidence"
+    elif tamper == "source-index-bytes":
+        training = json.loads(training_path.read_text())
+        reference = (
+            training["source_index"]
+            if source == "ABO"
+            else training["source_indexes"][0]
+        )
+        index_path = Path(reference["path"])
+        index_path.write_bytes(index_path.read_bytes() + b" ")
+        expected = "source index digest"
+    else:
+        selected_report = report_path.with_name("selected-report.json")
+        selected_report.write_bytes(report_path.read_bytes())
+        report_path = selected_report
+        expected = "report path"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight_multiview_production.py",
+            "--profile",
+            profile,
+            "--verify-existing",
+            "--report",
+            str(report_path),
+            "--handoff",
+            str(handoff_path),
+            "--training-data",
+            str(training_path),
+        ],
+    )
+    with pytest.raises(ValueError, match=expected):
+        production_preflight.main()
 
 
 def test_combined_manifest_has_exact_sources_and_proportional_counts(

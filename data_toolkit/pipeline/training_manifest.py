@@ -101,6 +101,8 @@ class SourceTrainingData:
     source: str
     path: Path
     sha256: str
+    report_path: Path
+    report_sha256: str
     handoff_path: Path
     handoff_sha256: str
     stages: dict[str, CombinedStage]
@@ -190,6 +192,75 @@ def _valid_digest(value: object) -> bool:
     )
 
 
+def _validate_source_indexes(
+    source: str, report: Mapping[str, object]
+) -> None:
+    if source == "ABO":
+        references = [
+            (
+                report.get("source_index"),
+                f"source={source} source index",
+            )
+        ]
+    else:
+        value = report.get("source_indexes")
+        if not isinstance(value, list) or not value:
+            raise ValueError(
+                f"source={source} source indexes must be a non-empty list"
+            )
+        shard_ids = [
+            reference.get("shard_id")
+            for reference in value
+            if isinstance(reference, Mapping)
+        ]
+        if (
+            len(shard_ids) != len(value)
+            or not all(
+                isinstance(shard_id, str) and shard_id
+                for shard_id in shard_ids
+            )
+            or len(set(shard_ids)) != len(shard_ids)
+        ):
+            raise ValueError(
+                f"source={source} source index shard IDs are invalid"
+            )
+        references = [
+            (
+                reference,
+                f"source={source} source index shard={shard_id}",
+            )
+            for reference, shard_id in zip(value, shard_ids, strict=True)
+        ]
+
+    canonical_paths = []
+    for reference, label in references:
+        expected_keys = (
+            {"path", "sha256"}
+            if source == "ABO"
+            else {"shard_id", "path", "sha256"}
+        )
+        record = _exact_keys(reference, expected_keys, label)
+        path_value = record["path"]
+        pinned_digest = record["sha256"]
+        if (
+            not isinstance(path_value, str)
+            or not path_value
+            or not _valid_digest(pinned_digest)
+        ):
+            raise ValueError(f"{label} reference is invalid")
+        path = _canonical_path(Path(path_value), label)
+        raw = _regular_bytes(path, label)
+        if _digest(raw) != pinned_digest:
+            raise ValueError(
+                f"source={source} source index digest changed: {label}"
+            )
+        canonical_paths.append(path)
+    if len(set(canonical_paths)) != len(canonical_paths):
+        raise ValueError(
+            f"source={source} source index paths must be unique"
+        )
+
+
 def _exact_keys(
     value: object, expected: set[str], label: str
 ) -> Mapping[str, object]:
@@ -229,7 +300,7 @@ def _expected_data_dir(
 
 def _validate_report_chain(
     source: str, handoff: Mapping[str, object]
-) -> Path:
+) -> tuple[Path, str]:
     reference = _exact_keys(
         handoff.get("report"),
         {"path", "sha256"},
@@ -251,6 +322,7 @@ def _validate_report_chain(
     schema = _SOURCE_SCHEMAS[source]
     fields = _REPORT_FIELDS[schema]
     _exact_keys(report, set(fields), f"source={source} report")
+    _validate_source_indexes(source, report)
     expected_handoff = {
         key: report[key] for key in fields
     } | {"report": dict(reference)}
@@ -258,7 +330,7 @@ def _validate_report_chain(
         raise ValueError(
             f"source={source} handoff does not match report projection"
         )
-    return canonical_path
+    return canonical_path, pinned_digest
 
 
 def _validate_materialization(
@@ -445,7 +517,7 @@ def _validate_source_training_data(
     )
     if _digest(handoff_raw) != handoff_digest:
         raise ValueError(f"source={source} handoff digest changed")
-    _validate_report_chain(source, handoff)
+    report_path, report_digest = _validate_report_chain(source, handoff)
     expected_training_data = {
         **handoff,
         "handoff": dict(handoff_reference),
@@ -489,10 +561,23 @@ def _validate_source_training_data(
         source=source,
         path=canonical_path,
         sha256=_digest(raw),
+        report_path=report_path,
+        report_sha256=report_digest,
         handoff_path=canonical_handoff_path,
         handoff_sha256=handoff_digest,
         stages=stages,
     )
+
+
+def validate_source_training_data(
+    source: str, path: Path
+) -> SourceTrainingData:
+    """Validate one complete immutable source publication chain."""
+    if source not in CANONICAL_SOURCES:
+        raise ValueError(
+            f"source must be one of {CANONICAL_SOURCES}: {source}"
+        )
+    return _validate_source_training_data(source, Path(path))
 
 
 def _combined_stage(

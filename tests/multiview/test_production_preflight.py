@@ -1207,6 +1207,13 @@ def test_verify_existing_is_read_only_and_prints_all_digests(
         path.write_text(json.dumps({"artifact": name}, sort_keys=True) + "\n")
         paths.append(path)
     before = [path.read_bytes() for path in paths]
+    validated = []
+    monkeypatch.setattr(
+        preflight,
+        "_validate_existing_chain",
+        lambda source, received: validated.append((source, received)),
+        raising=False,
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1224,6 +1231,16 @@ def test_verify_existing_is_read_only_and_prints_all_digests(
         ],
     )
     preflight.main()
+    assert validated == [
+        (
+            "ABO",
+            {
+                "report": paths[0],
+                "handoff": paths[1],
+                "training-data": paths[2],
+            },
+        )
+    ]
     assert [path.read_bytes() for path in paths] == before
     output = capsys.readouterr().out
     for path, raw in zip(paths, before, strict=True):

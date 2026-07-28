@@ -31,6 +31,24 @@ ENCODERS = (
     "encode_pbr_latent_view.py",
     "encode_ss_latent_view.py",
 )
+GPU_HELP_SCRIPTS = (
+    "dual_grid_view.py",
+    "voxelize_pbr_view.py",
+    *ENCODERS,
+)
+TIMEOUT_HELP_CASES = tuple(
+    pytest.param(script, marks=pytest.mark.gpu)
+    if script in GPU_HELP_SCRIPTS
+    else script
+    for script in CPU_SCRIPTS + ENCODERS
+)
+ENCODER_HELP_CASES = tuple(
+    pytest.param(script, marks=pytest.mark.gpu) for script in ENCODERS
+)
+VOXEL_HELP_CASES = tuple(
+    pytest.param(script, marks=pytest.mark.gpu)
+    for script in ("dual_grid_view.py", "voxelize_pbr_view.py")
+)
 
 
 def _help(script):
@@ -78,7 +96,7 @@ def test_importing_latent_encoder_preserves_grad_mode(module_name):
         torch.set_grad_enabled(previous)
 
 
-@pytest.mark.parametrize("script", CPU_SCRIPTS + ENCODERS)
+@pytest.mark.parametrize("script", TIMEOUT_HELP_CASES)
 def test_timeout_flag(script):
     result = _help(script)
 
@@ -86,7 +104,7 @@ def test_timeout_flag(script):
     assert "--timeout_seconds" in result.stdout
 
 
-@pytest.mark.parametrize("script", ENCODERS)
+@pytest.mark.parametrize("script", ENCODER_HELP_CASES)
 def test_encoder_bounds_and_dtype(script):
     result = _help(script)
 
@@ -99,13 +117,39 @@ def test_encoder_bounds_and_dtype(script):
     assert "--record_prefix" in result.stdout
 
 
-@pytest.mark.parametrize("script", ("dual_grid_view.py", "voxelize_pbr_view.py"))
+@pytest.mark.parametrize("script", VOXEL_HELP_CASES)
 def test_voxel_native_thread_bound(script):
     result = _help(script)
 
     assert result.returncode == 0, result.stderr
     assert "--native_threads" in result.stdout
     assert "--record_prefix" in result.stdout
+
+
+def test_intrinsic_cuda_help_markers_cover_exactly_ten_leaf_nodes():
+    parametrizations = {
+        "test_timeout_flag": TIMEOUT_HELP_CASES,
+        "test_encoder_bounds_and_dtype": ENCODER_HELP_CASES,
+        "test_voxel_native_thread_bound": VOXEL_HELP_CASES,
+    }
+    marked_nodes = {
+        f"{test_name}[{case.values[0]}]"
+        for test_name, cases in parametrizations.items()
+        for case in cases
+        if not isinstance(case, str)
+        and any(mark.name == "gpu" for mark in case.marks)
+    }
+    expected_nodes = {
+        f"test_timeout_flag[{script}]" for script in GPU_HELP_SCRIPTS
+    } | {
+        f"test_encoder_bounds_and_dtype[{script}]" for script in ENCODERS
+    } | {
+        f"test_voxel_native_thread_bound[{script}]"
+        for script in ("dual_grid_view.py", "voxelize_pbr_view.py")
+    }
+
+    assert marked_nodes == expected_nodes
+    assert len(marked_nodes) == 10
 
 
 def test_build_metadata_help_does_not_import_help_as_a_dataset():
