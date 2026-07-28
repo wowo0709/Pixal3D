@@ -19,6 +19,7 @@ except ImportError:
 
 from pixal3d import models, datasets, trainers
 from pixal3d.utils.dist_utils import setup_dist
+from data_toolkit.pipeline import training_manifest
 
 
 def find_ckpt(cfg):
@@ -196,7 +197,13 @@ if __name__ == '__main__':
     )
     parser.add_argument('--load_dir', type=str, default='', help='Load directory, default to output_dir')
     parser.add_argument('--ckpt', type=str, default='latest', help='Checkpoint step to resume training, default to latest')
-    parser.add_argument('--data_dir', type=str, default='./data/', help='Data directory')
+    parser.add_argument(
+        '--training_data',
+        type=str,
+        default=None,
+        help='Verified combined training manifest; mutually exclusive with --data_dir',
+    )
+    parser.add_argument('--data_dir', type=str, default=None, help='Data directory')
     parser.add_argument('--auto_retry', type=int, default=3, help='Number of retries on error')
     ## dubug
     parser.add_argument('--tryrun', action='store_true', help='Try run without training')
@@ -217,6 +224,13 @@ if __name__ == '__main__':
     ## Load config
     config = json.load(open(opt.config, 'r'))
     try:
+        resolved_data_dir, training_evidence = (
+            training_manifest.resolve_training_input(
+                config,
+                cli_data_dir=opt.data_dir,
+                cli_training_data=opt.training_data,
+            )
+        )
         resolved_output_dir, resolved_load_dir = resolve_output_dirs(
             config,
             cli_output_dir=opt.output_dir,
@@ -225,6 +239,7 @@ if __name__ == '__main__':
     except ValueError as exc:
         parser.error(str(exc))
 
+    opt.data_dir = resolved_data_dir
     opt.output_dir = resolved_output_dir
     opt.load_dir = resolved_load_dir
     opt.num_gpus = torch.cuda.device_count() if opt.num_gpus == -1 else opt.num_gpus
@@ -232,8 +247,11 @@ if __name__ == '__main__':
     cfg = edict()
     cfg.update(opt.__dict__)
     cfg.update(config)
+    cfg.data_dir = resolved_data_dir
     cfg.output_dir = resolved_output_dir
     cfg.load_dir = resolved_load_dir
+    if training_evidence is not None:
+        cfg.training_evidence = training_evidence
     apply_smoke_overrides(cfg, opt.smoke_steps)
     print('\n\nConfig:')
     print('=' * 80)
