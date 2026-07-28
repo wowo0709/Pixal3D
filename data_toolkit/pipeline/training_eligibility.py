@@ -34,6 +34,7 @@ EXPECTED_FINAL_STAGE_COUNTS = {
     "shape1024": 3634,
     "pbr1024": 3598,
 }
+STAGES = ("ss64", "shape512", "shape1024", "pbr1024")
 
 _SHAPE_ROOTS = {
     "shape512": "shape_latents/shape_enc_next_dc_f16c32_fp16_512_view",
@@ -67,6 +68,57 @@ def canonical_count_contract(
         "training_exclusions": dict(training_exclusions),
         "stages": dict(stages),
     }
+
+
+def _stage_counts(values: Mapping[str, int], label: str) -> dict[str, int]:
+    result = dict(values)
+    if set(result) != set(STAGES):
+        raise ValueError(f"{label} must contain exactly {STAGES}")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in result.values()
+    ):
+        raise ValueError(f"{label} must contain non-negative integers")
+    return {stage: result[stage] for stage in STAGES}
+
+
+def observed_count_contract(
+    *,
+    frozen: int,
+    candidate_stages: Mapping[str, int],
+    training_exclusions: Mapping[str, int],
+) -> dict[str, object]:
+    """Derive the source-independent count contract from observed stage populations."""
+    candidates = _stage_counts(candidate_stages, "candidate_stages")
+    exclusions = _stage_counts(training_exclusions, "training_exclusions")
+    if isinstance(frozen, bool) or not isinstance(frozen, int) or frozen < 0:
+        raise ValueError("frozen must be a non-negative integer")
+    if any(candidates[stage] > frozen for stage in STAGES):
+        raise ValueError("candidate count exceeds frozen count")
+    if any(exclusions[stage] > candidates[stage] for stage in STAGES):
+        raise ValueError("training exclusion exceeds candidate count")
+    return {
+        "frozen": frozen,
+        "candidate_stages": candidates,
+        "pack_exclusions": {
+            stage: frozen - candidates[stage] for stage in STAGES
+        },
+        "training_exclusions": exclusions,
+        "stages": {
+            stage: candidates[stage] - exclusions[stage] for stage in STAGES
+        },
+    }
+
+
+ABO_COUNT_CONTRACT = {
+    "global_quarantine": EXPECTED_GLOBAL_QUARANTINE_COUNT,
+    "shape512_family_exclusions": EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT,
+    **observed_count_contract(
+        frozen=EXPECTED_FROZEN_COUNT,
+        candidate_stages=EXPECTED_CANDIDATE_STAGE_COUNTS,
+        training_exclusions=EXPECTED_TRAINING_EXCLUSION_COUNTS,
+    ),
+}
 
 
 def policy_evidence() -> dict[str, object]:
