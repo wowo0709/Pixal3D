@@ -1018,6 +1018,81 @@ Do not commit runtime data, reports, handoffs, or local manifests.
 
 ---
 
+### Task 7: Close Final-Review Evidence and Sampling Gaps
+
+**Files:**
+- Modify: `data_toolkit/pipeline/training_preflight.py`
+- Modify: `data_toolkit/pipeline/training_manifest.py`
+- Modify: `data_toolkit/pipeline/training_materialization.py`
+- Modify: `scripts/preflight_multisource_training.py`
+- Modify: `pixal3d/trainers/flow_matching/sparse_flow_matching.py`
+- Modify: the three sparse multi-view fine-tuning configs
+- Modify: focused tests under `tests/multiview`
+
+**Constraints:**
+- Use RED-GREEN TDD for every behavior change.
+- Preserve legacy single-source and non-multi-view training behavior.
+- Do not interrupt the active 3D-FUTURE source preflight.
+- Do not initialize CUDA, start W&B, or launch training.
+
+- [ ] **Step 1: Make local manifest publication create-only**
+
+For both source-local and combined `training_data.json`, atomically create the
+destination without replacement when absent. An existing regular non-symlink is
+accepted only when its canonical bytes are identical, without changing its
+inode. Reject different or unsafe content, including a concurrent different
+creator, while preserving the existing file.
+
+- [ ] **Step 2: Validate the complete report → handoff → source chain**
+
+Read the referenced source report through no-follow regular-file validation,
+verify its canonical path and digest, reconstruct the schema-specific handoff
+projection from that exact report, and require semantic equality before
+accepting either combined publication or launch-time resolution.
+
+- [ ] **Step 3: Preserve failed materialization attempts**
+
+After staging exists, any failure before successful `active` publication must
+atomically move the exact attempt without replacement to a unique child of the
+existing non-symlink, same-filesystem `production/rejected` directory. Never
+delete the failed staging tree. A preservation failure must leave staging
+intact.
+
+- [ ] **Step 4: Bind materialization to the index bytes originally read**
+
+Hash the exact no-follow index bytes used to construct each catalog, propagate
+those pins, and reject drift before staging and immediately before publication.
+Evidence must use the pinned digests rather than a later unverified read.
+
+- [ ] **Step 5: Enforce exact combined dataset ordering**
+
+Require `dataset.instances` to equal the canonical ordered list exactly:
+ABO first, then 3D-FUTURE, retaining each source scope's canonical order and
+expected root. A permutation must fail even when sets and counts match.
+
+- [ ] **Step 6: Remove load-balancing from the four multi-view launches**
+
+Keep existing sparse trainer defaults backward compatible, but add an explicit
+configuration path that makes the three sparse multi-view configs use the
+ordinary unweighted shuffled `ResumableSampler`. Verify all four real configured
+trainer paths select `ResumableSampler`, never `BalancedResumableSampler`, while
+the combined manifest remains `proportional-unweighted-concatenation`.
+
+- [ ] **Step 7: Make direct-loader error context implementation-independent**
+
+Every exception crossing the generic direct `get_instance` boundary must add
+source, stage, asset, and forced anchor context even if the concrete Dataset
+raises only a plain exception.
+
+- [ ] **Step 8: Run focused and full CPU verification**
+
+Run the focused RED-GREEN tests, adjacent legacy/materialization/preflight
+tests, `git diff --check`, then the full non-GPU suite. Confirm that the active
+production source preflight remains uninterrupted and that no CUDA/W&B/training
+process was started by these changes.
+
+---
+
 ## Final Review and Publication
 
 - [ ] Generate a whole-branch review package from commit `132689b` to `HEAD`.
