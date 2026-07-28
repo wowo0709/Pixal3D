@@ -8,6 +8,7 @@ from easydict import EasyDict as edict
 import pytest
 import torch
 
+import data_toolkit.pipeline.training_manifest as training_manifest
 from data_toolkit.pipeline.training_manifest import (
     CANONICAL_SOURCES,
     STAGES,
@@ -466,6 +467,68 @@ def test_publish_combined_training_data_preserves_different_existing_manifest(
 
     assert output.stat().st_ino == original_inode
     assert output.read_bytes() == original_bytes
+
+
+def test_publish_combined_training_data_preserves_concurrent_different_creator(
+    source_inputs, tmp_path, monkeypatch
+):
+    output = tmp_path / "combined" / "training_data.json"
+    racer_bytes = b'{"racer":true}\n'
+    racer_inode = None
+
+    def create_racer_then_fail_link(_temporary, destination):
+        nonlocal racer_inode
+        destination = Path(destination)
+        destination.write_bytes(racer_bytes)
+        racer_inode = destination.stat().st_ino
+        raise FileExistsError("synthetic concurrent creator")
+
+    monkeypatch.setattr(
+        training_manifest.os,
+        "link",
+        create_racer_then_fail_link,
+    )
+
+    with pytest.raises(ValueError, match="different"):
+        publish_combined_training_data(source_inputs, output)
+
+    assert output.stat().st_ino == racer_inode
+    assert output.read_bytes() == racer_bytes
+    assert not list(output.parent.glob(f".{output.name}.*"))
+
+
+@pytest.mark.parametrize("unsafe", ("symlink", "directory"))
+def test_publish_combined_training_data_preserves_unsafe_existing_node(
+    source_inputs, tmp_path, unsafe
+):
+    output = tmp_path / "combined" / "training_data.json"
+    output.parent.mkdir()
+    if unsafe == "symlink":
+        target = tmp_path / "target.json"
+        target.write_bytes(
+            _ordered_json_bytes(
+                build_combined_training_data(source_inputs)
+            )
+        )
+        target_inode = target.stat().st_ino
+        target_bytes = target.read_bytes()
+        output.symlink_to(target)
+    else:
+        output.mkdir()
+        (output / "sentinel").write_text("keep")
+        output_inode = output.stat().st_ino
+
+    with pytest.raises(ValueError, match="regular non-symlink"):
+        publish_combined_training_data(source_inputs, output)
+
+    if unsafe == "symlink":
+        assert output.is_symlink()
+        assert target.stat().st_ino == target_inode
+        assert target.read_bytes() == target_bytes
+    else:
+        assert output.is_dir() and not output.is_symlink()
+        assert output.stat().st_ino == output_inode
+        assert (output / "sentinel").read_text() == "keep"
 
 
 def test_publish_script_accepts_explicit_safe_paths(source_inputs, tmp_path):

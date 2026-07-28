@@ -1278,6 +1278,65 @@ def test_materialize_preserves_interrupted_attempt_after_staging(
     )
 
 
+def test_materialize_rejected_parent_swap_cannot_redirect_attempt(
+    tmp_path, monkeypatch
+):
+    """Replacing the validated reject pathname must not redirect preservation."""
+    index, _, catalog = load_fixture(tmp_path)
+    rejected = tmp_path / "rejected"
+    rejected.mkdir()
+    original_rejected = tmp_path / "original-rejected"
+    record = catalog["shape-512"][0]
+    _rewrite_tar(
+        record.pack,
+        [
+            (
+                materializer._expected_member_paths(
+                    "shape-512", ASSET_A
+                )[0],
+                b"wrong",
+                "file",
+            )
+        ],
+    )
+    original_rename = training_materializer._rename_no_replace
+    swapped = False
+
+    def swap_parent_then_rename(source, destination, **kwargs):
+        nonlocal swapped
+        rejected.rename(original_rejected)
+        rejected.mkdir()
+        swapped = True
+        return original_rename(source, destination, **kwargs)
+
+    monkeypatch.setattr(
+        training_materializer,
+        "_rename_no_replace",
+        swap_parent_then_rename,
+    )
+
+    with pytest.raises(ValueError, match="digest"):
+        materialize_stage(
+            "shape512",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts={"shape512": 1},
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+    assert swapped
+    attempts = list(original_rejected.iterdir())
+    assert len(attempts) == 1
+    assert (
+        attempts[0] / "renders_cond" / ASSET_A / "000.png"
+    ).read_bytes() == f"{ASSET_A}-0".encode()
+    assert not list(rejected.iterdir())
+    assert not list(
+        (tmp_path / "output" / "shape512").glob(".materializing-*")
+    )
+
+
 @pytest.mark.parametrize("unsafe_rejected", ("missing", "symlink"))
 def test_materialize_preservation_failure_leaves_staging_tree_intact(
     tmp_path, unsafe_rejected

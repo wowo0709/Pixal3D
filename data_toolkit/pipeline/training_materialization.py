@@ -722,7 +722,34 @@ _AT_FDCWD = -100
 _RENAME_NOREPLACE = 1
 
 
-def _rename_no_replace(source: Path, destination: Path) -> None:
+def _open_directory_nofollow(path: Path) -> int:
+    """Open and pin a directory without following any path component."""
+    absolute = Path(os.path.abspath(path))
+    flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | os.O_CLOEXEC
+    )
+    directory_fd = os.open("/", flags)
+    try:
+        for component in absolute.parts[1:]:
+            next_fd = os.open(component, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return directory_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
+
+
+def _rename_no_replace(
+    source: Path,
+    destination: Path,
+    *,
+    source_dir_fd: int = _AT_FDCWD,
+    destination_dir_fd: int = _AT_FDCWD,
+) -> None:
     """Atomically rename one path while its lexical destination is absent."""
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
@@ -731,9 +758,9 @@ def _rename_no_replace(source: Path, destination: Path) -> None:
     renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
     renameat2.restype = ctypes.c_int
     if renameat2(
-        _AT_FDCWD,
+        source_dir_fd,
         os.fsencode(source),
-        _AT_FDCWD,
+        destination_dir_fd,
         os.fsencode(destination),
         _RENAME_NOREPLACE,
     ) != 0:
@@ -765,29 +792,48 @@ def _preserve_failed_attempt(
     """Move one failed staging tree to the trusted production reject root."""
     rejected = Path(output_root).parent / "rejected"
     try:
-        rejected_stat = os.lstat(rejected)
+        rejected_fd = _open_directory_nofollow(rejected)
     except OSError as error:
         raise RuntimeError(
-            f"rejected directory is missing: {rejected}"
+            f"rejected directory is not a safe directory: {rejected}"
         ) from error
-    if not stat.S_ISDIR(rejected_stat.st_mode) or stat.S_ISLNK(
-        rejected_stat.st_mode
-    ):
-        raise RuntimeError(
-            f"rejected directory is not a non-symlink directory: {rejected}"
+    source_parent_fd = None
+    try:
+        rejected_stat = os.fstat(rejected_fd)
+        if not stat.S_ISDIR(rejected_stat.st_mode):
+            raise RuntimeError(
+                f"rejected directory is not a directory: {rejected}"
+            )
+        source_parent_fd = _open_directory_nofollow(temporary.parent)
+        temporary_stat = os.stat(
+            temporary.name,
+            dir_fd=source_parent_fd,
+            follow_symlinks=False,
         )
-    temporary_stat = os.lstat(temporary)
-    if temporary_stat.st_dev != rejected_stat.st_dev:
-        raise RuntimeError(
-            "rejected directory is not on the staging filesystem: "
-            f"{rejected}"
+        if not stat.S_ISDIR(temporary_stat.st_mode):
+            raise RuntimeError(
+                f"staging attempt is not a directory: {temporary}"
+            )
+        if temporary_stat.st_dev != rejected_stat.st_dev:
+            raise RuntimeError(
+                "rejected directory is not on the staging filesystem: "
+                f"{rejected}"
+            )
+        suffix = temporary.name.removeprefix(".materializing-")
+        destination_name = (
+            f"{Path(output_root).name}-{stage}-materializing-{suffix}"
         )
-    suffix = temporary.name.removeprefix(".materializing-")
-    destination = rejected / (
-        f"{Path(output_root).name}-{stage}-materializing-{suffix}"
-    )
-    _rename_no_replace(temporary, destination)
-    return destination
+        _rename_no_replace(
+            Path(temporary.name),
+            Path(destination_name),
+            source_dir_fd=source_parent_fd,
+            destination_dir_fd=rejected_fd,
+        )
+        return rejected / destination_name
+    finally:
+        if source_parent_fd is not None:
+            os.close(source_parent_fd)
+        os.close(rejected_fd)
 
 
 def _acquire_destination_lock(final: Path) -> Path:
