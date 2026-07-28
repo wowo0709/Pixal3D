@@ -639,7 +639,7 @@ operator가 evidence, digest, stage scope를 먼저 점검한 뒤 복구 방법�
 
 ## 7-4. 3D-FUTURE 및 ABO 결합 training publication
 
-이 절은 아직 실제 publication을 실행했다는 기록이 아니라 operator용 절차다.
+이 절은 operator용 절차와 2026-07-28에 완료한 실제 publication 측정값을 함께 기록한다.
 3D-FUTURE는 두 frozen index의 모든 stage-eligible asset을 ABO와 함께 사용하며 내부
 train/validation/test split이나 source weight를 만들지 않는다. 결합 sampling 표식은
 `proportional-unweighted-concatenation`이다.
@@ -759,6 +759,46 @@ CUDA_VISIBLE_DEVICES="" nice -n 15 ionice -c 2 -n 7 \
 
 sha256sum "$TRAINING_DATA"
 ```
+
+### 2026-07-28 production 측정값
+
+3D-FUTURE source materialization과 strict source preflight를 CPU-only로 완료했다. candidate,
+training exclusion, 최종 active asset 수는 다음과 같다.
+
+| stage | candidate | training exclusion | final active |
+| --- | ---: | ---: | ---: |
+| `ss64` | 8,495 | 0 | 8,495 |
+| `shape512` | 8,513 | 11 | 8,502 |
+| `shape1024` | 8,495 | 37 | 8,458 |
+| `pbr1024` | 8,495 | 89 | 8,406 |
+
+각 `active/materialization.json`의 SHA-256은 다음과 같다.
+
+- `ss64`: `ead55bb04e82f3c4767197895ba97de15b77fce1f1dd19469d1cd95563ffdbc5`
+- `shape512`: `e7acff6325cdebd4660754a623251826d00f33939d3ed2cf1067bf3822dc2f4d`
+- `shape1024`: `0c0b7ee8665655a74ea32523e1a8cc3bbfabc2519379f59edb255a02d1dbc1c3`
+- `pbr1024`: `cca3db6935028421ebb3c19e734a5f21dccfe60a57cfaf7403af2f894d87e282`
+
+source publication artifact와 SHA-256은 다음과 같다.
+
+- report
+  `/root/data2/pixal3d/control/reports/gates/3D-FUTURE/3D-FUTURE-production-training.json`:
+  `a6d62c367eca0b4bf9306533a9cc4f175234eedf06dd97dcec986759aef21f03`
+- handoff
+  `/root/data2/pixal3d/control/splits/3D-FUTURE/3D-FUTURE-production-training-handoff.json`:
+  `0c36ef981b4426b408323910c13e8faf9b630b7c0c21d97512722552cd72059c`
+- local training data
+  `/root/node17/data/pixal3d/train/production/3d-future/training_data.json`:
+  `88b2ccffe41bad2fc83c543ca2acbf8c490e08a0f7a698145d260493b612d6a4`
+
+ABO와 결합한 create-only manifest
+`/root/node17/data/pixal3d/train/production/abo-3d-future/training_data.json`의
+SHA-256은 `1ee3ed0c54cfaf3597f4cd2f9ce25a9ea16d6fb1dbb6b228efa0597474d85a13`이다.
+결합 final count는 `ss64` 12,155, `shape512` 12,130, `shape1024` 12,092,
+`pbr1024` 12,004이다. 네 configured Dataset은 각각 ABO와 3D-FUTURE의 first/last
+boundary instance 네 개를 direct-load했고, zero-worker DataLoader가 두 source를 실제
+`collate_fn`으로 함께 묶는 검증을 exit `0`으로 완료했다. 이 측정 중 CUDA context,
+training process, W&B run은 시작하지 않았다.
 
 combined verification이 exit 0으로 끝난 뒤에만 training을 고려한다. operator는 먼저
 `nvidia-smi`와 운영자별 할당 기록으로 GPU ownership 및 여유 memory를 확인하고, 사용할
