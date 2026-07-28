@@ -1,926 +1,293 @@
+"""Compatibility CLI for strict multiview production preflight."""
+
 from __future__ import annotations
 
 import argparse
-import csv
-import json
-import os
-import stat
-import sys
-import tempfile
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+import sys
 from typing import Mapping, Sequence
-from unittest.mock import patch
-
-import numpy as np
-from PIL import Image
-import torch
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
-    EXPECTED_CANDIDATE_STAGE_COUNTS,
-    EXPECTED_FINAL_STAGE_COUNTS,
-    EXPECTED_FROZEN_COUNT,
-    EXPECTED_GLOBAL_QUARANTINE_COUNT,
-    EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT,
-    EXPECTED_TRAINING_EXCLUSION_COUNTS,
-    SCALE_ATOL,
-    SCALE_RTOL,
-    TOKEN_LIMITS,
-    canonical_count_contract,
-    policy_evidence,
+from data_toolkit.pipeline import training_preflight as _core  # noqa: E402
+from data_toolkit.pipeline.training_materialization import (  # noqa: E402
+    THREED_FUTURE_SOURCE_SPEC,
 )
 
 
-SOURCE = "ABO"
-RENDER_ROOT = "renders_cond"
-COMPONENTS = {
-    "ss64": (("ss_latents/ss_enc_conv3d_16l8_fp16_64_view", "ss", (
-        "ss_latent_view_scale00_encoded", "ss_latent_view_scale01_encoded",
-    )),),
-    "shape512": (("shape_latents/shape_enc_next_dc_f16c32_fp16_512_view", "shape", (
-        "shape_latent_view00_encoded", "shape_latent_view01_encoded",
-    )),),
-    "shape1024": (("shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view", "shape", (
-        "shape_latent_view00_encoded", "shape_latent_view01_encoded",
-    )),),
-    "pbr1024": (
-        ("shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view", "shape", (
-            "shape_latent_view00_encoded", "shape_latent_view01_encoded",
-        )),
-        ("pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix", "pbr", (
-            "pbr_latent_view00_encoded", "pbr_latent_view01_encoded",
-        )),
-    ),
-}
-CONFIGS = {
-    "ss64": Path("configs/gen/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json"),
-    "shape512": Path("configs/gen/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json"),
-    "shape1024": Path("configs/gen/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json"),
-    "pbr1024": Path("configs/gen/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json"),
-}
-DEFAULT_ROOT = Path("/root/node17/data/pixal3d/train/production/abo")
-DEFAULT_INDEX = Path("/root/data2/pixal3d/prepared/index/ABO/ABO-00000.json")
-DEFAULT_REPORT = Path(
-    "/root/data2/pixal3d/control/reports/gates/ABO/"
-    "ABO-00000-valid-subset.json"
+SOURCE = _core.SOURCE
+RENDER_ROOT = _core.RENDER_ROOT
+COMPONENTS = _core.COMPONENTS
+CONFIGS = _core.CONFIGS
+DEFAULT_ROOT = _core.DEFAULT_ROOT
+DEFAULT_INDEX = _core.DEFAULT_INDEX
+DEFAULT_REPORT = _core.DEFAULT_REPORT
+DEFAULT_HANDOFF = _core.DEFAULT_HANDOFF
+DEFAULT_TRAINING_DATA = _core.DEFAULT_TRAINING_DATA
+HANDOFF_CANDIDATE_STAGE_COUNTS = _core.HANDOFF_CANDIDATE_STAGE_COUNTS
+HANDOFF_TRAINING_EXCLUSION_COUNTS = _core.HANDOFF_TRAINING_EXCLUSION_COUNTS
+HANDOFF_STAGE_COUNTS = _core.HANDOFF_STAGE_COUNTS
+HANDOFF_FROZEN_COUNT = _core.HANDOFF_FROZEN_COUNT
+HANDOFF_GLOBAL_QUARANTINE_COUNT = _core.HANDOFF_GLOBAL_QUARANTINE_COUNT
+HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT = (
+    _core.HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT
 )
-DEFAULT_HANDOFF = Path(
-    "/root/data2/pixal3d/control/splits/ABO/"
-    "ABO-00000-valid-subset-handoff.json"
+TOKEN_LIMITS = _core.TOKEN_LIMITS
+SCALE_RTOL = _core.SCALE_RTOL
+SCALE_ATOL = _core.SCALE_ATOL
+EXPECTED_CANDIDATE_STAGE_COUNTS = _core.EXPECTED_CANDIDATE_STAGE_COUNTS
+EXPECTED_FINAL_STAGE_COUNTS = _core.EXPECTED_FINAL_STAGE_COUNTS
+EXPECTED_FROZEN_COUNT = _core.EXPECTED_FROZEN_COUNT
+EXPECTED_GLOBAL_QUARANTINE_COUNT = (
+    _core.EXPECTED_GLOBAL_QUARANTINE_COUNT
 )
-DEFAULT_TRAINING_DATA = DEFAULT_ROOT / "training_data.json"
-HANDOFF_CANDIDATE_STAGE_COUNTS = EXPECTED_CANDIDATE_STAGE_COUNTS
-HANDOFF_TRAINING_EXCLUSION_COUNTS = EXPECTED_TRAINING_EXCLUSION_COUNTS
-HANDOFF_STAGE_COUNTS = EXPECTED_FINAL_STAGE_COUNTS
-HANDOFF_FROZEN_COUNT = EXPECTED_FROZEN_COUNT
-HANDOFF_GLOBAL_QUARANTINE_COUNT = EXPECTED_GLOBAL_QUARANTINE_COUNT
-HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT = EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT
+EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT = (
+    _core.EXPECTED_SHAPE512_FAMILY_EXCLUSION_COUNT
+)
+EXPECTED_TRAINING_EXCLUSION_COUNTS = (
+    _core.EXPECTED_TRAINING_EXCLUSION_COUNTS
+)
+canonical_count_contract = _core.canonical_count_contract
+policy_evidence = _core.policy_evidence
+StagePreflight = _core.StagePreflight
+
+build_report = _core.build_report
+build_handoff = _core.build_handoff
+publish_handoff = _core.publish_handoff
+publish_source_handoff = _core.publish_source_handoff
+source_preflight_stage = _core.preflight_stage
+write_create_only_json = _core.write_create_only_json
+_existing_regular_bytes = _core._existing_regular_bytes
+_error = _core._error
+_regular = _core._regular
+_metadata_assets = _core._metadata_assets
+_validate_render = _core._validate_render
+_scale = _core._scale
+_numeric_finite = _core._numeric_finite
+_latent = _core._latent
+_require_tensor = _core._require_tensor
+_validate_loader_pack = _core._validate_loader_pack
+_scope_digest = _core._scope_digest
+_allowed_exclusion_reasons = _core._allowed_exclusion_reasons
+_canonical_json_bytes = _core._canonical_json_bytes
+_fsync_directory = _core._fsync_directory
+_write_atomic_json = _core._write_atomic_json
+_load_existing_json = _core._load_existing_json
+_validated_handoff_inputs = _core._validated_handoff_inputs
+_materialization_evidence = _core._materialization_evidence
+_stage_records = _core._stage_records
+_materialization_evidence_from_result = (
+    _core._materialization_evidence_from_result
+)
+
+THREED_FUTURE_ROOT = Path(
+    "/root/node17/data/pixal3d/train/production/3d-future"
+)
+THREED_FUTURE_REPORT = Path(
+    "/root/data2/pixal3d/control/reports/gates/3D-FUTURE/"
+    "3D-FUTURE-production-training.json"
+)
+THREED_FUTURE_HANDOFF = Path(
+    "/root/data2/pixal3d/control/splits/3D-FUTURE/"
+    "3D-FUTURE-production-training-handoff.json"
+)
+THREED_FUTURE_TRAINING_DATA = THREED_FUTURE_ROOT / "training_data.json"
 
 
 def _handoff_counts() -> dict[str, object]:
-    return canonical_count_contract(
+    return _core.canonical_count_contract(
         frozen=HANDOFF_FROZEN_COUNT,
         global_quarantine=HANDOFF_GLOBAL_QUARANTINE_COUNT,
-        shape512_family_exclusions=HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT,
+        shape512_family_exclusions=(
+            HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT
+        ),
         candidate_stages=HANDOFF_CANDIDATE_STAGE_COUNTS,
         training_exclusions=HANDOFF_TRAINING_EXCLUSION_COUNTS,
         stages=HANDOFF_STAGE_COUNTS,
     )
 
 
-@dataclass(frozen=True)
-class StagePreflight:
-    stage: str
-    root: Path
-    asset_count: int
-    asset_scope_sha256: str
-    anchors_checked: int
-    validation_counts: dict[str, int]
-    materialization_bytes: bytes
-
-    @property
-    def materialization_sha256(self) -> str:
-        return sha256(self.materialization_bytes).hexdigest()
+def validate_stage_structure(
+    stage: str, root: Path, expected_assets: Sequence[str]
+) -> dict[str, int]:
+    """Legacy ABO signature for source-aware structural validation."""
+    return _core.validate_stage_structure(
+        SOURCE, stage, root, expected_assets
+    )
 
 
-def _error(stage: str, asset: str | None, message: str, anchor: str | None = None) -> ValueError:
-    parts = [f"source={SOURCE}", f"stage={stage}"]
-    if asset is not None:
-        parts.append(f"asset={asset}")
-    if anchor is not None:
-        parts.append(f"anchor={anchor}")
-    return ValueError(" ".join(parts) + f": {message}")
+def stage_data_dir(
+    stage: str, root: Path
+) -> dict[str, dict[str, str]]:
+    """Legacy ABO signature for the configured Dataset data_dir."""
+    return _core.stage_data_dir(SOURCE, stage, root)
 
 
-def _regular(path: Path, stage: str, asset: str, label: str, anchor: str | None = None) -> None:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
-        raise _error(stage, asset, f"missing or unsafe {label}: {path}", anchor)
+def validate_direct_loader(
+    stage: str,
+    root: Path,
+    expected_assets: Sequence[str],
+    config_path: Path,
+) -> int:
+    """Legacy ABO signature for direct Dataset validation."""
+    return _core.validate_direct_loader(
+        SOURCE, stage, root, expected_assets, config_path
+    )
 
 
-def _metadata_assets(stage: str, root: Path, relative: str, fields: tuple[str, ...], expected: set[str]) -> None:
-    component_root = root / relative
-    if component_root.is_symlink() or not component_root.is_dir():
-        raise _error(stage, None, f"missing or unsafe component root: {relative}")
-    path = component_root / "metadata.csv"
-    _regular(path, stage, None, f"metadata for {relative}")
-    with path.open(newline="") as stream:
-        reader = csv.DictReader(stream)
-        required = ["sha256", *fields]
-        rows = list(reader)
-        if reader.fieldnames != required:
-            asset = rows[0].get("sha256") if rows else None
-            raise _error(stage, asset, f"metadata columns for {relative} must be {required}")
-    actual = set()
-    for row in rows:
-        asset = row["sha256"]
-        if not asset or asset in actual:
-            raise _error(stage, asset or None, f"invalid metadata asset in {relative}")
-        actual.add(asset)
-        for field in fields:
-            if row[field] != "True":
-                raise _error(stage, asset, f"metadata {field} must be literal True")
-    if actual != expected:
-        missing, extra = expected - actual, actual - expected
-        asset = sorted(missing or extra)[0] if missing or extra else None
-        raise _error(stage, asset, f"metadata scope mismatch for {relative}")
-    entries = {entry.name for entry in component_root.iterdir()}
-    allowed = {"metadata.csv", *expected}
-    if entries != allowed:
-        extra = entries - allowed
-        asset = sorted(extra)[0] if extra else sorted(allowed - entries)[0]
-        raise _error(stage, asset, f"component directory scope mismatch for {relative}")
-    for asset in expected:
-        asset_root = component_root / asset
-        if asset_root.is_symlink() or not asset_root.is_dir():
-            raise _error(stage, asset, f"component asset directory is unsafe for {relative}")
+def _materialization_scope(
+    stage: str, root: Path
+) -> tuple[tuple[str, ...], str, bytes]:
+    """Legacy ABO materialization validator."""
+    return _core._materialization_scope_abo(
+        stage,
+        root,
+        candidate_counts=HANDOFF_CANDIDATE_STAGE_COUNTS,
+        training_exclusion_counts=HANDOFF_TRAINING_EXCLUSION_COUNTS,
+        stage_counts=HANDOFF_STAGE_COUNTS,
+        frozen_count=HANDOFF_FROZEN_COUNT,
+        global_quarantine_count=HANDOFF_GLOBAL_QUARANTINE_COUNT,
+        shape512_family_exclusion_count=(
+            HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT
+        ),
+    )
 
 
-def _validate_render(stage: str, root: Path, asset: str) -> int:
-    directory = root / RENDER_ROOT / asset
-    if directory.is_symlink() or not directory.is_dir():
-        raise _error(stage, asset, "missing render directory")
-    names = {entry.name for entry in directory.iterdir()}
-    required = {"transforms.json", *(f"{index:03d}.png" for index in range(8))}
-    if names != required:
-        raise _error(stage, asset, "render directory must contain exactly eight PNGs and transforms.json")
-    manifest_path = directory / "transforms.json"
-    _regular(manifest_path, stage, asset, "transforms.json")
-    try:
-        manifest = json.loads(manifest_path.read_text())
-        frames = manifest["frames"]
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
-        raise _error(stage, asset, "invalid transforms.json") from error
-    if not isinstance(frames, list) or len(frames) != 8:
-        raise _error(stage, asset, "transforms must contain exactly eight frames")
-    for index, frame in enumerate(frames):
-        if not isinstance(frame, dict):
-            raise _error(stage, asset, "frame must be an object")
-        file_path = frame.get("file_path")
-        expected_name = f"{index:03d}.png"
-        if not isinstance(file_path, str) or file_path != expected_name:
-            raise _error(stage, asset, f"unsafe or unordered frame path: {file_path!r}")
-        entry_path = directory / file_path
-        _regular(entry_path, stage, asset, "render PNG")
-        image_path = entry_path.resolve()
-        if not image_path.is_relative_to(directory.resolve()):
-            raise _error(stage, asset, f"unsafe frame path: {file_path!r}")
-        try:
-            with Image.open(image_path) as image:
-                image.verify()
-            with Image.open(image_path) as image:
-                if image.mode != "RGBA" or image.size != (512, 512):
-                    raise _error(stage, asset, "render PNG must be RGBA 512x512")
-        except ValueError:
-            raise
-        except Exception as error:
-            raise _error(stage, asset, f"invalid render PNG: {image_path}") from error
-        try:
-            angle = np.asarray(frame["camera_angle_x"], dtype=np.float32).item()
-        except (KeyError, TypeError, ValueError, OverflowError) as error:
-            raise _error(stage, asset, "camera_angle_x must be finite and positive") from error
-        if not np.isfinite(angle) or angle <= 0:
-            raise _error(stage, asset, "camera_angle_x must be finite and positive")
-        try:
-            transform = np.asarray(frame["transform_matrix"], dtype=np.float32)
-        except (KeyError, TypeError, ValueError, OverflowError) as error:
-            raise _error(stage, asset, "invalid transform_matrix") from error
-        if transform.shape != (4, 4) or not np.isfinite(transform).all():
-            raise _error(stage, asset, "transform_matrix must be finite [4, 4]")
-        rotation = transform[:3, :3]
-        if not np.isfinite(np.linalg.det(rotation)) or np.linalg.det(rotation) == 0:
-            raise _error(stage, asset, "transform rotation must be nonsingular")
-        distance = float(np.linalg.norm(transform[:3, 3]))
-        if not np.isfinite(distance) or distance <= 0:
-            raise _error(stage, asset, "camera distance must be finite and positive")
-    return 8
+def _eligibility_evidence_is_valid(
+    stage: str, evidence: Mapping[str, object]
+) -> bool:
+    return _core._eligibility_evidence_is_valid(
+        stage,
+        evidence,
+        candidate_counts=HANDOFF_CANDIDATE_STAGE_COUNTS,
+        training_exclusion_counts=HANDOFF_TRAINING_EXCLUSION_COUNTS,
+        stage_counts=HANDOFF_STAGE_COUNTS,
+        frozen_count=HANDOFF_FROZEN_COUNT,
+        global_quarantine_count=HANDOFF_GLOBAL_QUARANTINE_COUNT,
+        shape512_family_exclusion_count=(
+            HANDOFF_SHAPE512_FAMILY_EXCLUSION_COUNT
+        ),
+    )
 
 
-def _scale(stage: str, asset: str, path: Path, anchor: str) -> np.float32:
-    _regular(path, stage, asset, "scale JSON", anchor)
-    try:
-        value = json.loads(path.read_text())["total_scale"]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError("total_scale must be a JSON numeric scalar")
-        scale = np.float32(value)
-    except (KeyError, TypeError, ValueError, OverflowError, json.JSONDecodeError) as error:
-        raise _error(stage, asset, "total_scale must be finite and positive after float32 conversion", anchor) from error
-    if not np.isfinite(scale) or scale <= 0:
-        raise _error(stage, asset, "total_scale must be finite and positive after float32 conversion", anchor)
-    return scale
-
-
-def _numeric_finite(value: np.ndarray) -> bool:
-    return value.dtype.kind in "fiu" and np.isfinite(np.asarray(value, dtype=np.float32)).all()
-
-
-def _latent(stage: str, asset: str, component: str, directory: Path, anchor_index: int) -> tuple[np.ndarray | None, np.float32]:
-    anchor = f"view{anchor_index:02d}"
-    npz_path = directory / asset / f"{anchor}.npz"
-    _regular(npz_path, stage, asset, "latent NPZ", anchor)
-    try:
-        with np.load(npz_path, allow_pickle=False) as data:
-            keys = set(data.files)
-            if component == "ss":
-                if keys != {"z"}:
-                    raise _error(stage, asset, "SS latent requires exactly z", anchor)
-                z = np.asarray(data["z"])
-                if z.shape != (8, 16, 16, 16) or z.dtype.kind not in "fiu" or not _numeric_finite(z):
-                    raise _error(stage, asset, "SS z must be finite float-compatible [8, 16, 16, 16]", anchor)
-                coords = None
-            else:
-                if keys != {"coords", "feats"}:
-                    raise _error(stage, asset, "sparse latent requires exactly coords and feats", anchor)
-                coords = np.asarray(data["coords"])
-                feats = np.asarray(data["feats"])
-                if coords.ndim != 2 or coords.shape[1:] != (3,):
-                    raise _error(stage, asset, "coords must have shape [N, 3]", anchor)
-                if feats.ndim != 2 or feats.shape[1:] != (32,):
-                    raise _error(stage, asset, "feats must have shape [N, 32]", anchor)
-                if len(coords) != len(feats):
-                    raise _error(stage, asset, "coords and feats row counts must match", anchor)
-                if not _numeric_finite(coords) or not _numeric_finite(feats):
-                    raise _error(stage, asset, "coords and feats must be finite numeric arrays", anchor)
-                integral = np.equal(coords, np.floor(coords))
-                if not integral.all():
-                    raise _error(stage, asset, "coords must be integral", anchor)
-                grid = 32 if stage == "shape512" else 64
-                integer_coords = coords.astype(np.int64)
-                if (integer_coords < 0).any() or (integer_coords >= grid).any():
-                    raise _error(stage, asset, "coords exceed stage grid bounds", anchor)
-                if len(np.unique(integer_coords, axis=0)) != len(integer_coords):
-                    raise _error(stage, asset, "coords must be unique", anchor)
-                maximum = TOKEN_LIMITS[stage]
-                if len(integer_coords) > maximum:
-                    raise _error(stage, asset, "sparse token count exceeds stage maximum", anchor)
-                coords = integer_coords
-    except ValueError:
-        raise
-    except Exception as error:
-        raise _error(stage, asset, "invalid latent NPZ", anchor) from error
-    scale = _scale(stage, asset, directory / asset / f"{anchor}_scale.json", anchor)
-    return coords, scale
-
-
-def validate_stage_structure(stage: str, root: Path, expected_assets: Sequence[str]) -> dict[str, int]:
-    """Validate all published files for one stage without invoking a dataset loader."""
-    if stage not in COMPONENTS:
-        raise ValueError(f"unknown stage: {stage}")
-    root = Path(root)
-    expected = set(expected_assets)
-    if len(expected) != len(expected_assets) or not expected:
-        raise _error(stage, None, "expected asset scope must be non-empty and unique")
-    _metadata_assets(stage, root, RENDER_ROOT, ("cond_rendered",), expected)
-    for relative, _component, fields in COMPONENTS[stage]:
-        _metadata_assets(stage, root, relative, fields, expected)
-    renders = latents = scales = 0
-    for asset in expected_assets:
-        renders += _validate_render(stage, root, asset)
-        values: dict[str, tuple[np.ndarray | None, np.float32]] = {}
-        for relative, component, _fields in COMPONENTS[stage]:
-            for anchor in (0, 1):
-                values[f"{component}:{anchor}"] = _latent(stage, asset, component, root / relative, anchor)
-                latents += 1
-                scales += 1
-        if stage == "pbr1024":
-            for anchor in (0, 1):
-                shape_coords, shape_scale = values[f"shape:{anchor}"]
-                pbr_coords, pbr_scale = values[f"pbr:{anchor}"]
-                anchor_name = f"view{anchor:02d}"
-                if not np.array_equal(shape_coords, pbr_coords):
-                    raise _error(stage, asset, "PBR and Shape coordinates must match", anchor_name)
-                if not np.isclose(shape_scale, pbr_scale, rtol=SCALE_RTOL, atol=SCALE_ATOL):
-                    raise _error(stage, asset, "PBR and Shape float32 total_scale exceeds policy tolerance", anchor_name)
-    return {"assets": len(expected_assets), "renders": renders, "latents": latents, "scales": scales}
-
-
-def stage_data_dir(stage: str, root: Path) -> dict[str, dict[str, str]]:
-    values = {"base": str(root), "render_cond": str(root / "renders_cond")}
-    if stage == "ss64":
-        values["ss_latent"] = str(root / "ss_latents/ss_enc_conv3d_16l8_fp16_64_view")
-    elif stage == "shape512":
-        values["shape_latent"] = str(root / "shape_latents/shape_enc_next_dc_f16c32_fp16_512_view")
-    elif stage == "shape1024":
-        values["shape_latent"] = str(root / "shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view")
-    elif stage == "pbr1024":
-        values["shape_latent"] = str(root / "shape_latents/shape_enc_next_dc_f16c32_fp16_1024_view")
-        values["pbr_latent"] = str(root / "pbr_latents/tex_enc_next_dc_f16c32_fp16_1024_view_fix")
-    else:
-        raise ValueError(f"unknown stage: {stage}")
-    return {SOURCE: values}
-
-
-def _require_tensor(stage: str, asset: str, anchor: int, pack: dict, key: str, shape: tuple[int, ...], *, positive: bool = False) -> torch.Tensor:
-    value = pack.get(key)
-    anchor_name = f"view{anchor:02d}"
-    if not isinstance(value, torch.Tensor) or value.dtype != torch.float32 or tuple(value.shape) != shape or not torch.isfinite(value).all():
-        raise _error(stage, asset, f"loader {key} must be finite float32 with shape {shape}", anchor_name)
-    if positive and not (value > 0).all():
-        raise _error(stage, asset, f"loader {key} must be positive", anchor_name)
-    return value
-
-
-def _validate_loader_pack(stage: str, asset: str, anchor: int, pack: dict, image_size: int) -> None:
-    anchor_name = f"view{anchor:02d}"
-    if pack.get("view_idx") != anchor:
-        raise _error(stage, asset, "loader selected the wrong anchor", anchor_name)
-    view_indices = pack.get("view_indices")
-    if not isinstance(view_indices, torch.Tensor) or view_indices.dtype != torch.int64 or tuple(view_indices.shape) != (8,) or view_indices[0].item() != anchor or sorted(view_indices.tolist()) != list(range(8)):
-        raise _error(stage, asset, "loader view_indices must be anchor-first permutation", anchor_name)
-    _require_tensor(stage, asset, anchor, pack, "cond", (8, 3, image_size, image_size))
-    _require_tensor(stage, asset, anchor, pack, "camera_angle_x", (8,), positive=True)
-    _require_tensor(stage, asset, anchor, pack, "camera_distance", (8,), positive=True)
-    _require_tensor(stage, asset, anchor, pack, "transform_matrix", (8, 4, 4))
-    mesh_scale = pack.get("mesh_scale")
-    if not isinstance(mesh_scale, torch.Tensor) or mesh_scale.dtype != torch.float32 or mesh_scale.ndim != 0 or not torch.isfinite(mesh_scale) or mesh_scale <= 0:
-        raise _error(stage, asset, "loader mesh_scale must be a finite positive float32 scalar", anchor_name)
-    if stage == "ss64":
-        _require_tensor(stage, asset, anchor, pack, "x_0", (8, 16, 16, 16))
-        return
-    coords = pack.get("coords")
-    if not isinstance(coords, torch.Tensor) or coords.dtype not in (torch.int32, torch.int64) or coords.ndim != 2 or coords.shape[1:] != (3,):
-        raise _error(stage, asset, "loader coords must be integer [N, 3]", anchor_name)
-    if stage in ("shape512", "shape1024"):
-        _require_tensor(stage, asset, anchor, pack, "feats", (coords.shape[0], 32))
-    else:
-        _require_tensor(stage, asset, anchor, pack, "pbr_feats", (coords.shape[0], 32))
-        _require_tensor(stage, asset, anchor, pack, "shape_feats", (coords.shape[0], 32))
-
-
-def validate_direct_loader(stage: str, root: Path, expected_assets: Sequence[str], config_path: Path) -> int:
-    """Call the configured real dataset directly for both anchors of every asset."""
-    if stage not in CONFIGS:
-        raise ValueError(f"unknown stage: {stage}")
-    try:
-        config = json.loads(Path(config_path).read_text())
-        dataset_config = config["dataset"]
-        dataset_name = dataset_config["name"]
-        dataset_args = dataset_config["args"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-        raise _error(stage, None, f"invalid dataset config: {config_path}") from error
-    try:
-        # flex_gemm selects import-time Triton kernels by eagerly querying CUDA.
-        # Its A100 table is sufficient to import dataset definitions; this preflight
-        # never invokes those kernels or initializes CUDA.
-        with patch.object(torch.cuda, "get_device_name", return_value="A100"):
-            from pixal3d import datasets
-            dataset_class = getattr(datasets, dataset_name)
-        dataset = dataset_class(json.dumps(stage_data_dir(stage, Path(root))), **dataset_args)
-    except Exception as error:
-        raise _error(stage, None, f"failed to construct configured dataset {dataset_name}") from error
-    expected = set(expected_assets)
-    instances = list(dataset.instances)
-    actual = {asset for _root_record, asset, source in instances if source == SOURCE}
-    if len(instances) != len(expected_assets) or actual != expected or any(source != SOURCE for _root_record, _asset, source in instances):
-        raise _error(stage, None, "configured dataset instance set does not exactly match materialized scope")
-    by_asset = {asset: root_record for root_record, asset, _source in instances}
-    image_size = int(dataset_args["image_size"])
-    checked = 0
-    for asset in expected_assets:
-        root_record = by_asset[asset]
-        for anchor in (0, 1):
-            dataset._current_dataset_name = SOURCE
-            try:
-                with patch.object(np.random, "randint", return_value=anchor):
-                    pack = dataset.get_instance(root_record, asset)
-            except Exception as error:
-                raise RuntimeError(f"{error} stage={stage}") from error
-            _validate_loader_pack(stage, asset, anchor, pack, image_size)
-            checked += 1
-    return checked
-
-
-def _scope_digest(scope: Sequence[str]) -> str:
-    return sha256("\n".join(scope).encode()).hexdigest()
-
-
-def _allowed_exclusion_reasons(stage: str) -> set[str]:
-    if stage == "ss64":
-        return set()
-    limit = TOKEN_LIMITS[stage]
-    reasons = {f"shape_tokens_view{anchor:02d}_exceed_{limit}" for anchor in (0, 1)}
-    if stage == "pbr1024":
-        reasons.update(f"pbr_tokens_view{anchor:02d}_exceed_{limit}" for anchor in (0, 1))
-        reasons.update(f"pbr_shape_coords_view{anchor:02d}_mismatch" for anchor in (0, 1))
-        reasons.update(f"pbr_shape_scale_view{anchor:02d}_mismatch" for anchor in (0, 1))
-    return reasons
-
-
-def _eligibility_evidence_is_valid(stage: str, evidence: Mapping[str, object]) -> bool:
-    """Check the exact Task 1 candidate/final eligibility contract."""
-    candidate = evidence.get("candidate_stage_scope")
-    final = evidence.get("stage_scope")
-    exclusions = evidence.get("training_exclusions")
-    if (
-        evidence.get("counts") != _handoff_counts()
-        or evidence.get("eligibility_policy") != policy_evidence()
-        or evidence.get("candidate_asset_count") != HANDOFF_CANDIDATE_STAGE_COUNTS[stage]
-        or evidence.get("asset_count") != HANDOFF_STAGE_COUNTS[stage]
-        or evidence.get("training_exclusion_count") != HANDOFF_TRAINING_EXCLUSION_COUNTS[stage]
-        or not isinstance(candidate, list)
-        or not all(isinstance(asset, str) and asset for asset in candidate)
-        or candidate != sorted(candidate)
-        or len(candidate) != len(set(candidate))
-        or len(candidate) != evidence.get("candidate_asset_count")
-        or evidence.get("candidate_stage_scope_sha256") != _scope_digest(candidate)
-        or not isinstance(final, list)
-        or not all(isinstance(asset, str) and asset for asset in final)
-        or final != sorted(final)
-        or len(final) != len(set(final))
-        or len(final) != evidence.get("asset_count")
-        or evidence.get("stage_scope_sha256") != _scope_digest(final)
-        or not isinstance(exclusions, list)
-        or len(exclusions) != HANDOFF_TRAINING_EXCLUSION_COUNTS[stage]
-    ):
-        return False
-    excluded_assets: list[str] = []
-    reasons: list[str] = []
-    for exclusion in exclusions:
-        if not isinstance(exclusion, Mapping):
-            return False
-        asset = exclusion.get("asset")
-        exclusion_reasons = exclusion.get("reasons")
-        if (
-            not isinstance(asset, str)
-            or not asset
-            or not isinstance(exclusion_reasons, list)
-            or not exclusion_reasons
-            or not all(isinstance(reason, str) and reason for reason in exclusion_reasons)
-            or exclusion_reasons != sorted(exclusion_reasons)
-            or len(exclusion_reasons) != len(set(exclusion_reasons))
-            or not set(exclusion_reasons).issubset(_allowed_exclusion_reasons(stage))
-        ):
-            return False
-        excluded_assets.append(asset)
-        reasons.extend(exclusion_reasons)
-    if (
-        excluded_assets != sorted(excluded_assets)
-        or len(excluded_assets) != len(set(excluded_assets))
-        or not set(excluded_assets).issubset(candidate)
-        or [asset for asset in candidate if asset not in set(excluded_assets)] != final
-        or evidence.get("training_exclusion_reason_counts")
-        != {reason: reasons.count(reason) for reason in sorted(set(reasons))}
-    ):
-        return False
-    return True
-
-
-def _materialization_scope(stage: str, root: Path) -> tuple[tuple[str, ...], str, bytes]:
-    path = Path(root) / "materialization.json"
-    _regular(path, stage, None, "materialization.json")
-    try:
-        raw = _existing_regular_bytes(path)
-        evidence = json.loads(raw)
-        assets = evidence["stage_scope"]
-        digest = evidence["stage_scope_sha256"]
-        count = evidence["asset_count"]
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
-        raise _error(stage, None, "invalid materialization evidence") from error
-    if "stage_root" not in evidence:
-        raise _error(stage, None, "materialization stage root identity is missing")
-    source_index = evidence.get("source_index")
-    if (
-        evidence.get("schema_version") != 1
-        or not isinstance(evidence.get("created_at"), str)
-        or not evidence.get("created_at")
-        or evidence.get("source") != SOURCE
-        or evidence.get("shard_id") != "ABO-00000"
-        or evidence.get("acceptance_mode") != "valid_subset_user_waiver"
-        or evidence.get("original_90_percent_gate_passed") is not False
-        or not isinstance(source_index, Mapping)
-        or not isinstance(source_index.get("path"), str)
-        or not source_index.get("path")
-        or source_index.get("sha256") != evidence.get("index_sha256")
-    ):
-        raise _error(stage, None, "materialization provenance is invalid")
-    stage_root = evidence["stage_root"]
-    if evidence.get("stage") != stage or not isinstance(assets, list) or not assets or not all(isinstance(asset, str) for asset in assets):
-        raise _error(stage, None, "materialization stage identity is invalid")
-    canonical_root = str(Path(root).resolve())
-    if not isinstance(stage_root, str) or stage_root != canonical_root:
-        raise _error(stage, None, "materialization stage root identity mismatch")
-    if not _eligibility_evidence_is_valid(stage, evidence):
-        raise _error(stage, None, "materialization eligibility evidence is invalid")
-    if count != len(assets) or digest != _scope_digest(assets):
-        raise _error(stage, None, "materialization asset scope is not canonical")
-    excluded = {exclusion["asset"] for exclusion in evidence["training_exclusions"]}
-    for relative in (RENDER_ROOT, *(relative for relative, _component, _fields in COMPONENTS[stage])):
-        for asset in excluded:
-            if os.path.lexists(Path(root) / relative / asset):
-                raise _error(stage, asset, f"training-excluded asset remains in final component: {relative}")
-    return tuple(assets), digest, raw
-
-
-def preflight_stage(stage: str, root: Path, config_path: Path) -> StagePreflight:
+def preflight_stage(
+    stage: str, root: Path, config_path: Path
+) -> StagePreflight:
+    """Legacy ABO preflight preserving monkeypatchable wrapper validators."""
     assets, digest, evidence_bytes = _materialization_scope(stage, root)
     counts = validate_stage_structure(stage, root, assets)
     anchors = validate_direct_loader(stage, root, assets, config_path)
     return StagePreflight(
-        stage, Path(root), len(assets), digest, anchors, counts, evidence_bytes
+        stage,
+        Path(root),
+        len(assets),
+        digest,
+        anchors,
+        counts,
+        evidence_bytes,
     )
 
 
-def _canonical_json_bytes(value: Mapping[str, object]) -> bytes:
-    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+def _verify_existing(paths: Mapping[str, Path]) -> None:
+    """Print byte digests without modifying or opening any output for writing."""
+    for label, path in paths.items():
+        raw = _core._existing_regular_bytes(Path(path))
+        print(f"{label} {path} sha256={sha256(raw).hexdigest()}")
 
 
-def _existing_regular_bytes(path: Path) -> bytes:
-    try:
-        mode = os.lstat(path).st_mode
-    except OSError as error:
-        raise FileExistsError(f"existing path is not a regular non-symlink file: {path}") from error
-    if not stat.S_ISREG(mode):
-        raise FileExistsError(f"existing path is not a regular non-symlink file: {path}")
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as error:
-        raise FileExistsError(f"existing path is not a regular non-symlink file: {path}") from error
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise FileExistsError(f"existing path is not a regular non-symlink file: {path}")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            return stream.read()
-    finally:
-        os.close(descriptor)
-
-
-def _fsync_directory(directory: Path) -> None:
-    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def write_create_only_json(path: Path, value: Mapping[str, object]) -> str:
-    """Publish canonical JSON once, accepting only byte-identical reruns."""
-    path = Path(path)
-    payload = _canonical_json_bytes(value)
-    digest = sha256(payload).hexdigest()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if os.path.lexists(path):
-        if _existing_regular_bytes(path) != payload:
-            raise FileExistsError(f"existing create-only JSON has different content: {path}")
-        return digest
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        try:
-            os.link(temporary, path)
-        except FileExistsError:
-            if _existing_regular_bytes(path) != payload:
-                raise FileExistsError(f"existing create-only JSON has different content: {path}")
-        else:
-            _fsync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return digest
-
-
-def _write_atomic_json(path: Path, value: Mapping[str, object]) -> str:
-    path = Path(path)
-    payload = _canonical_json_bytes(value)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        _fsync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return sha256(payload).hexdigest()
-
-
-def _load_existing_json(path: Path, label: str) -> tuple[dict[str, object], bytes] | None:
-    path = Path(path)
-    if not os.path.lexists(path):
-        return None
-    raw = _existing_regular_bytes(path)
-    try:
-        value = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise ValueError(f"invalid existing {label}: {path}") from error
-    if not isinstance(value, dict):
-        raise ValueError(f"invalid existing {label}: {path}")
-    return value, raw
-
-
-def _validated_handoff_inputs(
-    results: Mapping[str, StagePreflight],
-    materializations: Mapping[str, Mapping[str, object]],
-    index_sha256: str | None = None,
-    index_path: Path | None = None,
-) -> None:
-    stages = tuple(HANDOFF_STAGE_COUNTS)
-    if set(results) != set(stages) or set(materializations) != set(stages):
-        raise ValueError("all four strict preflight results and materializations are required")
-    for stage, expected_count in HANDOFF_STAGE_COUNTS.items():
-        result = results[stage]
-        if (
-            result.stage != stage
-            or result.asset_count != expected_count
-            or result.anchors_checked != expected_count * 2
-            or result.validation_counts.get("assets") != expected_count
-        ):
-            raise ValueError(f"strict preflight did not complete successfully for stage={stage}")
-        evidence = materializations[stage]
-        scope = evidence.get("stage_scope")
-        scope_digest = sha256("\n".join(scope).encode()).hexdigest() if isinstance(scope, list) and all(isinstance(asset, str) for asset in scope) else None
-        source_index = evidence.get("source_index")
-        try:
-            validated_evidence = json.loads(result.materialization_bytes)
-        except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
-            validated_evidence = None
-        if (
-            evidence.get("schema_version") != 1
-            or not isinstance(evidence.get("created_at"), str)
-            or not evidence.get("created_at")
-            or evidence.get("source") != SOURCE
-            or evidence.get("shard_id") != "ABO-00000"
-            or evidence.get("acceptance_mode") != "valid_subset_user_waiver"
-            or evidence.get("original_90_percent_gate_passed") is not False
-            or not _eligibility_evidence_is_valid(stage, evidence)
-            or not isinstance(source_index, Mapping)
-            or not isinstance(source_index.get("path"), str)
-            or not source_index.get("path")
-            or source_index.get("sha256") != evidence.get("index_sha256")
-            or (index_path is not None and source_index.get("path") != str(index_path))
-            or evidence.get("stage") != stage
-            or evidence.get("stage_root") != str(result.root.resolve())
-            or evidence.get("asset_count") != result.asset_count
-            or evidence.get("stage_scope_sha256") != result.asset_scope_sha256
-            or not isinstance(scope, list)
-            or not scope
-            or scope != sorted(scope)
-            or len(set(scope)) != len(scope)
-            or len(scope) != result.asset_count
-            or scope_digest != result.asset_scope_sha256
-            or not isinstance(result.materialization_sha256, str)
-            or len(result.materialization_sha256) != 64
-            or not isinstance(result.materialization_bytes, bytes)
-            or validated_evidence != evidence
-            or (index_sha256 is not None and evidence.get("index_sha256") != index_sha256)
-        ):
-            raise ValueError(f"materialization evidence does not match strict preflight for stage={stage}")
-
-
-def _materialization_evidence(
-    results: Mapping[str, StagePreflight],
-    materializations: Mapping[str, Mapping[str, object]],
-) -> tuple[dict[str, dict[str, object]], list[str]]:
-    summaries: dict[str, dict[str, object]] = {}
-    observed: set[str] = set()
-    for stage in HANDOFF_STAGE_COUNTS:
-        evidence = materializations[stage]
-        commits = evidence.get("tool_commits")
-        packs = evidence.get("packs")
-        if not isinstance(commits, list) or not all(isinstance(commit, str) and commit for commit in commits):
-            raise ValueError(f"materialization evidence lacks tool commits for stage={stage}")
-        if not isinstance(packs, list) or not all(isinstance(pack, dict) for pack in packs):
-            raise ValueError(f"materialization evidence lacks pack records for stage={stage}")
-        pack_commits = [pack.get("tool_commit") for pack in packs]
-        if not all(isinstance(commit, str) and commit for commit in pack_commits):
-            raise ValueError(f"materialization evidence lacks observed pack tool commits for stage={stage}")
-        observed.update(commits)
-        observed.update(pack_commits)
-        summaries[stage] = {
-            "sha256": results[stage].materialization_sha256,
-            "tool_commits": sorted(set(commits) | set(pack_commits)),
-        }
-    return summaries, sorted(observed)
-
-
-def _stage_records(results: Mapping[str, StagePreflight]) -> dict[str, dict[str, object]]:
-    return {
-        stage: {
-            "root": str(results[stage].root),
-            "asset_count": results[stage].asset_count,
-            "asset_scope_sha256": results[stage].asset_scope_sha256,
-            "anchors_checked": results[stage].anchors_checked,
-            "validation_counts": results[stage].validation_counts,
-            "data_dir": stage_data_dir(stage, results[stage].root),
-        }
-        for stage in HANDOFF_STAGE_COUNTS
-    }
-
-
-def build_report(
-    index_path: Path,
-    index_sha256: str,
-    results: Mapping[str, StagePreflight],
-    materializations: Mapping[str, Mapping[str, object]],
-    created_at: str,
-) -> dict[str, object]:
-    """Build the immutable evidence report for the approved ABO valid subset."""
-    index_path = Path(index_path).resolve()
-    _validated_handoff_inputs(results, materializations, index_sha256, index_path)
-    evidence, observed_tool_commits = _materialization_evidence(results, materializations)
-    stages = _stage_records(results)
-    return {
-        "schema_version": 1,
-        "created_at": created_at,
-        "source": SOURCE,
-        "shard_id": "ABO-00000",
-        "source_index": {"path": str(index_path), "sha256": index_sha256},
-        "acceptance_mode": "valid_subset_user_waiver",
-        "original_90_percent_gate_passed": False,
-        "authorization": "training-input use only",
-        "counts": _handoff_counts(),
-        "eligibility_policy": policy_evidence(),
-        "stages": stages,
-        "materialization_evidence": evidence,
-        "observed_tool_commits": observed_tool_commits,
-    }
-
-
-def build_handoff(
-    report_path: Path,
-    report_sha256: str,
-    report: Mapping[str, object],
-    results: Mapping[str, StagePreflight],
-    materializations: Mapping[str, Mapping[str, object]],
-    created_at: str,
-) -> dict[str, object]:
-    """Build the training-input-only handoff that pins the report by digest."""
-    source_index = report.get("source_index")
-    if not isinstance(source_index, Mapping):
-        raise ValueError("report source_index must be an object")
-    index_path = source_index.get("path")
-    index_sha256 = source_index.get("sha256")
-    if (
-        not isinstance(index_path, str)
-        or not index_path
-        or not isinstance(index_sha256, str)
-        or len(index_sha256) != 64
-    ):
-        raise ValueError("report source_index path and digest are invalid")
-    canonical_index_path = str(Path(index_path).resolve())
-    if index_path != canonical_index_path:
-        raise ValueError("report source_index path must be canonical")
-    report_created_at = report.get("created_at")
-    if not isinstance(report_created_at, str) or not report_created_at or report_created_at != created_at:
-        raise ValueError("report creation time does not match handoff transaction")
-    _validated_handoff_inputs(results, materializations, index_sha256, Path(canonical_index_path))
-    expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
-    if report_sha256 != expected_digest:
-        raise ValueError("report digest does not match canonical report bytes")
-    expected_report = build_report(
-        Path(canonical_index_path), index_sha256, results, materializations, report_created_at
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--profile", choices=("abo", "3d-future"), default="abo"
     )
-    if report != expected_report:
-        raise ValueError("report is not bound to supplied preflight evidence")
-    evidence, observed_tool_commits = _materialization_evidence(results, materializations)
-    return {
-        "schema_version": 1,
-        "created_at": created_at,
-        "source": SOURCE,
-        "shard_id": "ABO-00000",
-        "acceptance_mode": "valid_subset_user_waiver",
-        "original_90_percent_gate_passed": False,
-        "authorization": "training-input use only",
-        "counts": report["counts"],
-        "eligibility_policy": policy_evidence(),
-        "stages": report["stages"],
-        "source_index": {"path": canonical_index_path, "sha256": index_sha256},
-        "materialization_evidence": evidence,
-        "observed_tool_commits": observed_tool_commits,
-        "report": {"path": str(report_path), "sha256": report_sha256},
-    }
-
-
-def publish_handoff(
-    index_path: Path,
-    results: Mapping[str, StagePreflight],
-    materializations: Mapping[str, Mapping[str, object]],
-    report_path: Path,
-    handoff_path: Path,
-    training_data_path: Path,
-    created_at: str,
-) -> tuple[Path, Path, Path]:
-    """Create shared immutable evidence before atomically writing local input data."""
-    index_path = Path(index_path).resolve()
-    index_sha256 = sha256(_existing_regular_bytes(index_path)).hexdigest()
-    existing_report = _load_existing_json(report_path, "report")
-    if existing_report is not None:
-        report, raw_report = existing_report
-        report_created_at = report.get("created_at")
-        if not isinstance(report_created_at, str) or not report_created_at:
-            raise ValueError("invalid existing report creation time")
-        expected_report = build_report(index_path, index_sha256, results, materializations, report_created_at)
-        if raw_report != _canonical_json_bytes(expected_report):
-            raise ValueError("existing report does not match current strict preflight evidence")
-        report_sha256 = sha256(raw_report).hexdigest()
-        created_at = report_created_at
-    else:
-        report = build_report(index_path, index_sha256, results, materializations, created_at)
-        report_sha256 = write_create_only_json(Path(report_path), report)
-    handoff = build_handoff(
-        Path(report_path), report_sha256, report, results, materializations, created_at
-    )
-    existing_handoff = _load_existing_json(handoff_path, "handoff")
-    if existing_handoff is not None:
-        existing_value, raw_handoff = existing_handoff
-        if raw_handoff != _canonical_json_bytes(handoff):
-            raise ValueError("existing handoff does not match current report transaction")
-        handoff_sha256 = sha256(raw_handoff).hexdigest()
-    else:
-        handoff_sha256 = write_create_only_json(Path(handoff_path), handoff)
-    training_data = {
-        "schema_version": 1,
-        "created_at": created_at,
-        "source": SOURCE,
-        "shard_id": "ABO-00000",
-        "acceptance_mode": "valid_subset_user_waiver",
-        "original_90_percent_gate_passed": False,
-        "authorization": "training-input use only",
-        "counts": report["counts"],
-        "eligibility_policy": handoff["eligibility_policy"],
-        "stages": report["stages"],
-        "source_index": report["source_index"],
-        "materialization_evidence": handoff["materialization_evidence"],
-        "observed_tool_commits": handoff["observed_tool_commits"],
-        "report": handoff["report"],
-        "handoff": {"path": str(handoff_path), "sha256": handoff_sha256},
-    }
-    _write_atomic_json(Path(training_data_path), training_data)
-    return Path(report_path), Path(handoff_path), Path(training_data_path)
-
-
-def _materialization_evidence_from_result(
-    result: StagePreflight,
-) -> dict[str, object]:
-    path = Path(result.root) / "materialization.json"
-    _regular(path, "handoff", None, "materialization.json")
-    current = _existing_regular_bytes(path)
-    if current != result.materialization_bytes:
-        raise ValueError(
-            f"materialization evidence bytes changed after strict preflight: {path}"
-        )
-    try:
-        value = json.loads(result.materialization_bytes)
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise ValueError(f"invalid materialization evidence: {path}") from error
-    if not isinstance(value, dict):
-        raise ValueError(f"invalid materialization evidence: {path}")
-    return value
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--index", type=Path)
+    parser.add_argument("--report", type=Path)
+    parser.add_argument("--handoff", type=Path)
+    parser.add_argument("--training-data", type=Path)
+    parser.add_argument("--verify-existing", action="store_true")
+    return parser.parse_args()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
-    parser.add_argument("--index", type=Path, default=DEFAULT_INDEX)
-    parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
-    parser.add_argument("--handoff", type=Path, default=DEFAULT_HANDOFF)
-    parser.add_argument("--training-data", type=Path, default=DEFAULT_TRAINING_DATA)
-    args = parser.parse_args()
-    results: dict[str, StagePreflight] = {}
-    for stage in HANDOFF_STAGE_COUNTS:
-        results[stage] = preflight_stage(stage, args.root / stage / "active", CONFIGS[stage])
-    materializations = {
-        stage: _materialization_evidence_from_result(result)
-        for stage, result in results.items()
-    }
-    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    report, handoff, training_data = publish_handoff(
-        args.index, results, materializations, args.report, args.handoff, args.training_data,
-        created_at,
-    )
-    print(report)
-    print(handoff)
-    print(training_data)
+    args = _parse_args()
+    if args.profile == "abo":
+        root = args.root or DEFAULT_ROOT
+        index = args.index or DEFAULT_INDEX
+        report_path = args.report or DEFAULT_REPORT
+        handoff_path = args.handoff or DEFAULT_HANDOFF
+        training_data_path = args.training_data or DEFAULT_TRAINING_DATA
+        if args.verify_existing:
+            _verify_existing(
+                {
+                    "report": report_path,
+                    "handoff": handoff_path,
+                    "training-data": training_data_path,
+                }
+            )
+            return
+        results: dict[str, StagePreflight] = {}
+        for stage in HANDOFF_STAGE_COUNTS:
+            results[stage] = preflight_stage(
+                stage, root / stage / "active", CONFIGS[stage]
+            )
+        materializations = {
+            stage: _core._materialization_evidence_from_result(result)
+            for stage, result in results.items()
+        }
+        created_at = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+        paths = publish_handoff(
+            index,
+            results,
+            materializations,
+            report_path,
+            handoff_path,
+            training_data_path,
+            created_at,
+        )
+    else:
+        if args.index is not None:
+            raise ValueError(
+                "3d-future profile binds both indexes from its source spec"
+            )
+        root = args.root or THREED_FUTURE_ROOT
+        report_path = args.report or THREED_FUTURE_REPORT
+        handoff_path = args.handoff or THREED_FUTURE_HANDOFF
+        training_data_path = (
+            args.training_data or THREED_FUTURE_TRAINING_DATA
+        )
+        if args.verify_existing:
+            _verify_existing(
+                {
+                    "report": report_path,
+                    "handoff": handoff_path,
+                    "training-data": training_data_path,
+                }
+            )
+            return
+        results = {
+            stage: source_preflight_stage(
+                THREED_FUTURE_SOURCE_SPEC,
+                stage,
+                root / stage / "active",
+                CONFIGS[stage],
+            )
+            for stage in COMPONENTS
+        }
+        paths = publish_source_handoff(
+            THREED_FUTURE_SOURCE_SPEC,
+            results,
+            report_path,
+            handoff_path,
+            training_data_path,
+        )
+    for path in paths:
+        print(path)
 
 
 if __name__ == "__main__":

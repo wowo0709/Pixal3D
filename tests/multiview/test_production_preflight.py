@@ -1121,3 +1121,81 @@ def test_cli_completes_all_strict_preflights_before_requesting_handoff(tmp_path,
         "--training-data", str(tmp_path / "local" / "training_data.json"),
     ])
     preflight.main()
+
+
+def test_3d_future_profile_uses_source_specific_publication_paths(monkeypatch):
+    seen = []
+    results = {
+        stage: object() for stage in ("ss64", "shape512", "shape1024", "pbr1024")
+    }
+
+    def fake_preflight(spec, stage, root, config):
+        assert spec.source == "3D-FUTURE"
+        assert root == (
+            Path("/root/node17/data/pixal3d/train/production/3d-future")
+            / stage
+            / "active"
+        )
+        assert config == preflight.CONFIGS[stage]
+        seen.append(stage)
+        return results[stage]
+
+    def fake_publish(spec, received, report, handoff, training):
+        assert spec.source == "3D-FUTURE"
+        assert received == results
+        assert report == Path(
+            "/root/data2/pixal3d/control/reports/gates/3D-FUTURE/"
+            "3D-FUTURE-production-training.json"
+        )
+        assert handoff == Path(
+            "/root/data2/pixal3d/control/splits/3D-FUTURE/"
+            "3D-FUTURE-production-training-handoff.json"
+        )
+        assert training == Path(
+            "/root/node17/data/pixal3d/train/production/3d-future/"
+            "training_data.json"
+        )
+        return report, handoff, training
+
+    monkeypatch.setattr(preflight, "source_preflight_stage", fake_preflight)
+    monkeypatch.setattr(preflight, "publish_source_handoff", fake_publish)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["preflight_multiview_production.py", "--profile", "3d-future"],
+    )
+    preflight.main()
+    assert seen == ["ss64", "shape512", "shape1024", "pbr1024"]
+
+
+def test_verify_existing_is_read_only_and_prints_all_digests(
+    tmp_path, monkeypatch, capsys
+):
+    paths = []
+    for name in ("report.json", "handoff.json", "training-data.json"):
+        path = tmp_path / name
+        path.write_text(json.dumps({"artifact": name}, sort_keys=True) + "\n")
+        paths.append(path)
+    before = [path.read_bytes() for path in paths]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight_multiview_production.py",
+            "--profile",
+            "abo",
+            "--verify-existing",
+            "--report",
+            str(paths[0]),
+            "--handoff",
+            str(paths[1]),
+            "--training-data",
+            str(paths[2]),
+        ],
+    )
+    preflight.main()
+    assert [path.read_bytes() for path in paths] == before
+    output = capsys.readouterr().out
+    for path, raw in zip(paths, before, strict=True):
+        assert str(path) in output
+        assert hashlib.sha256(raw).hexdigest() in output
