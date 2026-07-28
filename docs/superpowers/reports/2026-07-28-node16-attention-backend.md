@@ -2,7 +2,7 @@
 
 Date: 2026-07-28 UTC
 Host: `rvi-node016` (`n16.unist.info`, SSH port `55555`)
-Decision: retain PyTorch fused scaled dot product attention with
+Decision: retain PyTorch scaled dot product attention with
 `ATTN_BACKEND=sdpa` and `SPARSE_ATTN_BACKEND=sdpa`.
 
 ## Scope and safety constraints
@@ -54,8 +54,9 @@ torch_flash_enabled True
 
 An additional read-only capability query reported GPU4 as `(12, 0)` as well.
 Thus the active environment has no external `flash_attn` distribution, while
-PyTorch's fused FlashAttention implementation is available and enabled on
-Blackwell.
+the PyTorch backend API reports fused Flash SDP available and enabled. These
+flags do not prove that a fused SDPA kernel executed; no SDPA
+forward/backward smoke or SS profile completed.
 
 The repository accepts `sdpa` for both environment switches. Its dense and
 sparse attention implementations dispatch to
@@ -163,8 +164,10 @@ SPARSE_ATTN_BACKEND=sdpa
 Fallback reason: an official external FlashAttention build could not be
 attempted under the approved procedure because Node16 has CUDA 13.0 `nvcc`, not
 CUDA 12.8 `nvcc`, at the permitted toolkit locations. The active Torch
-`2.8.0+cu128` runtime already reports fused FlashAttention available and
-enabled, making PyTorch SDPA the only validated and non-invasive choice.
+`2.8.0+cu128` backend API reports fused Flash SDP available and enabled.
+PyTorch SDPA was selected by the CUDA 12.8 external-build gate as the
+non-invasive fallback; it was not runtime-executed or performance-validated in
+this task.
 
 Re-evaluation requires a CUDA 12.8-capable `nvcc` at one of the three permitted
 locations, a free GPU4, and the isolated SS profile root. Only then should the
