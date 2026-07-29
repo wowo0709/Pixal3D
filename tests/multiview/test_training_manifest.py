@@ -854,6 +854,32 @@ def test_publish_script_accepts_explicit_safe_paths(source_inputs, tmp_path):
     )
 
 
+def test_publish_script_accepts_optional_hssd_in_canonical_order(
+    source_inputs, hssd_training_data, tmp_path
+):
+    output = tmp_path / "script-output" / "training_data.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/publish_multisource_training.py",
+            "--abo",
+            str(source_inputs["ABO"]),
+            "--3d-future",
+            str(source_inputs["3D-FUTURE"]),
+            "--hssd",
+            str(hssd_training_data),
+            "--output",
+            str(output),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+    assert payload["sources"] == ["ABO", "3D-FUTURE", "HSSD"]
+
+
 def test_resolve_training_data_returns_verified_stage(source_inputs, manifest):
     resolved = resolve_training_data(manifest, "shape1024")
     assert isinstance(resolved, ResolvedTrainingData)

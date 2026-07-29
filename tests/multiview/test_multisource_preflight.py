@@ -1,4 +1,5 @@
 import csv
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from scripts.preflight_multisource_training import (
 from tests.multiview.test_training_manifest import _write_source
 
 
-class _TwoSourceFixture:
+class _TrainingFixture:
     def __init__(self, training_data: Path):
         self.training_data = training_data
 
@@ -171,7 +172,7 @@ def two_source_fixture(tmp_path):
             )
     combined = tmp_path / "combined" / "training_data.json"
     publish_combined_training_data(source_paths, combined)
-    return _TwoSourceFixture(combined)
+    return _TrainingFixture(combined)
 
 
 @pytest.mark.parametrize(
@@ -194,6 +195,86 @@ def test_combined_preflight_matches_disjoint_union(
     assert result["total_count"] == 3
     assert result["sampling"] == "proportional-unweighted-concatenation"
     assert result["collated_sources"] == ["ABO", "3D-FUTURE"]
+
+
+@pytest.fixture
+def three_source_fixture(tmp_path):
+    source_paths = {
+        source: _write_source(
+            tmp_path, source, schema_version=schema_version, count=2
+        )
+        for source, schema_version in (
+            ("ABO", 1),
+            ("3D-FUTURE", 2),
+            ("HSSD", 2),
+        )
+    }
+    for training_data in source_paths.values():
+        source_manifest = json.loads(training_data.read_text())
+        root = Path(source_manifest["stages"]["ss64"]["root"])
+        materialization = json.loads(
+            (root / "materialization.json").read_text()
+        )
+        _populate_stage(
+            root, "ss64", tuple(materialization["stage_scope"])
+        )
+    combined = tmp_path / "combined" / "training_data.json"
+    publish_combined_training_data(source_paths, combined)
+    return _TrainingFixture(combined)
+
+
+def test_three_source_preflight_loads_boundaries_and_collates(
+    three_source_fixture, monkeypatch
+):
+    monkeypatch.setattr(
+        torch.cuda,
+        "device_count",
+        lambda: pytest.fail("combined preflight must not enumerate CUDA"),
+    )
+    result = preflight_multisource_stage(
+        three_source_fixture.training_data,
+        "ss64",
+        CONFIGS["ss64"],
+    )
+    assert result["collated_sources"] == [
+        "ABO",
+        "3D-FUTURE",
+        "HSSD",
+    ]
+    assert result["boundary_instances_checked"] == 6
+
+
+@pytest.fixture
+def one_source_hssd_fixture(tmp_path):
+    training_data = _write_source(
+        tmp_path, "HSSD", schema_version=2, count=2
+    )
+    source_manifest = json.loads(training_data.read_text())
+    root = Path(source_manifest["stages"]["ss64"]["root"])
+    materialization = json.loads(
+        (root / "materialization.json").read_text()
+    )
+    _populate_stage(
+        root, "ss64", tuple(materialization["stage_scope"])
+    )
+    return training_data
+
+
+def test_one_source_hssd_preflight_loads_boundaries_and_collates(
+    one_source_hssd_fixture, monkeypatch
+):
+    monkeypatch.setattr(
+        torch.cuda,
+        "device_count",
+        lambda: pytest.fail("combined preflight must not enumerate CUDA"),
+    )
+    result = preflight_multisource_stage(
+        one_source_hssd_fixture,
+        "ss64",
+        CONFIGS["ss64"],
+    )
+    assert result["collated_sources"] == ["HSSD"]
+    assert result["boundary_instances_checked"] == 2
 
 
 def _fake_dataset(
@@ -226,6 +307,72 @@ def _fake_dataset(
             return {"assets": [sample["asset"] for sample in batch]}
 
     return FakeDataset()
+
+
+def test_preflight_rejects_available_cuda_before_manifest_resolution(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight_multisource_stage(
+            tmp_path / "missing-training-data.json",
+            "ss64",
+            CONFIGS["ss64"],
+        )
+
+
+def test_preflight_rejects_cuda_initialized_during_loader_validation(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    initialized = iter((False, True))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: next(initialized)
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_construct_configured_dataset",
+        lambda _resolved, _config: _fake_dataset(resolved),
+    )
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight_multisource_stage(
+            two_source_fixture.training_data,
+            "ss64",
+            CONFIGS["ss64"],
+        )
+
+
+def test_preflight_rejects_unknown_resolved_source(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    unknown = replace(
+        resolved,
+        data_dir={"OTHER": resolved.data_dir["ABO"]},
+        source_counts={"OTHER": 1},
+        total_count=1,
+        source_scopes={"OTHER": resolved.source_scopes["ABO"][:1]},
+    )
+    monkeypatch.setattr(
+        preflight,
+        "resolve_training_data",
+        lambda _training_data, _stage: unknown,
+    )
+    with pytest.raises(ValueError, match="unknown resolved source"):
+        preflight_multisource_stage(
+            two_source_fixture.training_data,
+            "ss64",
+            CONFIGS["ss64"],
+        )
 
 
 @pytest.mark.parametrize(

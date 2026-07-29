@@ -19,7 +19,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data_toolkit.pipeline.training_manifest import (  # noqa: E402
-    CANONICAL_SOURCES,
+    KNOWN_SOURCES,
     STAGES,
     ResolvedTrainingData,
     resolve_training_data,
@@ -44,6 +44,11 @@ CONFIGS = {
         "slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json"
     ),
 }
+
+
+def _assert_cpu_only() -> None:
+    if torch.cuda.is_available() or torch.cuda.is_initialized():
+        raise RuntimeError("CPU-only preflight initialized CUDA")
 
 
 def _dataset_config(
@@ -92,16 +97,21 @@ def _construct_configured_dataset(
 
 def _expected_instances(
     resolved: ResolvedTrainingData,
+    source_order: tuple[str, ...],
 ) -> list[tuple[dict[str, str], str, str]]:
     return [
         (resolved.data_dir[source], asset, source)
-        for source in CANONICAL_SOURCES
+        for source in source_order
         for asset in resolved.source_scopes[source]
     ]
 
 
-def _validate_instances(dataset, resolved: ResolvedTrainingData) -> None:
-    expected = _expected_instances(resolved)
+def _validate_instances(
+    dataset,
+    resolved: ResolvedTrainingData,
+    source_order: tuple[str, ...],
+) -> None:
+    expected = _expected_instances(resolved, source_order)
     actual = list(dataset.instances)
     if any(
         not isinstance(instance, tuple) or len(instance) != 3
@@ -115,7 +125,7 @@ def _validate_instances(dataset, resolved: ResolvedTrainingData) -> None:
         {
             source
             for _root, _asset, source in actual
-            if source not in CANONICAL_SOURCES
+            if source not in source_order
         }
     )
     if unexpected_sources:
@@ -178,7 +188,9 @@ def _validate_instances(dataset, resolved: ResolvedTrainingData) -> None:
 
 
 def _boundary_samples(
-    dataset, resolved: ResolvedTrainingData
+    dataset,
+    resolved: ResolvedTrainingData,
+    source_order: tuple[str, ...],
 ) -> tuple[list[dict[str, object]], list[str], int]:
     by_key = {
         (source, asset): root
@@ -187,7 +199,7 @@ def _boundary_samples(
     collate_samples = []
     collated_sources = []
     checked = 0
-    for source in CANONICAL_SOURCES:
+    for source in source_order:
         scope = resolved.source_scopes[source]
         boundary_assets = tuple(dict.fromkeys((scope[0], scope[-1])))
         for asset in boundary_assets:
@@ -237,13 +249,23 @@ def preflight_multisource_stage(
     training_data: Path, stage: str, config: Path
 ) -> dict[str, object]:
     """Verify one combined stage through its real Dataset and collate_fn."""
+    _assert_cpu_only()
     resolved = resolve_training_data(Path(training_data), stage)
+    source_order = tuple(resolved.source_scopes)
+    unknown_sources = sorted(
+        source for source in source_order if source not in KNOWN_SOURCES
+    )
+    if unknown_sources:
+        raise ValueError(
+            f"stage={stage}: unknown resolved source: {unknown_sources}"
+        )
     dataset = _construct_configured_dataset(resolved, Path(config))
-    _validate_instances(dataset, resolved)
+    _validate_instances(dataset, resolved, source_order)
     samples, collated_sources, checked = _boundary_samples(
-        dataset, resolved
+        dataset, resolved, source_order
     )
     _collate_cross_source(dataset, samples)
+    _assert_cpu_only()
     return {
         "stage": stage,
         "source_counts": resolved.source_counts,
@@ -257,8 +279,8 @@ def preflight_multisource_stage(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "CPU-only Dataset/DataLoader preflight for verified combined "
-            "ABO + 3D-FUTURE training data."
+            "CPU-only Dataset/DataLoader preflight for verified one-, "
+            "two-, or three-source training data."
         )
     )
     parser.add_argument("--training-data", type=Path, required=True)
