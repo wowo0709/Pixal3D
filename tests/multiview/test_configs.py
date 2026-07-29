@@ -25,6 +25,12 @@ OUTPUT_DIRS = {
     stage: f"/file3/youngwoo/pixal3d/ckpts/{stage}"
     for stage in CONFIGS
 }
+BATCH_POLICIES = {
+    "ss64": (8, 4),
+    "shape512": (8, 4),
+    "shape1024": (2, 1),
+    "pbr1024": (2, 1),
+}
 
 
 def test_four_configs_use_batchwide_k_and_matching_checkpoints():
@@ -42,10 +48,14 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         assert dataset_args["condition_num_views"] == 8
         assert dataset_args["min_condition_views"] == 2
         assert dataset_args["max_condition_views"] == 6
-        assert trainer_args["batch_size_per_gpu"] == 8
-        assert trainer_args["batch_split"] == 4
+        expected_batch, expected_split = BATCH_POLICIES[stage]
+        assert trainer_args["batch_size_per_gpu"] == expected_batch
+        assert trainer_args["batch_split"] == expected_split
+        assert expected_batch * 6 == (
+            48 if stage in {"ss64", "shape512"} else 12
+        )
         assert trainer_args["i_sample"] == -1
-        assert trainer_args["i_save"] == 5000
+        assert trainer_args["i_save"] == 2000
         assert trainer_args["max_checkpoints"] == 5
         assert trainer_args["max_steps"] == 20_000
         assert trainer_args["multiview_stage"] == stage

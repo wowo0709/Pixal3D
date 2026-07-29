@@ -78,8 +78,8 @@
         "name": "ImageConditionedProjSparseFlowMatchingCFGTrainer",
         "args": {
             "max_steps": 20000,
-            "batch_size_per_gpu": 8,
-            "batch_split": 4,
+            "batch_size_per_gpu": 2,
+            "batch_split": 1,
             "snapshot_batch_size": 1,
             "snapshot_num_samples": 1,
             "num_workers": 14,
@@ -119,7 +119,7 @@
             "i_print": 500,
             "i_log": 5,
             "i_sample": -1,
-            "i_save": 5000,
+            "i_save": 2000,
             "max_checkpoints": 5,
             "p_uncond": 0.1,
             "t_schedule": {
