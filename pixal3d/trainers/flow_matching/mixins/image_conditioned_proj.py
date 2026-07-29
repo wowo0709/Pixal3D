@@ -32,6 +32,24 @@ def anchor_camera_value(value: torch.Tensor) -> torch.Tensor:
     return value[:, 0] if value.ndim > 1 else value
 
 
+def _online_mean_tensor_groups(
+    groups: Iterable[Tuple[torch.Tensor, ...]],
+) -> Tuple[torch.Tensor, ...]:
+    iterator = iter(groups)
+    try:
+        totals = next(iterator)
+    except StopIteration as error:
+        raise ValueError("cannot average an empty tensor group") from error
+
+    count = 1
+    for values in iterator:
+        if len(values) != len(totals):
+            raise ValueError("all tensor groups must have the same size")
+        totals = tuple(total + value for total, value in zip(totals, values))
+        count += 1
+    return tuple(total / count for total in totals)
+
+
 def make_anchor_marked_view_grid(
     cond: torch.Tensor, border: int = 4
 ) -> torch.Tensor:
@@ -676,22 +694,17 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         projection, _ = compute_multiview_projection_matrices(
             transform_matrix, distance, self.fixed_projection_transform
         )
-        global_views = []
-        projected_views = []
-        for view_index in range(num_views):
-            global_feature, projected_feature = self._forward_single_view(
+        view_features = (
+            self._forward_single_view(
                 image[:, view_index],
                 camera_angle_x[:, view_index],
                 distance[:, view_index],
                 mesh_scale,
                 projection[:, view_index],
             )
-            global_views.append(global_feature)
-            projected_views.append(projected_feature)
-        return (
-            torch.stack(global_views, dim=1).mean(dim=1),
-            torch.stack(projected_views, dim=1).mean(dim=1),
+            for view_index in range(num_views)
         )
+        return _online_mean_tensor_groups(view_features)
 
     def forward(
         self,
