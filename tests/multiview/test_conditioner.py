@@ -2,6 +2,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from pixal3d.trainers.flow_matching.mixins import image_conditioned_proj
 from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
     DinoV3ProjFeatureExtractor,
     ImageConditionedProjMixin,
@@ -89,6 +90,32 @@ def test_non_anchor_permutation_preserves_arithmetic_mean():
     )
     torch.testing.assert_close(first[0], second[0], rtol=1e-5, atol=1e-5)
     torch.testing.assert_close(first[1], second[1], rtol=1e-5, atol=1e-5)
+
+
+def test_multiview_delegates_a_lazy_view_stream_to_online_mean(monkeypatch):
+    expected = (torch.tensor([17.0]), torch.tensor([23.0]))
+    observed = {}
+
+    def inspect_view_stream(groups):
+        observed["is_one_shot_iterator"] = iter(groups) is groups
+        observed["num_groups"] = sum(1 for _ in groups)
+        return expected
+
+    monkeypatch.setattr(
+        image_conditioned_proj,
+        "_online_mean_tensor_groups",
+        inspect_view_stream,
+    )
+    actual = ConditionerHarness()(
+        torch.zeros(1, 3, 3, 2, 2),
+        **cameras(3),
+    )
+
+    assert actual is expected
+    assert observed == {
+        "is_one_shot_iterator": True,
+        "num_groups": 3,
+    }
 
 
 @pytest.mark.parametrize("key", ["camera_angle_x", "distance", "transform_matrix"])

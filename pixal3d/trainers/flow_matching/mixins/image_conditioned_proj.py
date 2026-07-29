@@ -37,17 +37,37 @@ def _online_mean_tensor_groups(
 ) -> Tuple[torch.Tensor, ...]:
     iterator = iter(groups)
     try:
-        totals = next(iterator)
+        first_values = next(iterator)
     except StopIteration as error:
         raise ValueError("cannot average an empty tensor group") from error
 
+    output_dtypes = tuple(value.dtype for value in first_values)
+    totals = tuple(
+        value.float()
+        if value.dtype in (torch.float16, torch.bfloat16)
+        else value
+        for value in first_values
+    )
     count = 1
     for values in iterator:
         if len(values) != len(totals):
             raise ValueError("all tensor groups must have the same size")
-        totals = tuple(total + value for total, value in zip(totals, values))
+        totals = tuple(
+            total
+            + (
+                value.float()
+                if value.dtype in (torch.float16, torch.bfloat16)
+                else value
+            )
+            for total, value in zip(totals, values)
+        )
         count += 1
-    return tuple(total / count for total in totals)
+    return tuple(
+        (total / count).to(output_dtype)
+        if output_dtype in (torch.float16, torch.bfloat16)
+        else total / count
+        for total, output_dtype in zip(totals, output_dtypes)
+    )
 
 
 def make_anchor_marked_view_grid(
