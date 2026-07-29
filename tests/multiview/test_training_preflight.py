@@ -14,9 +14,6 @@ from data_toolkit.pipeline.training_source_profiles import build_source_spec
 from data_toolkit.pipeline import training_preflight
 from data_toolkit.pipeline.training_preflight import (
     StagePreflight,
-    build_source_report,
-    preflight_stage,
-    publish_source_handoff,
     stage_data_dir,
     validate_direct_loader,
     write_create_only_json,
@@ -25,6 +22,9 @@ from scripts import preflight_multiview_production as preflight_cli
 
 
 STAGES = ("ss64", "shape512", "shape1024", "pbr1024")
+build_source_report = training_preflight._build_source_report
+preflight_stage = training_preflight._preflight_stage
+publish_source_handoff = training_preflight._publish_source_handoff
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -102,6 +102,42 @@ def test_waiver_source_cannot_claim_gate_passed():
         })
 
 
+@pytest.mark.parametrize(
+    ("profile", "integer_gate"),
+    (("abo", 0), ("3d-future", 0), ("hssd", 1)),
+)
+def test_direct_acceptance_validation_rejects_integer_booleans(
+    profile, integer_gate
+):
+    """JSON integers must never satisfy a production boolean contract."""
+    spec = build_source_spec(profile, Path("/file2/youngwoo/pixal3d"))
+
+    with pytest.raises(ValueError, match="acceptance evidence"):
+        training_preflight.validate_acceptance_evidence(
+            spec,
+            {
+                "acceptance_mode": spec.acceptance_mode,
+                "original_90_percent_gate_passed": integer_gate,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("profile", "integer_gate"),
+    (("abo", 0), ("3d-future", 0), ("hssd", 1)),
+)
+def test_preflight_spec_validator_rejects_integer_booleans(
+    profile, integer_gate
+):
+    spec = replace(
+        build_source_spec(profile, Path("/file2/youngwoo/pixal3d")),
+        original_90_percent_gate_passed=integer_gate,
+    )
+
+    with pytest.raises(ValueError, match="canonical production profile"):
+        training_preflight._validate_source_spec(spec)
+
+
 @pytest.fixture
 def two_index_preflight(tmp_path):
     indexes = []
@@ -163,6 +199,7 @@ def two_index_preflight(tmp_path):
             "source_indexes": source_indexes,
             "acceptance_mode": "valid_subset_user_waiver",
             "original_90_percent_gate_passed": False,
+            "waiver": "production-valid-subset",
             "counts": counts,
             "candidate_asset_count": len(candidate_scope),
             "candidate_stage_scope": candidate_scope,
@@ -214,6 +251,50 @@ def two_index_preflight(tmp_path):
             materialization_bytes=raw,
         )
     return spec, results, materializations, "2026-07-28T00:00:00Z"
+
+
+def test_hssd_preflight_rejects_waiver_evidence(
+    two_index_preflight, monkeypatch
+):
+    """Production-gated evidence cannot smuggle in waiver authorization."""
+    spec, results, _materializations, _created_at = two_index_preflight
+    hssd_spec = replace(
+        spec,
+        source="HSSD",
+        acceptance_mode="production_gate",
+        original_90_percent_gate_passed=True,
+    )
+    result = results["ss64"]
+    evidence = json.loads(result.materialization_bytes)
+    evidence.update(
+        {
+            "source": "HSSD",
+            "acceptance_mode": "production_gate",
+            "original_90_percent_gate_passed": True,
+            "waiver": "production-valid-subset",
+        }
+    )
+    (result.root / "materialization.json").write_bytes(
+        canonical_json_bytes(evidence)
+    )
+    monkeypatch.setattr(
+        training_preflight,
+        "validate_stage_structure",
+        lambda source, stage, root, assets: {"assets": len(assets)},
+    )
+    monkeypatch.setattr(
+        training_preflight,
+        "validate_direct_loader",
+        lambda source, stage, root, assets, config: len(assets) * 2,
+    )
+
+    with pytest.raises(ValueError, match="waiver"):
+        preflight_stage(
+            hssd_spec,
+            "ss64",
+            result.root,
+            Path("unused-config.json"),
+        )
 
 
 def test_stage_data_dir_preserves_exact_source_name(tmp_path):

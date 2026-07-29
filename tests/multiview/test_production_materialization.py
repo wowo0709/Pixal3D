@@ -22,8 +22,8 @@ from data_toolkit.pipeline.training_eligibility import (
 )
 from data_toolkit.pipeline.training_materialization import (
     ProductionSourceSpec,
-    load_source_catalog,
 )
+from data_toolkit.pipeline.training_source_profiles import build_source_spec
 import data_toolkit.pipeline.training_materialization as training_materializer
 import scripts.materialize_multiview_production as materializer
 import scripts.preflight_multiview_production as strict_preflight
@@ -31,7 +31,6 @@ from scripts.materialize_multiview_production import (
     FamilyPack,
     compute_stage_scopes,
     load_production_catalog,
-    materialize_stage,
 )
 
 
@@ -63,6 +62,38 @@ FIXTURE_TRAINING_EXCLUSION_COUNTS = {
     "shape1024": 0,
     "pbr1024": 0,
 }
+load_source_catalog = training_materializer._load_source_catalog
+materialize_stage = materializer._materialize_stage_for_fixture
+
+
+def _materialize_fixture_source_stage(
+    spec, stage, catalog, output_root
+):
+    training_materializer._validate_catalog_identity(spec, catalog)
+    return training_materializer._materialize_stage(
+        stage,
+        catalog,
+        output_root,
+        index_path=spec.indexes[0],
+        spec=spec,
+        expected_counts=spec.expected_candidate_stages,
+    )
+
+
+@pytest.mark.parametrize(
+    ("profile", "integer_gate"),
+    (("abo", 0), ("3d-future", 0), ("hssd", 1)),
+)
+def test_materializer_spec_validator_rejects_integer_booleans(
+    profile, integer_gate
+):
+    spec = replace(
+        build_source_spec(profile, Path("/file2/youngwoo/pixal3d")),
+        original_90_percent_gate_passed=integer_gate,
+    )
+
+    with pytest.raises(ValueError, match="canonical production profile"):
+        training_materializer._validate_source_spec(spec)
 
 
 _ELIGIBILITY_ROOTS = {
@@ -365,22 +396,30 @@ def update_manifest_index(index, prepared, batch="batch000", family="common"):
     index.write_text(json.dumps(value))
 
 
-def make_two_shard_source(tmp_path, *, overlapping_assets=False):
+def make_two_shard_source(
+    tmp_path,
+    *,
+    overlapping_assets=False,
+    source="Fixture",
+    acceptance_mode="fixture",
+    original_90_percent_gate_passed=True,
+):
     """Build two real verified indexes whose batch names intentionally collide."""
     prepared = tmp_path / "prepared"
     indexes = []
     assets = (ASSET_A, ASSET_A if overlapping_assets else ASSET_B)
-    for shard, asset in zip(("Fixture-00000", "Fixture-00001"), assets):
+    shards = (f"{source}-00000", f"{source}-00001")
+    for shard, asset in zip(shards, assets):
         index = {
             "gate": "production",
-            "source": "Fixture",
+            "source": source,
             "shard_id": shard,
             "batches": {},
         }
         records = {}
         for family in FAMILIES:
             pack = (
-                prepared / DIRS[family] / "Fixture" / shard / "batch000.tar"
+                prepared / DIRS[family] / source / shard / "batch000.tar"
             )
             manifest = write_pack(
                 pack,
@@ -401,11 +440,10 @@ def make_two_shard_source(tmp_path, *, overlapping_assets=False):
         index_path.write_text(json.dumps(index, sort_keys=True))
         indexes.append(index_path)
     spec = ProductionSourceSpec(
-        source="Fixture",
+        source=source,
         indexes=tuple(indexes),
         expected_batches={
-            "Fixture-00000": ("batch000",),
-            "Fixture-00001": ("batch000",),
+            shard: ("batch000",) for shard in shards
         },
         expected_frozen=2,
         expected_candidate_stages={
@@ -415,8 +453,8 @@ def make_two_shard_source(tmp_path, *, overlapping_assets=False):
             "pbr1024": 2,
         },
         fixed_count_contract=None,
-        acceptance_mode="fixture",
-        original_90_percent_gate_passed=True,
+        acceptance_mode=acceptance_mode,
+        original_90_percent_gate_passed=original_90_percent_gate_passed,
     )
     return spec, prepared
 
@@ -431,6 +469,40 @@ def test_multi_index_catalog_accepts_duplicate_batch_names_across_shards(tmp_pat
         ("Fixture-00000", "batch000"),
         ("Fixture-00001", "batch000"),
     }
+
+
+def test_legacy_public_materializer_rejects_noncanonical_fixture_profile(
+    tmp_path,
+):
+    index, _prepared, catalog = load_fixture(tmp_path)
+
+    with pytest.raises(ValueError, match="canonical production profile"):
+        materializer.materialize_stage(
+            "ss64",
+            catalog,
+            tmp_path / "output",
+            index_path=index,
+            expected_counts=FIXTURE_STAGE_COUNTS,
+            expected_waiver=FIXTURE_WAIVER,
+        )
+
+
+def test_hssd_production_gate_materialization_does_not_claim_waiver(tmp_path):
+    """A passed production gate must never emit waiver authorization."""
+    spec, prepared = make_two_shard_source(
+        tmp_path,
+        source="HSSD",
+        acceptance_mode="production_gate",
+        original_90_percent_gate_passed=True,
+    )
+    catalog = load_source_catalog(spec, prepared)
+
+    final = _materialize_fixture_source_stage(
+        spec, "ss64", catalog, tmp_path / "output"
+    )
+    evidence = json.loads((final / "materialization.json").read_text())
+
+    assert "waiver" not in evidence
 
 
 def test_multi_index_catalog_rejects_asset_overlap_across_shards(tmp_path):
@@ -451,7 +523,7 @@ def test_source_aware_materialize_stage_records_both_shards(tmp_path):
         },
     )
     catalog = load_source_catalog(spec, prepared)
-    final = training_materializer.materialize_stage(
+    final = _materialize_fixture_source_stage(
         spec, "shape512", catalog, tmp_path / "output"
     )
     evidence = json.loads((final / "materialization.json").read_text())
@@ -477,9 +549,13 @@ def test_source_aware_materialize_stage_records_both_shards(tmp_path):
 def test_source_aware_materialize_all_publishes_each_stage(tmp_path):
     """Skipping any declared stage must leave this source publication incomplete."""
     spec, prepared = make_two_shard_source(tmp_path)
-    outputs = training_materializer.materialize_all(
-        spec, prepared, tmp_path / "output"
-    )
+    catalog = load_source_catalog(spec, prepared)
+    outputs = {
+        stage: _materialize_fixture_source_stage(
+            spec, stage, catalog, tmp_path / "output"
+        )
+        for stage in ("ss64", "shape512", "shape1024", "pbr1024")
+    }
     assert outputs == {
         stage: tmp_path / "output" / stage / "active"
         for stage in ("ss64", "shape512", "shape1024", "pbr1024")
@@ -492,7 +568,7 @@ def test_source_aware_materialize_stage_rejects_foreign_catalog(tmp_path):
     spec, prepared = make_two_shard_source(tmp_path)
     catalog = load_source_catalog(spec, prepared)
     with pytest.raises(ValueError, match="catalog identity"):
-        training_materializer.materialize_stage(
+        _materialize_fixture_source_stage(
             replace(spec, source="Other"),
             "ss64",
             catalog,
@@ -509,7 +585,7 @@ def test_source_aware_materialize_stage_rejects_duplicate_pack_identity(tmp_path
         for family, records in catalog.items()
     }
     with pytest.raises(ValueError, match="catalog identity"):
-        training_materializer.materialize_stage(
+        _materialize_fixture_source_stage(
             spec, "ss64", tampered, tmp_path / "output"
         )
 

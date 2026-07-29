@@ -32,7 +32,9 @@ def test_entrypoint_accepts_standalone_hssd_before_cuda(
             }
         )
     )
-    original_resolve = training_manifest.resolve_training_input
+    original_resolve = (
+        training_manifest._resolve_training_input_for_fixture
+    )
     events = []
 
     def resolve(config, cli_data_dir, cli_training_data):

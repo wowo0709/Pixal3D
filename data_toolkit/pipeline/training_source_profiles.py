@@ -1,6 +1,7 @@
 """Immutable production-source contracts independent of machine roots."""
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Mapping
 
@@ -13,6 +14,11 @@ SOURCE_ACCEPTANCE_CONTRACTS = {
     "ABO": ("valid_subset_user_waiver", False),
     "3D-FUTURE": ("valid_subset_user_waiver", False),
     "HSSD": ("production_gate", True),
+}
+_PROFILE_BY_SOURCE = {
+    "ABO": "abo",
+    "3D-FUTURE": "3d-future",
+    "HSSD": "hssd",
 }
 
 
@@ -104,3 +110,121 @@ def source_output_root(profile: str, local_root: Path) -> Path:
     except KeyError as error:
         raise ValueError(f"unknown source profile: {profile}") from error
     return Path(local_root) / "train/production" / name
+
+
+def validate_production_source_spec(
+    spec: ProductionSourceSpec,
+) -> tuple[str, Path]:
+    """Validate one named production profile under its relocated data root."""
+    if not isinstance(spec, ProductionSourceSpec):
+        raise TypeError("spec must be a ProductionSourceSpec")
+    try:
+        profile = _PROFILE_BY_SOURCE[spec.source]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "source spec is not a canonical production profile: "
+            f"unknown source={getattr(spec, 'source', None)!r}"
+        ) from error
+    expected = production_source_spec_from_indexes(
+        spec.source, spec.indexes
+    )
+    data2_root = _source_spec_root(expected)
+    if not _same_typed_value(spec, expected):
+        raise ValueError(
+            "source spec is not a canonical production profile: "
+            f"source={spec.source}"
+        )
+    return profile, data2_root
+
+
+def production_source_spec_from_indexes(
+    source: str, indexes: tuple[Path, ...]
+) -> ProductionSourceSpec:
+    """Derive the only production profile authorized by index identities."""
+    try:
+        profile = _PROFILE_BY_SOURCE[source]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "source indexes do not identify a canonical production profile: "
+            f"unknown source={source!r}"
+        ) from error
+    if not indexes:
+        raise ValueError(
+            "source indexes do not identify a canonical production profile: "
+            "indexes are empty"
+        )
+    relative_indexes = build_source_spec(profile, Path()).indexes
+    roots = []
+    for actual, relative in zip(
+        indexes, relative_indexes, strict=False
+    ):
+        actual = Path(actual)
+        if (
+            not actual.is_absolute()
+            or actual != Path(os.path.normpath(actual))
+            or actual != actual.resolve(strict=False)
+            or len(actual.parts) <= len(relative.parts)
+            or actual.parts[-len(relative.parts):] != relative.parts
+        ):
+            raise ValueError(
+                "source indexes do not identify a canonical production "
+                "profile: "
+                f"invalid index suffix={actual}"
+            )
+        root = actual
+        for _part in relative.parts:
+            root = root.parent
+        roots.append(root)
+    if len(roots) != len(relative_indexes) or len(set(roots)) != 1:
+        raise ValueError(
+            "source indexes do not identify a canonical production profile: "
+            "indexes do not share the exact profile root"
+        )
+    data2_root = roots[0]
+    expected = build_source_spec(profile, data2_root)
+    if tuple(Path(path) for path in indexes) != expected.indexes:
+        raise ValueError(
+            "source indexes do not identify a canonical production profile: "
+            f"source={source}"
+        )
+    return expected
+
+
+def _source_spec_root(spec: ProductionSourceSpec) -> Path:
+    root = spec.indexes[0]
+    relative = build_source_spec(
+        _PROFILE_BY_SOURCE[spec.source], Path()
+    ).indexes[0]
+    for _part in relative.parts:
+        root = root.parent
+    return root
+
+
+def _same_typed_value(actual: object, expected: object) -> bool:
+    """Compare nested contracts without Python's bool/int equivalence."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, ProductionSourceSpec):
+        return all(
+            _same_typed_value(
+                getattr(actual, field),
+                getattr(expected, field),
+            )
+            for field in expected.__dataclass_fields__
+        )
+    if isinstance(expected, Mapping):
+        return (
+            set(actual) == set(expected)
+            and all(
+                _same_typed_value(actual[key], expected[key])
+                for key in expected
+            )
+        )
+    if isinstance(expected, (tuple, list)):
+        return len(actual) == len(expected) and all(
+            _same_typed_value(actual_value, expected_value)
+            for actual_value, expected_value in zip(
+                actual, expected, strict=True
+            )
+        )
+    return actual == expected

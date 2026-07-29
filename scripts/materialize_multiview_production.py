@@ -35,6 +35,8 @@ from data_toolkit.pipeline.training_materialization import (
 )
 from data_toolkit.pipeline.training_source_profiles import (
     SOURCE_PROFILE_NAMES,
+    production_source_spec_from_indexes,
+    validate_production_source_spec,
 )
 
 
@@ -76,7 +78,7 @@ def _legacy_spec(
     )
 
 
-def materialize_stage(
+def _materialize_stage_for_fixture(
     stage: str,
     catalog: Mapping[str, Sequence[FamilyPack]],
     output_root: Path,
@@ -87,7 +89,7 @@ def materialize_stage(
     expected_stage_counts: Mapping[str, int] | None = None,
     expected_training_exclusion_counts: Mapping[str, int] | None = None,
 ) -> Path:
-    """Call the source-aware core through the historical ABO signature."""
+    """Exercise generic historical mechanics in isolated synthetic tests."""
     original_publish = _core._publish_no_replace
     _core._publish_no_replace = _publish_no_replace
     try:
@@ -108,7 +110,7 @@ def materialize_stage(
         _core._publish_no_replace = original_publish
 
 
-def materialize_all(
+def _materialize_all_for_fixture(
     index_path: Path,
     prepared_root: Path,
     output_root: Path,
@@ -116,7 +118,7 @@ def materialize_all(
     expected_batches: Sequence[str] = EXPECTED_BATCHES,
     expected_counts: Mapping[str, int] = EXPECTED_CANDIDATE_COUNTS,
 ) -> dict[str, Path]:
-    """Preserve the historical single-index ABO Python API."""
+    """Exercise the historical multi-stage mechanics in fixture tests."""
     catalog = load_production_catalog(
         index_path,
         prepared_root,
@@ -125,7 +127,7 @@ def materialize_all(
         expected_batches=expected_batches,
     )
     return {
-        stage: materialize_stage(
+        stage: _materialize_stage_for_fixture(
             stage,
             catalog,
             output_root,
@@ -134,6 +136,132 @@ def materialize_all(
         )
         for stage in STAGE_FAMILIES
     }
+
+
+def _same_typed_contract(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, Mapping):
+        return (
+            set(actual) == set(expected)
+            and all(
+                _same_typed_contract(actual[key], expected[key])
+                for key in expected
+            )
+        )
+    if isinstance(expected, (tuple, list)):
+        return len(actual) == len(expected) and all(
+            _same_typed_contract(left, right)
+            for left, right in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
+def _canonical_abo_output_root(output_root: Path) -> Path:
+    selected = Path(output_root)
+    expected_suffix = Path("train/production/abo").parts
+    if (
+        not selected.is_absolute()
+        or selected != selected.resolve(strict=False)
+        or selected.parts[-len(expected_suffix):] != expected_suffix
+    ):
+        raise ValueError(
+            "output root does not identify the canonical production profile: "
+            f"{selected}"
+        )
+    return selected
+
+
+def _canonical_abo_spec(index_path: Path) -> tuple[ProductionSourceSpec, Path]:
+    spec = production_source_spec_from_indexes(
+        SOURCE, (Path(index_path),)
+    )
+    profile, data2_root = validate_production_source_spec(spec)
+    if profile != "abo":
+        raise ValueError("legacy API requires canonical production profile=abo")
+    return spec, data2_root
+
+
+def materialize_stage(
+    stage: str,
+    catalog: Mapping[str, Sequence[FamilyPack]],
+    output_root: Path,
+    *,
+    index_path: Path,
+    expected_counts: Mapping[str, int] = EXPECTED_CANDIDATE_COUNTS,
+    expected_waiver: Mapping[str, int] = EXPECTED_WAIVER_COUNTS,
+    expected_stage_counts: Mapping[str, int] | None = None,
+    expected_training_exclusion_counts: Mapping[str, int] | None = None,
+) -> Path:
+    """Materialize only the canonical root-aware ABO production profile."""
+    spec, _data2_root = _canonical_abo_spec(Path(index_path))
+    fixed = spec.fixed_count_contract
+    assert fixed is not None
+    expected_optional = (
+        (expected_stage_counts, fixed["stages"], "stage counts"),
+        (
+            expected_training_exclusion_counts,
+            fixed["training_exclusions"],
+            "training exclusion counts",
+        ),
+    )
+    if not _same_typed_contract(
+        expected_counts, spec.expected_candidate_stages
+    ):
+        raise ValueError(
+            "expected counts do not match canonical production profile"
+        )
+    expected_fixed_waiver = {
+        "frozen_assets": fixed["frozen"],
+        "quarantined_assets": fixed["global_quarantine"],
+        "shape512_exclusions": fixed["shape512_family_exclusions"],
+    }
+    if not _same_typed_contract(expected_waiver, expected_fixed_waiver):
+        raise ValueError(
+            "waiver counts do not match canonical production profile"
+        )
+    for actual, required, label in expected_optional:
+        if actual is not None and not _same_typed_contract(actual, required):
+            raise ValueError(
+                f"{label} do not match canonical production profile"
+            )
+    output = _canonical_abo_output_root(output_root)
+    return _core.materialize_stage(spec, stage, catalog, output)
+
+
+def materialize_all(
+    index_path: Path,
+    prepared_root: Path,
+    output_root: Path,
+    *,
+    expected_batches: Sequence[str] = EXPECTED_BATCHES,
+    expected_counts: Mapping[str, int] = EXPECTED_CANDIDATE_COUNTS,
+) -> dict[str, Path]:
+    """Materialize all stages for the canonical root-aware ABO profile."""
+    spec, data2_root = _canonical_abo_spec(Path(index_path))
+    prepared = Path(prepared_root)
+    if (
+        prepared != data2_root / "prepared"
+        or prepared != prepared.resolve(strict=False)
+    ):
+        raise ValueError(
+            "prepared root does not match canonical production profile"
+        )
+    if not _same_typed_contract(
+        tuple(expected_batches), spec.expected_batches[SHARD_ID]
+    ):
+        raise ValueError(
+            "expected batches do not match canonical production profile"
+        )
+    if not _same_typed_contract(
+        expected_counts, spec.expected_candidate_stages
+    ):
+        raise ValueError(
+            "expected counts do not match canonical production profile"
+        )
+    return _core.materialize_all(
+        spec, prepared, _canonical_abo_output_root(output_root)
+    )
 
 
 def _argument_parser() -> argparse.ArgumentParser:
@@ -163,6 +291,17 @@ def resolve_profile_paths(
     """Build source inputs and local output paths from optional node roots."""
     data2_root = args.data2_root or Path("/root/data2/pixal3d")
     local_root = args.local_root or Path("/root/node17/data/pixal3d")
+    for label, selected in (
+        ("data2 root", data2_root),
+        ("local root", local_root),
+    ):
+        if (
+            not selected.is_absolute()
+            or selected != selected.resolve(strict=False)
+        ):
+            raise ValueError(
+                f"{label} must be an absolute canonical production root"
+            )
     spec = build_source_spec(args.profile, data2_root)
     prepared = data2_root / "prepared"
     output = source_output_root(args.profile, local_root)

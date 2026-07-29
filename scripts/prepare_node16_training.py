@@ -18,6 +18,10 @@ def _require_cpu_environment() -> None:
         raise RuntimeError(
             "CUDA_VISIBLE_DEVICES must be explicitly set to empty"
         )
+    if os.environ.get("PYTHONDONTWRITEBYTECODE") != "1":
+        raise RuntimeError(
+            "PYTHONDONTWRITEBYTECODE must be explicitly set to 1"
+        )
 
 
 _require_cpu_environment()
@@ -26,6 +30,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data_toolkit.pipeline.node16_training_prepare import (  # noqa: E402
+    DeploymentBinding,
     PreparationPaths,
     plan_node16_training,
     prepare_node16_training,
@@ -51,6 +56,13 @@ def _parse_args(argv=None) -> argparse.Namespace:
         type=Path,
         default=Path("/home/youngwoo/Pixal3D-training-hssd"),
     )
+    parser.add_argument("--expected-revision", required=True)
+    parser.add_argument(
+        "--deployment-manifest", type=Path, required=True
+    )
+    parser.add_argument(
+        "--deployment-manifest-sha256", required=True
+    )
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args(argv)
 
@@ -60,11 +72,18 @@ def main(argv=None) -> int:
     paths = PreparationPaths.from_roots(
         args.data2_root, args.local_root, args.repo_root
     )
+    deployment = DeploymentBinding(
+        expected_revision=args.expected_revision,
+        manifest_path=args.deployment_manifest,
+        manifest_sha256=args.deployment_manifest_sha256,
+    )
     if args.execute:
-        report_path = prepare_node16_training(paths)
+        report_path = prepare_node16_training(paths, deployment)
         print(json.dumps({"report": str(report_path)}, indent=2))
     else:
-        print(json.dumps(plan_node16_training(paths), indent=2))
+        print(json.dumps(
+            plan_node16_training(paths, deployment), indent=2
+        ))
     return 0
 
 

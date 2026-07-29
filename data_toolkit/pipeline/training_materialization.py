@@ -41,6 +41,7 @@ from data_toolkit.pipeline.training_source_profiles import (  # noqa: E402
     ProductionSourceSpec,
     build_source_spec,
     source_output_root,
+    validate_production_source_spec,
 )
 from data_toolkit.pipeline.validation import ValidationError  # noqa: E402
 
@@ -313,6 +314,14 @@ def _shard_frozen_scope(
 
 
 def _validate_source_spec(spec: ProductionSourceSpec) -> tuple[str, ...]:
+    validate_production_source_spec(spec)
+    return tuple(path.stem for path in spec.indexes)
+
+
+def _validate_source_spec_structure(
+    spec: ProductionSourceSpec,
+) -> tuple[str, ...]:
+    """Validate generic mechanics for private synthetic fixture paths."""
     if not isinstance(spec, ProductionSourceSpec):
         raise TypeError("spec must be a ProductionSourceSpec")
     shard_ids = tuple(path.stem for path in spec.indexes)
@@ -342,11 +351,11 @@ def _validate_source_spec(spec: ProductionSourceSpec) -> tuple[str, ...]:
     return shard_ids
 
 
-def load_source_catalog(
+def _load_source_catalog(
     spec: ProductionSourceSpec, prepared_root: Path
 ) -> dict[str, tuple[FamilyPack, ...]]:
-    """Load and aggregate every verified shard in a source contract."""
-    shard_ids = _validate_source_spec(spec)
+    """Private generic catalog loader used by synthetic fixture tests."""
+    shard_ids = _validate_source_spec_structure(spec)
     selected = {
         family for families in STAGE_FAMILIES.values() for family in families
     }
@@ -379,6 +388,14 @@ def load_source_catalog(
     }
     compute_stage_scopes(catalog, spec.expected_candidate_stages)
     return catalog
+
+
+def load_source_catalog(
+    spec: ProductionSourceSpec, prepared_root: Path
+) -> dict[str, tuple[FamilyPack, ...]]:
+    """Load one exact named production profile and its verified packs."""
+    _validate_source_spec(spec)
+    return _load_source_catalog(spec, prepared_root)
 
 
 def _validate_catalog_identity(
@@ -1069,9 +1086,10 @@ def _materialize_stage(
             },
             "eligibility_policy": policy_evidence(),
             "tool_commits": sorted({record.tool_commit for family in STAGE_FAMILIES[stage] for record in catalog[family]}),
-            "waiver": "production-valid-subset",
             **waiver,
         }
+        if spec.acceptance_mode == "valid_subset_user_waiver":
+            evidence["waiver"] = "production-valid-subset"
         if len(source_indexes) == 1:
             evidence.update(
                 {

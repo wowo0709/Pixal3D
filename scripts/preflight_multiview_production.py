@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 from hashlib import sha256
+import json
 from pathlib import Path
 import sys
 from typing import Mapping, Sequence
@@ -67,6 +68,9 @@ StagePreflight = _core.StagePreflight
 build_report = _core.build_report
 build_handoff = _core.build_handoff
 publish_handoff = _core.publish_handoff
+_build_report_for_fixture = _core._build_report_for_fixture
+_build_handoff_for_fixture = _core._build_handoff_for_fixture
+_publish_handoff_for_fixture = _core._publish_handoff_for_fixture
 publish_source_handoff = _core.publish_source_handoff
 source_preflight_stage = _core.preflight_stage
 write_create_only_json = _core.write_create_only_json
@@ -183,10 +187,10 @@ def _eligibility_evidence_is_valid(
     )
 
 
-def preflight_stage(
+def _preflight_stage_for_fixture(
     stage: str, root: Path, config_path: Path
 ) -> StagePreflight:
-    """Legacy ABO preflight preserving monkeypatchable wrapper validators."""
+    """Exercise historical ABO mechanics in isolated synthetic tests."""
     assets, digest, evidence_bytes = _materialization_scope(stage, root)
     counts = validate_stage_structure(stage, root, assets)
     anchors = validate_direct_loader(stage, root, assets, config_path)
@@ -199,6 +203,71 @@ def preflight_stage(
         counts,
         evidence_bytes,
     )
+
+
+def preflight_stage(
+    stage: str, root: Path, config_path: Path
+) -> StagePreflight:
+    """Preflight one canonical root-aware ABO production stage."""
+    if stage not in COMPONENTS:
+        raise ValueError(f"unknown production stage: {stage}")
+    selected = Path(root)
+    expected_suffix = (
+        "train", "production", "abo", stage, "active"
+    )
+    if (
+        not selected.is_absolute()
+        or selected != selected.resolve(strict=False)
+        or selected.parts[-len(expected_suffix):] != expected_suffix
+    ):
+        raise ValueError(
+            "stage root does not match canonical production profile: "
+            f"{selected}"
+        )
+    selected_config = Path(config_path)
+    expected_config = CONFIGS[stage]
+    reviewed_source_config_matches = (
+        selected_config.is_absolute()
+        and selected_config == selected_config.resolve(strict=False)
+        and selected_config.parts[-len(expected_config.parts):]
+        == expected_config.parts
+    )
+    local_root = selected.parents[4]
+    expected_runtime_config = (
+        local_root
+        / "runtime-configs"
+        / f"{expected_config.stem}.node16-workers1.json"
+    )
+    reviewed_runtime_config_matches = (
+        selected_config == expected_runtime_config
+        and selected_config == selected_config.resolve(strict=False)
+    )
+    if (
+        selected_config != expected_config
+        and not reviewed_source_config_matches
+        and not reviewed_runtime_config_matches
+    ):
+        raise ValueError(
+            "loader config does not match canonical production profile: "
+            f"stage={stage}"
+        )
+    raw = _core._existing_regular_bytes(selected / "materialization.json")
+    try:
+        evidence = json.loads(raw)
+        source_index = evidence["source_index"]
+        index_path = Path(source_index["path"])
+        index_sha256 = source_index["sha256"]
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as error:
+        raise ValueError(
+            "materialization does not identify canonical production profile"
+        ) from error
+    _core._canonical_abo_index(index_path, index_sha256)
+    return _preflight_stage_for_fixture(stage, selected, config_path)
 
 
 def _validate_existing_chain(
@@ -269,10 +338,31 @@ def resolve_profile_paths(
     """Build source inputs and a local output path from optional node roots."""
     data2_root = args.data2_root or Path("/root/data2/pixal3d")
     local_root = args.local_root or Path("/root/node17/data/pixal3d")
+    for label, selected in (
+        ("data2 root", data2_root),
+        ("local root", local_root),
+    ):
+        if (
+            not selected.is_absolute()
+            or selected != selected.resolve(strict=False)
+        ):
+            raise ValueError(
+                f"{label} must be an absolute canonical production root"
+            )
     spec = build_source_spec(args.profile, data2_root)
     prepared = data2_root / "prepared"
     output_root = source_output_root(args.profile, local_root)
     return spec, prepared, output_root
+
+
+def _exact_legacy_path(
+    selected: Path | None, expected: Path, option: str
+) -> Path:
+    if selected is not None and Path(selected) != expected:
+        raise ValueError(
+            f"{option} must match the canonical production profile"
+        )
+    return expected
 
 
 def _publish_legacy_abo(
@@ -357,11 +447,19 @@ def main() -> None:
             return
         paths = _publish_source_profile(spec, root, paths)
     elif args.profile == "abo":
-        root = args.root or DEFAULT_ROOT
-        index = args.index or DEFAULT_INDEX
-        report_path = args.report or DEFAULT_REPORT
-        handoff_path = args.handoff or DEFAULT_HANDOFF
-        training_data_path = args.training_data or DEFAULT_TRAINING_DATA
+        root = _exact_legacy_path(args.root, DEFAULT_ROOT, "--root")
+        index = _exact_legacy_path(args.index, DEFAULT_INDEX, "--index")
+        report_path = _exact_legacy_path(
+            args.report, DEFAULT_REPORT, "--report"
+        )
+        handoff_path = _exact_legacy_path(
+            args.handoff, DEFAULT_HANDOFF, "--handoff"
+        )
+        training_data_path = _exact_legacy_path(
+            args.training_data,
+            DEFAULT_TRAINING_DATA,
+            "--training-data",
+        )
         if args.verify_existing:
             _verify_existing(
                 SOURCE,
@@ -382,11 +480,19 @@ def main() -> None:
             raise ValueError(
                 "3d-future profile binds both indexes from its source spec"
             )
-        root = args.root or THREED_FUTURE_ROOT
-        report_path = args.report or THREED_FUTURE_REPORT
-        handoff_path = args.handoff or THREED_FUTURE_HANDOFF
-        training_data_path = (
-            args.training_data or THREED_FUTURE_TRAINING_DATA
+        root = _exact_legacy_path(
+            args.root, THREED_FUTURE_ROOT, "--root"
+        )
+        report_path = _exact_legacy_path(
+            args.report, THREED_FUTURE_REPORT, "--report"
+        )
+        handoff_path = _exact_legacy_path(
+            args.handoff, THREED_FUTURE_HANDOFF, "--handoff"
+        )
+        training_data_path = _exact_legacy_path(
+            args.training_data,
+            THREED_FUTURE_TRAINING_DATA,
+            "--training-data",
         )
         if args.verify_existing:
             _verify_existing(

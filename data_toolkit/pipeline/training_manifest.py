@@ -11,8 +11,13 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Mapping
 
+from data_toolkit.pipeline.training_eligibility import (
+    observed_count_contract,
+)
 from data_toolkit.pipeline.training_source_profiles import (
     SOURCE_ACCEPTANCE_CONTRACTS,
+    ProductionSourceSpec,
+    production_source_spec_from_indexes,
 )
 
 KNOWN_SOURCES = ("ABO", "3D-FUTURE", "HSSD")
@@ -200,8 +205,11 @@ def _valid_digest(value: object) -> bool:
 
 
 def _validate_source_indexes(
-    source: str, report: Mapping[str, object]
-) -> None:
+    source: str,
+    report: Mapping[str, object],
+    *,
+    require_production_profile: bool = True,
+) -> ProductionSourceSpec | None:
     if source == "ABO":
         references = [
             (
@@ -240,6 +248,7 @@ def _validate_source_indexes(
         ]
 
     canonical_paths = []
+    index_documents = []
     for reference, label in references:
         expected_keys = (
             {"path", "sha256"}
@@ -261,11 +270,48 @@ def _validate_source_indexes(
             raise ValueError(
                 f"source={source} source index digest changed: {label}"
             )
+        try:
+            document = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise ValueError(
+                f"source={source} source index is not valid JSON: {label}"
+            ) from error
+        if not isinstance(document, Mapping):
+            raise ValueError(
+                f"source={source} source index must be an object: {label}"
+            )
         canonical_paths.append(path)
+        index_documents.append(document)
     if len(set(canonical_paths)) != len(canonical_paths):
         raise ValueError(
             f"source={source} source index paths must be unique"
         )
+    if require_production_profile:
+        try:
+            spec = production_source_spec_from_indexes(
+                source, tuple(canonical_paths)
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"source={source} canonical production profile is invalid"
+            ) from error
+        for path, document in zip(
+            canonical_paths, index_documents, strict=True
+        ):
+            shard_id = path.stem
+            batches = document.get("batches")
+            if (
+                document.get("source") != source
+                or document.get("shard_id") != shard_id
+                or not isinstance(batches, Mapping)
+                or set(batches) != set(spec.expected_batches[shard_id])
+            ):
+                raise ValueError(
+                    f"source={source} shard={shard_id} source index "
+                    "batch set is not canonical"
+                )
+        return spec
+    return None
 
 
 def _exact_keys(
@@ -322,8 +368,75 @@ def _validate_acceptance_contract(
         )
 
 
+def _validate_source_count_contract(
+    source: str,
+    counts: object,
+    spec: ProductionSourceSpec,
+) -> None:
+    if not isinstance(counts, Mapping):
+        raise ValueError(f"source={source} source count contract is invalid")
+    if spec.fixed_count_contract is not None:
+        fields = (
+            "frozen",
+            "global_quarantine",
+            "shape512_family_exclusions",
+            "candidate_stages",
+            "training_exclusions",
+            "stages",
+        )
+        expected = {
+            field: spec.fixed_count_contract[field] for field in fields
+        }
+    else:
+        if set(counts) != {
+            "frozen",
+            "candidate_stages",
+            "pack_exclusions",
+            "training_exclusions",
+            "stages",
+        }:
+            raise ValueError(
+                f"source={source} source count contract is invalid"
+            )
+        exclusions = _stage_mapping(
+            counts.get("training_exclusions"),
+            f"source={source} source count training exclusions",
+        )
+        normalized_exclusions = {
+            stage: _count(
+                exclusions[stage],
+                f"source={source} stage={stage} training exclusions",
+            )
+            for stage in STAGES
+        }
+        expected = observed_count_contract(
+            frozen=spec.expected_frozen,
+            candidate_stages=spec.expected_candidate_stages,
+            training_exclusions=normalized_exclusions,
+        )
+    if not _same_typed_contract(counts, expected):
+        raise ValueError(f"source={source} source count contract is invalid")
+
+
+def _same_typed_contract(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, Mapping):
+        return (
+            set(actual) == set(expected)
+            and all(
+                _same_typed_contract(actual[key], expected[key])
+                for key in expected
+            )
+        )
+    return actual == expected
+
+
 def _validate_report_chain(
-    source: str, handoff: Mapping[str, object]
+    source: str,
+    handoff: Mapping[str, object],
+    *,
+    require_production_profile: bool = True,
 ) -> tuple[Path, str]:
     reference = _exact_keys(
         handoff.get("report"),
@@ -348,7 +461,13 @@ def _validate_report_chain(
     _exact_keys(report, set(fields), f"source={source} report")
     _validate_acceptance_contract(source, report, "report")
     _validate_acceptance_contract(source, handoff, "handoff")
-    _validate_source_indexes(source, report)
+    spec = _validate_source_indexes(
+        source,
+        report,
+        require_production_profile=require_production_profile,
+    )
+    if spec is not None:
+        _validate_source_count_contract(source, report.get("counts"), spec)
     expected_handoff = {
         key: report[key] for key in fields
     } | {"report": dict(reference)}
@@ -366,6 +485,8 @@ def _validate_materialization(
     expected_count: int,
     expected_scope_digest: str,
     pinned_digest: str,
+    *,
+    require_production_profile: bool = True,
 ) -> tuple[str, ...]:
     path = root / "materialization.json"
     evidence, raw = _load_json(
@@ -383,6 +504,24 @@ def _validate_materialization(
     ):
         raise ValueError(
             f"source={source} stage={stage} materialization identity changed"
+        )
+    if require_production_profile:
+        _validate_acceptance_contract(
+            source, evidence, "materialization"
+        )
+    if source == "HSSD" and "waiver" in evidence:
+        raise ValueError(
+            f"source={source} stage={stage} materialization waiver "
+            "contradicts the production gate"
+        )
+    if (
+        require_production_profile
+        and source in {"ABO", "3D-FUTURE"}
+        and evidence.get("waiver") != "production-valid-subset"
+    ):
+        raise ValueError(
+            f"source={source} stage={stage} materialization waiver "
+            "evidence is missing or invalid"
         )
     scope = evidence.get("stage_scope")
     if (
@@ -412,6 +551,8 @@ def _validate_source_stage(
     record: object,
     count_from_contract: int,
     materialization_summary: object,
+    *,
+    require_production_profile: bool = True,
 ) -> CombinedStage:
     stage_record = _exact_keys(
         record,
@@ -493,6 +634,7 @@ def _validate_source_stage(
         asset_count,
         scope_sha256,
         pinned_digest,
+        require_production_profile=require_production_profile,
     )
     return CombinedStage(
         source_counts={source: asset_count},
@@ -508,6 +650,8 @@ def _validate_source_training_data_value(
     path: Path,
     value: Mapping[str, object],
     raw: bytes,
+    *,
+    require_production_profile: bool = True,
 ) -> SourceTrainingData:
     canonical_path = _canonical_path(
         Path(path), f"source={source} training data"
@@ -545,7 +689,11 @@ def _validate_source_training_data_value(
     )
     if _digest(handoff_raw) != handoff_digest:
         raise ValueError(f"source={source} handoff digest changed")
-    report_path, report_digest = _validate_report_chain(source, handoff)
+    report_path, report_digest = _validate_report_chain(
+        source,
+        handoff,
+        require_production_profile=require_production_profile,
+    )
     expected_training_data = {
         **handoff,
         "handoff": dict(handoff_reference),
@@ -585,6 +733,7 @@ def _validate_source_training_data_value(
                 f"source={source} stage={stage} count contract",
             ),
             summaries[stage],
+            require_production_profile=require_production_profile,
         )
     return SourceTrainingData(
         source=source,
@@ -599,11 +748,18 @@ def _validate_source_training_data_value(
 
 
 def _validate_source_training_data(
-    source: str, path: Path
+    source: str,
+    path: Path,
+    *,
+    require_production_profile: bool = True,
 ) -> SourceTrainingData:
     value, raw = _load_json(path, f"source={source} training data")
     return _validate_source_training_data_value(
-        source, path, value, raw
+        source,
+        path,
+        value,
+        raw,
+        require_production_profile=require_production_profile,
     )
 
 
@@ -616,6 +772,17 @@ def validate_source_training_data(
             f"source must be one of {KNOWN_SOURCES}: {source}"
         )
     return _validate_source_training_data(source, Path(path))
+
+
+def _validate_source_training_data_for_fixture(
+    source: str, path: Path
+) -> SourceTrainingData:
+    """Private validation boundary for compact synthetic source fixtures."""
+    return _validate_source_training_data(
+        source,
+        Path(path),
+        require_production_profile=False,
+    )
 
 
 def _combined_stage(
@@ -708,13 +875,17 @@ def _source_order(
 
 def _validate_source_paths(
     source_paths: Mapping[str, Path],
+    *,
+    require_production_profile: bool = True,
 ) -> tuple[dict[str, SourceTrainingData], tuple[str, ...]]:
     if not isinstance(source_paths, Mapping):
         raise ValueError("source paths must be a mapping")
     source_order = _source_order(source_paths)
     return {
         source: _validate_source_training_data(
-            source, Path(source_paths[source])
+            source,
+            Path(source_paths[source]),
+            require_production_profile=require_production_profile,
         )
         for source in source_order
     }, source_order
@@ -725,6 +896,16 @@ def build_combined_training_data(
 ) -> dict[str, object]:
     """Build a supported source bundle from pinned source handoffs."""
     source_data, source_order = _validate_source_paths(source_paths)
+    return _document_from_sources(source_data, source_order)
+
+
+def _build_combined_training_data_for_fixture(
+    source_paths: Mapping[str, Path],
+) -> dict[str, object]:
+    """Private combined builder for compact synthetic source fixtures."""
+    source_data, source_order = _validate_source_paths(
+        source_paths, require_production_profile=False
+    )
     return _document_from_sources(source_data, source_order)
 
 
@@ -782,6 +963,18 @@ def publish_combined_training_data(
     output_path = Path(output_path)
     payload = _canonical_json_bytes(
         build_combined_training_data(source_paths)
+    )
+    _publish_create_only(output_path, payload)
+    return output_path
+
+
+def _publish_combined_training_data_for_fixture(
+    source_paths: Mapping[str, Path], output_path: Path
+) -> Path:
+    """Private create-only publisher for compact synthetic fixtures."""
+    output_path = Path(output_path)
+    payload = _canonical_json_bytes(
+        _build_combined_training_data_for_fixture(source_paths)
     )
     _publish_create_only(output_path, payload)
     return output_path
@@ -850,6 +1043,8 @@ def _resolve_combined_value(
     value: Mapping[str, object],
     raw: bytes,
     stage: str,
+    *,
+    require_production_profile: bool = True,
 ) -> ResolvedTrainingData:
     canonical_path = _canonical_path(path, "combined training manifest")
     source_order = _validate_combined_shape(value)
@@ -881,7 +1076,9 @@ def _resolve_combined_value(
                 f"combined source={source} training data reference is invalid"
             )
         validated = _validate_source_training_data(
-            source, Path(training_path_value)
+            source,
+            Path(training_path_value),
+            require_production_profile=require_production_profile,
         )
         if validated.sha256 != training_reference["sha256"]:
             raise ValueError(f"source={source} training data digest changed")
@@ -917,12 +1114,18 @@ def _resolve_source_value(
     value: Mapping[str, object],
     raw: bytes,
     stage: str,
+    *,
+    require_production_profile: bool = True,
 ) -> ResolvedTrainingData:
     source = value.get("source")
     if source not in KNOWN_SOURCES:
         raise ValueError(f"unknown source training data: {source}")
     validated = _validate_source_training_data_value(
-        source, path, value, raw
+        source,
+        path,
+        value,
+        raw,
+        require_production_profile=require_production_profile,
     )
     selected = validated.stages[stage]
     scope = selected.source_scopes[source]
@@ -975,12 +1178,53 @@ def resolve_training_data(
     raise ValueError("unrecognized training_data schema")
 
 
-def resolve_training_input(
+def _resolve_training_data_for_fixture(
+    path: Path, stage: str
+) -> ResolvedTrainingData:
+    """Private resolver for compact synthetic publication fixtures."""
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage: {stage}")
+    path = Path(path)
+    value, raw = _load_json(path, "training data")
+    combined_keys = {
+        "schema_version",
+        "authorization",
+        "sampling",
+        "sources",
+        "stages",
+    }
+    source = value.get("source")
+    source_keys = (
+        set(_REPORT_FIELDS[_SOURCE_SCHEMAS[source]])
+        | {"report", "handoff"}
+        if source in KNOWN_SOURCES
+        else set()
+    )
+    if set(value) == combined_keys:
+        return _resolve_combined_value(
+            path,
+            value,
+            raw,
+            stage,
+            require_production_profile=False,
+        )
+    if source_keys and set(value) == source_keys:
+        return _resolve_source_value(
+            path,
+            value,
+            raw,
+            stage,
+            require_production_profile=False,
+        )
+    raise ValueError("unrecognized training_data schema")
+
+
+def _resolve_training_input(
     config: Mapping[str, object],
     cli_data_dir: str | None,
     cli_training_data: str | Path | None,
+    resolver,
 ) -> tuple[str, dict[str, object] | None]:
-    """Resolve legacy data_dir or a verified manifest without touching CUDA."""
     if cli_data_dir is not None and cli_training_data is not None:
         raise ValueError(
             "--data_dir and --training_data are mutually exclusive"
@@ -1006,7 +1250,7 @@ def resolve_training_input(
     )
     if stage not in STAGES:
         raise ValueError(f"unknown multiview_stage: {stage}")
-    resolved = resolve_training_data(Path(cli_training_data), stage)
+    resolved = resolver(Path(cli_training_data), stage)
     evidence = {
         "training_data": {
             "path": str(resolved.path),
@@ -1019,3 +1263,31 @@ def resolve_training_input(
         "union_scope_sha256": resolved.union_scope_sha256,
     }
     return json.dumps(resolved.data_dir), evidence
+
+
+def resolve_training_input(
+    config: Mapping[str, object],
+    cli_data_dir: str | None,
+    cli_training_data: str | Path | None,
+) -> tuple[str, dict[str, object] | None]:
+    """Resolve legacy data_dir or a verified manifest without touching CUDA."""
+    return _resolve_training_input(
+        config,
+        cli_data_dir,
+        cli_training_data,
+        resolve_training_data,
+    )
+
+
+def _resolve_training_input_for_fixture(
+    config: Mapping[str, object],
+    cli_data_dir: str | None,
+    cli_training_data: str | Path | None,
+) -> tuple[str, dict[str, object] | None]:
+    """Private training-input resolver for compact synthetic fixtures."""
+    return _resolve_training_input(
+        config,
+        cli_data_dir,
+        cli_training_data,
+        _resolve_training_data_for_fixture,
+    )

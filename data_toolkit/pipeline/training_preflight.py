@@ -39,6 +39,8 @@ from data_toolkit.pipeline.training_materialization import (
 )
 from data_toolkit.pipeline.training_source_profiles import (
     SOURCE_ACCEPTANCE_CONTRACTS,
+    production_source_spec_from_indexes,
+    validate_production_source_spec,
 )
 
 
@@ -101,18 +103,41 @@ def validate_acceptance_evidence(
     spec: ProductionSourceSpec, evidence: Mapping[str, object]
 ) -> None:
     """Require persisted acceptance evidence to match its source contract."""
-    expected = (
-        spec.acceptance_mode,
-        spec.original_90_percent_gate_passed,
-    )
-    actual = (
-        evidence.get("acceptance_mode"),
-        evidence.get("original_90_percent_gate_passed"),
-    )
-    if actual != expected:
+    expected_mode = spec.acceptance_mode
+    expected_gate = spec.original_90_percent_gate_passed
+    actual_mode = evidence.get("acceptance_mode")
+    actual_gate = evidence.get("original_90_percent_gate_passed")
+    if (
+        actual_mode != expected_mode
+        or type(actual_gate) is not bool
+        or actual_gate is not expected_gate
+    ):
         raise ValueError(
             f"source={spec.source}: acceptance evidence does not "
-            f"match source spec: expected={expected} actual={actual}"
+            "match source spec: "
+            f"expected={(expected_mode, expected_gate)} "
+            f"actual={(actual_mode, actual_gate)}"
+        )
+
+
+def validate_waiver_evidence(
+    spec: ProductionSourceSpec, evidence: Mapping[str, object]
+) -> None:
+    """Bind waiver authorization to waiver-mode source profiles only."""
+    waiver = evidence.get("waiver")
+    if spec.acceptance_mode == "production_gate":
+        if "waiver" in evidence:
+            raise ValueError(
+                f"source={spec.source}: production-gate evidence cannot "
+                "contain waiver authorization"
+            )
+        return
+    if (
+        spec.acceptance_mode == "valid_subset_user_waiver"
+        and waiver != "production-valid-subset"
+    ):
+        raise ValueError(
+            f"source={spec.source}: waiver evidence is missing or invalid"
         )
 
 
@@ -140,14 +165,24 @@ def _source_context_entrypoint(function):
 
 
 def _validate_source_spec(spec: ProductionSourceSpec) -> tuple[str, ...]:
+    validate_production_source_spec(spec)
+    return tuple(Path(path).stem for path in spec.indexes)
+
+
+def _validate_source_spec_structure(
+    spec: ProductionSourceSpec,
+) -> tuple[str, ...]:
+    """Validate generic mechanics for private synthetic fixture paths."""
     if not isinstance(spec, ProductionSourceSpec):
         raise TypeError("spec must be a ProductionSourceSpec")
     _validate_source_name(spec.source)
     contract = SOURCE_ACCEPTANCE_CONTRACTS.get(spec.source)
-    if contract is None or (
-        spec.acceptance_mode,
-        spec.original_90_percent_gate_passed,
-    ) != contract:
+    gate = spec.original_90_percent_gate_passed
+    if contract is not None and (
+        spec.acceptance_mode != contract[0]
+        or type(gate) is not bool
+        or gate is not contract[1]
+    ):
         raise ValueError("source acceptance policy is invalid")
     stages = tuple(COMPONENTS)
     if set(spec.expected_candidate_stages) != set(stages):
@@ -792,7 +827,7 @@ def _preflight_stage_abo(
 def _expected_source_indexes(
     spec: ProductionSourceSpec,
 ) -> list[dict[str, str]]:
-    shard_ids = _validate_source_spec(spec)
+    shard_ids = _validate_source_spec_structure(spec)
     records = []
     for shard_id, index_path in zip(shard_ids, spec.indexes, strict=True):
         canonical = Path(index_path).resolve()
@@ -963,9 +998,12 @@ def _validated_source_materialization(
             raise _error(stage, None, "invalid materialization evidence")
         try:
             validate_acceptance_evidence(spec, evidence)
+            validate_waiver_evidence(spec, evidence)
         except ValueError as error:
             raise _error(
-                stage, None, "materialization acceptance evidence is invalid"
+                stage,
+                None,
+                "materialization acceptance or waiver evidence is invalid",
             ) from error
         indexes = evidence.get("source_indexes")
         if (
@@ -1016,14 +1054,14 @@ def _validated_source_materialization(
 
 
 @_source_context_entrypoint
-def preflight_stage(
+def _preflight_stage(
     spec: ProductionSourceSpec,
     stage: str,
     root: Path,
     config_path: Path,
 ) -> StagePreflight:
-    """Strictly validate one source-aware materialized stage."""
-    _validate_source_spec(spec)
+    """Private generic source preflight used by synthetic fixture tests."""
+    _validate_source_spec_structure(spec)
     if spec.fixed_count_contract is not None:
         raise ValueError("generic preflight requires observed source counts")
     try:
@@ -1075,6 +1113,18 @@ def preflight_stage(
         evidence_bytes,
         spec.source,
     )
+
+
+@_source_context_entrypoint
+def preflight_stage(
+    spec: ProductionSourceSpec,
+    stage: str,
+    root: Path,
+    config_path: Path,
+) -> StagePreflight:
+    """Strictly validate one canonical production source stage."""
+    _validate_source_spec(spec)
+    return _preflight_stage(spec, stage, root, config_path)
 
 
 def _canonical_json_bytes(value: Mapping[str, object]) -> bytes:
@@ -1280,7 +1330,7 @@ def _validated_source_handoff_inputs(
     dict[str, dict[str, object]],
     list[str],
 ]:
-    _validate_source_spec(spec)
+    _validate_source_spec_structure(spec)
     stages = tuple(COMPONENTS)
     if set(results) != set(stages) or set(materializations) != set(stages):
         raise ValueError("all four strict preflight stages are required")
@@ -1292,6 +1342,7 @@ def _validated_source_handoff_inputs(
         result = results[stage]
         evidence = materializations[stage]
         validate_acceptance_evidence(spec, evidence)
+        validate_waiver_evidence(spec, evidence)
         try:
             validated_evidence = json.loads(result.materialization_bytes)
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
@@ -1363,13 +1414,13 @@ def _validated_source_handoff_inputs(
 
 
 @_source_context_entrypoint
-def build_source_report(
+def _build_source_report(
     spec: ProductionSourceSpec,
     results: Mapping[str, StagePreflight],
     materializations: Mapping[str, Mapping[str, object]],
     created_at: str,
 ) -> dict[str, object]:
-    """Build schema-2 source evidence bound to every source index and stage."""
+    """Private generic report builder used by synthetic fixture tests."""
     if not isinstance(created_at, str) or not created_at:
         raise ValueError("created_at must be a non-empty timestamp")
     counts, indexes, evidence, observed = _validated_source_handoff_inputs(
@@ -1403,6 +1454,20 @@ def build_source_report(
         "materialization_evidence": evidence,
         "observed_tool_commits": observed,
     }
+
+
+@_source_context_entrypoint
+def build_source_report(
+    spec: ProductionSourceSpec,
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    created_at: str,
+) -> dict[str, object]:
+    """Build schema-2 evidence for one canonical production source."""
+    _validate_source_spec(spec)
+    return _build_source_report(
+        spec, results, materializations, created_at
+    )
 
 
 def _source_materializations_from_results(
@@ -1462,19 +1527,19 @@ def _source_handoff_document(
 
 
 @_source_context_entrypoint
-def publish_source_handoff(
+def _publish_source_handoff(
     spec: ProductionSourceSpec,
     results: Mapping[str, StagePreflight],
     report_path: Path,
     handoff_path: Path,
     training_data_path: Path,
 ) -> tuple[Path, Path, Path]:
-    """Publish schema-2 shared evidence before the local training manifest."""
+    """Private generic publisher used by synthetic fixture tests."""
     materializations = _source_materializations_from_results(spec, results)
     existing_report = _load_existing_json(report_path, "report")
     if existing_report is None:
         created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        report = build_source_report(
+        report = _build_source_report(
             spec, results, materializations, created_at
         )
         report_sha256 = write_create_only_json(report_path, report)
@@ -1483,7 +1548,7 @@ def publish_source_handoff(
         created_at = report.get("created_at")
         if not isinstance(created_at, str) or not created_at:
             raise ValueError("invalid existing report creation time")
-        expected_report = build_source_report(
+        expected_report = _build_source_report(
             spec, results, materializations, created_at
         )
         if raw_report != _canonical_json_bytes(expected_report):
@@ -1515,7 +1580,125 @@ def publish_source_handoff(
     return Path(report_path), Path(handoff_path), Path(training_data_path)
 
 
-def build_report(
+@_source_context_entrypoint
+def publish_source_handoff(
+    spec: ProductionSourceSpec,
+    results: Mapping[str, StagePreflight],
+    report_path: Path,
+    handoff_path: Path,
+    training_data_path: Path,
+) -> tuple[Path, Path, Path]:
+    """Publish one canonical schema-2 production source chain."""
+    _validate_source_spec(spec)
+    return _publish_source_handoff(
+        spec,
+        results,
+        report_path,
+        handoff_path,
+        training_data_path,
+    )
+
+
+def _canonical_abo_index(
+    index_path: Path,
+    index_sha256: str | None = None,
+) -> tuple[Path, str]:
+    """Validate the one root-aware ABO production index identity."""
+    selected = Path(index_path)
+    spec = production_source_spec_from_indexes(SOURCE, (selected,))
+    validate_production_source_spec(spec)
+    raw = _existing_regular_bytes(selected)
+    digest = sha256(raw).hexdigest()
+    if index_sha256 is not None and (
+        not isinstance(index_sha256, str)
+        or len(index_sha256) != 64
+        or index_sha256 != digest
+    ):
+        raise ValueError(
+            "ABO index digest does not match canonical production profile"
+        )
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError(
+            "ABO index is not valid canonical production JSON"
+        ) from error
+    batches = value.get("batches") if isinstance(value, Mapping) else None
+    expected_batches = spec.expected_batches["ABO-00000"]
+    if (
+        not isinstance(value, Mapping)
+        or value.get("gate") != "production"
+        or value.get("source") != SOURCE
+        or value.get("shard_id") != "ABO-00000"
+        or not isinstance(batches, Mapping)
+        or len(batches) != len(expected_batches)
+        or set(batches) != set(expected_batches)
+    ):
+        raise ValueError(
+            "ABO index content does not match canonical production profile"
+        )
+    return selected, digest
+
+
+def _canonical_publication_path(
+    path: Path, suffix: tuple[str, ...], label: str
+) -> Path:
+    selected = Path(path)
+    if (
+        not selected.is_absolute()
+        or selected != selected.resolve(strict=False)
+        or selected.parts[-len(suffix):] != suffix
+    ):
+        raise ValueError(
+            f"{label} does not match canonical production profile: {selected}"
+        )
+    return selected
+
+
+def _validate_abo_report_path(report_path: Path) -> Path:
+    selected = Path(report_path)
+    if selected == DEFAULT_REPORT:
+        return selected
+    return _canonical_publication_path(
+        selected,
+        ("train", "production", "abo", "publication", "report.json"),
+        "ABO report path",
+    )
+
+
+def _validate_abo_publication_paths(
+    report_path: Path,
+    handoff_path: Path,
+    training_data_path: Path,
+) -> tuple[Path, Path, Path]:
+    selected = (
+        Path(report_path),
+        Path(handoff_path),
+        Path(training_data_path),
+    )
+    if selected == (DEFAULT_REPORT, DEFAULT_HANDOFF, DEFAULT_TRAINING_DATA):
+        return selected
+    training = _canonical_publication_path(
+        selected[2],
+        ("train", "production", "abo", "training_data.json"),
+        "ABO training-data path",
+    )
+    output = training.parent
+    expected = (
+        output / "publication/report.json",
+        output / "publication/handoff.json",
+        training,
+    )
+    if selected != expected or any(
+        path != path.resolve(strict=False) for path in selected
+    ):
+        raise ValueError(
+            "ABO publication paths do not match canonical production profile"
+        )
+    return selected
+
+
+def _build_report_for_fixture(
     index_path: Path,
     index_sha256: str,
     results: Mapping[str, StagePreflight],
@@ -1544,7 +1727,7 @@ def build_report(
     }
 
 
-def build_handoff(
+def _build_handoff_for_fixture(
     report_path: Path,
     report_sha256: str,
     report: Mapping[str, object],
@@ -1575,7 +1758,7 @@ def build_handoff(
     expected_digest = sha256(_canonical_json_bytes(report)).hexdigest()
     if report_sha256 != expected_digest:
         raise ValueError("report digest does not match canonical report bytes")
-    expected_report = build_report(
+    expected_report = _build_report_for_fixture(
         Path(canonical_index_path), index_sha256, results, materializations, report_created_at
     )
     if report != expected_report:
@@ -1599,7 +1782,7 @@ def build_handoff(
     }
 
 
-def publish_handoff(
+def _publish_handoff_for_fixture(
     index_path: Path,
     results: Mapping[str, StagePreflight],
     materializations: Mapping[str, Mapping[str, object]],
@@ -1617,15 +1800,27 @@ def publish_handoff(
         report_created_at = report.get("created_at")
         if not isinstance(report_created_at, str) or not report_created_at:
             raise ValueError("invalid existing report creation time")
-        expected_report = build_report(index_path, index_sha256, results, materializations, report_created_at)
+        expected_report = _build_report_for_fixture(
+            index_path,
+            index_sha256,
+            results,
+            materializations,
+            report_created_at,
+        )
         if raw_report != _canonical_json_bytes(expected_report):
             raise ValueError("existing report does not match current strict preflight evidence")
         report_sha256 = sha256(raw_report).hexdigest()
         created_at = report_created_at
     else:
-        report = build_report(index_path, index_sha256, results, materializations, created_at)
+        report = _build_report_for_fixture(
+            index_path,
+            index_sha256,
+            results,
+            materializations,
+            created_at,
+        )
         report_sha256 = write_create_only_json(Path(report_path), report)
-    handoff = build_handoff(
+    handoff = _build_handoff_for_fixture(
         Path(report_path), report_sha256, report, results, materializations, created_at
     )
     existing_handoff = _load_existing_json(handoff_path, "handoff")
@@ -1655,6 +1850,73 @@ def publish_handoff(
     }
     write_create_only_json(Path(training_data_path), training_data)
     return Path(report_path), Path(handoff_path), Path(training_data_path)
+
+
+def build_report(
+    index_path: Path,
+    index_sha256: str,
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    created_at: str,
+) -> dict[str, object]:
+    """Build schema-1 evidence only for the canonical ABO profile."""
+    canonical, digest = _canonical_abo_index(index_path, index_sha256)
+    return _build_report_for_fixture(
+        canonical, digest, results, materializations, created_at
+    )
+
+
+def build_handoff(
+    report_path: Path,
+    report_sha256: str,
+    report: Mapping[str, object],
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    created_at: str,
+) -> dict[str, object]:
+    """Build a handoff only from canonical ABO production evidence."""
+    source_index = report.get("source_index")
+    if not isinstance(source_index, Mapping):
+        raise ValueError("report source_index must be an object")
+    index_path = source_index.get("path")
+    index_sha256 = source_index.get("sha256")
+    if not isinstance(index_path, str) or not isinstance(index_sha256, str):
+        raise ValueError("report source_index path and digest are invalid")
+    _canonical_abo_index(Path(index_path), index_sha256)
+    _validate_abo_report_path(report_path)
+    return _build_handoff_for_fixture(
+        report_path,
+        report_sha256,
+        report,
+        results,
+        materializations,
+        created_at,
+    )
+
+
+def publish_handoff(
+    index_path: Path,
+    results: Mapping[str, StagePreflight],
+    materializations: Mapping[str, Mapping[str, object]],
+    report_path: Path,
+    handoff_path: Path,
+    training_data_path: Path,
+    created_at: str,
+) -> tuple[Path, Path, Path]:
+    """Publish schema-1 evidence only for the canonical ABO profile."""
+    canonical, _digest = _canonical_abo_index(index_path)
+    report, handoff, training_data = _validate_abo_publication_paths(
+        report_path, handoff_path, training_data_path
+    )
+    return _publish_handoff_for_fixture(
+        canonical,
+        results,
+        materializations,
+        report,
+        handoff,
+        training_data,
+        created_at,
+    )
 
 
 def _materialization_evidence_from_result(

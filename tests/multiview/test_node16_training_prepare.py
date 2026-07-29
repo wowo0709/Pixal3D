@@ -1,4 +1,5 @@
 from copy import deepcopy
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -31,14 +32,240 @@ def _paths(tmp_path: Path) -> PreparationPaths:
     )
 
 
+def _deployment_binding(
+    tmp_path: Path,
+    repo_root: Path,
+    *,
+    revision: str = "a" * 40,
+) -> object:
+    files = []
+    if repo_root.exists():
+        for path in sorted(
+            candidate
+            for candidate in repo_root.rglob("*")
+            if candidate.is_file()
+        ):
+            raw = path.read_bytes()
+            files.append(
+                {
+                    "path": path.relative_to(repo_root).as_posix(),
+                    "mode": (
+                        "100755"
+                        if path.stat().st_mode & 0o111
+                        else "100644"
+                    ),
+                    "size": len(raw),
+                    "sha256": sha256(raw).hexdigest(),
+                }
+            )
+    manifest = tmp_path / "deployment-manifest.json"
+    payload = core._canonical_json_bytes(
+        {
+            "schema_version": 1,
+            "revision": revision,
+            "hash_algorithm": "sha256",
+            "files": files,
+        }
+    )
+    manifest.write_bytes(payload)
+    return core.DeploymentBinding(
+        expected_revision=revision,
+        manifest_path=manifest,
+        manifest_sha256=sha256(payload).hexdigest(),
+    )
+
+
 def _valid_final_report(paths: PreparationPaths) -> dict[str, object]:
+    paths.repo_root.mkdir(parents=True, exist_ok=True)
+    reviewed_marker = paths.repo_root / "reviewed.txt"
+    if not reviewed_marker.exists():
+        reviewed_marker.write_text("reviewed\n")
+    binding = _deployment_binding(
+        paths.local_root.parent, paths.repo_root
+    )
     stage_bytes = 50
     required = stage_bytes * 2 + 10 * GIB
     free = required + 1_000
     used = 200
-    return {
+    source_names = {
+        "abo": "ABO",
+        "3d-future": "3D-FUTURE",
+        "hssd": "HSSD",
+    }
+    sources = {}
+    for profile, source_name in source_names.items():
+        output = core.source_output_root(profile, paths.local_root)
+        spec = core.build_source_spec(profile, paths.data2_root)
+        stages = {}
+        for stage in core.STAGES:
+            if spec.fixed_count_contract is not None:
+                final_count = spec.fixed_count_contract["stages"][stage]
+                exclusion_count = spec.fixed_count_contract[
+                    "training_exclusions"
+                ][stage]
+            else:
+                exclusion_count = 0
+                final_count = spec.expected_candidate_stages[stage]
+            stages[stage] = {
+                "asset_count": final_count,
+                "asset_scope_sha256": sha256(
+                    f"{source_name}:{stage}:scope".encode()
+                ).hexdigest(),
+                "eligibility_exclusion_count": exclusion_count,
+            }
+        report_path = output / "publication/report.json"
+        handoff_path = output / "publication/handoff.json"
+        training_path = output / "training_data.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_document = {
+            "source": source_name,
+            "counts": {
+                "training_exclusions": {
+                    stage: stages[stage][
+                        "eligibility_exclusion_count"
+                    ]
+                    for stage in core.STAGES
+                },
+                "stages": {
+                    stage: stages[stage]["asset_count"]
+                    for stage in core.STAGES
+                },
+            },
+            "stages": {
+                stage: {
+                    "asset_count": stages[stage]["asset_count"],
+                    "asset_scope_sha256": stages[stage][
+                        "asset_scope_sha256"
+                    ],
+                }
+                for stage in core.STAGES
+            },
+        }
+        report_path.write_bytes(
+            core._canonical_json_bytes(report_document)
+        )
+        handoff_document = {
+            **report_document,
+            "report": {
+                "path": str(report_path),
+                "sha256": sha256(report_path.read_bytes()).hexdigest(),
+            },
+        }
+        handoff_path.write_bytes(
+            core._canonical_json_bytes(handoff_document)
+        )
+        training_document = {
+            **handoff_document,
+            "handoff": {
+                "path": str(handoff_path),
+                "sha256": sha256(handoff_path.read_bytes()).hexdigest(),
+            },
+        }
+        training_path.write_bytes(
+            core._canonical_json_bytes(training_document)
+        )
+        artifacts = {
+            "report": {
+                "path": str(report_path),
+                "sha256": sha256(report_path.read_bytes()).hexdigest(),
+            },
+            "handoff": {
+                "path": str(handoff_path),
+                "sha256": sha256(handoff_path.read_bytes()).hexdigest(),
+            },
+            "training_data": {
+                "path": str(training_path),
+                "sha256": sha256(training_path.read_bytes()).hexdigest(),
+            },
+        }
+        sources[profile] = {
+            "source": source_name,
+            "reused": False,
+            "artifacts": artifacts,
+            "stages": stages,
+        }
+    combined_path = paths.combined_training_data
+    combined_path.parent.mkdir(parents=True, exist_ok=True)
+    combined_stages = {}
+    standalone_preflight = {"stages": {}}
+    combined_preflight = {"stages": {}}
+    for stage in core.STAGES:
+        source_counts = {
+            source_names[profile]:
+                sources[profile]["stages"][stage]["asset_count"]
+            for profile in source_names
+        }
+        total = sum(source_counts.values())
+        combined_stages[stage] = {
+            "source_counts": source_counts,
+            "total_count": total,
+            "union_scope_sha256": sha256(
+                f"combined:{stage}:scope".encode()
+            ).hexdigest(),
+        }
+        hssd_count = source_counts["HSSD"]
+        standalone_preflight["stages"][stage] = {
+            "stage": stage,
+            "source_counts": {"HSSD": hssd_count},
+            "total_count": hssd_count,
+            "sampling": core.SAMPLING,
+            "boundary_instances_checked": min(hssd_count, 2),
+            "collated_sources": ["HSSD"],
+        }
+        combined_preflight["stages"][stage] = {
+            "stage": stage,
+            "source_counts": source_counts,
+            "total_count": total,
+            "sampling": core.SAMPLING,
+            "boundary_instances_checked": sum(
+                min(count, 2) for count in source_counts.values()
+            ),
+            "collated_sources": list(source_counts),
+        }
+    combined_document = {
         "schema_version": 1,
+        "authorization": core.AUTHORIZATION,
+        "sampling": core.SAMPLING,
+        "sources": {
+            source_names[profile]: {
+                "training_data": dict(
+                    sources[profile]["artifacts"]["training_data"]
+                ),
+                "handoff": dict(
+                    sources[profile]["artifacts"]["handoff"]
+                ),
+            }
+            for profile in source_names
+        },
+        "stages": {
+            stage: {
+                **combined_stages[stage],
+                "data_dir": {},
+            }
+            for stage in core.STAGES
+        },
+    }
+    combined_path.write_bytes(
+        core._canonical_json_bytes(combined_document)
+    )
+    runtime_paths = {}
+    paths.runtime_config_root.mkdir(parents=True, exist_ok=True)
+    for stage, source_path in core.CONFIGS.items():
+        value = json.loads(source_path.read_text())
+        value["trainer"]["args"]["num_workers"] = 1
+        output = (
+            paths.runtime_config_root
+            / f"{source_path.stem}.node16-workers1.json"
+        )
+        output.write_bytes(core._canonical_json_bytes(value))
+        runtime_paths[stage] = output
+    runtime = core.runtime_config_evidence(runtime_paths)
+    return {
+        "schema_version": 2,
         "cpu_only": True,
+        "deployment": core.verify_deployment_manifest(
+            paths.repo_root, binding
+        ),
         "paths": {
             "data2_root": str(paths.data2_root),
             "local_root": str(paths.local_root),
@@ -54,15 +281,61 @@ def _valid_final_report(paths: PreparationPaths) -> dict[str, object]:
             "used_bytes": used,
             "free_bytes": free,
         },
-        "sources": {
-            profile: {"reused": False}
-            for profile in ("abo", "3d-future", "hssd")
+        "sources": sources,
+        "hssd_standalone_preflight": standalone_preflight,
+        "combined": {
+            "path": str(combined_path),
+            "sha256": sha256(combined_path.read_bytes()).hexdigest(),
+            "stages": combined_stages,
+            "preflight": combined_preflight,
         },
-        "hssd_standalone_preflight": {},
-        "combined": {},
-        "runtime_configs": {},
-        "launch_commands": {},
+        "runtime_configs": runtime,
+        "launch_commands": core._launch_commands(paths, runtime_paths),
     }
+
+
+def _patch_final_report_trust(
+    monkeypatch, report: dict[str, object]
+) -> None:
+    sources_by_name = {
+        evidence["source"]: evidence
+        for evidence in report["sources"].values()
+    }
+
+    def validate_source(source, path):
+        evidence = sources_by_name[source]
+        artifacts = evidence["artifacts"]
+        return SimpleNamespace(
+            source=source,
+            path=Path(artifacts["training_data"]["path"]),
+            sha256=artifacts["training_data"]["sha256"],
+            report_path=Path(artifacts["report"]["path"]),
+            report_sha256=artifacts["report"]["sha256"],
+            handoff_path=Path(artifacts["handoff"]["path"]),
+            handoff_sha256=artifacts["handoff"]["sha256"],
+            stages={
+                stage: SimpleNamespace(
+                    total_count=record["asset_count"],
+                    union_scope_sha256=record["asset_scope_sha256"],
+                )
+                for stage, record in evidence["stages"].items()
+            },
+        )
+
+    def resolve_combined(path, stage):
+        record = report["combined"]["stages"][stage]
+        return SimpleNamespace(
+            path=Path(path),
+            manifest_sha256=report["combined"]["sha256"],
+            source_counts=record["source_counts"],
+            total_count=record["total_count"],
+            union_scope_sha256=record["union_scope_sha256"],
+        )
+
+    monkeypatch.setattr(
+        core, "validate_source_training_data", validate_source
+    )
+    monkeypatch.setattr(core, "resolve_training_data", resolve_combined)
 
 
 def _copy_production_configs(repo_root: Path) -> dict[str, Path]:
@@ -107,6 +380,86 @@ def test_node16_paths_are_local_and_three_source():
         "/home/youngwoo/data/pixal3d/train/production/"
         "node16-preparation-evidence"
     )
+
+
+def test_deployment_manifest_verifies_archive_tree_without_git(tmp_path):
+    repo = tmp_path / "archive"
+    repo.mkdir()
+    tracked = repo / "scripts/entrypoint.py"
+    tracked.parent.mkdir()
+    tracked.write_text("#!/usr/bin/env python3\nprint('ok')\n")
+    tracked.chmod(0o755)
+    binding = _deployment_binding(tmp_path, repo)
+
+    evidence = core.verify_deployment_manifest(repo, binding)
+
+    assert evidence == {
+        "revision": "a" * 40,
+        "manifest": {
+            "path": str(binding.manifest_path.resolve()),
+            "sha256": binding.manifest_sha256,
+        },
+    }
+    assert not (repo / ".git").exists()
+
+
+@pytest.mark.parametrize("mutation", ("file", "extra", "digest", "revision"))
+def test_deployment_manifest_fails_closed_on_binding_or_tree_change(
+    tmp_path, mutation
+):
+    repo = tmp_path / "archive"
+    repo.mkdir()
+    tracked = repo / "tracked.txt"
+    tracked.write_text("reviewed\n")
+    binding = _deployment_binding(tmp_path, repo)
+    if mutation == "file":
+        tracked.write_text("changed\n")
+    elif mutation == "extra":
+        (repo / "unreviewed.txt").write_text("extra\n")
+    elif mutation == "digest":
+        binding = core.DeploymentBinding(
+            binding.expected_revision,
+            binding.manifest_path,
+            "b" * 64,
+        )
+    else:
+        binding = core.DeploymentBinding(
+            "b" * 40,
+            binding.manifest_path,
+            binding.manifest_sha256,
+        )
+
+    with pytest.raises(ValueError, match="deployment"):
+        core.verify_deployment_manifest(repo, binding)
+
+
+@pytest.mark.parametrize("entrypoint", ("plan", "execute"))
+def test_entrypoints_verify_reviewed_deployment_before_admission_or_mutation(
+    tmp_path, monkeypatch, entrypoint
+):
+    paths = _paths(tmp_path)
+    paths.repo_root.mkdir(parents=True)
+    tracked = paths.repo_root / "reviewed.py"
+    tracked.write_text("reviewed = True\n")
+    binding = _deployment_binding(tmp_path, paths.repo_root)
+    tracked.write_text("reviewed = False\n")
+    monkeypatch.setattr(
+        core,
+        "estimate_required_bytes",
+        lambda _paths: pytest.fail(
+            "deployment mismatch must abort before disk admission"
+        ),
+    )
+    function = (
+        core.plan_node16_training
+        if entrypoint == "plan"
+        else core.prepare_node16_training
+    )
+
+    with pytest.raises(ValueError, match="deployment"):
+        function(paths, binding)
+
+    assert not paths.local_root.exists()
 
 
 def test_insufficient_space_aborts_before_materialization(monkeypatch):
@@ -173,6 +526,23 @@ def test_runtime_configs_change_only_num_workers(tmp_path):
         assert runtime == original
 
 
+@pytest.mark.parametrize(
+    ("stage", "field"),
+    (("shape1024", "batch_split"), ("ss64", "num_workers")),
+)
+def test_runtime_evidence_rejects_integer_boolean_substitution(
+    tmp_path, stage, field
+):
+    outputs = create_runtime_configs(CONFIGS, tmp_path)
+    selected = outputs[stage]
+    value = json.loads(selected.read_text())
+    value["trainer"]["args"][field] = True
+    selected.write_bytes(core._canonical_json_bytes(value))
+
+    with pytest.raises(ValueError, match="runtime config"):
+        core.runtime_config_evidence(outputs)
+
+
 def test_invalid_last_source_config_aborts_before_any_local_mutation(
     tmp_path, monkeypatch
 ):
@@ -207,9 +577,10 @@ def test_invalid_last_source_config_aborts_before_any_local_mutation(
             "invalid config must abort before materialization"
         ),
     )
+    deployment = _deployment_binding(tmp_path, paths.repo_root)
 
     with pytest.raises(ValueError, match="source config semantics"):
-        prepare_node16_training(paths)
+        prepare_node16_training(paths, deployment)
 
     assert not paths.runtime_config_root.exists()
     assert not paths.production_root.exists()
@@ -611,9 +982,194 @@ def test_final_report_refuses_partial_evidence_root(tmp_path):
     assert not (paths.evidence_root / "report.json").exists()
 
 
-def test_report_reuse_rejects_unexpected_top_level_sibling(tmp_path):
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "source_identity",
+        "source_artifact_path",
+        "source_artifact_digest",
+        "source_artifact_semantics",
+        "source_missing_stage",
+        "source_stage_count",
+        "source_stage_scope",
+        "standalone_missing_stage",
+        "standalone_source_counts",
+        "standalone_sampling",
+        "combined_path",
+        "combined_digest",
+        "combined_artifact_semantics",
+        "combined_stage_counts",
+        "combined_stage_scope",
+        "combined_preflight",
+        "runtime_missing_stage",
+        "runtime_path",
+        "runtime_digest",
+        "runtime_semantics",
+        "launch_missing_stage",
+        "launch_swapped_config",
+    ),
+)
+def test_low_level_final_report_rejects_malformed_nested_evidence(
+    tmp_path, monkeypatch, mutation
+):
     paths = _paths(tmp_path)
     report = _valid_final_report(paths)
+    _patch_final_report_trust(monkeypatch, report)
+    if mutation == "source_identity":
+        report["sources"]["hssd"]["source"] = "3D-FUTURE"
+    elif mutation == "source_artifact_path":
+        report["sources"]["abo"]["artifacts"]["report"]["path"] = str(
+            paths.production_root / "abo/other.json"
+        )
+    elif mutation == "source_artifact_digest":
+        report["sources"]["3d-future"]["artifacts"]["handoff"][
+            "sha256"
+        ] = "0" * 64
+    elif mutation == "source_artifact_semantics":
+        artifacts = report["sources"]["hssd"]["artifacts"]
+        report_path = Path(artifacts["report"]["path"])
+        handoff_path = Path(artifacts["handoff"]["path"])
+        training_path = Path(artifacts["training_data"]["path"])
+        source_report = json.loads(report_path.read_text())
+        source_report["source"] = "Other"
+        report_path.write_bytes(
+            core._canonical_json_bytes(source_report)
+        )
+        artifacts["report"]["sha256"] = sha256(
+            report_path.read_bytes()
+        ).hexdigest()
+        handoff = {
+            **source_report,
+            "report": dict(artifacts["report"]),
+        }
+        handoff_path.write_bytes(core._canonical_json_bytes(handoff))
+        artifacts["handoff"]["sha256"] = sha256(
+            handoff_path.read_bytes()
+        ).hexdigest()
+        training = {
+            **handoff,
+            "handoff": dict(artifacts["handoff"]),
+        }
+        training_path.write_bytes(
+            core._canonical_json_bytes(training)
+        )
+        artifacts["training_data"]["sha256"] = sha256(
+            training_path.read_bytes()
+        ).hexdigest()
+    elif mutation == "source_missing_stage":
+        report["sources"]["hssd"]["stages"].pop("pbr1024")
+    elif mutation == "source_stage_count":
+        report["sources"]["hssd"]["stages"]["ss64"]["asset_count"] -= 1
+    elif mutation == "source_stage_scope":
+        report["sources"]["abo"]["stages"]["shape512"][
+            "asset_scope_sha256"
+        ] = "not-a-digest"
+    elif mutation == "standalone_missing_stage":
+        report["hssd_standalone_preflight"]["stages"].pop("shape1024")
+    elif mutation == "standalone_source_counts":
+        report["hssd_standalone_preflight"]["stages"]["ss64"][
+            "source_counts"
+        ] = {"ABO": 1}
+    elif mutation == "standalone_sampling":
+        report["hssd_standalone_preflight"]["stages"]["ss64"][
+            "sampling"
+        ] = "weighted"
+    elif mutation == "combined_path":
+        report["combined"]["path"] = str(
+            paths.combined_training_data.parent / "other.json"
+        )
+    elif mutation == "combined_digest":
+        report["combined"]["sha256"] = "0" * 64
+    elif mutation == "combined_artifact_semantics":
+        combined_path = Path(report["combined"]["path"])
+        combined_document = json.loads(combined_path.read_text())
+        combined_document["sampling"] = "weighted"
+        combined_path.write_bytes(
+            core._canonical_json_bytes(combined_document)
+        )
+        report["combined"]["sha256"] = sha256(
+            combined_path.read_bytes()
+        ).hexdigest()
+    elif mutation == "combined_stage_counts":
+        report["combined"]["stages"]["ss64"]["source_counts"]["HSSD"] -= 1
+    elif mutation == "combined_stage_scope":
+        report["combined"]["stages"]["shape512"][
+            "union_scope_sha256"
+        ] = "invalid"
+    elif mutation == "combined_preflight":
+        report["combined"]["preflight"]["stages"]["pbr1024"][
+            "collated_sources"
+        ] = ["HSSD", "ABO", "3D-FUTURE"]
+    elif mutation == "runtime_missing_stage":
+        report["runtime_configs"].pop("pbr1024")
+    elif mutation == "runtime_path":
+        report["runtime_configs"]["ss64"]["path"] = str(
+            paths.runtime_config_root / "other.json"
+        )
+    elif mutation == "runtime_digest":
+        report["runtime_configs"]["shape512"]["sha256"] = "0" * 64
+    elif mutation == "runtime_semantics":
+        report["runtime_configs"]["shape1024"][
+            "six_gpu_global_batch"
+        ] = 48
+    elif mutation == "launch_missing_stage":
+        report["launch_commands"].pop("shape512")
+    else:
+        report["launch_commands"]["ss64"] = report[
+            "launch_commands"
+        ]["shape512"]
+
+    with pytest.raises(ValueError, match="preparation report"):
+        core.write_final_report(paths, report)
+
+    assert not (paths.evidence_root / "report.json").exists()
+
+
+def test_low_level_final_report_requires_source_trust_validation(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    report = _valid_final_report(paths)
+    monkeypatch.setattr(
+        core,
+        "validate_source_training_data",
+        lambda *_args: (_ for _ in ()).throw(
+            ValueError("source trust sentinel")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="source trust"):
+        core.write_final_report(paths, report)
+
+    assert not (paths.evidence_root / "report.json").exists()
+
+
+def test_low_level_final_report_requires_combined_trust_validation(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    report = _valid_final_report(paths)
+    _patch_final_report_trust(monkeypatch, report)
+    monkeypatch.setattr(
+        core,
+        "resolve_training_data",
+        lambda *_args: (_ for _ in ()).throw(
+            ValueError("combined trust sentinel")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="combined trust"):
+        core.write_final_report(paths, report)
+
+    assert not (paths.evidence_root / "report.json").exists()
+
+
+def test_report_reuse_rejects_unexpected_top_level_sibling(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    report = _valid_final_report(paths)
+    _patch_final_report_trust(monkeypatch, report)
     output = core.write_final_report(paths, report)
     unexpected = paths.evidence_root / ".report.lock"
     unexpected.write_text("inspect")
@@ -625,10 +1181,12 @@ def test_report_reuse_rejects_unexpected_top_level_sibling(tmp_path):
     assert unexpected.read_text() == "inspect"
 
 
-def test_final_report_reuses_historical_disk_and_source_state(tmp_path):
+def test_final_report_reuses_historical_disk_and_source_state(
+    tmp_path, monkeypatch
+):
     paths = _paths(tmp_path)
     original = _valid_final_report(paths)
-    original["combined"] = {"sha256": "a" * 64}
+    _patch_final_report_trust(monkeypatch, original)
     output = core.write_final_report(paths, original)
     before = output.read_bytes()
     rerun = deepcopy(original)
@@ -641,7 +1199,8 @@ def test_final_report_reuses_historical_disk_and_source_state(tmp_path):
     assert output.read_bytes() == before
 
     changed = deepcopy(rerun)
-    changed["combined"]["sha256"] = "b" * 64
+    changed["disk"]["stage_expanded_pack_bytes"] += 1
+    changed["disk"]["required_bytes"] += 2
     with pytest.raises(
         FileExistsError, match="preparation report has different content"
     ):
@@ -654,10 +1213,11 @@ def test_final_report_reuses_historical_disk_and_source_state(tmp_path):
     ("missing_free", "integer_reused", "inconsistent_usage", "low_free"),
 )
 def test_existing_report_rejects_invalid_mandatory_dynamic_fields(
-    tmp_path, mutation
+    tmp_path, monkeypatch, mutation
 ):
     paths = _paths(tmp_path)
     valid = _valid_final_report(paths)
+    _patch_final_report_trust(monkeypatch, valid)
     output = core.write_final_report(paths, valid)
     invalid = deepcopy(valid)
     if mutation == "missing_free":
@@ -765,8 +1325,9 @@ def test_prepare_orders_sources_then_standalone_and_combined_validation(
             calls.append(("report", None)) or report
         ),
     )
+    deployment = _deployment_binding(tmp_path, paths.repo_root)
 
-    report = prepare_node16_training(paths)
+    report = prepare_node16_training(paths, deployment)
 
     assert calls[:6] == [
         ("materialize", "abo"),
@@ -785,6 +1346,12 @@ def test_prepare_orders_sources_then_standalone_and_combined_validation(
     assert report["disk"]["stage_expanded_pack_bytes"] == 123
     assert report["disk"]["required_bytes"] == 10 * GIB + 246
     assert report["combined"]["stages"] == scope_evidence
+    assert report["deployment"]["revision"] == (
+        deployment.expected_revision
+    )
+    assert report["deployment"]["manifest"]["sha256"] == (
+        deployment.manifest_sha256
+    )
 
 
 def test_source_preflight_stops_after_first_stage_initializes_cuda(
@@ -821,6 +1388,81 @@ def test_source_preflight_stops_after_first_stage_initializes_cuda(
     assert calls == ["ss64"]
 
 
+def test_abo_preflight_accepts_bound_node16_runtime_configs(
+    tmp_path, monkeypatch
+):
+    import torch
+    from scripts import preflight_multiview_production as production_preflight
+
+    paths = _paths(tmp_path)
+    spec = core.build_source_spec("abo", paths.data2_root)
+    runtime_configs = create_runtime_configs(
+        CONFIGS, paths.runtime_config_root
+    )
+    index_path = spec.indexes[0]
+    index_bytes = core._canonical_json_bytes(
+        {
+            "gate": "production",
+            "source": "ABO",
+            "shard_id": "ABO-00000",
+            "batches": {
+                batch: {}
+                for batch in spec.expected_batches["ABO-00000"]
+            },
+        }
+    )
+    materialization_bytes = core._canonical_json_bytes(
+        {
+            "source_index": {
+                "path": str(index_path),
+                "sha256": sha256(index_bytes).hexdigest(),
+            }
+        }
+    )
+    calls = []
+
+    def fixture_bytes(path):
+        selected = Path(path)
+        if selected == index_path:
+            return index_bytes
+        if selected.name == "materialization.json":
+            return materialization_bytes
+        raise AssertionError(f"unexpected read: {selected}")
+
+    def fixture_preflight(stage, root, config):
+        calls.append((stage, Path(root), Path(config)))
+        return stage
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
+    monkeypatch.setattr(
+        production_preflight._core,
+        "_existing_regular_bytes",
+        fixture_bytes,
+    )
+    monkeypatch.setattr(
+        production_preflight,
+        "_preflight_stage_for_fixture",
+        fixture_preflight,
+    )
+
+    results = core.preflight_all_source_stages(
+        spec,
+        paths.production_root / "abo",
+        runtime_configs,
+    )
+
+    assert results == {stage: stage for stage in CONFIGS}
+    assert calls == [
+        (
+            stage,
+            paths.production_root / "abo" / stage / "active",
+            runtime_configs[stage],
+        )
+        for stage in CONFIGS
+    ]
+
+
 def test_training_preflight_stops_after_first_stage_initializes_cuda(
     tmp_path, monkeypatch
 ):
@@ -853,6 +1495,8 @@ def test_plan_validates_inputs_without_creating_local_roots(
     tmp_path, monkeypatch
 ):
     paths = _paths(tmp_path)
+    paths.repo_root.mkdir(parents=True)
+    deployment = _deployment_binding(tmp_path, paths.repo_root)
     monkeypatch.setattr(
         core,
         "estimate_required_bytes",
@@ -870,12 +1514,19 @@ def test_plan_validates_inputs_without_creating_local_roots(
         },
     )
 
-    plan = core.plan_node16_training(paths)
+    plan = core.plan_node16_training(paths, deployment)
 
     assert plan["execute"] is False
     assert plan["combined_training_data"] == str(
         paths.combined_training_data
     )
+    assert plan["deployment"] == {
+        "revision": deployment.expected_revision,
+        "manifest": {
+            "path": str(deployment.manifest_path.resolve()),
+            "sha256": deployment.manifest_sha256,
+        },
+    }
     assert not paths.local_root.exists()
 
 
@@ -916,8 +1567,13 @@ def test_entrypoints_reject_noncanonical_roots_before_admission_or_mutation(
         if entrypoint == "plan"
         else core.prepare_node16_training
     )
+    deployment = core.DeploymentBinding(
+        expected_revision="a" * 40,
+        manifest_path=tmp_path / "unused-deployment-manifest.json",
+        manifest_sha256="b" * 64,
+    )
     with pytest.raises(ValueError, match="root"):
-        function(paths)
+        function(paths, deployment)
 
     assert not (tmp_path / "local" / "train").exists()
     assert not (tmp_path / "local" / "runtime-configs").exists()
@@ -965,3 +1621,69 @@ def test_cli_rejects_invalid_cuda_environment_before_torch_import(
         result.stderr + result.stdout
     )
     assert not marker.exists()
+
+
+def test_cli_rejects_bytecode_writes_before_project_import(tmp_path):
+    marker = tmp_path / "project-imported"
+    hook = tmp_path / "sitecustomize.py"
+    hook.write_text(
+        "import builtins, os\n"
+        "_original_import = builtins.__import__\n"
+        "def _guard(name, *args, **kwargs):\n"
+        "    if name.startswith('data_toolkit.pipeline.node16'):\n"
+        "        open(os.environ['PROJECT_IMPORT_MARKER'], 'w').write(name)\n"
+        "    return _original_import(name, *args, **kwargs)\n"
+        "builtins.__import__ = _guard\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        (str(tmp_path), str(Path.cwd()))
+    )
+    env["PROJECT_IMPORT_MARKER"] = str(marker)
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+
+    result = __import__("subprocess").run(
+        [
+            os.environ.get("PYTHON", "/opt/conda/envs/pixal3d/bin/python"),
+            "scripts/prepare_node16_training.py",
+        ],
+        cwd=Path.cwd(),
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "PYTHONDONTWRITEBYTECODE must be explicitly set to 1" in (
+        result.stderr + result.stdout
+    )
+    assert not marker.exists()
+
+
+def test_cli_requires_explicit_reviewed_deployment_binding():
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    result = __import__("subprocess").run(
+        [
+            os.environ.get("PYTHON", "/opt/conda/envs/pixal3d/bin/python"),
+            "scripts/prepare_node16_training.py",
+        ],
+        cwd=Path.cwd(),
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    output = result.stderr + result.stdout
+    for flag in (
+        "--expected-revision",
+        "--deployment-manifest",
+        "--deployment-manifest-sha256",
+    ):
+        assert flag in output

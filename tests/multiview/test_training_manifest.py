@@ -14,14 +14,21 @@ from data_toolkit.pipeline.training_manifest import (
     CANONICAL_SOURCES,
     STAGES,
     ResolvedTrainingData,
-    build_combined_training_data,
-    publish_combined_training_data,
-    resolve_training_data,
-    resolve_training_input,
 )
+from data_toolkit.pipeline.training_source_profiles import build_source_spec
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+build_combined_training_data = (
+    training_manifest._build_combined_training_data_for_fixture
+)
+publish_combined_training_data = (
+    training_manifest._publish_combined_training_data_for_fixture
+)
+resolve_training_data = training_manifest._resolve_training_data_for_fixture
+resolve_training_input = (
+    training_manifest._resolve_training_input_for_fixture
+)
 MULTIVIEW_CONFIGS = (
     (
         "configs/gen/"
@@ -344,6 +351,11 @@ def config():
 def test_verify_existing_cli_rejects_tampered_source_chain(
     source_inputs, monkeypatch, source, profile, tamper
 ):
+    monkeypatch.setattr(
+        production_preflight,
+        "validate_source_training_data",
+        training_manifest._validate_source_training_data_for_fixture,
+    )
     training_path = source_inputs[source]
     report_path, handoff_path, _training_path = _source_chain_paths(
         training_path
@@ -374,24 +386,15 @@ def test_verify_existing_cli_rejects_tampered_source_chain(
         report_path = selected_report
         expected = "report path"
 
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "preflight_multiview_production.py",
-            "--profile",
-            profile,
-            "--verify-existing",
-            "--report",
-            str(report_path),
-            "--handoff",
-            str(handoff_path),
-            "--training-data",
-            str(training_path),
-        ],
-    )
     with pytest.raises(ValueError, match=expected):
-        production_preflight.main()
+        production_preflight._verify_existing(
+            source,
+            {
+                "report": report_path,
+                "handoff": handoff_path,
+                "training-data": training_path,
+            },
+        )
 
 
 def test_combined_manifest_has_exact_sources_and_proportional_counts(
@@ -417,6 +420,84 @@ def test_hssd_source_training_data_resolves_as_one_source(
     assert resolved.sampling == "proportional-unweighted-concatenation"
 
 
+@pytest.mark.parametrize("source", ("ABO", "3D-FUTURE", "HSSD"))
+def test_public_launch_rejects_self_consistent_noncanonical_index_identity(
+    source_inputs, hssd_training_data, source
+):
+    """A repinned fixture index must not impersonate a production source."""
+    training_path = (
+        hssd_training_data
+        if source == "HSSD"
+        else source_inputs[source]
+    )
+
+    with pytest.raises(ValueError, match="canonical production profile"):
+        training_manifest.resolve_training_data(training_path, "ss64")
+
+
+def _pin_canonical_hssd_indexes(
+    training_data, tmp_path, *, omit_last_batch=False
+):
+    spec = build_source_spec("hssd", tmp_path / "shared")
+
+    def canonical_indexes(report):
+        records = []
+        for path in spec.indexes:
+            shard = path.stem
+            path.parent.mkdir(parents=True, exist_ok=True)
+            batches = {
+                batch: {}
+                for batch in spec.expected_batches[shard]
+            }
+            if omit_last_batch and shard == "HSSD-00001":
+                batches.pop(spec.expected_batches[shard][-1])
+            path.write_bytes(
+                _canonical_json_bytes(
+                    {
+                        "source": "HSSD",
+                        "shard_id": shard,
+                        "batches": batches,
+                    }
+                )
+            )
+            records.append(
+                {
+                    "shard_id": shard,
+                    "path": str(path),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+        report["source_indexes"] = records
+
+    _rewrite_source_chain(training_data, canonical_indexes)
+
+
+def test_public_launch_rejects_noncanonical_hssd_source_counts(
+    hssd_training_data, tmp_path
+):
+    """Canonical index names cannot authorize a three-asset HSSD profile."""
+    _pin_canonical_hssd_indexes(hssd_training_data, tmp_path)
+
+    with pytest.raises(ValueError, match="source count contract"):
+        training_manifest.resolve_training_data(
+            hssd_training_data, "ss64"
+        )
+
+
+def test_public_launch_rejects_noncanonical_index_batch_set(
+    hssd_training_data, tmp_path
+):
+    """Canonical paths cannot conceal a missing approved source batch."""
+    _pin_canonical_hssd_indexes(
+        hssd_training_data, tmp_path, omit_last_batch=True
+    )
+
+    with pytest.raises(ValueError, match="batch set"):
+        training_manifest.resolve_training_data(
+            hssd_training_data, "ss64"
+        )
+
+
 @pytest.mark.parametrize("source", ("ABO", "3D-FUTURE"))
 def test_legacy_waiver_source_training_data_remains_valid(
     source_inputs, source
@@ -439,6 +520,25 @@ def test_hssd_self_consistent_waiver_chain_is_rejected(
         ),
     )
     with pytest.raises(ValueError, match="acceptance contract"):
+        resolve_training_data(hssd_training_data, "ss64")
+
+
+def test_hssd_materialization_waiver_is_rejected(
+    hssd_training_data,
+):
+    def add_waiver(report):
+        root = Path(report["stages"]["ss64"]["root"])
+        path = root / "materialization.json"
+        evidence = json.loads(path.read_text())
+        evidence["waiver"] = "production-valid-subset"
+        path.write_bytes(_canonical_json_bytes(evidence))
+        report["materialization_evidence"]["ss64"]["sha256"] = (
+            hashlib.sha256(path.read_bytes()).hexdigest()
+        )
+
+    _rewrite_source_chain(hssd_training_data, add_waiver)
+
+    with pytest.raises(ValueError, match="waiver"):
         resolve_training_data(hssd_training_data, "ss64")
 
 
@@ -489,6 +589,53 @@ def test_source_acceptance_contract_rejects_integer_at_each_layer(
     )
     with pytest.raises(ValueError, match="acceptance contract"):
         resolve_training_data(training_path, "ss64")
+
+
+@pytest.mark.parametrize(
+    ("source", "mode", "integer_gate"),
+    (
+        ("ABO", "valid_subset_user_waiver", 0),
+        ("3D-FUTURE", "valid_subset_user_waiver", 0),
+        ("HSSD", "production_gate", 1),
+    ),
+)
+def test_production_materialization_acceptance_rejects_integer_gate(
+    source_inputs,
+    hssd_training_data,
+    source,
+    mode,
+    integer_gate,
+):
+    training_path = (
+        hssd_training_data
+        if source == "HSSD"
+        else source_inputs[source]
+    )
+    training = json.loads(training_path.read_text())
+    stage = training["stages"]["ss64"]
+    root = Path(stage["root"])
+    path = root / "materialization.json"
+    evidence = json.loads(path.read_text())
+    evidence.update(
+        {
+            "acceptance_mode": mode,
+            "original_90_percent_gate_passed": integer_gate,
+        }
+    )
+    if source != "HSSD":
+        evidence["waiver"] = "production-valid-subset"
+    path.write_bytes(_canonical_json_bytes(evidence))
+
+    with pytest.raises(ValueError, match="acceptance contract"):
+        training_manifest._validate_materialization(
+            source,
+            "ss64",
+            root,
+            stage["asset_count"],
+            stage["asset_scope_sha256"],
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+            require_production_profile=True,
+        )
 
 
 def test_three_source_bundle_preserves_canonical_order(
@@ -826,7 +973,9 @@ def test_publish_combined_training_data_preserves_unsafe_existing_node(
         assert (output / "sentinel").read_text() == "keep"
 
 
-def test_publish_script_accepts_explicit_safe_paths(source_inputs, tmp_path):
+def test_publish_script_rejects_noncanonical_fixture_profiles(
+    source_inputs, tmp_path
+):
     output = tmp_path / "script-output" / "training_data.json"
     result = subprocess.run(
         [
@@ -844,17 +993,12 @@ def test_publish_script_accepts_explicit_safe_paths(source_inputs, tmp_path):
         text=True,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["stages"]["ss64"] == {
-        "source_counts": {"ABO": 2, "3D-FUTURE": 5},
-        "total_count": 7,
-    }
-    assert json.loads(output.read_text())["sampling"] == (
-        "proportional-unweighted-concatenation"
-    )
+    assert result.returncode != 0
+    assert "canonical production profile" in result.stderr
+    assert not output.exists()
 
 
-def test_publish_script_accepts_optional_hssd_in_canonical_order(
+def test_publish_script_hssd_rejects_noncanonical_fixture_profiles(
     source_inputs, hssd_training_data, tmp_path
 ):
     output = tmp_path / "script-output" / "training_data.json"
@@ -872,12 +1016,13 @@ def test_publish_script_accepts_optional_hssd_in_canonical_order(
             str(output),
         ],
         cwd=Path(__file__).resolve().parents[2],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
-    payload = json.loads(completed.stdout)
-    assert payload["sources"] == ["ABO", "3D-FUTURE", "HSSD"]
+    assert completed.returncode != 0
+    assert "canonical production profile" in completed.stderr
+    assert not output.exists()
 
 
 def test_resolve_training_data_returns_verified_stage(source_inputs, manifest):

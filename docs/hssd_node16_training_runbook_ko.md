@@ -6,32 +6,92 @@ create-only이며 학습, 모델, CUDA context, W&B를 시작하지 않는다. �
 3D-FUTURE 두 source 증거와 launch는 [기존 전처리 runbook](data_preprocessing_runbook_ko.md)의
 기록이며, 이 문서의 세 source 증거로 소급해서 부르지 않는다.
 
-## 1. Node16 shell과 CPU-only 준비
+## 1. 검토 revision 배포와 CPU-only 준비
 
-아래 경로와 빈 `CUDA_VISIBLE_DEVICES`는 필수다. 준비 CLI는 변수가 없거나 비어 있지
-않으면 Python 모듈을 import하기 전에 실패한다.
+준비에 사용할 checkout은 검토가 끝난 commit의 `git archive`여야 한다. 검토 host에서
+아래처럼 commit ID, archive, 그리고 archive 안 모든 regular file의 mode/size/SHA-256을
+고정한 sidecar manifest를 함께 만든다. `DEPLOY_DIR`는 repository 바깥의 기존 directory여야
+하며 generator와 archive는 기존 파일을 덮어쓰지 않는다.
+
+```bash
+SOURCE_REPO=/absolute/path/to/reviewed/Pixal3D
+DEPLOY_DIR=/absolute/path/to/pixal3d-node16-release
+REVISION="$(git -C "$SOURCE_REPO" rev-parse HEAD)"
+ARCHIVE="$DEPLOY_DIR/Pixal3D-$REVISION.tar"
+DEPLOYMENT_MANIFEST="$DEPLOY_DIR/Pixal3D-$REVISION.deployment-manifest.json"
+
+test "${#REVISION}" -eq 40
+test ! -e "$ARCHIVE"
+test ! -e "$DEPLOYMENT_MANIFEST"
+
+python "$SOURCE_REPO/scripts/generate_node16_deployment_manifest.py" \
+  --repo-root "$SOURCE_REPO" \
+  --revision "$REVISION" \
+  --output "$DEPLOYMENT_MANIFEST"
+git -C "$SOURCE_REPO" archive \
+  --format=tar --output="$ARCHIVE" "$REVISION"
+
+sha256sum "$DEPLOYMENT_MANIFEST"
+sha256sum "$ARCHIVE"
+```
+
+출력된 정확한 `REVISION`과 deployment-manifest SHA-256을 release 기록에 보존한다.
+archive, manifest, 두 digest를 승인된 전송 경로로 Node16에 전달한다. Node16에서는 기존
+checkout 위에 풀지 않고, 비어 있는 새 절대 경로에 archive를 푼다. 이 checkout에는
+`.git`이 없어도 된다.
+
+```bash
+REVISION="<reviewed-40-lowercase-hex-commit>"
+DEPLOYMENT_MANIFEST_SHA256="<reviewed-64-lowercase-hex-digest>"
+ARCHIVE_SHA256="<reviewed-64-lowercase-hex-archive-digest>"
+ARCHIVE=/home/youngwoo/deployments/Pixal3D-$REVISION.tar
+DEPLOYMENT_MANIFEST=/home/youngwoo/deployments/Pixal3D-$REVISION.deployment-manifest.json
+REPO_ROOT=/home/youngwoo/Pixal3D-training-hssd
+
+test ! -e "$REPO_ROOT"
+echo "$DEPLOYMENT_MANIFEST_SHA256  $DEPLOYMENT_MANIFEST" | sha256sum -c -
+echo "$ARCHIVE_SHA256  $ARCHIVE" | sha256sum -c -
+mkdir "$REPO_ROOT"
+tar -xf "$ARCHIVE" -C "$REPO_ROOT"
+test ! -e "$REPO_ROOT/.git"
+```
+
+아래 경로, 빈 `CUDA_VISIBLE_DEVICES`, 그리고 `PYTHONDONTWRITEBYTECODE=1`은 필수다.
+마지막 변수는 manifest에 없는 `__pycache__`가 검증 전에 생기지 않게 한다. 준비 CLI는
+이 환경 계약이 맞지 않으면 project 모듈을 import하기 전에 실패한다. 두 준비 명령의
+revision/manifest/digest 인자는 위 release 기록의 같은 값을 그대로 사용하며 Node16의
+현재 파일에서 새 승인 값으로 재계산하지 않는다.
 
 ```bash
 source /home/youngwoo/miniconda3/etc/profile.d/conda.sh
 conda activate pixal3d
-cd /home/youngwoo/Pixal3D-training-hssd
+cd "$REPO_ROOT"
 export PYTHONPATH=.
 export CUDA_VISIBLE_DEVICES=""
+export PYTHONDONTWRITEBYTECODE=1
 
 python scripts/prepare_node16_training.py \
   --data2-root /file2/youngwoo/pixal3d \
   --local-root /home/youngwoo/data/pixal3d \
-  --repo-root /home/youngwoo/Pixal3D-training-hssd
+  --repo-root "$REPO_ROOT" \
+  --expected-revision "$REVISION" \
+  --deployment-manifest "$DEPLOYMENT_MANIFEST" \
+  --deployment-manifest-sha256 "$DEPLOYMENT_MANIFEST_SHA256"
 
 python scripts/prepare_node16_training.py \
   --data2-root /file2/youngwoo/pixal3d \
   --local-root /home/youngwoo/data/pixal3d \
-  --repo-root /home/youngwoo/Pixal3D-training-hssd \
+  --repo-root "$REPO_ROOT" \
+  --expected-revision "$REVISION" \
+  --deployment-manifest "$DEPLOYMENT_MANIFEST" \
+  --deployment-manifest-sha256 "$DEPLOYMENT_MANIFEST_SHA256" \
   --execute
 ```
 
 첫 명령은 read-only plan이다. disk admission과 canonical root 계약을 확인하지만 local
-production root를 만들지 않는다. 두 번째 명령만 실행한다. 실행은 다음 순서로 ABO,
+production root를 만들지 않는다. 두 명령 모두 disk admission이나 local mutation 전에
+checkout의 exact file inventory와 reviewed revision/manifest digest를 검증한다. 두 번째
+명령만 실행한다. 실행은 다음 순서로 ABO,
 3D-FUTURE, HSSD를 local root에 create-only로 materialize/publish하고, HSSD 단독
 loader preflight, 세 source 결합 manifest publish, 세 source loader preflight, 최종
 evidence report 작성을 수행한다.
@@ -61,6 +121,8 @@ report에서 다음을 함께 점검한다.
 
 - `cpu_only`가 `true`이고 `paths`의 `data2_root`, `local_root`, `repo_root`,
   `hssd_training_data`, `combined_training_data`가 위의 정확한 canonical path인지 확인한다.
+- `deployment.revision`이 위 `REVISION`과 같고 `deployment.manifest.path` 및
+  `deployment.manifest.sha256`이 승인된 sidecar와 정확히 같은지 확인한다.
 - `sources.hssd`의 report/handoff/training-data digest와 네 stage의 asset count,
   `asset_scope_sha256`, eligibility exclusion count를 기록한다. HSSD boundary는
   `HSSD-00000`의 20 batch와 `HSSD-00001`의 7 batch(총 frozen 6,670), 각 stage의

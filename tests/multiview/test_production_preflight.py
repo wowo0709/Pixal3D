@@ -21,6 +21,12 @@ from scripts.preflight_multiview_production import validate_stage_structure
 
 
 ASSET = "a" * 64
+production_build_report = preflight.build_report
+production_preflight_stage = preflight.preflight_stage
+fixture_build_report = preflight._build_report_for_fixture
+fixture_build_handoff = preflight._build_handoff_for_fixture
+fixture_publish_handoff = preflight._publish_handoff_for_fixture
+fixture_preflight_stage = preflight._preflight_stage_for_fixture
 
 
 def component_root(stage: str, root: Path, component: str) -> Path:
@@ -474,7 +480,7 @@ def test_preflight_stage_reads_materialization_scope_and_returns_frozen_result(t
         "assets": len(assets), "renders": len(assets) * 8, "latents": len(assets) * 2, "scales": len(assets) * 2,
     })
     monkeypatch.setattr(preflight, "validate_direct_loader", lambda _stage, _root, assets, _config: len(assets) * 2)
-    result = preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
+    result = fixture_preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
     assert result.stage == "ss64"
     assert result.root == root
     assert result.asset_count == HANDOFF_STAGE_COUNTS["ss64"]
@@ -506,7 +512,7 @@ def test_preflight_rejects_missing_altered_or_mismatched_materialization_root(tm
         evidence["stage_root"] = str((tmp_path / "other" / "active").resolve())
     (root / "materialization.json").write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="root"):
-        preflight.preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
+        fixture_preflight_stage("ss64", root, write_loader_config(tmp_path, "ss64"))
 
 
 HANDOFF_CANDIDATE_STAGE_COUNTS = {
@@ -535,6 +541,24 @@ HANDOFF_COUNTS = {
     "training_exclusions": HANDOFF_TRAINING_EXCLUSION_COUNTS,
     "stages": HANDOFF_STAGE_COUNTS,
 }
+
+
+def test_public_abo_report_rejects_noncanonical_fixture_index(tmp_path):
+    with pytest.raises(ValueError, match="canonical production profile"):
+        production_build_report(
+            tmp_path / "index.json",
+            "i" * 64,
+            {},
+            {},
+            "2026-07-25T00:00:00Z",
+        )
+
+
+def test_public_abo_stage_rejects_noncanonical_fixture_root(tmp_path):
+    with pytest.raises(ValueError, match="canonical production profile"):
+        production_preflight_stage(
+            "ss64", tmp_path / "ss64/active", preflight.CONFIGS["ss64"]
+        )
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -634,7 +658,7 @@ def test_build_report_rejects_any_eligibility_contract_mutation(tmp_path, mutati
         }
     results = with_evidence_digests(results, materializations)
     with pytest.raises(ValueError, match="materialization"):
-        preflight.build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+        fixture_build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
 
 
 def test_materialization_scope_rejects_a_training_excluded_directory(tmp_path):
@@ -658,7 +682,7 @@ def test_build_report_requires_materialization_bytes_bound_to_preflight(tmp_path
     results = with_evidence_digests(results, materializations)
     results["ss64"] = replace(results["ss64"], materialization_bytes=raw)
     with pytest.raises(ValueError, match="materialization"):
-        preflight.build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+        fixture_build_report(tmp_path / "index.json", "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
 
 
 def test_build_report_rejects_a_materialization_source_index_path_mismatch(tmp_path):
@@ -670,14 +694,14 @@ def test_build_report_rejects_a_materialization_source_index_path_mismatch(tmp_p
     materializations["shape512"]["source_index"]["path"] = str((tmp_path / "other-index.json").resolve())
     results = with_evidence_digests(results, materializations)
     with pytest.raises(ValueError, match="materialization"):
-        preflight.build_report(index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+        fixture_build_report(index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
 
 
 def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_path):
     """Dropping a waiver count, evidence digest, or stage root must invalidate the handoff."""
     index = tmp_path / "immutable-index.json"
     results, materializations = handoff_inputs(tmp_path, index_path=index)
-    report = preflight.build_report(
+    report = fixture_build_report(
         index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z"
     )
 
@@ -699,7 +723,7 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
         )
 
     report_path = tmp_path / "shared" / "report.json"
-    handoff = preflight.build_handoff(
+    handoff = fixture_build_handoff(
         report_path,
         hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
         report,
@@ -733,7 +757,7 @@ def test_report_and_handoff_preserve_waiver_evidence_and_isolated_data_dirs(tmp_
 def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(tmp_path, mutation):
     """A direct caller must not combine a valid report with another index or stage evidence."""
     results, materializations = handoff_inputs(tmp_path, index_path=tmp_path / "index-a.json")
-    report = preflight.build_report(
+    report = fixture_build_report(
         tmp_path / "index-a.json", "i" * 64, results, materializations,
         "2026-07-25T00:00:00Z",
     )
@@ -763,7 +787,7 @@ def test_build_handoff_rejects_report_not_bound_to_supplied_preflight_evidence(t
     else:
         report["created_at"] = "2026-07-26T00:00:00Z"
     with pytest.raises(ValueError):
-        preflight.build_handoff(
+        fixture_build_handoff(
             tmp_path / "report.json",
             hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
             report,
@@ -778,13 +802,13 @@ def test_build_handoff_rejects_noncanonical_report_source_index_path(tmp_path, p
     """A direct builder must not copy a relative or dot-dot source index into a handoff."""
     index = tmp_path / "index.json"
     results, materializations = handoff_inputs(tmp_path, index_path=index)
-    report = preflight.build_report(index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
+    report = fixture_build_report(index, "i" * 64, results, materializations, "2026-07-25T00:00:00Z")
     if path_spelling == "relative":
         report["source_index"]["path"] = os.path.relpath(index, Path.cwd())
     else:
         report["source_index"]["path"] = str(index.parent / "nested" / ".." / index.name)
     with pytest.raises(ValueError, match="source_index"):
-        preflight.build_handoff(
+        fixture_build_handoff(
             tmp_path / "report.json", hashlib.sha256(canonical_json_bytes(report)).hexdigest(),
             report, results, materializations, "2026-07-25T00:00:00Z",
         )
@@ -803,7 +827,7 @@ def test_handoff_rejects_noncanonical_materialization_scope(tmp_path, mutation):
         evidence["stage_scope"] = ["a"]
         evidence["stage_scope_sha256"] = "b" * 64
     with pytest.raises(ValueError):
-        preflight.build_report(
+        fixture_build_report(
             tmp_path / "index.json", "i" * 64, results, materializations,
             "2026-07-25T00:00:00Z",
         )
@@ -820,12 +844,12 @@ def test_publish_recovers_an_existing_report_with_its_original_timestamp(tmp_pat
         evidence["source_index"]["sha256"] = index_sha256
     results = with_evidence_digests(results, materializations)
     report_path = tmp_path / "shared" / "report.json"
-    report = preflight.build_report(index, index_sha256, results, materializations, "2026-01-01T00:00:00Z")
+    report = fixture_build_report(index, index_sha256, results, materializations, "2026-01-01T00:00:00Z")
     preflight.write_create_only_json(report_path, report)
     original = report_path.read_bytes()
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
-    preflight.publish_handoff(
+    fixture_publish_handoff(
         index, results, materializations, report_path, handoff_path, training_path,
         "2026-12-31T23:59:59Z",
     )
@@ -847,10 +871,10 @@ def test_publish_recovers_existing_report_and_handoff_after_local_failure(tmp_pa
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
-    preflight.publish_handoff(index, results, materializations, report_path, handoff_path, training_path, "2026-01-01T00:00:00Z")
+    fixture_publish_handoff(index, results, materializations, report_path, handoff_path, training_path, "2026-01-01T00:00:00Z")
     shared = (report_path.read_bytes(), handoff_path.read_bytes())
     training_path.unlink()
-    preflight.publish_handoff(index, results, materializations, report_path, handoff_path, training_path, "2026-12-31T23:59:59Z")
+    fixture_publish_handoff(index, results, materializations, report_path, handoff_path, training_path, "2026-12-31T23:59:59Z")
     assert (report_path.read_bytes(), handoff_path.read_bytes()) == shared
     assert training_path.exists()
 
@@ -869,14 +893,14 @@ def test_publish_handoff_reuses_identical_local_manifest_without_replacement(
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
-    preflight.publish_handoff(
+    fixture_publish_handoff(
         index, results, materializations, report_path, handoff_path,
         training_path, "2026-01-01T00:00:00Z",
     )
     original_inode = training_path.stat().st_ino
     original_bytes = training_path.read_bytes()
 
-    preflight.publish_handoff(
+    fixture_publish_handoff(
         index, results, materializations, report_path, handoff_path,
         training_path, "2026-12-31T23:59:59Z",
     )
@@ -897,7 +921,7 @@ def test_publish_rejects_evidence_reread_that_differs_from_preflight_bytes(tmp_p
     results = with_evidence_digests(results, materializations)
     materializations["ss64"]["tool_commits"] = ["later-mutation"]
     with pytest.raises(ValueError, match="materialization evidence"):
-        preflight.publish_handoff(index, results, materializations, tmp_path / "report.json", tmp_path / "handoff.json", tmp_path / "training.json", "2026-01-01T00:00:00Z")
+        fixture_publish_handoff(index, results, materializations, tmp_path / "report.json", tmp_path / "handoff.json", tmp_path / "training.json", "2026-01-01T00:00:00Z")
 
 
 def test_cli_rejects_byte_only_materialization_change_after_validation_without_publication(
@@ -933,23 +957,18 @@ def test_cli_rejects_byte_only_materialization_change_after_validation_without_p
     training_path = tmp_path / "local" / "training_data.json"
     monkeypatch.setattr(preflight, "preflight_stage", fake_preflight)
     monkeypatch.setattr(
-        "sys.argv",
-        [
-            "preflight_multiview_production.py",
-            "--root",
-            str(tmp_path / "isolated"),
-            "--index",
-            str(index),
-            "--report",
-            str(report_path),
-            "--handoff",
-            str(handoff_path),
-            "--training-data",
-            str(training_path),
-        ],
+        preflight, "publish_handoff", fixture_publish_handoff
     )
     with pytest.raises(ValueError, match="materialization evidence"):
-        preflight.main()
+        preflight._publish_legacy_abo(
+            index,
+            tmp_path / "isolated",
+            {
+                "report": report_path,
+                "handoff": handoff_path,
+                "training-data": training_path,
+            },
+        )
     assert seen == list(HANDOFF_STAGE_COUNTS)
     assert not report_path.exists()
     assert not handoff_path.exists()
@@ -1010,7 +1029,7 @@ def test_publish_handoff_withholds_all_outputs_until_every_stage_passes(tmp_path
     handoff = tmp_path / "shared" / "handoff.json"
     training_data = tmp_path / "local" / "training_data.json"
     with pytest.raises(ValueError, match="strict preflight"):
-        preflight.publish_handoff(
+        fixture_publish_handoff(
             index, results, materializations, report, handoff, training_data,
             "2026-07-25T00:00:00Z",
         )
@@ -1032,7 +1051,7 @@ def test_publish_handoff_cross_links_canonical_shared_artifacts_before_local_man
     report_path = tmp_path / "shared" / "report.json"
     handoff_path = tmp_path / "shared" / "handoff.json"
     training_path = tmp_path / "local" / "training_data.json"
-    assert preflight.publish_handoff(
+    assert fixture_publish_handoff(
         index, results, materializations, report_path, handoff_path, training_path,
         "2026-07-25T00:00:00Z",
     ) == (report_path, handoff_path, training_path)
@@ -1070,7 +1089,7 @@ def test_publish_handoff_withholds_local_manifest_when_shared_handoff_rejects_co
     handoff_path.write_text('{"different":true}\n')
     training_path = tmp_path / "local" / "training_data.json"
     with pytest.raises(ValueError, match="existing handoff"):
-        preflight.publish_handoff(
+        fixture_publish_handoff(
             index, results, materializations, report_path, handoff_path, training_path,
             "2026-07-25T00:00:00Z",
         )
@@ -1099,7 +1118,7 @@ def test_publish_handoff_rejects_materialization_evidence_not_bound_to_preflight
     handoff = tmp_path / "shared" / "handoff.json"
     training_data = tmp_path / "local" / "training_data.json"
     with pytest.raises(ValueError, match="materialization evidence"):
-        preflight.publish_handoff(
+        fixture_publish_handoff(
             index, results, materializations, report, handoff, training_data,
             "2026-07-25T00:00:00Z",
         )
@@ -1142,15 +1161,31 @@ def test_cli_completes_all_strict_preflights_before_requesting_handoff(tmp_path,
         (root / "materialization.json").write_bytes(canonical_json_bytes(evidence))
     monkeypatch.setattr(preflight, "preflight_stage", fake_preflight)
     monkeypatch.setattr(preflight, "publish_handoff", fake_publish)
-    monkeypatch.setattr("sys.argv", [
-        "preflight_multiview_production.py",
-        "--root", str(tmp_path / "isolated"),
-        "--index", str(index),
-        "--report", str(tmp_path / "shared" / "report.json"),
-        "--handoff", str(tmp_path / "shared" / "handoff.json"),
-        "--training-data", str(tmp_path / "local" / "training_data.json"),
-    ])
-    preflight.main()
+    preflight._publish_legacy_abo(
+        index,
+        tmp_path / "isolated",
+        {
+            "report": tmp_path / "shared" / "report.json",
+            "handoff": tmp_path / "shared" / "handoff.json",
+            "training-data": tmp_path / "local" / "training_data.json",
+        },
+    )
+
+
+def test_cli_rejects_legacy_abo_path_opt_out(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight_multiview_production.py",
+            "--profile",
+            "abo",
+            "--root",
+            str(tmp_path / "train/production/abo"),
+        ],
+    )
+    with pytest.raises(ValueError, match="canonical production profile"):
+        preflight.main()
 
 
 def test_3d_future_profile_uses_source_specific_publication_paths(monkeypatch):
@@ -1214,23 +1249,14 @@ def test_verify_existing_is_read_only_and_prints_all_digests(
         lambda source, received: validated.append((source, received)),
         raising=False,
     )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "preflight_multiview_production.py",
-            "--profile",
-            "abo",
-            "--verify-existing",
-            "--report",
-            str(paths[0]),
-            "--handoff",
-            str(paths[1]),
-            "--training-data",
-            str(paths[2]),
-        ],
+    preflight._verify_existing(
+        "ABO",
+        {
+            "report": paths[0],
+            "handoff": paths[1],
+            "training-data": paths[2],
+        },
     )
-    preflight.main()
     assert validated == [
         (
             "ABO",

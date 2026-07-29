@@ -8,11 +8,15 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import re
 import shutil
 import stat
 from typing import Mapping
 
 from data_toolkit.pipeline.training_manifest import (
+    AUTHORIZATION,
+    SAMPLING,
     STAGES,
     publish_combined_training_data,
     resolve_training_data,
@@ -98,6 +102,13 @@ class PreparationPaths:
 class DiskEstimate:
     stage_expanded_pack_bytes: int
     required_bytes: int
+
+
+@dataclass(frozen=True)
+class DeploymentBinding:
+    expected_revision: str
+    manifest_path: Path
+    manifest_sha256: str
 
 
 @dataclass(frozen=True)
@@ -309,6 +320,136 @@ def _canonical_json_bytes(value: object) -> bytes:
     return (
         json.dumps(value, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
+
+
+def _deployment_error(message: str) -> ValueError:
+    return ValueError(f"deployment manifest {message}")
+
+
+def _deployment_record(
+    repo_root: Path, path: Path
+) -> dict[str, object]:
+    relative = path.relative_to(repo_root).as_posix()
+    raw = _regular_bytes(path, "deployment file")
+    mode = os.lstat(path).st_mode
+    return {
+        "path": relative,
+        "mode": "100755" if mode & 0o111 else "100644",
+        "size": len(raw),
+        "sha256": sha256(raw).hexdigest(),
+    }
+
+
+def verify_deployment_manifest(
+    repo_root: Path, binding: DeploymentBinding
+) -> dict[str, object]:
+    """Verify an extracted reviewed archive without consulting Git metadata."""
+    if not isinstance(binding, DeploymentBinding):
+        raise TypeError("deployment binding must be a DeploymentBinding")
+    revision = binding.expected_revision
+    manifest_digest = binding.manifest_sha256
+    if (
+        not isinstance(revision, str)
+        or re.fullmatch(r"[0-9a-f]{40}", revision) is None
+        or not isinstance(manifest_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", manifest_digest) is None
+    ):
+        raise _deployment_error("binding is invalid")
+    root = Path(repo_root)
+    _validate_canonical_owned_root(root, "deployment repo root")
+    if not root.is_dir() or root.is_symlink():
+        raise _deployment_error(f"repo root is not a safe directory: {root}")
+    manifest_path = Path(binding.manifest_path)
+    if (
+        not manifest_path.is_absolute()
+        or manifest_path != manifest_path.resolve(strict=False)
+    ):
+        raise _deployment_error("path must be absolute and canonical")
+    try:
+        if manifest_path.is_relative_to(root):
+            raise _deployment_error("must be stored outside the repo root")
+        raw = _regular_bytes(manifest_path, "deployment manifest")
+    except (FileExistsError, OSError) as error:
+        raise _deployment_error("is not a regular non-symlink file") from error
+    if sha256(raw).hexdigest() != manifest_digest:
+        raise _deployment_error("digest does not match expected SHA-256")
+    try:
+        manifest = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise _deployment_error("is not valid JSON") from error
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest)
+        != {"schema_version", "revision", "hash_algorithm", "files"}
+        or manifest["schema_version"] != 1
+        or type(manifest["schema_version"]) is not int
+        or manifest["revision"] != revision
+        or manifest["hash_algorithm"] != "sha256"
+        or not isinstance(manifest["files"], list)
+    ):
+        raise _deployment_error("schema or reviewed revision is invalid")
+    expected_records = []
+    expected_paths: set[str] = set()
+    for value in manifest["files"]:
+        if not isinstance(value, dict) or set(value) != {
+            "path",
+            "mode",
+            "size",
+            "sha256",
+        }:
+            raise _deployment_error("file record shape is invalid")
+        relative = value["path"]
+        pure = PurePosixPath(relative) if isinstance(relative, str) else None
+        if (
+            pure is None
+            or not relative
+            or pure.is_absolute()
+            or ".." in pure.parts
+            or "." in pure.parts
+            or "\\" in relative
+            or relative in expected_paths
+            or value["mode"] not in {"100644", "100755"}
+            or type(value["size"]) is not int
+            or value["size"] < 0
+            or not isinstance(value["sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", value["sha256"]) is None
+        ):
+            raise _deployment_error("file record is invalid")
+        expected_paths.add(relative)
+        expected_records.append(value)
+    if expected_records != sorted(
+        expected_records, key=lambda record: record["path"]
+    ):
+        raise _deployment_error("file inventory is not sorted")
+    actual_records = []
+    for directory, directory_names, file_names in os.walk(
+        root, followlinks=False
+    ):
+        parent = Path(directory)
+        for name in directory_names:
+            candidate = parent / name
+            if candidate.is_symlink():
+                raise _deployment_error(
+                    f"tree contains a symlink: {candidate}"
+                )
+        for name in file_names:
+            candidate = parent / name
+            try:
+                actual_records.append(_deployment_record(root, candidate))
+            except (FileExistsError, OSError) as error:
+                raise _deployment_error(
+                    f"tree contains an unsafe file: {candidate}"
+                ) from error
+    actual_records.sort(key=lambda record: record["path"])
+    if actual_records != expected_records:
+        raise _deployment_error("file inventory does not match reviewed archive")
+    return {
+        "revision": revision,
+        "manifest": {
+            "path": str(manifest_path),
+            "sha256": manifest_digest,
+        },
+    }
 
 
 def _exclusive_create(path: Path, payload: bytes) -> None:
@@ -842,7 +983,14 @@ def runtime_config_evidence(
             "multiview_stage": stage,
         }
         actual = {name: args.get(name) for name in expected}
-        if actual != expected:
+        numeric_names = set(expected) - {"multiview_stage"}
+        if (
+            actual != expected
+            or any(
+                type(actual[name]) is not int
+                for name in numeric_names
+            )
+        ):
             raise ValueError(
                 f"runtime config changes approved semantics: {path}: "
                 f"expected={expected} actual={actual}"
@@ -894,6 +1042,523 @@ def _report_invariants(
     return invariant
 
 
+def _report_mapping(
+    value: object, keys: set[str], label: str
+) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise ValueError(
+            f"preparation report has invalid {label} evidence"
+        )
+    return value
+
+
+def _report_digest(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"[0-9a-f]{64}", value) is None
+    ):
+        raise ValueError(
+            f"preparation report has invalid {label} digest"
+        )
+    return value
+
+
+def _report_artifact(
+    value: object, expected_path: Path, label: str
+) -> None:
+    record = _report_mapping(
+        value, {"path", "sha256"}, f"{label} artifact"
+    )
+    expected = Path(expected_path)
+    selected = record["path"]
+    if (
+        not isinstance(selected, str)
+        or selected != str(expected)
+        or expected != expected.resolve(strict=False)
+    ):
+        raise ValueError(
+            f"preparation report has invalid {label} artifact path"
+        )
+    digest = _report_digest(record["sha256"], label)
+    try:
+        actual = sha256(_regular_bytes(expected, label)).hexdigest()
+    except (FileExistsError, OSError) as error:
+        raise ValueError(
+            f"preparation report has invalid {label} artifact"
+        ) from error
+    if actual != digest:
+        raise ValueError(
+            f"preparation report has changed {label} artifact"
+        )
+
+
+def _validate_report_deployment(
+    paths: PreparationPaths, value: object
+) -> None:
+    deployment = _report_mapping(
+        value, {"revision", "manifest"}, "deployment"
+    )
+    manifest = _report_mapping(
+        deployment["manifest"],
+        {"path", "sha256"},
+        "deployment manifest",
+    )
+    revision = deployment["revision"]
+    path = manifest["path"]
+    digest = manifest["sha256"]
+    if not isinstance(path, str):
+        raise ValueError(
+            "preparation report has invalid deployment manifest path"
+        )
+    try:
+        actual = verify_deployment_manifest(
+            paths.repo_root,
+            DeploymentBinding(
+                expected_revision=revision,
+                manifest_path=Path(path),
+                manifest_sha256=digest,
+            ),
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "preparation report has invalid deployment evidence"
+        ) from error
+    if dict(deployment) != actual:
+        raise ValueError(
+            "preparation report has invalid deployment evidence"
+        )
+
+
+def _validate_report_sources(
+    paths: PreparationPaths, value: object
+) -> dict[str, dict[str, int]]:
+    sources = _report_mapping(
+        value, set(SOURCE_PROFILE_NAMES), "source"
+    )
+    source_counts = {stage: {} for stage in STAGES}
+    for profile in SOURCE_PROFILE_NAMES:
+        source = _report_mapping(
+            sources[profile],
+            {"source", "reused", "artifacts", "stages"},
+            f"source={profile}",
+        )
+        spec = build_source_spec(profile, paths.data2_root)
+        if (
+            source["source"] != spec.source
+            or type(source["reused"]) is not bool
+        ):
+            raise ValueError(
+                f"preparation report has invalid source={profile} identity"
+            )
+        output = source_output_root(profile, paths.local_root)
+        artifacts = _report_mapping(
+            source["artifacts"],
+            {"report", "handoff", "training_data"},
+            f"source={profile} artifacts",
+        )
+        for label, relative in {
+            "report": Path("publication/report.json"),
+            "handoff": Path("publication/handoff.json"),
+            "training_data": Path("training_data.json"),
+        }.items():
+            _report_artifact(
+                artifacts[label],
+                output / relative,
+                f"source={profile} {label}",
+            )
+        stages = _report_mapping(
+            source["stages"], set(STAGES), f"source={profile} stages"
+        )
+        for stage in STAGES:
+            record = _report_mapping(
+                stages[stage],
+                {
+                    "asset_count",
+                    "asset_scope_sha256",
+                    "eligibility_exclusion_count",
+                },
+                f"source={profile} stage={stage}",
+            )
+            count = record["asset_count"]
+            exclusions = record["eligibility_exclusion_count"]
+            if (
+                type(count) is not int
+                or count <= 0
+                or type(exclusions) is not int
+                or exclusions < 0
+            ):
+                raise ValueError(
+                    "preparation report has invalid source stage counts"
+                )
+            if spec.fixed_count_contract is None:
+                expected_count = (
+                    spec.expected_candidate_stages[stage] - exclusions
+                )
+            else:
+                expected_count = spec.fixed_count_contract["stages"][stage]
+                if (
+                    exclusions
+                    != spec.fixed_count_contract["training_exclusions"][
+                        stage
+                    ]
+                ):
+                    raise ValueError(
+                        "preparation report has invalid fixed source "
+                        "exclusions"
+                    )
+            if (
+                count != expected_count
+                or exclusions > spec.expected_candidate_stages[stage]
+            ):
+                raise ValueError(
+                    "preparation report has invalid source count contract"
+                )
+            _report_digest(
+                record["asset_scope_sha256"],
+                f"source={profile} stage={stage} scope",
+            )
+            source_counts[stage][spec.source] = count
+        try:
+            report_document = _json_object(
+                _regular_bytes(
+                    output / "publication/report.json",
+                    f"source={profile} report",
+                ),
+                output / "publication/report.json",
+                f"source={profile} report",
+            )
+            handoff_document = _json_object(
+                _regular_bytes(
+                    output / "publication/handoff.json",
+                    f"source={profile} handoff",
+                ),
+                output / "publication/handoff.json",
+                f"source={profile} handoff",
+            )
+            training_document = _json_object(
+                _regular_bytes(
+                    output / "training_data.json",
+                    f"source={profile} training_data",
+                ),
+                output / "training_data.json",
+                f"source={profile} training_data",
+            )
+        except (FileExistsError, OSError, ValueError) as error:
+            raise ValueError(
+                f"preparation report has invalid source={profile} "
+                "publication artifacts"
+            ) from error
+        expected_handoff = {
+            **report_document,
+            "report": dict(artifacts["report"]),
+        }
+        expected_training = {
+            **handoff_document,
+            "handoff": dict(artifacts["handoff"]),
+        }
+        if (
+            report_document.get("source") != spec.source
+            or handoff_document != expected_handoff
+            or training_document != expected_training
+        ):
+            raise ValueError(
+                f"preparation report has invalid source={profile} "
+                "publication chain"
+            )
+        report_counts = report_document.get("counts")
+        report_stages = report_document.get("stages")
+        if (
+            not isinstance(report_counts, Mapping)
+            or not isinstance(report_stages, Mapping)
+            or set(report_stages) != set(STAGES)
+            or not isinstance(
+                report_counts.get("training_exclusions"), Mapping
+            )
+            or not isinstance(report_counts.get("stages"), Mapping)
+        ):
+            raise ValueError(
+                f"preparation report has invalid source={profile} "
+                "publication counts"
+            )
+        for stage in STAGES:
+            published_stage = report_stages[stage]
+            if (
+                not isinstance(published_stage, Mapping)
+                or published_stage.get("asset_count")
+                != stages[stage]["asset_count"]
+                or published_stage.get("asset_scope_sha256")
+                != stages[stage]["asset_scope_sha256"]
+                or report_counts["training_exclusions"].get(stage)
+                != stages[stage]["eligibility_exclusion_count"]
+                or report_counts["stages"].get(stage)
+                != stages[stage]["asset_count"]
+            ):
+                raise ValueError(
+                    f"preparation report has invalid source={profile} "
+                    f"published stage={stage} evidence"
+                )
+        try:
+            validated = validate_source_training_data(
+                spec.source, output / "training_data.json"
+            )
+        except (FileExistsError, OSError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"preparation report source={profile} source trust "
+                f"validation failed: {error}"
+            ) from error
+        if (
+            validated.source != spec.source
+            or validated.path != output / "training_data.json"
+            or validated.sha256 != artifacts["training_data"]["sha256"]
+            or validated.report_path != output / "publication/report.json"
+            or validated.report_sha256 != artifacts["report"]["sha256"]
+            or validated.handoff_path
+            != output / "publication/handoff.json"
+            or validated.handoff_sha256 != artifacts["handoff"]["sha256"]
+        ):
+            raise ValueError(
+                f"preparation report has invalid source={profile} "
+                "validated artifact evidence"
+            )
+        for stage in STAGES:
+            validated_stage = validated.stages[stage]
+            if (
+                validated_stage.total_count
+                != stages[stage]["asset_count"]
+                or validated_stage.union_scope_sha256
+                != stages[stage]["asset_scope_sha256"]
+            ):
+                raise ValueError(
+                    f"preparation report has invalid source={profile} "
+                    f"validated stage={stage} evidence"
+                )
+    return source_counts
+
+
+def _validate_report_preflight(
+    value: object,
+    expected_counts: Mapping[str, Mapping[str, int]],
+    label: str,
+) -> None:
+    container = _report_mapping(value, {"stages"}, label)
+    stages = _report_mapping(
+        container["stages"], set(STAGES), f"{label} stages"
+    )
+    for stage in STAGES:
+        record = _report_mapping(
+            stages[stage],
+            {
+                "stage",
+                "source_counts",
+                "total_count",
+                "sampling",
+                "boundary_instances_checked",
+                "collated_sources",
+            },
+            f"{label} stage={stage}",
+        )
+        counts = expected_counts[stage]
+        total = sum(counts.values())
+        if (
+            record["stage"] != stage
+            or record["source_counts"] != counts
+            or not isinstance(record["source_counts"], Mapping)
+            or type(record["total_count"]) is not int
+            or record["total_count"] != total
+            or record["sampling"] != SAMPLING
+            or type(record["boundary_instances_checked"]) is not int
+            or record["boundary_instances_checked"]
+            != sum(min(count, 2) for count in counts.values())
+            or record["collated_sources"] != list(counts)
+        ):
+            raise ValueError(
+                f"preparation report has invalid {label} stage={stage}"
+            )
+
+
+def _validate_report_runtime(
+    paths: PreparationPaths, value: object
+) -> dict[str, Path]:
+    runtime = _report_mapping(
+        value, set(STAGES), "runtime config"
+    )
+    paths_by_stage = {
+        stage: (
+            paths.runtime_config_root
+            / f"{source.stem}.node16-workers1.json"
+        )
+        for stage, source in CONFIGS.items()
+    }
+    for stage, expected_path in paths_by_stage.items():
+        record = runtime[stage]
+        if (
+            not isinstance(record, Mapping)
+            or record.get("path") != str(expected_path)
+        ):
+            raise ValueError(
+                "preparation report has invalid runtime config path"
+            )
+    try:
+        expected = runtime_config_evidence(paths_by_stage)
+    except (FileExistsError, OSError, ValueError) as error:
+        raise ValueError(
+            "preparation report has invalid runtime config evidence"
+        ) from error
+    if runtime != expected:
+        raise ValueError(
+            "preparation report has invalid runtime config semantics"
+        )
+    return paths_by_stage
+
+
+def _validate_report_combined(
+    paths: PreparationPaths,
+    value: object,
+    source_counts: Mapping[str, Mapping[str, int]],
+) -> None:
+    combined = _report_mapping(
+        value, {"path", "sha256", "stages", "preflight"}, "combined"
+    )
+    _report_artifact(
+        {"path": combined["path"], "sha256": combined["sha256"]},
+        paths.combined_training_data,
+        "combined training_data",
+    )
+    try:
+        combined_document = _json_object(
+            _regular_bytes(
+                paths.combined_training_data,
+                "combined training_data",
+            ),
+            paths.combined_training_data,
+            "combined training_data",
+        )
+    except (FileExistsError, OSError, ValueError) as error:
+        raise ValueError(
+            "preparation report has invalid combined artifact"
+        ) from error
+    expected_source_references = {}
+    for profile in SOURCE_PROFILE_NAMES:
+        spec = build_source_spec(profile, paths.data2_root)
+        output = source_output_root(profile, paths.local_root)
+        training_path = output / "training_data.json"
+        handoff_path = output / "publication/handoff.json"
+        expected_source_references[spec.source] = {
+            "training_data": {
+                "path": str(training_path),
+                "sha256": sha256(
+                    _regular_bytes(
+                        training_path,
+                        f"source={profile} training_data",
+                    )
+                ).hexdigest(),
+            },
+            "handoff": {
+                "path": str(handoff_path),
+                "sha256": sha256(
+                    _regular_bytes(
+                        handoff_path,
+                        f"source={profile} handoff",
+                    )
+                ).hexdigest(),
+            },
+        }
+    if (
+        set(combined_document)
+        != {
+            "schema_version",
+            "authorization",
+            "sampling",
+            "sources",
+            "stages",
+        }
+        or combined_document.get("schema_version") != 1
+        or type(combined_document.get("schema_version")) is not int
+        or combined_document.get("authorization") != AUTHORIZATION
+        or combined_document.get("sampling") != SAMPLING
+        or combined_document.get("sources")
+        != expected_source_references
+    ):
+        raise ValueError(
+            "preparation report has invalid combined artifact semantics"
+        )
+    published_stages = combined_document.get("stages")
+    if (
+        not isinstance(published_stages, Mapping)
+        or set(published_stages) != set(STAGES)
+    ):
+        raise ValueError(
+            "preparation report has invalid combined artifact stages"
+        )
+    stages = _report_mapping(
+        combined["stages"], set(STAGES), "combined stages"
+    )
+    for stage in STAGES:
+        record = _report_mapping(
+            stages[stage],
+            {"source_counts", "total_count", "union_scope_sha256"},
+            f"combined stage={stage}",
+        )
+        expected = source_counts[stage]
+        if (
+            record["source_counts"] != expected
+            or not isinstance(record["source_counts"], Mapping)
+            or type(record["total_count"]) is not int
+            or record["total_count"] != sum(expected.values())
+        ):
+            raise ValueError(
+                "preparation report has invalid combined stage counts"
+            )
+        _report_digest(
+            record["union_scope_sha256"],
+            f"combined stage={stage} scope",
+        )
+        published = published_stages[stage]
+        if (
+            not isinstance(published, Mapping)
+            or set(published)
+            != {
+                "source_counts",
+                "total_count",
+                "union_scope_sha256",
+                "data_dir",
+            }
+            or published.get("source_counts") != record["source_counts"]
+            or published.get("total_count") != record["total_count"]
+            or published.get("union_scope_sha256")
+            != record["union_scope_sha256"]
+            or not isinstance(published.get("data_dir"), Mapping)
+        ):
+            raise ValueError(
+                "preparation report has invalid combined published "
+                f"stage={stage} evidence"
+            )
+        try:
+            resolved = resolve_training_data(
+                paths.combined_training_data, stage
+            )
+        except (FileExistsError, OSError, TypeError, ValueError) as error:
+            raise ValueError(
+                "preparation report combined trust validation failed "
+                f"for stage={stage}: {error}"
+            ) from error
+        if (
+            resolved.path != paths.combined_training_data
+            or resolved.manifest_sha256 != combined["sha256"]
+            or resolved.source_counts != record["source_counts"]
+            or resolved.total_count != record["total_count"]
+            or resolved.union_scope_sha256
+            != record["union_scope_sha256"]
+        ):
+            raise ValueError(
+                "preparation report has invalid combined validated "
+                f"stage={stage} evidence"
+            )
+    _validate_report_preflight(
+        combined["preflight"], source_counts, "combined preflight"
+    )
+
+
 def _validate_preparation_report_shape(
     paths: PreparationPaths,
     report: Mapping[str, object],
@@ -901,6 +1566,7 @@ def _validate_preparation_report_shape(
     top_level = {
         "schema_version",
         "cpu_only",
+        "deployment",
         "paths",
         "disk",
         "sources",
@@ -913,7 +1579,7 @@ def _validate_preparation_report_shape(
         raise ValueError("preparation report has invalid top-level shape")
     if (
         type(report["schema_version"]) is not int
-        or report["schema_version"] != 1
+        or report["schema_version"] != 2
         or report["cpu_only"] is not True
     ):
         raise ValueError("preparation report has invalid schema evidence")
@@ -926,6 +1592,7 @@ def _validate_preparation_report_shape(
     }
     if report["paths"] != expected_paths:
         raise ValueError("preparation report has invalid path evidence")
+    _validate_report_deployment(paths, report["deployment"])
     disk = report["disk"]
     disk_keys = {
         "path",
@@ -950,33 +1617,25 @@ def _validate_preparation_report_shape(
         != disk["stage_expanded_pack_bytes"] * 2 + 10 * GIB
     ):
         raise ValueError("preparation report has invalid disk invariants")
-    sources = report["sources"]
-    if (
-        not isinstance(sources, Mapping)
-        or set(sources) != set(SOURCE_PROFILE_NAMES)
-    ):
-        raise ValueError("preparation report has invalid source evidence")
-    for profile in SOURCE_PROFILE_NAMES:
-        source = sources[profile]
-        if (
-            not isinstance(source, Mapping)
-            or "reused" not in source
-            or type(source["reused"]) is not bool
-        ):
-            raise ValueError(
-                "preparation report has invalid source reused evidence: "
-                f"{profile}"
-            )
-    for name in (
-        "hssd_standalone_preflight",
-        "combined",
-        "runtime_configs",
-        "launch_commands",
-    ):
-        if not isinstance(report[name], Mapping):
-            raise ValueError(
-                f"preparation report has invalid {name} evidence"
-            )
+    source_counts = _validate_report_sources(paths, report["sources"])
+    hssd_counts = {
+        stage: {"HSSD": source_counts[stage]["HSSD"]}
+        for stage in STAGES
+    }
+    _validate_report_preflight(
+        report["hssd_standalone_preflight"],
+        hssd_counts,
+        "HSSD standalone preflight",
+    )
+    _validate_report_combined(paths, report["combined"], source_counts)
+    runtime_paths = _validate_report_runtime(
+        paths, report["runtime_configs"]
+    )
+    expected_launch = _launch_commands(paths, runtime_paths)
+    if report["launch_commands"] != expected_launch:
+        raise ValueError(
+            "preparation report has invalid launch command evidence"
+        )
 
 
 def write_final_report(
@@ -1015,9 +1674,14 @@ def write_final_report(
     return output
 
 
-def plan_node16_training(paths: PreparationPaths) -> dict[str, object]:
+def plan_node16_training(
+    paths: PreparationPaths, deployment: DeploymentBinding
+) -> dict[str, object]:
     """Validate shared contracts and disk admission without local writes."""
     validate_roots(paths)
+    deployment_evidence = verify_deployment_manifest(
+        paths.repo_root, deployment
+    )
     estimate = estimate_required_bytes(paths)
     disk = assert_free_space(paths.local_root, estimate.required_bytes)
     return {
@@ -1029,6 +1693,7 @@ def plan_node16_training(paths: PreparationPaths) -> dict[str, object]:
         "combined_training_data": str(paths.combined_training_data),
         "runtime_config_root": str(paths.runtime_config_root),
         "evidence_root": str(paths.evidence_root),
+        "deployment": deployment_evidence,
         "disk": {
             **disk,
             "stage_expanded_pack_bytes":
@@ -1040,10 +1705,14 @@ def plan_node16_training(paths: PreparationPaths) -> dict[str, object]:
 
 def prepare_node16_training(
     paths: PreparationPaths,
+    deployment: DeploymentBinding,
 ) -> Path:
     """Execute the complete create-only Node16 preparation workflow."""
     require_cpu_only_environment()
     validate_roots(paths)
+    deployment_evidence = verify_deployment_manifest(
+        paths.repo_root, deployment
+    )
     source_configs = _config_paths(paths)
     validate_source_configs(source_configs)
     estimate = estimate_required_bytes(paths)
@@ -1063,8 +1732,9 @@ def prepare_node16_training(
         paths.combined_training_data, runtime_configs
     )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "cpu_only": True,
+        "deployment": deployment_evidence,
         "paths": {
             "data2_root": str(paths.data2_root),
             "local_root": str(paths.local_root),

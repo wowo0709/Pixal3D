@@ -9,16 +9,31 @@ from PIL import Image
 import pytest
 import torch
 
+import data_toolkit.pipeline.training_manifest as training_manifest
+import scripts.preflight_multisource_training as preflight_module
 from data_toolkit.pipeline.training_manifest import (
     STAGES,
-    publish_combined_training_data,
-    resolve_training_data,
 )
 from scripts.preflight_multisource_training import (
     CONFIGS,
     preflight_multisource_stage,
 )
 from tests.multiview.test_training_manifest import _write_source
+
+
+publish_combined_training_data = (
+    training_manifest._publish_combined_training_data_for_fixture
+)
+resolve_training_data = training_manifest._resolve_training_data_for_fixture
+
+
+@pytest.fixture(autouse=True)
+def _use_private_fixture_manifest_boundary(monkeypatch):
+    monkeypatch.setattr(
+        preflight_module,
+        "resolve_training_data",
+        training_manifest._resolve_training_data_for_fixture,
+    )
 
 
 class _TrainingFixture:

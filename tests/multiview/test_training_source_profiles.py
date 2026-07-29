@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from data_toolkit.pipeline.training_source_profiles import (
     SOURCE_PROFILE_NAMES,
     build_source_spec,
     source_output_root,
+    validate_production_source_spec,
 )
 
 
@@ -78,3 +80,91 @@ def test_unknown_profile_is_rejected():
     assert SOURCE_PROFILE_NAMES == ("abo", "3d-future", "hssd")
     with pytest.raises(ValueError, match="unknown source profile"):
         build_source_spec("toys4k", Path("/file2/youngwoo/pixal3d"))
+
+
+@pytest.mark.parametrize(
+    ("profile", "mutation"),
+    (
+        ("hssd", lambda spec: replace(spec, source="3D-FUTURE")),
+        (
+            "hssd",
+            lambda spec: replace(spec, indexes=tuple(reversed(spec.indexes))),
+        ),
+        (
+            "hssd",
+            lambda spec: replace(
+                spec,
+                indexes=(
+                    spec.indexes[0].with_name("HSSD-99999.json"),
+                    spec.indexes[1],
+                ),
+            ),
+        ),
+        (
+            "hssd",
+            lambda spec: replace(
+                spec,
+                expected_batches={
+                    **spec.expected_batches,
+                    "HSSD-00000": tuple(
+                        reversed(spec.expected_batches["HSSD-00000"])
+                    ),
+                },
+            ),
+        ),
+        ("hssd", lambda spec: replace(spec, expected_frozen=3)),
+        (
+            "hssd",
+            lambda spec: replace(
+                spec,
+                expected_candidate_stages={
+                    **spec.expected_candidate_stages,
+                    "ss64": 3,
+                },
+            ),
+        ),
+        ("abo", lambda spec: replace(spec, fixed_count_contract=None)),
+        (
+            "3d-future",
+            lambda spec: replace(
+                spec, acceptance_mode="production_gate"
+            ),
+        ),
+        (
+            "hssd",
+            lambda spec: replace(
+                spec, original_90_percent_gate_passed=1
+            ),
+        ),
+    ),
+)
+def test_production_profile_validation_rejects_noncanonical_contracts(
+    profile, mutation
+):
+    """A named source must not substitute any part of its approved profile."""
+    spec = build_source_spec(profile, Path("/srv/data2/pixal3d"))
+
+    with pytest.raises(ValueError, match="canonical production profile"):
+        validate_production_source_spec(mutation(spec))
+
+
+@pytest.mark.parametrize("profile", SOURCE_PROFILE_NAMES)
+def test_production_profile_validation_preserves_root_relocation(profile):
+    root = Path("/srv/data2/pixal3d")
+    spec = build_source_spec(profile, root)
+
+    validated_profile, validated_root = validate_production_source_spec(spec)
+
+    assert validated_profile == profile
+    assert validated_root == root
+
+
+def test_production_profile_validation_rejects_symlinked_data_root(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(real, target_is_directory=True)
+    spec = build_source_spec("hssd", linked)
+
+    with pytest.raises(ValueError, match="canonical production profile"):
+        validate_production_source_spec(spec)
