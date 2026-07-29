@@ -111,6 +111,7 @@ export CUDA_VISIBLE_DEVICES="<operator-selected-id-1>,<operator-selected-id-2>,<
 
 LOG_DIR=/file3/youngwoo/pixal3d/logs/hssd-node16
 mkdir -p "$LOG_DIR"
+export LOG_DIR
 ```
 
 학습 output/checkpoint는 각 config의 기존 `/file3/youngwoo/pixal3d/ckpts/` path를
@@ -122,19 +123,27 @@ session을 시작한다.
 
 각 명령은 준비 report에서 검증한 combined manifest를 `--training_data`에 직접 넘기고,
 해당 Node16 runtime config를 사용한다. `--num_gpus 6`은 visible GPU 여섯 개를 사용한다.
+`LOG_DIR`는 export하며, 각 `tmux new-session`의 `-e` option은 현재 선택한
+`CUDA_VISIBLE_DEVICES`와 `LOG_DIR`를 tmux server의 오래된 ambient environment에 의존하지
+않고 inner Bash에 전달한다. 큰따옴표 안의 `\$CUDA_VISIBLE_DEVICES`와 `\$LOG_DIR`는 outer
+shell이 아닌 `/bin/bash -lc`가 확장한다.
 
 ```bash
 tmux new-session -d -s node16-ss64 \
-  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/ss64.log\""
+  -e "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" -e "LOG_DIR=$LOG_DIR" \
+  "/bin/bash -lc 'set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"\$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"\$LOG_DIR/ss64.log\"'"
 
 tmux new-session -d -s node16-shape512 \
-  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/shape512.log\""
+  -e "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" -e "LOG_DIR=$LOG_DIR" \
+  "/bin/bash -lc 'set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"\$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"\$LOG_DIR/shape512.log\"'"
 
 tmux new-session -d -s node16-shape1024 \
-  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/shape1024.log\""
+  -e "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" -e "LOG_DIR=$LOG_DIR" \
+  "/bin/bash -lc 'set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"\$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"\$LOG_DIR/shape1024.log\"'"
 
 tmux new-session -d -s node16-pbr1024 \
-  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/pbr1024.log\""
+  -e "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" -e "LOG_DIR=$LOG_DIR" \
+  "/bin/bash -lc 'set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"\$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"\$LOG_DIR/pbr1024.log\"'"
 ```
 
 이 네 명령은 queue나 병렬 실행 명령이 아니다. 첫 `node16-ss64`만 시작하고 그 명령이
