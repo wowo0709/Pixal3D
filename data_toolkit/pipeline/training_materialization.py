@@ -25,7 +25,6 @@ from data_toolkit.pipeline.packing import (  # noqa: E402
     verify_pack,
 )
 from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
-    ABO_COUNT_CONTRACT,
     EXPECTED_CANDIDATE_STAGE_COUNTS,
     EXPECTED_FINAL_STAGE_COUNTS,
     EXPECTED_FROZEN_COUNT,
@@ -38,25 +37,27 @@ from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
     observed_count_contract,
     policy_evidence,
 )
+from data_toolkit.pipeline.training_source_profiles import (  # noqa: E402
+    ProductionSourceSpec,
+    build_source_spec,
+    source_output_root,
+)
 from data_toolkit.pipeline.validation import ValidationError  # noqa: E402
 
 
-DEFAULT_INDEX = Path("/root/data2/pixal3d/prepared/index/ABO/ABO-00000.json")
-DEFAULT_PREPARED = Path("/root/data2/pixal3d/prepared")
-DEFAULT_OUTPUT = Path("/root/node17/data/pixal3d/train/production/abo")
-THREED_FUTURE_INDEXES = (
-    Path(
-        "/root/data2/pixal3d/prepared/index/3D-FUTURE/"
-        "3D-FUTURE-00000.json"
-    ),
-    Path(
-        "/root/data2/pixal3d/prepared/index/3D-FUTURE/"
-        "3D-FUTURE-00001.json"
-    ),
+DEFAULT_DATA2_ROOT = Path("/root/data2/pixal3d")
+DEFAULT_LOCAL_ROOT = Path("/root/node17/data/pixal3d")
+ABO_SOURCE_SPEC = build_source_spec("abo", DEFAULT_DATA2_ROOT)
+THREED_FUTURE_SOURCE_SPEC = build_source_spec(
+    "3d-future", DEFAULT_DATA2_ROOT
 )
-THREED_FUTURE_OUTPUT = Path(
-    "/root/node17/data/pixal3d/train/production/3d-future"
-)
+HSSD_SOURCE_SPEC = build_source_spec("hssd", DEFAULT_DATA2_ROOT)
+
+DEFAULT_INDEX = ABO_SOURCE_SPEC.indexes[0]
+DEFAULT_PREPARED = DEFAULT_DATA2_ROOT / "prepared"
+DEFAULT_OUTPUT = source_output_root("abo", DEFAULT_LOCAL_ROOT)
+THREED_FUTURE_INDEXES = THREED_FUTURE_SOURCE_SPEC.indexes
+THREED_FUTURE_OUTPUT = source_output_root("3d-future", DEFAULT_LOCAL_ROOT)
 SOURCE = "ABO"
 SHARD_ID = "ABO-00000"
 EXPECTED_BATCHES = tuple(f"batch{index:03d}" for index in range(18))
@@ -97,54 +98,6 @@ _FAMILY_METADATA_FIELDS = {
         "pbr_latent_view01_encoded",
     ),
 }
-
-
-@dataclass(frozen=True)
-class ProductionSourceSpec:
-    """Immutable source inputs and acceptance/count contracts."""
-
-    source: str
-    indexes: tuple[Path, ...]
-    expected_batches: Mapping[str, tuple[str, ...]]
-    expected_frozen: int
-    expected_candidate_stages: Mapping[str, int]
-    fixed_count_contract: Mapping[str, object] | None
-    acceptance_mode: str
-    original_90_percent_gate_passed: bool
-
-
-ABO_SOURCE_SPEC = ProductionSourceSpec(
-    source=SOURCE,
-    indexes=(DEFAULT_INDEX,),
-    expected_batches={SHARD_ID: EXPECTED_BATCHES},
-    expected_frozen=EXPECTED_FROZEN_COUNT,
-    expected_candidate_stages=EXPECTED_CANDIDATE_STAGE_COUNTS,
-    fixed_count_contract=ABO_COUNT_CONTRACT,
-    acceptance_mode="valid_subset_user_waiver",
-    original_90_percent_gate_passed=False,
-)
-THREED_FUTURE_SOURCE_SPEC = ProductionSourceSpec(
-    source="3D-FUTURE",
-    indexes=THREED_FUTURE_INDEXES,
-    expected_batches={
-        "3D-FUTURE-00000": tuple(
-            f"batch{index:03d}" for index in range(20)
-        ),
-        "3D-FUTURE-00001": tuple(
-            f"batch{index:03d}" for index in range(18)
-        ),
-    },
-    expected_frozen=9472,
-    expected_candidate_stages={
-        "ss64": 8495,
-        "shape512": 8513,
-        "shape1024": 8495,
-        "pbr1024": 8495,
-    },
-    fixed_count_contract=None,
-    acceptance_mode="valid_subset_user_waiver",
-    original_90_percent_gate_passed=False,
-)
 
 
 @dataclass(frozen=True)
