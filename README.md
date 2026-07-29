@@ -183,6 +183,12 @@ The operator must first check GPU ownership and available memory, then set
 commands intentionally do not select devices and do not assume that GPU 0 is
 available.
 
+These are verified **two-source** ABO + 3D-FUTURE commands and evidence. For
+the separate Node16-local ABO + 3D-FUTURE + HSSD preparation, runtime-config,
+tmux, monitoring, and resume procedure, use the Korean
+[Node16 HSSD three-source training runbook](docs/hssd_node16_training_runbook_ko.md).
+Do not relabel the two-source evidence below as three-source evidence.
+
 ```bash
 TRAINING_DATA=/root/node17/data/pixal3d/train/production/abo-3d-future/training_data.json
 

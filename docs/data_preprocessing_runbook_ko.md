@@ -832,6 +832,26 @@ conda run --no-capture-output -n pixal3d python train.py \
 operator가 확인하고 종료 또는 승인한 뒤 다음 stage를 시작한다. 이 절의 preflight나
 publication 명령 자체는 training 시작 권한이 아니다.
 
+### HSSD completed-source boundary와 Node16 3-source 준비
+
+위 절의 2026-07-28 측정값과 launch는 ABO + 3D-FUTURE **두 source** 증거다. HSSD를
+추가했다고 해서 기존 final count, digest, 또는 loader 결과를 세 source 결과로 다시
+표기하지 않는다.
+
+HSSD의 Node16 source boundary는 `HSSD-00000` 20 batch와 `HSSD-00001` 7 batch, 총
+frozen 6,670 asset이다. 네 stage의 candidate contract는 각각 6,078이고, HSSD는
+`production_gate`를 통과한 경우에만 training input으로 허용한다. final active count와
+digest는 과거 두-source 기록에서 추정하지 않고 Node16 preparation report의 실제 evidence로
+확인한다.
+
+Node16에서는 공유 `/file2/youngwoo/pixal3d`를 source로 읽고 local
+`/home/youngwoo/data/pixal3d`에 ABO, 3D-FUTURE, HSSD를 create-only로 준비한다. driver는
+HSSD-only configured Dataset/DataLoader preflight와 three-source combined preflight를
+모두 성공시킨 뒤 report를 쓴다. 정확한 CPU-only 준비 command, report/digest/runtime-config
+검사, one-at-a-time six-GPU launch, tmux monitoring, same-command resume, partial-artifact
+보존 규칙은 [Node16 HSSD 3-source 학습 runbook](hssd_node16_training_runbook_ko.md)을
+따른다. 이 준비 workflow는 training을 자동 시작하지 않는다.
+
 ## 8. 모델 구현 시점
 
 데이터 단계에서 최소한 다음 조건을 만족한 뒤 모델 구현으로 이동한다.
