@@ -255,6 +255,34 @@ def _rewrite_report_reference_only(training_path, mutate):
     training_path.write_bytes(_canonical_json_bytes(training))
 
 
+def _rewrite_acceptance_gate_layer(
+    training_path, layer, integer_gate
+):
+    training = json.loads(training_path.read_text())
+    handoff_path = Path(training["handoff"]["path"])
+    handoff = json.loads(handoff_path.read_text())
+    report_path = Path(handoff["report"]["path"])
+    if layer == "report":
+        report = json.loads(report_path.read_text())
+        report["original_90_percent_gate_passed"] = integer_gate
+        report_path.write_bytes(_canonical_json_bytes(report))
+        handoff["report"]["sha256"] = hashlib.sha256(
+            report_path.read_bytes()
+        ).hexdigest()
+        training["report"]["sha256"] = handoff["report"]["sha256"]
+    elif layer == "handoff":
+        handoff["original_90_percent_gate_passed"] = integer_gate
+    else:
+        training["original_90_percent_gate_passed"] = integer_gate
+        training_path.write_bytes(_canonical_json_bytes(training))
+        return
+    handoff_path.write_bytes(_canonical_json_bytes(handoff))
+    training["handoff"]["sha256"] = hashlib.sha256(
+        handoff_path.read_bytes()
+    ).hexdigest()
+    training_path.write_bytes(_canonical_json_bytes(training))
+
+
 def _rewrite_materialization(training_path, stage, mutate):
     training = json.loads(training_path.read_text())
     materialization_path = (
@@ -434,6 +462,30 @@ def test_source_acceptance_contract_rejects_integer_gate(
         lambda report: report.__setitem__(
             "original_90_percent_gate_passed", integer_gate
         ),
+    )
+    with pytest.raises(ValueError, match="acceptance contract"):
+        resolve_training_data(training_path, "ss64")
+
+
+@pytest.mark.parametrize(
+    ("source", "integer_gate"),
+    (("ABO", 0), ("3D-FUTURE", 0), ("HSSD", 1)),
+)
+@pytest.mark.parametrize("layer", ("report", "handoff", "training_data"))
+def test_source_acceptance_contract_rejects_integer_at_each_layer(
+    source_inputs,
+    hssd_training_data,
+    source,
+    integer_gate,
+    layer,
+):
+    training_path = (
+        hssd_training_data
+        if source == "HSSD"
+        else source_inputs[source]
+    )
+    _rewrite_acceptance_gate_layer(
+        training_path, layer, integer_gate
     )
     with pytest.raises(ValueError, match="acceptance contract"):
         resolve_training_data(training_path, "ss64")

@@ -305,6 +305,23 @@ def _expected_data_dir(
     }
 
 
+def _validate_acceptance_contract(
+    source: str,
+    value: Mapping[str, object],
+    label: str,
+) -> None:
+    expected_mode, expected_gate = SOURCE_ACCEPTANCE_CONTRACTS[source]
+    gate = value.get("original_90_percent_gate_passed")
+    if (
+        value.get("acceptance_mode") != expected_mode
+        or type(gate) is not bool
+        or gate is not expected_gate
+    ):
+        raise ValueError(
+            f"source={source} {label} acceptance contract is invalid"
+        )
+
+
 def _validate_report_chain(
     source: str, handoff: Mapping[str, object]
 ) -> tuple[Path, str]:
@@ -329,6 +346,8 @@ def _validate_report_chain(
     schema = _SOURCE_SCHEMAS[source]
     fields = _REPORT_FIELDS[schema]
     _exact_keys(report, set(fields), f"source={source} report")
+    _validate_acceptance_contract(source, report, "report")
+    _validate_acceptance_contract(source, handoff, "handoff")
     _validate_source_indexes(source, report)
     expected_handoff = {
         key: report[key] for key in fields
@@ -541,17 +560,7 @@ def _validate_source_training_data_value(
         or handoff.get("authorization") != AUTHORIZATION
     ):
         raise ValueError(f"source={source} handoff identity is invalid")
-    acceptance_contract = (
-        value.get("acceptance_mode"),
-        value.get("original_90_percent_gate_passed"),
-    )
-    if (
-        type(acceptance_contract[1]) is not bool
-        or acceptance_contract != SOURCE_ACCEPTANCE_CONTRACTS[source]
-    ):
-        raise ValueError(
-            f"source={source} acceptance contract is invalid"
-        )
+    _validate_acceptance_contract(source, value, "training data")
     stage_records = _stage_mapping(
         value.get("stages"), f"source={source} stage records"
     )
