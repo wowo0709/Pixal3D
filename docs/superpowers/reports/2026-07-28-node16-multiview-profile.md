@@ -159,7 +159,7 @@ remain below the requested 6 GiB.
 
 NATTEN `cutlass-fna` requested another 20 GiB on GPU3 with 9.62 GiB free. The
 profile process held 83.15 GiB, including 67.32 GiB allocated and 14.97 GiB
-reserved but unallocated. This is recorded as a current-configuration OOM; no
+reserved but unallocated. This is recorded as a historical pre-fix OOM; no
 unplanned allocator or split change was made.
 
 ### `shape1024 8/4`
@@ -193,9 +193,9 @@ added and explicitly recorded.
 | `pbr1024` | OOM before step 1 | requested 36 GiB with 35.28 GiB free; profile 54.90 GiB; external 4.77 GiB Nuclio; only 712.64 MiB reserved-unallocated | 85,693 / 96,001 / 85,715 / 97,247 / 75,901 / 97,162 | `pbr1024-b8s4-diagnostic-expandable-attempt2` |
 
 The diagnostics sharply reduced reserved-but-unallocated memory but still
-failed at the same multiview stack-copy operation. The current implementation,
-not merely allocator fragmentation, prevents these stages from running at
-`8/4` under the approved coexistence baseline.
+failed at the same multiview stack-copy operation. The historical pre-fix
+implementation, not merely allocator fragmentation, prevented these stages
+from running at `8/4` under the approved coexistence baseline.
 
 ## Dependency evidence
 
