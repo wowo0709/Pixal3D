@@ -31,6 +31,60 @@ def _paths(tmp_path: Path) -> PreparationPaths:
     )
 
 
+def _valid_final_report(paths: PreparationPaths) -> dict[str, object]:
+    stage_bytes = 50
+    required = stage_bytes * 2 + 10 * GIB
+    free = required + 1_000
+    used = 200
+    return {
+        "schema_version": 1,
+        "cpu_only": True,
+        "paths": {
+            "data2_root": str(paths.data2_root),
+            "local_root": str(paths.local_root),
+            "repo_root": str(paths.repo_root),
+            "hssd_training_data": str(paths.hssd_training_data),
+            "combined_training_data": str(paths.combined_training_data),
+        },
+        "disk": {
+            "path": str(paths.local_root),
+            "required_bytes": required,
+            "stage_expanded_pack_bytes": stage_bytes,
+            "total_bytes": used + free,
+            "used_bytes": used,
+            "free_bytes": free,
+        },
+        "sources": {
+            profile: {"reused": False}
+            for profile in ("abo", "3d-future", "hssd")
+        },
+        "hssd_standalone_preflight": {},
+        "combined": {},
+        "runtime_configs": {},
+        "launch_commands": {},
+    }
+
+
+def _copy_production_configs(repo_root: Path) -> dict[str, Path]:
+    outputs = {}
+    for stage, relative in CONFIGS.items():
+        output = repo_root / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(relative, output)
+        outputs[stage] = output
+    return outputs
+
+
+def _create_complete_source_topology(output: Path) -> None:
+    for stage in core.STAGES:
+        (output / stage / "active").mkdir(parents=True)
+    publication = output / "publication"
+    publication.mkdir()
+    (publication / "report.json").write_text("{}")
+    (publication / "handoff.json").write_text("{}")
+    (output / "training_data.json").write_text("{}")
+
+
 def test_node16_paths_are_local_and_three_source():
     paths = PreparationPaths.from_roots(
         data2_root=Path("/file2/youngwoo/pixal3d"),
@@ -119,6 +173,48 @@ def test_runtime_configs_change_only_num_workers(tmp_path):
         assert runtime == original
 
 
+def test_invalid_last_source_config_aborts_before_any_local_mutation(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    paths.data2_root.mkdir()
+    paths.local_root.mkdir()
+    paths.repo_root.mkdir()
+    source_configs = _copy_production_configs(paths.repo_root)
+    invalid = json.loads(source_configs["pbr1024"].read_text())
+    invalid["trainer"]["args"]["max_steps"] = 1
+    source_configs["pbr1024"].write_text(json.dumps(invalid))
+    monkeypatch.setattr(
+        core,
+        "estimate_required_bytes",
+        lambda _paths: DiskEstimate(1, 10 * GIB + 2),
+    )
+    monkeypatch.setattr(
+        core,
+        "assert_free_space",
+        lambda root, required: {
+            "path": str(root),
+            "required_bytes": required,
+            "total_bytes": required + 2,
+            "used_bytes": 1,
+            "free_bytes": required + 1,
+        },
+    )
+    monkeypatch.setattr(
+        core,
+        "materialize_source",
+        lambda *_args: pytest.fail(
+            "invalid config must abort before materialization"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="source config semantics"):
+        prepare_node16_training(paths)
+
+    assert not paths.runtime_config_root.exists()
+    assert not paths.production_root.exists()
+
+
 def test_runtime_config_reuses_semantically_equal_existing_json(tmp_path):
     outputs = create_runtime_configs(CONFIGS, tmp_path)
     selected = outputs["ss64"]
@@ -164,6 +260,20 @@ def test_runtime_configs_refuse_partial_existing_output_set(tmp_path):
     } == {retained.name}
 
 
+def test_runtime_config_reuse_rejects_unexpected_top_level_sibling(
+    tmp_path,
+):
+    outputs = create_runtime_configs(CONFIGS, tmp_path)
+    unexpected = tmp_path / ".runtime.lock"
+    unexpected.write_text("inspect")
+
+    with pytest.raises(ValueError, match="runtime config topology"):
+        create_runtime_configs(CONFIGS, tmp_path)
+
+    assert unexpected.read_text() == "inspect"
+    assert all(path.exists() for path in outputs.values())
+
+
 def test_partial_source_reports_every_path_without_mutation(
     tmp_path, monkeypatch
 ):
@@ -201,14 +311,12 @@ def test_existing_source_reuse_runs_chain_and_stage_verification(
 ):
     paths = _paths(tmp_path)
     output = paths.production_root / "hssd"
+    _create_complete_source_topology(output)
     publication = {
         "report": output / "publication/report.json",
         "handoff": output / "publication/handoff.json",
         "training-data": output / "training_data.json",
     }
-    for path in publication.values():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{}")
     calls = []
     validated = SimpleNamespace(
         source="HSSD",
@@ -246,9 +354,7 @@ def test_materialize_source_reuses_complete_existing_source(
     tmp_path, monkeypatch
 ):
     paths = _paths(tmp_path)
-    training_data = paths.production_root / "abo" / "training_data.json"
-    training_data.parent.mkdir(parents=True)
-    training_data.write_text("{}")
+    _create_complete_source_topology(paths.production_root / "abo")
     calls = []
     expected = SimpleNamespace(reused=True)
     monkeypatch.setattr(
@@ -266,6 +372,34 @@ def test_materialize_source_reuses_complete_existing_source(
 
     assert materialize_source("abo", paths, CONFIGS) is expected
     assert calls[0][0] == "ABO"
+
+
+def test_source_reuse_rejects_unexpected_top_level_sibling(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    output = paths.production_root / "hssd"
+    for stage in core.STAGES:
+        (output / stage / "active").mkdir(parents=True)
+    publication = output / "publication"
+    publication.mkdir()
+    (publication / "report.json").write_text("{}")
+    (publication / "handoff.json").write_text("{}")
+    (output / "training_data.json").write_text("{}")
+    unexpected = output / ".ss64.staging"
+    unexpected.mkdir()
+    monkeypatch.setattr(
+        core,
+        "verify_existing_source",
+        lambda *_args: pytest.fail(
+            "unexpected source topology must abort before trust validation"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="source output topology"):
+        materialize_source("hssd", paths, CONFIGS)
+
+    assert unexpected.is_dir()
 
 
 def test_materialize_source_refuses_partial_root_before_catalog_load(
@@ -382,6 +516,26 @@ def test_publish_combined_refuses_partial_output_root(
     assert not paths.combined_training_data.exists()
 
 
+def test_combined_reuse_rejects_unexpected_top_level_sibling(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    paths.combined_training_data.parent.mkdir(parents=True)
+    paths.combined_training_data.write_text("{}")
+    unexpected = paths.combined_training_data.parent / "staging"
+    unexpected.mkdir()
+    monkeypatch.setattr(
+        core,
+        "publish_combined_training_data",
+        lambda _sources, output: output,
+    )
+
+    with pytest.raises(ValueError, match="combined output topology"):
+        core.publish_combined(paths)
+
+    assert unexpected.is_dir()
+
+
 def test_final_report_refuses_partial_evidence_root(tmp_path):
     paths = _paths(tmp_path)
     partial = paths.evidence_root / "operator-note.txt"
@@ -395,32 +549,29 @@ def test_final_report_refuses_partial_evidence_root(tmp_path):
     assert not (paths.evidence_root / "report.json").exists()
 
 
+def test_report_reuse_rejects_unexpected_top_level_sibling(tmp_path):
+    paths = _paths(tmp_path)
+    report = _valid_final_report(paths)
+    output = core.write_final_report(paths, report)
+    unexpected = paths.evidence_root / ".report.lock"
+    unexpected.write_text("inspect")
+
+    with pytest.raises(ValueError, match="evidence output topology"):
+        core.write_final_report(paths, report)
+
+    assert output.exists()
+    assert unexpected.read_text() == "inspect"
+
+
 def test_final_report_reuses_historical_disk_and_source_state(tmp_path):
     paths = _paths(tmp_path)
-    original = {
-        "schema_version": 1,
-        "disk": {
-            "path": str(paths.local_root),
-            "required_bytes": 100,
-            "stage_expanded_pack_bytes": 50,
-            "total_bytes": 1_000,
-            "used_bytes": 200,
-            "free_bytes": 800,
-        },
-        "sources": {
-            profile: {
-                "reused": False,
-                "artifacts": {"training_data": {"sha256": profile * 8}},
-            }
-            for profile in ("abo", "3d-future", "hssd")
-        },
-        "combined": {"sha256": "a" * 64},
-    }
+    original = _valid_final_report(paths)
+    original["combined"] = {"sha256": "a" * 64}
     output = core.write_final_report(paths, original)
     before = output.read_bytes()
     rerun = deepcopy(original)
-    rerun["disk"]["used_bytes"] = 300
-    rerun["disk"]["free_bytes"] = 700
+    rerun["disk"]["total_bytes"] += 100
+    rerun["disk"]["free_bytes"] += 100
     for source in rerun["sources"].values():
         source["reused"] = True
 
@@ -436,11 +587,43 @@ def test_final_report_reuses_historical_disk_and_source_state(tmp_path):
     assert output.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing_free", "integer_reused", "inconsistent_usage", "low_free"),
+)
+def test_existing_report_rejects_invalid_mandatory_dynamic_fields(
+    tmp_path, mutation
+):
+    paths = _paths(tmp_path)
+    valid = _valid_final_report(paths)
+    output = core.write_final_report(paths, valid)
+    invalid = deepcopy(valid)
+    if mutation == "missing_free":
+        invalid["disk"].pop("free_bytes")
+    elif mutation == "integer_reused":
+        invalid["sources"]["hssd"]["reused"] = 1
+    elif mutation == "inconsistent_usage":
+        invalid["disk"]["used_bytes"] += 1
+    else:
+        invalid["disk"]["free_bytes"] = invalid["disk"]["required_bytes"] - 1
+        invalid["disk"]["total_bytes"] = (
+            invalid["disk"]["used_bytes"] + invalid["disk"]["free_bytes"]
+        )
+    output.write_text(json.dumps(invalid))
+    before = output.read_bytes()
+
+    with pytest.raises(ValueError, match="preparation report"):
+        core.write_final_report(paths, valid)
+
+    assert output.read_bytes() == before
+
+
 def test_prepare_orders_sources_then_standalone_and_combined_validation(
     tmp_path, monkeypatch
 ):
     paths = _paths(tmp_path)
     calls = []
+    _copy_production_configs(paths.repo_root)
     runtime_configs = {
         stage: tmp_path / f"{stage}.json" for stage in CONFIGS
     }
@@ -542,6 +725,68 @@ def test_prepare_orders_sources_then_standalone_and_combined_validation(
     assert report["combined"]["stages"] == scope_evidence
 
 
+def test_source_preflight_stops_after_first_stage_initializes_cuda(
+    tmp_path, monkeypatch
+):
+    import torch
+    from data_toolkit.pipeline import training_preflight
+
+    paths = _paths(tmp_path)
+    spec = core.build_source_spec("hssd", paths.data2_root)
+    state = {"initialized": False}
+    calls = []
+
+    def stage_preflight(
+        _spec, stage, _root, _config
+    ):
+        calls.append(stage)
+        state["initialized"] = True
+        return object()
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(
+        training_preflight, "preflight_stage", stage_preflight
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preparation"):
+        core.preflight_all_source_stages(
+            spec, paths.production_root / "hssd", CONFIGS
+        )
+
+    assert calls == ["ss64"]
+
+
+def test_training_preflight_stops_after_first_stage_initializes_cuda(
+    tmp_path, monkeypatch
+):
+    import torch
+    import scripts.preflight_multisource_training as preflight
+
+    state = {"initialized": False}
+    calls = []
+
+    def stage_preflight(_training_data, stage, _config):
+        calls.append(stage)
+        state["initialized"] = True
+        return {}
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(
+        preflight, "preflight_multisource_stage", stage_preflight
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preparation"):
+        core.preflight_training_data(tmp_path / "training_data.json", CONFIGS)
+
+    assert calls == ["ss64"]
+
+
 def test_plan_validates_inputs_without_creating_local_roots(
     tmp_path, monkeypatch
 ):
@@ -570,6 +815,50 @@ def test_plan_validates_inputs_without_creating_local_roots(
         paths.combined_training_data
     )
     assert not paths.local_root.exists()
+
+
+@pytest.mark.parametrize("entrypoint", ("plan", "execute"))
+@pytest.mark.parametrize("root_name", ("data2_root", "local_root", "repo_root"))
+@pytest.mark.parametrize("mutation", ("relative", "dotdot", "symlink"))
+def test_entrypoints_reject_noncanonical_roots_before_admission_or_mutation(
+    tmp_path, monkeypatch, entrypoint, root_name, mutation
+):
+    roots = {
+        "data2_root": tmp_path / "data2",
+        "local_root": tmp_path / "local",
+        "repo_root": tmp_path / "repo",
+    }
+    for root in roots.values():
+        root.mkdir()
+    if mutation == "relative":
+        invalid = Path(f"relative-{root_name}")
+    elif mutation == "dotdot":
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        invalid = nested / ".." / roots[root_name].name
+    else:
+        invalid = tmp_path / f"{root_name}-link"
+        invalid.symlink_to(roots[root_name], target_is_directory=True)
+    roots[root_name] = invalid
+    paths = PreparationPaths.from_roots(**roots)
+    monkeypatch.setattr(
+        core,
+        "estimate_required_bytes",
+        lambda _paths: pytest.fail(
+            "invalid roots must abort before disk admission"
+        ),
+    )
+
+    function = (
+        core.plan_node16_training
+        if entrypoint == "plan"
+        else core.prepare_node16_training
+    )
+    with pytest.raises(ValueError, match="root"):
+        function(paths)
+
+    assert not (tmp_path / "local" / "train").exists()
+    assert not (tmp_path / "local" / "runtime-configs").exists()
 
 
 @pytest.mark.parametrize("cuda_value", [None, "0"])

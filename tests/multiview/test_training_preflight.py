@@ -591,3 +591,54 @@ def test_direct_loader_wraps_plain_dataset_error_with_forced_anchor_context(
         )
 
     assert isinstance(captured.value.__cause__, LookupError)
+
+
+def test_direct_loader_stops_immediately_when_constructor_initializes_cuda(
+    tmp_path, monkeypatch
+):
+    import torch
+
+    state = {"initialized": False}
+    boundary_loads = []
+
+    class InitializingDataset:
+        def __init__(self, _roots, **_kwargs):
+            state["initialized"] = True
+            self.instances = [
+                ({"base": str(tmp_path)}, "asset-a", "3D-FUTURE")
+            ]
+
+        def get_instance(self, _root, _asset):
+            boundary_loads.append("get_instance")
+            return {}
+
+    from pixal3d import datasets
+
+    monkeypatch.setattr(
+        datasets,
+        "InitializingDataset",
+        InitializingDataset,
+        raising=False,
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "dataset": {
+                    "name": "InitializingDataset",
+                    "args": {"image_size": 512},
+                }
+            }
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        validate_direct_loader(
+            "3D-FUTURE", "ss64", tmp_path, ["asset-a"], config
+        )
+
+    assert boundary_loads == []

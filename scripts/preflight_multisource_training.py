@@ -79,6 +79,7 @@ def _construct_configured_dataset(
     resolved: ResolvedTrainingData, config_path: Path
 ):
     name, args = _dataset_config(config_path, resolved.stage)
+    _assert_cpu_only()
     try:
         # flex_gemm chooses import-time Triton kernels by querying a device
         # name. The patch is restricted to importing the dataset definition;
@@ -87,12 +88,21 @@ def _construct_configured_dataset(
             from pixal3d import datasets
 
             dataset_class = getattr(datasets, name)
-        return dataset_class(json.dumps(resolved.data_dir), **args)
+    except Exception as error:
+        raise RuntimeError(
+            f"stage={resolved.stage}: failed to import configured "
+            f"dataset {name}"
+        ) from error
+    _assert_cpu_only()
+    try:
+        dataset = dataset_class(json.dumps(resolved.data_dir), **args)
     except Exception as error:
         raise RuntimeError(
             f"stage={resolved.stage}: failed to construct configured "
             f"dataset {name}"
         ) from error
+    _assert_cpu_only()
+    return dataset
 
 
 def _expected_instances(
@@ -204,6 +214,7 @@ def _boundary_samples(
         boundary_assets = tuple(dict.fromkeys((scope[0], scope[-1])))
         for asset in boundary_assets:
             dataset._current_dataset_name = source
+            _assert_cpu_only()
             try:
                 with patch.object(
                     np.random, "randint", side_effect=lambda low, high: low
@@ -216,6 +227,7 @@ def _boundary_samples(
                     f"source={source} stage={resolved.stage} asset={asset} "
                     "anchor=view00: direct dataset load failed"
                 ) from error
+            _assert_cpu_only()
             checked += 1
             if asset == scope[0]:
                 collate_samples.append(sample)
@@ -224,6 +236,7 @@ def _boundary_samples(
 
 
 def _collate_cross_source(dataset, samples: list[dict[str, object]]) -> None:
+    _assert_cpu_only()
     loader = DataLoader(
         samples,
         batch_size=len(samples),
@@ -239,6 +252,7 @@ def _collate_cross_source(dataset, samples: list[dict[str, object]]) -> None:
             batch = next(iter(loader))
     except Exception as error:
         raise RuntimeError("cross-source collate failed") from error
+    _assert_cpu_only()
     if not isinstance(batch, Mapping) or not batch:
         raise RuntimeError(
             "cross-source collate failed: collate_fn returned no batch"
@@ -260,10 +274,13 @@ def preflight_multisource_stage(
             f"stage={stage}: unknown resolved source: {unknown_sources}"
         )
     dataset = _construct_configured_dataset(resolved, Path(config))
+    _assert_cpu_only()
     _validate_instances(dataset, resolved, source_order)
+    _assert_cpu_only()
     samples, collated_sources, checked = _boundary_samples(
         dataset, resolved, source_order
     )
+    _assert_cpu_only()
     _collate_cross_source(dataset, samples)
     _assert_cpu_only()
     return {

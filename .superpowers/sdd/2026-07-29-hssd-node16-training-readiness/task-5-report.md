@@ -234,3 +234,109 @@ repeat the checks after validation.
   The exact Task 5 required CPU suite passes 154 tests; no out-of-scope
   inference or dataset code was changed to mask the unrelated collection
   behavior.
+
+## Fix Round 1
+
+### Scope
+
+The review hardening changed:
+
+- `data_toolkit/pipeline/node16_training_prepare.py`
+- `data_toolkit/pipeline/training_preflight.py`
+- `scripts/preflight_multisource_training.py`
+- `tests/multiview/test_node16_training_prepare.py`
+- `tests/multiview/test_training_preflight.py`
+- `tests/multiview/test_multisource_preflight.py`
+- this report
+
+The shared preflight changes are limited to CPU-safety boundaries required by
+the Task 5 execution path.
+
+### RED Evidence
+
+The fix round first added focused regressions and observed:
+
+- four CUDA-boundary failures: configured Dataset construction could
+  initialize CUDA and execution continued into load/collate work, while
+  multi-stage loops could continue to later stages;
+- four topology failures: complete runtime, source, combined, and evidence
+  roots accepted unexpected owned top-level siblings;
+- four final-report failures: missing or malformed dynamic disk/reuse fields
+  were normalized before the existing report was proved complete;
+- eighteen root-validation failures: relative, dot-segment, and symlinked
+  data, local-production, and repository roots reached disk estimation in
+  both dry-run and execute paths;
+- one source-config ordering failure: an invalid final PBR config was
+  discovered only after local runtime output and source materialization had
+  begun.
+
+### Corrections
+
+- CPU-only assertions now surround every configured datasets import,
+  configured Dataset construction, boundary item load, and collate call.
+  Source and combined stage loops assert again between stages and stop at the
+  first unsafe boundary.
+- Complete owned roots now have exact topologies. Runtime, source, combined,
+  and evidence roots reject extra top-level entries; source stage and
+  publication directories are also exact.
+- Existing final reports must have a complete mandatory shape before dynamic
+  normalization. Disk fields are strict non-negative integers with consistent
+  totals and sufficient free bytes, and every source has a real boolean
+  `reused` field.
+- All three roots must be absolute, lexically canonical, and free of symlink
+  traversal before disk probing or local mutation in dry-run and execute.
+- All four production configs are parsed and validated together before disk
+  estimation or output creation. Stage identity, per-GPU batch, split,
+  six-GPU global batch, checkpoint/sample cadence, and step count must match
+  the approved semantics.
+
+### GREEN Evidence
+
+The focused correction groups passed:
+
+```text
+CUDA boundary regressions: 4 passed
+Exact topology regressions: 5 passed
+Final-report dynamic-field regressions: 7 passed
+Canonical-root matrix: 18 passed
+All-config pre-mutation ordering: 1 passed
+```
+
+The combined interaction suite passed:
+
+```text
+104 passed in 9.48s
+```
+
+The final affected Task 1–5 CPU-masked suite passed:
+
+```text
+CUDA_VISIBLE_DEVICES="" \
+/opt/conda/envs/pixal3d/bin/python -m pytest -q \
+  tests/multiview/test_node16_training_prepare.py \
+  tests/multiview/test_training_source_profiles.py \
+  tests/multiview/test_training_materialization.py \
+  tests/multiview/test_training_preflight.py \
+  tests/multiview/test_production_preflight.py \
+  tests/multiview/test_training_manifest.py \
+  tests/multiview/test_multisource_preflight.py \
+  tests/multiview/test_training_entrypoint.py
+
+310 passed in 26.85s
+```
+
+`git diff --check` and `py_compile` also exited 0.
+
+### Fix-Round Self-Review
+
+- The new CPU guards are adjacent to the relevant imports, constructors,
+  loads, and collations; no later stage can run after a failed boundary.
+- Exact topology checks apply only after the implementation establishes that
+  a root is complete, preserving refusal of partial create-only state.
+- Report normalization can no longer manufacture missing mandatory evidence.
+- Root validation runs before reads that can trigger disk estimation and
+  before any local filesystem mutation.
+- Config validation is centralized and is repeated by runtime-config creation
+  so the low-level API cannot bypass it.
+- No deletion, replacement, rename, truncation, dependency, environment,
+  production artifact, plan, spec, model, trainer, or W&B change was added.

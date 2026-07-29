@@ -351,6 +351,44 @@ def test_preflight_rejects_cuda_initialized_during_loader_validation(
         )
 
 
+def test_preflight_stops_immediately_when_constructor_initializes_cuda(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    state = {"initialized": False}
+    later_calls = []
+
+    def construct(_resolved, _config):
+        state["initialized"] = True
+        return _fake_dataset(resolved)
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(
+        preflight, "_construct_configured_dataset", construct
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_validate_instances",
+        lambda *_args: later_calls.append("instances"),
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight_multisource_stage(
+            two_source_fixture.training_data,
+            "ss64",
+            CONFIGS["ss64"],
+        )
+
+    assert later_calls == []
+
+
 def test_preflight_rejects_unknown_resolved_source(
     two_source_fixture, monkeypatch
 ):

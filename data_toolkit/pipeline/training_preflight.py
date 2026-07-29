@@ -516,6 +516,11 @@ def validate_direct_loader(
         _VALIDATION_SOURCE.reset(token)
 
 
+def _assert_cpu_only() -> None:
+    if torch.cuda.is_available() or torch.cuda.is_initialized():
+        raise RuntimeError("CPU-only preflight initialized CUDA")
+
+
 def _validate_direct_loader(
     source: str,
     stage: str,
@@ -532,18 +537,32 @@ def _validate_direct_loader(
         dataset_args = dataset_config["args"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise _error(stage, None, f"invalid dataset config: {config_path}") from error
+    # flex_gemm selects import-time Triton kernels by eagerly querying CUDA.
+    # Its A100 table is sufficient to import dataset definitions; this preflight
+    # never invokes those kernels or initializes CUDA.
+    _assert_cpu_only()
     try:
-        # flex_gemm selects import-time Triton kernels by eagerly querying CUDA.
-        # Its A100 table is sufficient to import dataset definitions; this preflight
-        # never invokes those kernels or initializes CUDA.
         with patch.object(torch.cuda, "get_device_name", return_value="A100"):
             from pixal3d import datasets
             dataset_class = getattr(datasets, dataset_name)
+    except Exception as error:
+        raise _error(
+            stage,
+            None,
+            f"failed to import configured dataset {dataset_name}",
+        ) from error
+    _assert_cpu_only()
+    try:
         dataset = dataset_class(
             json.dumps(stage_data_dir(source, stage, Path(root))), **dataset_args
         )
     except Exception as error:
-        raise _error(stage, None, f"failed to construct configured dataset {dataset_name}") from error
+        raise _error(
+            stage,
+            None,
+            f"failed to construct configured dataset {dataset_name}",
+        ) from error
+    _assert_cpu_only()
     expected = set(expected_assets)
     instances = list(dataset.instances)
     actual = {
@@ -567,6 +586,7 @@ def _validate_direct_loader(
         root_record = by_asset[asset]
         for anchor in (0, 1):
             dataset._current_dataset_name = source
+            _assert_cpu_only()
             try:
                 with patch.object(np.random, "randint", return_value=anchor):
                     pack = dataset.get_instance(root_record, asset)
@@ -575,6 +595,7 @@ def _validate_direct_loader(
                     f"source={source} stage={stage} asset={asset} "
                     f"anchor=view{anchor:02d}: direct dataset load failed"
                 ) from error
+            _assert_cpu_only()
             _validate_loader_pack(stage, asset, anchor, pack, image_size)
             checked += 1
     return checked

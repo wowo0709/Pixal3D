@@ -51,10 +51,10 @@ CONFIGS = {
     ),
 }
 _APPROVED_RUNTIME = {
-    "ss64": (8, 4),
-    "shape512": (8, 4),
-    "shape1024": (2, 1),
-    "pbr1024": (2, 1),
+    "ss64": (8, 4, 48),
+    "shape512": (8, 4, 48),
+    "shape1024": (2, 1, 12),
+    "pbr1024": (2, 1, 12),
 }
 
 
@@ -119,6 +119,20 @@ def require_cpu_only_environment() -> None:
         raise RuntimeError(
             "CUDA_VISIBLE_DEVICES must be explicitly set to empty"
         )
+
+
+def validate_roots(paths: PreparationPaths) -> None:
+    """Require absolute, normalized roots with no symlink traversal."""
+    for name in ("data2_root", "local_root", "repo_root"):
+        root = Path(getattr(paths, name))
+        if not root.is_absolute():
+            raise ValueError(f"{name} root must be absolute: {root}")
+        canonical = root.resolve(strict=False)
+        if root != canonical:
+            raise ValueError(
+                f"{name} root must be canonical and non-symlinked: "
+                f"{root} resolves to {canonical}"
+            )
 
 
 def _assert_torch_cpu_only():
@@ -256,12 +270,109 @@ def _exclusive_create(path: Path, payload: bytes) -> None:
         os.close(descriptor)
 
 
+def _validate_owned_topology(
+    root: Path,
+    expected: Mapping[str, str],
+    label: str,
+) -> None:
+    root = Path(root)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"{label} root is not a safe directory: {root}")
+    with os.scandir(root) as stream:
+        entries = {entry.name: entry for entry in stream}
+    if set(entries) != set(expected):
+        raise ValueError(
+            f"{label} topology mismatch: expected={sorted(expected)} "
+            f"actual={sorted(entries)} root={root}"
+        )
+    for name, kind in expected.items():
+        entry = entries[name]
+        valid = (
+            entry.is_file(follow_symlinks=False)
+            if kind == "file"
+            else entry.is_dir(follow_symlinks=False)
+        )
+        if not valid:
+            raise ValueError(
+                f"{label} topology has unsafe {kind}: {root / name}"
+            )
+
+
+def _validate_source_topology(output_root: Path) -> None:
+    output = Path(output_root)
+    _validate_owned_topology(
+        output,
+        {
+            **dict.fromkeys(STAGES, "dir"),
+            "publication": "dir",
+            "training_data.json": "file",
+        },
+        "source output",
+    )
+    for stage in STAGES:
+        _validate_owned_topology(
+            output / stage, {"active": "dir"}, f"source stage={stage}"
+        )
+    _validate_owned_topology(
+        output / "publication",
+        {"report.json": "file", "handoff.json": "file"},
+        "source publication",
+    )
+
+
+def validate_source_configs(
+    configs: Mapping[str, Path],
+) -> dict[str, dict[str, object]]:
+    """Parse all source configs and enforce approved training semantics."""
+    if tuple(configs) != STAGES:
+        raise ValueError(f"source configs must be ordered exactly as {STAGES}")
+    parsed = {}
+    for stage, source in configs.items():
+        source = Path(source)
+        value = _json_object(
+            _regular_bytes(source, "production config"),
+            source,
+            "production config",
+        )
+        try:
+            args = value["trainer"]["args"]
+        except (KeyError, TypeError) as error:
+            raise ValueError(
+                f"invalid source config semantics: {source}"
+            ) from error
+        if not isinstance(args, dict):
+            raise ValueError(f"invalid source config semantics: {source}")
+        batch, split, global_batch = _APPROVED_RUNTIME[stage]
+        expected = {
+            "multiview_stage": stage,
+            "batch_size_per_gpu": batch,
+            "batch_split": split,
+            "max_steps": 20_000,
+            "i_save": 2_000,
+            "max_checkpoints": 5,
+            "i_sample": -1,
+        }
+        actual = {name: args.get(name) for name in expected}
+        numeric_names = set(expected) - {"multiview_stage"}
+        if (
+            actual != expected
+            or any(type(actual[name]) is not int for name in numeric_names)
+            or batch * 6 != global_batch
+        ):
+            raise ValueError(
+                f"invalid source config semantics stage={stage}: "
+                f"expected={expected} global_batch={global_batch} "
+                f"actual={actual} path={source}"
+            )
+        parsed[stage] = value
+    return parsed
+
+
 def create_runtime_configs(
     configs: Mapping[str, Path], output_root: Path
 ) -> dict[str, Path]:
     """Create semantic copies changing only trainer.args.num_workers."""
-    if tuple(configs) != STAGES:
-        raise ValueError(f"runtime configs must be ordered exactly as {STAGES}")
+    originals = validate_source_configs(configs)
     planned_outputs = {
         stage: (
             Path(output_root)
@@ -283,21 +394,17 @@ def create_runtime_configs(
                 if stage in existing_outputs
             )
         )
+    output_root = Path(output_root)
+    if output_root.exists() and any(output_root.iterdir()):
+        _validate_owned_topology(
+            output_root,
+            {path.name: "file" for path in planned_outputs.values()},
+            "runtime config",
+        )
     outputs = {}
     for stage, source in configs.items():
         source = Path(source)
-        original = _json_object(
-            _regular_bytes(source, "production config"),
-            source,
-            "production config",
-        )
-        try:
-            trainer = original["trainer"]
-            trainer_args = trainer["args"]
-        except (KeyError, TypeError) as error:
-            raise ValueError(f"invalid production config: {source}") from error
-        if not isinstance(trainer_args, dict):
-            raise ValueError(f"invalid production config: {source}")
+        original = originals[stage]
         runtime = json.loads(json.dumps(original))
         runtime["trainer"]["args"]["num_workers"] = 1
         output = planned_outputs[stage]
@@ -358,24 +465,26 @@ def preflight_all_source_stages(
     if spec.fixed_count_contract is not None:
         from scripts import preflight_multiview_production
 
-        results = {
-            stage: preflight_multiview_production.preflight_stage(
+        results = {}
+        for stage in STAGES:
+            _assert_torch_cpu_only()
+            results[stage] = preflight_multiview_production.preflight_stage(
                 stage,
                 Path(output_root) / stage / "active",
                 Path(config_paths[stage]),
             )
-            for stage in STAGES
-        }
+            _assert_torch_cpu_only()
     else:
-        results = {
-            stage: training_preflight.preflight_stage(
+        results = {}
+        for stage in STAGES:
+            _assert_torch_cpu_only()
+            results[stage] = training_preflight.preflight_stage(
                 spec,
                 stage,
                 Path(output_root) / stage / "active",
                 Path(config_paths[stage]),
             )
-            for stage in STAGES
-        }
+            _assert_torch_cpu_only()
     if torch.cuda.is_available() or torch.cuda.is_initialized():
         raise RuntimeError("CPU-only preparation initialized CUDA")
     return results
@@ -410,6 +519,9 @@ def verify_existing_source(
     config_paths: Mapping[str, Path],
 ) -> SourcePreparation:
     """Validate a complete source chain and all materialized stage evidence."""
+    _validate_source_topology(
+        Path(publication["training-data"]).parent
+    )
     validated = validate_source_training_data(
         spec.source, Path(publication["training-data"])
     )
@@ -438,6 +550,7 @@ def materialize_source(
     output = source_output_root(profile, paths.local_root)
     publication = _source_publication_paths(output)
     if os.path.lexists(publication["training-data"]):
+        _validate_source_topology(output)
         return verify_existing_source(spec, publication, config_paths)
     refuse_partial_source(output)
     catalog = load_source_catalog(spec, paths.data2_root / "prepared")
@@ -569,12 +682,13 @@ def preflight_training_data(
         preflight_multisource_stage,
     )
 
-    results = {
-        stage: preflight_multisource_stage(
+    results = {}
+    for stage in STAGES:
+        _assert_torch_cpu_only()
+        results[stage] = preflight_multisource_stage(
             Path(training_data), stage, Path(config_paths[stage])
         )
-        for stage in STAGES
-    }
+        _assert_torch_cpu_only()
     if torch.cuda.is_available() or torch.cuda.is_initialized():
         raise RuntimeError("CPU-only preparation initialized CUDA")
     return {"stages": results}
@@ -582,7 +696,13 @@ def preflight_training_data(
 
 def publish_combined(paths: PreparationPaths) -> Path:
     """Publish the canonical three-source manifest create-only."""
-    if not os.path.lexists(paths.combined_training_data):
+    if os.path.lexists(paths.combined_training_data):
+        _validate_owned_topology(
+            paths.combined_training_data.parent,
+            {"training_data.json": "file"},
+            "combined output",
+        )
+    else:
         refuse_partial_source(paths.combined_training_data.parent)
     return publish_combined_training_data(
         {
@@ -630,7 +750,7 @@ def runtime_config_evidence(
             args = value["trainer"]["args"]
         except (KeyError, TypeError) as error:
             raise ValueError(f"invalid runtime config: {path}") from error
-        batch, split = _APPROVED_RUNTIME[stage]
+        batch, split, global_batch = _APPROVED_RUNTIME[stage]
         expected = {
             "batch_size_per_gpu": batch,
             "batch_split": split,
@@ -654,7 +774,7 @@ def runtime_config_evidence(
             ).hexdigest(),
             "batch_size_per_gpu": batch,
             "batch_split": split,
-            "six_gpu_global_batch": batch * 6,
+            "six_gpu_global_batch": global_batch,
             "max_steps": 20_000,
             "save_interval": 2_000,
             "retained_checkpoints": 5,
@@ -694,17 +814,108 @@ def _report_invariants(
     return invariant
 
 
+def _validate_preparation_report_shape(
+    paths: PreparationPaths,
+    report: Mapping[str, object],
+) -> None:
+    top_level = {
+        "schema_version",
+        "cpu_only",
+        "paths",
+        "disk",
+        "sources",
+        "hssd_standalone_preflight",
+        "combined",
+        "runtime_configs",
+        "launch_commands",
+    }
+    if not isinstance(report, Mapping) or set(report) != top_level:
+        raise ValueError("preparation report has invalid top-level shape")
+    if (
+        type(report["schema_version"]) is not int
+        or report["schema_version"] != 1
+        or report["cpu_only"] is not True
+    ):
+        raise ValueError("preparation report has invalid schema evidence")
+    expected_paths = {
+        "data2_root": str(paths.data2_root),
+        "local_root": str(paths.local_root),
+        "repo_root": str(paths.repo_root),
+        "hssd_training_data": str(paths.hssd_training_data),
+        "combined_training_data": str(paths.combined_training_data),
+    }
+    if report["paths"] != expected_paths:
+        raise ValueError("preparation report has invalid path evidence")
+    disk = report["disk"]
+    disk_keys = {
+        "path",
+        "total_bytes",
+        "used_bytes",
+        "free_bytes",
+        "required_bytes",
+        "stage_expanded_pack_bytes",
+    }
+    if not isinstance(disk, Mapping) or set(disk) != disk_keys:
+        raise ValueError("preparation report has invalid disk evidence")
+    numeric_names = disk_keys - {"path"}
+    if (
+        disk["path"] != str(paths.local_root)
+        or any(
+            type(disk[name]) is not int or disk[name] < 0
+            for name in numeric_names
+        )
+        or disk["total_bytes"] != disk["used_bytes"] + disk["free_bytes"]
+        or disk["free_bytes"] < disk["required_bytes"]
+        or disk["required_bytes"]
+        != disk["stage_expanded_pack_bytes"] * 2 + 10 * GIB
+    ):
+        raise ValueError("preparation report has invalid disk invariants")
+    sources = report["sources"]
+    if (
+        not isinstance(sources, Mapping)
+        or set(sources) != set(SOURCE_PROFILE_NAMES)
+    ):
+        raise ValueError("preparation report has invalid source evidence")
+    for profile in SOURCE_PROFILE_NAMES:
+        source = sources[profile]
+        if (
+            not isinstance(source, Mapping)
+            or "reused" not in source
+            or type(source["reused"]) is not bool
+        ):
+            raise ValueError(
+                "preparation report has invalid source reused evidence: "
+                f"{profile}"
+            )
+    for name in (
+        "hssd_standalone_preflight",
+        "combined",
+        "runtime_configs",
+        "launch_commands",
+    ):
+        if not isinstance(report[name], Mapping):
+            raise ValueError(
+                f"preparation report has invalid {name} evidence"
+            )
+
+
 def write_final_report(
     paths: PreparationPaths, report: Mapping[str, object]
 ) -> Path:
     """Create or validate one immutable canonical preparation report."""
     output = paths.evidence_root / "report.json"
-    payload = _canonical_json_bytes(report)
     if os.path.lexists(output):
+        _validate_owned_topology(
+            paths.evidence_root,
+            {"report.json": "file"},
+            "evidence output",
+        )
         raw = _regular_bytes(output, "existing preparation report")
         existing = _json_object(
             raw, output, "existing preparation report"
         )
+        _validate_preparation_report_shape(paths, existing)
+        _validate_preparation_report_shape(paths, report)
         if (
             _canonical_json_bytes(_report_invariants(existing))
             != _canonical_json_bytes(_report_invariants(report))
@@ -714,12 +925,15 @@ def write_final_report(
             )
     else:
         refuse_partial_source(paths.evidence_root)
+        _validate_preparation_report_shape(paths, report)
+        payload = _canonical_json_bytes(report)
         _exclusive_create(output, payload)
     return output
 
 
 def plan_node16_training(paths: PreparationPaths) -> dict[str, object]:
     """Validate shared contracts and disk admission without local writes."""
+    validate_roots(paths)
     estimate = estimate_required_bytes(paths)
     disk = assert_free_space(paths.local_root, estimate.required_bytes)
     return {
@@ -745,9 +959,11 @@ def prepare_node16_training(
 ) -> Path:
     """Execute the complete create-only Node16 preparation workflow."""
     require_cpu_only_environment()
+    validate_roots(paths)
+    source_configs = _config_paths(paths)
+    validate_source_configs(source_configs)
     estimate = estimate_required_bytes(paths)
     disk = assert_free_space(paths.local_root, estimate.required_bytes)
-    source_configs = _config_paths(paths)
     runtime_configs = create_runtime_configs(
         source_configs, paths.runtime_config_root
     )
