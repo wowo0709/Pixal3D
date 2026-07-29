@@ -8,7 +8,13 @@ Attention backend: `ATTN_BACKEND=sdpa`,
 
 ## Result
 
-At the reviewed production batch size of 8 per GPU and exactly six condition
+The production matrix and conclusions in the first part of this report are the
+preserved **pre-fix baseline**. They are superseded for current code by the
+authoritative post-fix rerun at commit
+`52917053e05b984121a8f59cb8c3d322b438d855`, documented in
+[Authoritative post-fix rerun](#authoritative-post-fix-rerun).
+
+In the pre-fix baseline, at batch size 8 per GPU and exactly six condition
 views:
 
 - `ss64`: `8/2` OOM; `8/4` completed five steps.
@@ -16,10 +22,12 @@ views:
 - `shape1024`: `8/2` and `8/4` both OOM before step 1.
 - `pbr1024`: `8/2` and `8/4` both OOM before step 1.
 
-Thus the current `8/4` production candidate is measurable only for `ss64` and
-`shape512`. `shape1024` and `pbr1024` are blockers at the specified production
-batch policy. A separately labelled allocator diagnostic did not make either
-blocked stage executable.
+That baseline concluded that `8/4` was measurable only for `ss64` and
+`shape512`. This is no longer the current-code verdict: after streaming
+multiview aggregation, `shape1024 8/4` completes with the default allocator,
+and `pbr1024 8/4` completes when
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is part of its launch
+environment.
 
 ## Exact profile configuration
 
@@ -84,7 +92,7 @@ No run passed `--use_wandb`, `--smoke_steps`, or an alternate batch, split,
 elastic-controller, or model setting. Snapshotting was disabled by
 `i_sample=-1`; `i_save=999999` prevented checkpoint saves.
 
-## Production matrix
+## Baseline production matrix (pre-fix; superseded)
 
 Physical VRAM values are peak device `memory.used` in MiB, ordered GPU0 through
 GPU5. They include the recorded coexistence baseline as required.
@@ -291,4 +299,141 @@ ss64-b8s4-attempt1
 shape512-b8s4-attempt3
 shape1024-b8s4-attempt1
 pbr1024-b8s4-attempt2
+```
+
+## Authoritative post-fix rerun
+
+This section supersedes the baseline's current-code conclusions while
+preserving its measurements and failures above.
+
+### Reviewed source and isolation
+
+The exact reviewed committed archive deployed to the isolated checkout was:
+
+```text
+commit: 52917053e05b984121a8f59cb8c3d322b438d855
+pixal3d/trainers/flow_matching/mixins/image_conditioned_proj.py:
+  64da78350b87d4ba2957aa8dd1e43db726817bd3212045c8e5b98d8aea69403c
+```
+
+The deployed SHA-256 matched the local committed file. The archive preserved
+`.profile-configs`, `.profile-deps`, `.profile-evidence`, staged data, and
+checkpoints. Before and after the rerun, the active preprocessing checkout's
+same file remained:
+
+```text
+e4b0251441b061535cdd86f61ce6d12bfbf3282700f1bfbaa965f86e16d6a124
+```
+
+Its supervisor/worker PIDs also remained
+`567993 / 567994 / 567996 / 1915976`. Deployment and preservation evidence:
+
+```text
+/home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/deployed-source.txt
+/home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/pre-run-preprocessing-processes.txt
+/home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/final-cleanup-audit.txt
+```
+
+### Authoritative default-allocator matrix
+
+All eight cells reused the exact existing configs and data paths: K=6,
+world size 6, batch 8 per GPU, split 2 or 4, SDPA, five steps, no W&B, no
+snapshot/checkpoint save, and the default allocator
+(`PYTORCH_CUDA_ALLOC_CONF` unset). Physical peaks include coexistence contexts
+and are ordered GPU0 through GPU5.
+
+| Stage | Split | Result | Five step times, seconds | Mean, seconds | Last-four mean, seconds | Peak MiB, GPU0..5 | Evidence directory |
+|---|---:|---|---|---:|---:|---|---|
+| `ss64` | 2 | 1/5, then OOM | N/A | N/A | N/A | 97,161 / 97,175 / 97,159 / 97,225 / 97,195 / 97,248 | `ss64-b8s2-postfix1` |
+| `ss64` | 4 | 5/5 pass | 14.609468 / 12.485162 / 11.638942 / 12.476857 / 11.862174 | 12.614521 | 12.115784 | 71,809 / 66,609 / 66,593 / 66,609 / 64,989 / 69,874 | `ss64-b8s4-postfix1` |
+| `shape512` | 2 | 5/5 pass | 17.777542 / 16.210603 / 16.549840 / 16.385083 / 16.472389 | 16.679092 | 16.404479 | 62,469 / 60,975 / 54,779 / 56,895 / 55,533 / 60,074 | `shape512-b8s2-postfix1` |
+| `shape512` | 4 | 5/5 pass | 18.674431 / 15.028550 / 14.080548 / 13.936343 / 14.435016 | 15.230978 | 14.370114 | 50,335 / 46,699 / 52,267 / 48,659 / 52,043 / 49,988 | `shape512-b8s4-postfix1` |
+| `shape1024` | 2 | OOM before step 1 | N/A | N/A | N/A | 86,087 / 80,673 / 80,663 / 86,827 / 79,033 / 97,124 | `shape1024-b8s2-postfix1` |
+| `shape1024` | 4 | 5/5 pass | 47.085817 / 41.376335 / 45.272815 / 42.695483 / 44.534369 | 44.192964 | 43.469751 | 69,245 / 90,561 / 90,397 / 80,187 / 80,036 / 79,293 | `shape1024-b8s4-postfix1` |
+| `pbr1024` | 2 | OOM before step 1 | N/A | N/A | N/A | 94,973 / 97,045 / 89,395 / 97,047 / 97,164 / 93,855 | `pbr1024-b8s2-postfix2` |
+| `pbr1024` | 4 | OOM before step 1 | N/A | N/A | N/A | 79,759 / 80,325 / 74,439 / 97,143 / 71,002 / 87,983 | `pbr1024-b8s4-postfix1` |
+
+Exact unrounded `time.step` records for passing default-allocator runs:
+
+```text
+/file3/youngwoo/pixal3d/ckpts/ss64/log_20260729_121402.txt
+/file3/youngwoo/pixal3d/ckpts/shape512/log_20260729_121646.txt
+/file3/youngwoo/pixal3d/ckpts/shape512/log_20260729_121918.txt
+/file3/youngwoo/pixal3d/ckpts/shape1024/log_20260729_122817.txt
+```
+
+The post-fix OOM sites are materially different from the superseded stack-copy
+failures:
+
+- `ss64 8/2` completed step 1, then requested 96 MiB in the denoiser with
+  89.06 MiB free on GPU0.
+- `shape1024 8/2` streamed into the second view, then requested 10 GiB for the
+  per-view `torch.cat` with 9.81 GiB free on GPU5.
+- `pbr1024 8/2` requested a 20 GiB NATTEN output with 8.97 GiB free on GPU3.
+- `pbr1024 8/4` requested a 12 GiB NATTEN output with 10.40 GiB free on GPU5.
+
+Thus the reviewed streaming aggregation makes `shape1024 8/4` executable with
+the unchanged production-matrix launch, but `pbr1024 8/4` still fragments under
+the default allocator.
+
+### Post-fix PBR allocator diagnostic
+
+After the complete default-allocator matrix, one clearly labelled diagnostic
+reused the exact `pbr1024 8/4` config and changed only:
+
+```text
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+```
+
+It completed all five steps:
+
+| Result | Five step times, seconds | Mean, seconds | Last-four mean, seconds | Peak MiB, GPU0..5 | Evidence directory |
+|---|---|---:|---:|---|---|
+| 5/5 pass | 53.904927 / 43.967058 / 45.804108 / 43.328177 / 46.200955 | 46.641045 | 44.825075 | 77,293 / 94,879 / 91,817 / 91,857 / 90,495 / 95,048 | `pbr1024-b8s4-diagnostic-expandable-postfix1` |
+
+The exact trainer record is:
+
+```text
+/file3/youngwoo/pixal3d/ckpts/pbr1024/log_20260729_124948.txt
+```
+
+Therefore, under this reviewed code and coexistence baseline, the requested
+production split remains `8/4` for all four stages. `pbr1024 8/4` requires
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in its launch environment;
+this evidence does not require increasing PBR to split 8. The diagnostic does
+not change the authoritative default-allocator result above.
+
+### Guard anomalies, invalid launch, and final cleanup
+
+After the `shape1024 8/2` and default `pbr1024 8/4` OOMs, memory returned near
+baseline before some GPUs' reported SM utilization did. No profile PID was
+present. The unchanged coexistence guard blocked further launches until
+utilization cleared naturally; no GPU reset, kill, or preprocessing
+intervention was used. Timestamped samples are preserved in:
+
+```text
+/home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/post-oom-guard-anomaly.csv
+```
+
+`pbr1024-b8s2-postfix1` is a guard-only directory: a protected transient left
+only 88,381 MiB free on GPU5, so Python never launched. The subsequent
+`postfix2` directory is the authoritative result.
+
+A fresh final audit at `2026-07-29T03:56:05Z` proved:
+
+- no profile trainer, runner, VRAM/app monitor, multiprocessing spawn, or
+  resource-tracker helper remained;
+- GPU memory and utilization returned exactly to
+  `1,630 / 1,630 / 1,630 / 1,630 / 3 / 4,895 MiB`, all at 0 percent;
+- only the stable reservation PIDs and Nuclio context remained;
+- the active preprocessing file hashes and four supervisor/worker PIDs were
+  unchanged;
+- all three `.profile-*` directories and all eight exact config hashes were
+  preserved.
+
+The authoritative post-fix evidence base and compact verification summary are:
+
+```text
+/home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z
+/home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/postfix-verification-summary.txt
 ```
