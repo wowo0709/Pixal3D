@@ -447,10 +447,10 @@ per-stage wall-clock estimates, not GPU-hours.
 
 | Stage | Steady seconds/step | Raw seconds | Raw 20k duration | 10%-margin seconds | 10%-margin duration |
 |---|---:|---:|---:|---:|---:|
-| `ss64` | 12.11578375 | 242,315.675 | 67.31 h (2.80 d) | 266,547.243 | 74.04 h (3.09 d) |
-| `shape512` | 14.37011425 | 287,402.285 | 79.83 h (3.33 d) | 316,142.514 | 87.82 h (3.66 d) |
-| `shape1024` | 43.46975050 | 869,395.010 | 241.50 h (10.06 d) | 956,334.511 | 265.65 h (11.07 d) |
-| `pbr1024` | 44.82507450 | 896,501.490 | 249.03 h (10.38 d) | 986,151.639 | 273.93 h (11.41 d) |
+| `ss64` | 12.11578381 | 242,315.676 | 67.31 h (2.80 d) | 266,547.244 | 74.04 h (3.09 d) |
+| `shape512` | 14.37011433 | 287,402.287 | 79.83 h (3.33 d) | 316,142.515 | 87.82 h (3.66 d) |
+| `shape1024` | 43.46975076 | 869,395.015 | 241.50 h (10.06 d) | 956,334.517 | 265.65 h (11.07 d) |
+| `pbr1024` | 44.82507479 | 896,501.496 | 249.03 h (10.38 d) | 986,151.645 | 273.93 h (11.41 d) |
 
 The first three rows use the default allocator profiles. The `pbr1024` timing
 comes from the successful expandable-segments diagnostic and therefore
@@ -460,7 +460,7 @@ requires this launch setting:
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
-An independent `awk` pass and a decimal-arithmetic pass over the four
-unrounded steady-state step values agreed exactly before report rounding; all
-reported second values differ from the independent calculations by less than
-0.001 seconds.
+An independent `awk` pass and a decimal-arithmetic pass over the raw-log-derived
+steady-state means agreed exactly. The displayed raw and 10%-margin seconds
+match both calculations at the displayed three-decimal precision; their
+rounding error is less than 0.001 seconds.
