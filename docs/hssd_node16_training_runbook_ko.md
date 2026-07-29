@@ -125,16 +125,16 @@ session을 시작한다.
 
 ```bash
 tmux new-session -d -s node16-ss64 \
-  "source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/ss64.log\""
+  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/ss64.log\""
 
 tmux new-session -d -s node16-shape512 \
-  "source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/shape512.log\""
+  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/shape512.log\""
 
 tmux new-session -d -s node16-shape1024 \
-  "source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/shape1024.log\""
+  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/shape1024.log\""
 
 tmux new-session -d -s node16-pbr1024 \
-  "source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/pbr1024.log\""
+  "set -o pipefail && source /home/youngwoo/miniconda3/etc/profile.d/conda.sh && conda activate pixal3d && cd /home/youngwoo/Pixal3D-training-hssd && PYTHONPATH=. CUDA_VISIBLE_DEVICES=\"$CUDA_VISIBLE_DEVICES\" python train.py --config /home/youngwoo/data/pixal3d/runtime-configs/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.node16-workers1.json --training_data /home/youngwoo/data/pixal3d/train/production/abo-3d-future-hssd/training_data.json --num_gpus 6 --use_wandb 2>&1 | tee -a \"$LOG_DIR/pbr1024.log\""
 ```
 
 이 네 명령은 queue나 병렬 실행 명령이 아니다. 첫 `node16-ss64`만 시작하고 그 명령이
@@ -175,6 +175,11 @@ nvidia-smi
 wandb status
 find "$OUTPUT/ckpts" -maxdepth 1 -type f -name 'misc_*.pt' -printf '%f %s bytes\n' | sort
 ```
+
+`tmux capture-pane`에 trainer output이 보이는 동안에는 해당 pane이 아직 실행 중이다. 각
+launch command는 Bash `pipefail`을 켠 상태에서 `train.py | tee`를 실행하므로, trainer가
+nonzero로 끝나면 `tee`가 성공해도 session command도 nonzero로 끝난다. 종료 뒤에는 log와
+checkpoint를 보존하여 결과를 판단하며, 종료된 tmux session을 성공으로 해석하지 않는다.
 
 `train.py`는 `--load_dir`가 생략되면 resolved output directory를 load directory로 쓰고,
 `--ckpt`가 생략되면 `latest`의 `ckpts/misc_*.pt`를 선택한다. 중단 뒤에는 output,
