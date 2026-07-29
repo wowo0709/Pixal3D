@@ -83,7 +83,23 @@ def _stage_data_dir(source, stage, root):
     return {source: values}
 
 
-def _write_source(tmp_path, source, schema_version, count):
+def _write_source(
+    tmp_path,
+    source,
+    schema_version,
+    count,
+    *,
+    acceptance_mode=None,
+    original_90_percent_gate_passed=None,
+):
+    if acceptance_mode is None:
+        acceptance_mode = (
+            "production_gate"
+            if source == "HSSD"
+            else "valid_subset_user_waiver"
+        )
+    if original_90_percent_gate_passed is None:
+        original_90_percent_gate_passed = source == "HSSD"
     stages = {}
     materialization_evidence = {}
     for stage in STAGES:
@@ -119,8 +135,9 @@ def _write_source(tmp_path, source, schema_version, count):
         "schema_version": schema_version,
         "created_at": "2026-07-28T00:00:00Z",
         "source": source,
-        "acceptance_mode": "valid_subset_user_waiver",
-        "original_90_percent_gate_passed": False,
+        "acceptance_mode": acceptance_mode,
+        "original_90_percent_gate_passed":
+            original_90_percent_gate_passed,
         "authorization": "training-input use only",
         "counts": {"stages": {stage: count for stage in STAGES}},
         "eligibility_policy": {"schema_version": 1},
@@ -265,6 +282,13 @@ def source_inputs(tmp_path):
 
 
 @pytest.fixture
+def hssd_training_data(tmp_path):
+    return _write_source(
+        tmp_path, "HSSD", schema_version=2, count=3
+    )
+
+
+@pytest.fixture
 def manifest(source_inputs, tmp_path):
     path = tmp_path / "combined" / "training_data.json"
     publish_combined_training_data(source_inputs, path)
@@ -353,6 +377,133 @@ def test_combined_manifest_has_exact_sources_and_proportional_counts(
     assert stage["total_count"] == 7
     assert "source_weights" not in stage
     assert "split" not in stage
+
+
+def test_hssd_source_training_data_resolves_as_one_source(
+    hssd_training_data,
+):
+    resolved = resolve_training_data(hssd_training_data, "ss64")
+    assert tuple(resolved.data_dir) == ("HSSD",)
+    assert resolved.source_counts == {"HSSD": 3}
+    assert resolved.total_count == 3
+    assert resolved.sampling == "proportional-unweighted-concatenation"
+
+
+@pytest.mark.parametrize("source", ("ABO", "3D-FUTURE"))
+def test_legacy_waiver_source_training_data_remains_valid(
+    source_inputs, source
+):
+    resolved = resolve_training_data(source_inputs[source], "ss64")
+    assert tuple(resolved.data_dir) == (source,)
+    assert resolved.source_counts[source] in (2, 5)
+
+
+def test_hssd_self_consistent_waiver_chain_is_rejected(
+    hssd_training_data,
+):
+    _rewrite_source_chain(
+        hssd_training_data,
+        lambda report: report.update(
+            {
+                "acceptance_mode": "valid_subset_user_waiver",
+                "original_90_percent_gate_passed": False,
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="acceptance contract"):
+        resolve_training_data(hssd_training_data, "ss64")
+
+
+@pytest.mark.parametrize(
+    ("source", "integer_gate"),
+    (("ABO", 0), ("3D-FUTURE", 0), ("HSSD", 1)),
+)
+def test_source_acceptance_contract_rejects_integer_gate(
+    source_inputs,
+    hssd_training_data,
+    source,
+    integer_gate,
+):
+    training_path = (
+        hssd_training_data
+        if source == "HSSD"
+        else source_inputs[source]
+    )
+    _rewrite_source_chain(
+        training_path,
+        lambda report: report.__setitem__(
+            "original_90_percent_gate_passed", integer_gate
+        ),
+    )
+    with pytest.raises(ValueError, match="acceptance contract"):
+        resolve_training_data(training_path, "ss64")
+
+
+def test_three_source_bundle_preserves_canonical_order(
+    source_inputs, tmp_path
+):
+    source_inputs["HSSD"] = _write_source(
+        tmp_path, "HSSD", schema_version=2, count=3
+    )
+    value = build_combined_training_data(source_inputs)
+    assert list(value["sources"]) == ["ABO", "3D-FUTURE", "HSSD"]
+    assert value["stages"]["ss64"]["source_counts"] == {
+        "ABO": 2,
+        "3D-FUTURE": 5,
+        "HSSD": 3,
+    }
+    assert value["stages"]["ss64"]["total_count"] == 10
+
+
+def test_three_source_pairwise_overlap_is_rejected(
+    source_inputs, tmp_path
+):
+    hssd_path = _write_source(
+        tmp_path, "HSSD", schema_version=2, count=3
+    )
+    abo = json.loads(source_inputs["ABO"].read_text())
+    abo_scope = json.loads(
+        (
+            Path(abo["stages"]["ss64"]["root"])
+            / "materialization.json"
+        ).read_text()
+    )["stage_scope"]
+
+    def overlap(evidence):
+        evidence["stage_scope"][0] = abo_scope[0]
+        evidence["stage_scope"].sort()
+        evidence["stage_scope_sha256"] = _scope_digest(
+            evidence["stage_scope"]
+        )
+
+    _rewrite_materialization(hssd_path, "ss64", overlap)
+    changed = json.loads(hssd_path.read_text())
+    changed_digest = json.loads(
+        (
+            Path(changed["stages"]["ss64"]["root"])
+            / "materialization.json"
+        ).read_text()
+    )["stage_scope_sha256"]
+    _rewrite_source_chain(
+        hssd_path,
+        lambda handoff: handoff["stages"]["ss64"].__setitem__(
+            "asset_scope_sha256", changed_digest
+        ),
+    )
+    source_inputs["HSSD"] = hssd_path
+
+    with pytest.raises(ValueError, match="cross-source asset overlap"):
+        build_combined_training_data(source_inputs)
+
+
+def test_existing_two_source_bundle_remains_valid(source_inputs):
+    value = build_combined_training_data(
+        {
+            "ABO": source_inputs["ABO"],
+            "3D-FUTURE": source_inputs["3D-FUTURE"],
+        }
+    )
+    assert list(value["sources"]) == ["ABO", "3D-FUTURE"]
 
 
 def test_combined_manifest_rejects_cross_source_asset_overlap(source_inputs):
@@ -508,7 +659,7 @@ def test_combined_manifest_rejects_changed_materialized_scope(source_inputs):
 
 
 def test_combined_manifest_requires_canonical_source_set(source_inputs):
-    with pytest.raises(ValueError, match="exactly.*ABO.*3D-FUTURE"):
+    with pytest.raises(ValueError, match="source order must be one of"):
         build_combined_training_data({"ABO": source_inputs["ABO"]})
 
 
@@ -699,6 +850,28 @@ def test_resolve_training_data_rejects_missing_stage(manifest):
         resolve_training_data(manifest, "ss64")
 
 
+def test_resolve_training_data_does_not_fallback_after_combined_validation(
+    manifest,
+):
+    value = json.loads(manifest.read_text())
+    value["sources"] = {}
+    manifest.write_bytes(_ordered_json_bytes(value))
+    with pytest.raises(
+        ValueError, match="combined training manifest sources"
+    ):
+        resolve_training_data(manifest, "ss64")
+
+
+def test_resolve_training_data_requires_exact_source_schema_keys(
+    hssd_training_data,
+):
+    value = json.loads(hssd_training_data.read_text())
+    value["unexpected"] = True
+    hssd_training_data.write_bytes(_ordered_json_bytes(value))
+    with pytest.raises(ValueError, match="unrecognized training_data schema"):
+        resolve_training_data(hssd_training_data, "ss64")
+
+
 def test_resolve_training_data_rejects_noncanonical_source_order(manifest):
     value = json.loads(manifest.read_text())
     value["sources"] = {
@@ -706,7 +879,7 @@ def test_resolve_training_data_rejects_noncanonical_source_order(manifest):
         "ABO": value["sources"]["ABO"],
     }
     manifest.write_bytes(_ordered_json_bytes(value))
-    with pytest.raises(ValueError, match="ABO then 3D-FUTURE"):
+    with pytest.raises(ValueError, match="source order must be one of"):
         resolve_training_data(manifest, "ss64")
 
 

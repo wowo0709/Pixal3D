@@ -11,12 +11,19 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Mapping
 
+from data_toolkit.pipeline.training_source_profiles import (
+    SOURCE_ACCEPTANCE_CONTRACTS,
+)
 
+KNOWN_SOURCES = ("ABO", "3D-FUTURE", "HSSD")
 CANONICAL_SOURCES = ("ABO", "3D-FUTURE")
+TWO_SOURCE_BUNDLE = CANONICAL_SOURCES
+THREE_SOURCE_BUNDLE = ("ABO", "3D-FUTURE", "HSSD")
+SUPPORTED_BUNDLES = (TWO_SOURCE_BUNDLE, THREE_SOURCE_BUNDLE)
 STAGES = ("ss64", "shape512", "shape1024", "pbr1024")
 SAMPLING = "proportional-unweighted-concatenation"
 AUTHORIZATION = "training-input use only"
-_SOURCE_SCHEMAS = {"ABO": 1, "3D-FUTURE": 2}
+_SOURCE_SCHEMAS = {"ABO": 1, "3D-FUTURE": 2, "HSSD": 2}
 _REPORT_FIELDS = {
     1: (
         "schema_version",
@@ -477,10 +484,12 @@ def _validate_source_stage(
     )
 
 
-def _validate_source_training_data(
-    source: str, path: Path
+def _validate_source_training_data_value(
+    source: str,
+    path: Path,
+    value: Mapping[str, object],
+    raw: bytes,
 ) -> SourceTrainingData:
-    value, raw = _load_json(path, f"source={source} training data")
     canonical_path = _canonical_path(
         Path(path), f"source={source} training data"
     )
@@ -532,6 +541,17 @@ def _validate_source_training_data(
         or handoff.get("authorization") != AUTHORIZATION
     ):
         raise ValueError(f"source={source} handoff identity is invalid")
+    acceptance_contract = (
+        value.get("acceptance_mode"),
+        value.get("original_90_percent_gate_passed"),
+    )
+    if (
+        type(acceptance_contract[1]) is not bool
+        or acceptance_contract != SOURCE_ACCEPTANCE_CONTRACTS[source]
+    ):
+        raise ValueError(
+            f"source={source} acceptance contract is invalid"
+        )
     stage_records = _stage_mapping(
         value.get("stages"), f"source={source} stage records"
     )
@@ -569,36 +589,55 @@ def _validate_source_training_data(
     )
 
 
+def _validate_source_training_data(
+    source: str, path: Path
+) -> SourceTrainingData:
+    value, raw = _load_json(path, f"source={source} training data")
+    return _validate_source_training_data_value(
+        source, path, value, raw
+    )
+
+
 def validate_source_training_data(
     source: str, path: Path
 ) -> SourceTrainingData:
     """Validate one complete immutable source publication chain."""
-    if source not in CANONICAL_SOURCES:
+    if source not in KNOWN_SOURCES:
         raise ValueError(
-            f"source must be one of {CANONICAL_SOURCES}: {source}"
+            f"source must be one of {KNOWN_SOURCES}: {source}"
         )
     return _validate_source_training_data(source, Path(path))
 
 
 def _combined_stage(
-    source_data: Mapping[str, SourceTrainingData], stage: str
+    source_data: Mapping[str, SourceTrainingData],
+    source_order: tuple[str, ...],
+    stage: str,
 ) -> CombinedStage:
     scopes = {
         source: source_data[source].stages[stage].source_scopes[source]
-        for source in CANONICAL_SOURCES
+        for source in source_order
     }
-    overlap = set(scopes["ABO"]) & set(scopes["3D-FUTURE"])
-    if overlap:
-        raise ValueError(
-            f"stage={stage}: cross-source asset overlap: {sorted(overlap)[0]}"
-        )
-    union = sorted((*scopes["ABO"], *scopes["3D-FUTURE"]))
+    owners: dict[str, str] = {}
+    for source in source_order:
+        for asset in scopes[source]:
+            previous = owners.setdefault(asset, source)
+            if previous != source:
+                raise ValueError(
+                    "cross-source asset overlap: "
+                    f"{previous}/{source}: {asset}"
+                )
+    union = sorted(
+        asset
+        for source in source_order
+        for asset in scopes[source]
+    )
     source_counts = {
-        source: len(scopes[source]) for source in CANONICAL_SOURCES
+        source: len(scopes[source]) for source in source_order
     }
     data_dir = {
         source: source_data[source].stages[stage].data_dir[source]
-        for source in CANONICAL_SOURCES
+        for source in source_order
     }
     return CombinedStage(
         source_counts=source_counts,
@@ -611,9 +650,11 @@ def _combined_stage(
 
 def _document_from_sources(
     source_data: Mapping[str, SourceTrainingData],
+    source_order: tuple[str, ...],
 ) -> dict[str, object]:
     combined_stages = {
-        stage: _combined_stage(source_data, stage) for stage in STAGES
+        stage: _combined_stage(source_data, source_order, stage)
+        for stage in STAGES
     }
     return {
         "schema_version": 1,
@@ -630,7 +671,7 @@ def _document_from_sources(
                     "sha256": source_data[source].handoff_sha256,
                 },
             }
-            for source in CANONICAL_SOURCES
+            for source in source_order
         },
         "stages": {
             stage: {
@@ -645,29 +686,37 @@ def _document_from_sources(
     }
 
 
+def _source_order(
+    source_paths: Mapping[str, Path],
+) -> tuple[str, ...]:
+    order = tuple(source_paths)
+    if order not in SUPPORTED_BUNDLES:
+        raise ValueError(
+            f"source order must be one of {SUPPORTED_BUNDLES}: {order}"
+        )
+    return order
+
+
 def _validate_source_paths(
     source_paths: Mapping[str, Path],
-) -> dict[str, SourceTrainingData]:
-    if (
-        not isinstance(source_paths, Mapping)
-        or set(source_paths) != set(CANONICAL_SOURCES)
-    ):
-        raise ValueError(
-            "source paths must contain exactly ABO and 3D-FUTURE"
-        )
+) -> tuple[dict[str, SourceTrainingData], tuple[str, ...]]:
+    if not isinstance(source_paths, Mapping):
+        raise ValueError("source paths must be a mapping")
+    source_order = _source_order(source_paths)
     return {
         source: _validate_source_training_data(
             source, Path(source_paths[source])
         )
-        for source in CANONICAL_SOURCES
-    }
+        for source in source_order
+    }, source_order
 
 
 def build_combined_training_data(
     source_paths: Mapping[str, Path],
 ) -> dict[str, object]:
-    """Build a strict two-source manifest from pinned source handoffs."""
-    return _document_from_sources(_validate_source_paths(source_paths))
+    """Build a supported source bundle from pinned source handoffs."""
+    source_data, source_order = _validate_source_paths(source_paths)
+    return _document_from_sources(source_data, source_order)
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -729,7 +778,9 @@ def publish_combined_training_data(
     return output_path
 
 
-def _validate_combined_shape(value: Mapping[str, object]) -> None:
+def _validate_combined_shape(
+    value: Mapping[str, object],
+) -> tuple[str, ...]:
     _exact_keys(
         value,
         {
@@ -748,14 +799,16 @@ def _validate_combined_shape(value: Mapping[str, object]) -> None:
     ):
         raise ValueError("combined training manifest identity is invalid")
     sources = value.get("sources")
-    if (
-        not isinstance(sources, Mapping)
-        or list(sources) != list(CANONICAL_SOURCES)
-    ):
+    if not isinstance(sources, Mapping):
         raise ValueError(
-            "combined training manifest sources must be exactly "
-            "ABO then 3D-FUTURE"
+            "combined training manifest sources must be a mapping"
         )
+    try:
+        source_order = _source_order(sources)
+    except ValueError as error:
+        raise ValueError(
+            f"combined training manifest sources {error}"
+        ) from error
     stages = _stage_mapping(
         value.get("stages"), "combined training manifest stages"
     )
@@ -774,27 +827,26 @@ def _validate_combined_shape(value: Mapping[str, object]) -> None:
             source_mapping = record[field]
             if (
                 not isinstance(source_mapping, Mapping)
-                or list(source_mapping) != list(CANONICAL_SOURCES)
+                or list(source_mapping) != list(source_order)
             ):
                 raise ValueError(
                     f"combined stage={stage} {field} sources must be "
-                    "ABO then 3D-FUTURE"
+                    f"{source_order}"
                 )
+    return source_order
 
 
-def resolve_training_data(
-    path: Path, stage: str
+def _resolve_combined_value(
+    path: Path,
+    value: Mapping[str, object],
+    raw: bytes,
+    stage: str,
 ) -> ResolvedTrainingData:
-    """Revalidate a combined manifest trust chain and select one stage."""
-    if stage not in STAGES:
-        raise ValueError(f"unknown stage: {stage}")
-    path = Path(path)
-    value, raw = _load_json(path, "combined training manifest")
     canonical_path = _canonical_path(path, "combined training manifest")
-    _validate_combined_shape(value)
+    source_order = _validate_combined_shape(value)
     sources = value["sources"]
     source_data = {}
-    for source in CANONICAL_SOURCES:
+    for source in source_order:
         source_record = _exact_keys(
             sources[source],
             {"training_data", "handoff"},
@@ -832,12 +884,12 @@ def resolve_training_data(
                 f"source={source} combined handoff reference changed"
             )
         source_data[source] = validated
-    expected = _document_from_sources(source_data)
+    expected = _document_from_sources(source_data, source_order)
     if value != expected:
         raise ValueError(
             "combined training manifest does not match current source evidence"
         )
-    combined_stage = _combined_stage(source_data, stage)
+    combined_stage = _combined_stage(source_data, source_order, stage)
     return ResolvedTrainingData(
         path=canonical_path,
         manifest_sha256=_digest(raw),
@@ -849,6 +901,69 @@ def resolve_training_data(
         union_scope_sha256=combined_stage.union_scope_sha256,
         sampling=SAMPLING,
     )
+
+
+def _resolve_source_value(
+    path: Path,
+    value: Mapping[str, object],
+    raw: bytes,
+    stage: str,
+) -> ResolvedTrainingData:
+    source = value.get("source")
+    if source not in KNOWN_SOURCES:
+        raise ValueError(f"unknown source training data: {source}")
+    validated = _validate_source_training_data_value(
+        source, path, value, raw
+    )
+    selected = validated.stages[stage]
+    scope = selected.source_scopes[source]
+    return ResolvedTrainingData(
+        path=validated.path,
+        manifest_sha256=validated.sha256,
+        stage=stage,
+        data_dir=selected.data_dir,
+        source_counts={source: len(scope)},
+        total_count=len(scope),
+        source_scopes={source: scope},
+        union_scope_sha256=selected.union_scope_sha256,
+        sampling=SAMPLING,
+    )
+
+
+def resolve_source_training_data(
+    path: Path, stage: str
+) -> ResolvedTrainingData:
+    value, raw = _load_json(path, "source training data")
+    return _resolve_source_value(path, value, raw, stage)
+
+
+def resolve_training_data(
+    path: Path, stage: str
+) -> ResolvedTrainingData:
+    """Revalidate a supported manifest trust chain and select one stage."""
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage: {stage}")
+    path = Path(path)
+    value, raw = _load_json(path, "training data")
+    combined_keys = {
+        "schema_version",
+        "authorization",
+        "sampling",
+        "sources",
+        "stages",
+    }
+    source = value.get("source")
+    source_keys = (
+        set(_REPORT_FIELDS[_SOURCE_SCHEMAS[source]])
+        | {"report", "handoff"}
+        if source in KNOWN_SOURCES
+        else set()
+    )
+    if set(value) == combined_keys:
+        return _resolve_combined_value(path, value, raw, stage)
+    if source_keys and set(value) == source_keys:
+        return _resolve_source_value(path, value, raw, stage)
+    raise ValueError("unrecognized training_data schema")
 
 
 def resolve_training_input(

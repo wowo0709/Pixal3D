@@ -7,10 +7,70 @@ import pytest
 import torch
 
 from data_toolkit.pipeline import training_manifest
+from tests.multiview.test_training_manifest import _write_source
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESOLVED_CONFIG_MARKER = f"Config:\n{'=' * 80}\n"
+
+
+def test_entrypoint_accepts_standalone_hssd_before_cuda(
+    tmp_path, monkeypatch, capsys
+):
+    hssd_path = _write_source(
+        tmp_path, "HSSD", schema_version=2, count=3
+    )
+    output_path = tmp_path / "existing-output"
+    output_path.write_text("block output directory creation")
+    config_path = tmp_path / "experiment.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "default_output_dir": str(output_path),
+                "trainer": {"args": {"multiview_stage": "ss64"}},
+                "node_rank": 0,
+            }
+        )
+    )
+    original_resolve = training_manifest.resolve_training_input
+    events = []
+
+    def resolve(config, cli_data_dir, cli_training_data):
+        result = original_resolve(
+            config, cli_data_dir, cli_training_data
+        )
+        events.append(result[1])
+        return result
+
+    def device_count():
+        assert events[0]["source_counts"] == {"HSSD": 3}
+        assert events[0]["total_count"] == 3
+        return 1
+
+    monkeypatch.setattr(
+        training_manifest, "resolve_training_input", resolve
+    )
+    monkeypatch.setattr(torch.cuda, "device_count", device_count)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train.py",
+            "--config",
+            str(config_path),
+            "--training_data",
+            str(hssd_path),
+        ],
+    )
+    with pytest.raises(FileExistsError):
+        runpy.run_path(str(REPO_ROOT / "train.py"), run_name="__main__")
+    resolved_config = json.loads(
+        capsys.readouterr().out.split(RESOLVED_CONFIG_MARKER, 1)[1]
+    )
+    assert list(json.loads(resolved_config["data_dir"])) == ["HSSD"]
+    assert resolved_config["training_evidence"]["source_counts"] == {
+        "HSSD": 3
+    }
 
 
 def test_entrypoint_rejects_manifest_before_cuda_for_unknown_stage(
