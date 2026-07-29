@@ -555,8 +555,32 @@ def test_materializer_cli_exposes_source_profiles_and_repeatable_stages():
         check=False,
     )
     assert result.returncode == 0
-    assert "--profile {abo,3d-future}" in result.stdout
+    assert "--profile {abo,3d-future,hssd}" in result.stdout
     assert "--stage {ss64,shape512,shape1024,pbr1024}" in result.stdout
+
+
+def test_materializer_legacy_argument_error_uses_configured_parser():
+    """Legacy ABO errors must retain the full compatibility CLI usage."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/materialize_multiview_production.py",
+            "--profile",
+            "abo",
+            "--prepared-root",
+            "/unexpected/prepared",
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--prepared-root must match the selected profile" in result.stderr
+    assert "--profile {abo,3d-future,hssd}" in result.stderr
+    assert "--data2-root DATA2_ROOT" in result.stderr
+    assert "--stage {ss64,shape512,shape1024,pbr1024}" in result.stderr
 
 
 def test_materializer_cli_rejects_index_from_another_profile():

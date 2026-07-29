@@ -136,7 +136,7 @@ def materialize_all(
     }
 
 
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--profile", choices=SOURCE_PROFILE_NAMES, default="abo"
@@ -149,6 +149,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--stage", choices=tuple(STAGE_FAMILIES), action="append"
     )
+    return parser
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = _argument_parser()
     return parser.parse_args(argv)
 
 
@@ -183,27 +188,24 @@ def _legacy_paths(args: argparse.Namespace) -> tuple[ProductionSourceSpec, Path,
     return spec, prepared_root, output_root
 
 
-def _argument_error(message: str) -> None:
-    argparse.ArgumentParser().error(message)
-
-
 def main() -> None:
-    args = _parse_args()
+    parser = _argument_parser()
+    args = parser.parse_args()
     root_aware = args.data2_root is not None or args.local_root is not None
     legacy_paths = (args.index, args.prepared_root, args.output_root)
     if root_aware:
         if any(path is not None for path in legacy_paths):
-            _argument_error(
+            parser.error(
                 "root-aware profile selection cannot be combined with legacy paths"
             )
         spec, prepared_root, output_root = resolve_profile_paths(args)
     elif args.profile == "hssd":
         if args.index is not None:
-            _argument_error(
+            parser.error(
                 "hssd profile binds both indexes from its source spec"
             )
         if args.prepared_root is not None or args.output_root is not None:
-            _argument_error(
+            parser.error(
                 "hssd profile requires profile-derived prepared and output roots"
             )
         spec, prepared_root, output_root = resolve_profile_paths(args)
@@ -211,7 +213,7 @@ def main() -> None:
         try:
             spec, prepared_root, output_root = _legacy_paths(args)
         except ValueError as error:
-            _argument_error(str(error))
+            parser.error(str(error))
 
     catalog = load_source_catalog(spec, prepared_root)
     for stage in args.stage or tuple(STAGE_FAMILIES):
