@@ -37,6 +37,9 @@ from data_toolkit.pipeline.training_eligibility import (  # noqa: E402
 from data_toolkit.pipeline.training_materialization import (
     ProductionSourceSpec,
 )
+from data_toolkit.pipeline.training_source_profiles import (
+    SOURCE_ACCEPTANCE_CONTRACTS,
+)
 
 
 SOURCE = "ABO"
@@ -94,6 +97,25 @@ def _validate_source_name(source: object) -> str:
     return source
 
 
+def validate_acceptance_evidence(
+    spec: ProductionSourceSpec, evidence: Mapping[str, object]
+) -> None:
+    """Require persisted acceptance evidence to match its source contract."""
+    expected = (
+        spec.acceptance_mode,
+        spec.original_90_percent_gate_passed,
+    )
+    actual = (
+        evidence.get("acceptance_mode"),
+        evidence.get("original_90_percent_gate_passed"),
+    )
+    if actual != expected:
+        raise ValueError(
+            f"source={spec.source}: acceptance evidence does not "
+            f"match source spec: expected={expected} actual={actual}"
+        )
+
+
 def _source_context_entrypoint(function):
     """Add one exact source prefix to errors crossing a generic boundary."""
 
@@ -121,10 +143,11 @@ def _validate_source_spec(spec: ProductionSourceSpec) -> tuple[str, ...]:
     if not isinstance(spec, ProductionSourceSpec):
         raise TypeError("spec must be a ProductionSourceSpec")
     _validate_source_name(spec.source)
-    if (
-        spec.acceptance_mode != "valid_subset_user_waiver"
-        or spec.original_90_percent_gate_passed is not False
-    ):
+    contract = SOURCE_ACCEPTANCE_CONTRACTS.get(spec.source)
+    if contract is None or (
+        spec.acceptance_mode,
+        spec.original_90_percent_gate_passed,
+    ) != contract:
         raise ValueError("source acceptance policy is invalid")
     stages = tuple(COMPONENTS)
     if set(spec.expected_candidate_stages) != set(stages):
@@ -914,6 +937,12 @@ def _validated_source_materialization(
             raise _error(stage, None, "invalid materialization evidence") from error
         if not isinstance(evidence, dict):
             raise _error(stage, None, "invalid materialization evidence")
+        try:
+            validate_acceptance_evidence(spec, evidence)
+        except ValueError as error:
+            raise _error(
+                stage, None, "materialization acceptance evidence is invalid"
+            ) from error
         indexes = evidence.get("source_indexes")
         if (
             evidence.get("schema_version") != 1
@@ -921,9 +950,6 @@ def _validated_source_materialization(
             or not evidence.get("created_at")
             or evidence.get("source") != source
             or indexes != list(expected_indexes)
-            or evidence.get("acceptance_mode") != spec.acceptance_mode
-            or evidence.get("original_90_percent_gate_passed")
-            is not spec.original_90_percent_gate_passed
         ):
             raise _error(stage, None, "materialization provenance is invalid")
         canonical_root = str(Path(root).resolve())
@@ -1241,6 +1267,7 @@ def _validated_source_handoff_inputs(
     for stage in stages:
         result = results[stage]
         evidence = materializations[stage]
+        validate_acceptance_evidence(spec, evidence)
         try:
             validated_evidence = json.loads(result.materialization_bytes)
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError):

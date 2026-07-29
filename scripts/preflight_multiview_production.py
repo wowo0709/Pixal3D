@@ -14,7 +14,14 @@ if __package__ in (None, ""):
 
 from data_toolkit.pipeline import training_preflight as _core  # noqa: E402
 from data_toolkit.pipeline.training_materialization import (  # noqa: E402
+    ABO_SOURCE_SPEC,
     THREED_FUTURE_SOURCE_SPEC,
+)
+from data_toolkit.pipeline.training_source_profiles import (  # noqa: E402
+    SOURCE_PROFILE_NAMES,
+    ProductionSourceSpec,
+    build_source_spec,
+    source_output_root,
 )
 from data_toolkit.pipeline.training_manifest import (  # noqa: E402
     validate_source_training_data,
@@ -230,23 +237,126 @@ def _verify_existing(
         print(f"{label} {path} sha256={sha256(raw).hexdigest()}")
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--profile", choices=("abo", "3d-future"), default="abo"
+        "--profile", choices=SOURCE_PROFILE_NAMES, default="abo"
     )
+    parser.add_argument("--data2-root", type=Path, default=None)
+    parser.add_argument("--local-root", type=Path, default=None)
     parser.add_argument("--root", type=Path)
     parser.add_argument("--index", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--handoff", type=Path)
     parser.add_argument("--training-data", type=Path)
     parser.add_argument("--verify-existing", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def source_publication_paths(output_root: Path) -> dict[str, Path]:
+    """Return every local publication path derived from one output root."""
+    root = Path(output_root)
+    return {
+        "report": root / "publication/report.json",
+        "handoff": root / "publication/handoff.json",
+        "training-data": root / "training_data.json",
+    }
+
+
+def resolve_profile_paths(
+    args: argparse.Namespace,
+) -> tuple[ProductionSourceSpec, Path, Path]:
+    """Build source inputs and a local output path from optional node roots."""
+    data2_root = args.data2_root or Path("/root/data2/pixal3d")
+    local_root = args.local_root or Path("/root/node17/data/pixal3d")
+    spec = build_source_spec(args.profile, data2_root)
+    prepared = data2_root / "prepared"
+    output_root = source_output_root(args.profile, local_root)
+    return spec, prepared, output_root
+
+
+def _publish_legacy_abo(
+    index: Path, root: Path, paths: Mapping[str, Path]
+) -> tuple[Path, Path, Path]:
+    results: dict[str, StagePreflight] = {}
+    for stage in HANDOFF_STAGE_COUNTS:
+        results[stage] = preflight_stage(
+            stage, root / stage / "active", CONFIGS[stage]
+        )
+    materializations = {
+        stage: _core._materialization_evidence_from_result(result)
+        for stage, result in results.items()
+    }
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return publish_handoff(
+        index,
+        results,
+        materializations,
+        paths["report"],
+        paths["handoff"],
+        paths["training-data"],
+        created_at,
+    )
+
+
+def _publish_source_profile(
+    spec: ProductionSourceSpec, root: Path, paths: Mapping[str, Path]
+) -> tuple[Path, Path, Path]:
+    results = {
+        stage: source_preflight_stage(
+            spec, stage, root / stage / "active", CONFIGS[stage]
+        )
+        for stage in COMPONENTS
+    }
+    return publish_source_handoff(
+        spec,
+        results,
+        paths["report"],
+        paths["handoff"],
+        paths["training-data"],
+    )
 
 
 def main() -> None:
     args = _parse_args()
-    if args.profile == "abo":
+    root_aware = args.data2_root is not None or args.local_root is not None
+    legacy_paths = (
+        args.root,
+        args.index,
+        args.report,
+        args.handoff,
+        args.training_data,
+    )
+    if root_aware:
+        if any(path is not None for path in legacy_paths):
+            raise ValueError(
+                "root-aware profile selection cannot be combined with legacy paths"
+            )
+        spec, _prepared, root = resolve_profile_paths(args)
+        paths = source_publication_paths(root)
+        if args.verify_existing:
+            _verify_existing(spec.source, paths)
+            return
+        if spec.source == SOURCE:
+            paths = _publish_legacy_abo(spec.indexes[0], root, paths)
+        else:
+            paths = _publish_source_profile(spec, root, paths)
+    elif args.profile == "hssd":
+        if args.index is not None:
+            raise ValueError(
+                "hssd profile binds both indexes from its source spec"
+            )
+        if any(path is not None for path in (
+            args.root, args.report, args.handoff, args.training_data,
+        )):
+            raise ValueError("hssd profile requires profile-derived paths")
+        spec, _prepared, root = resolve_profile_paths(args)
+        paths = source_publication_paths(root)
+        if args.verify_existing:
+            _verify_existing(spec.source, paths)
+            return
+        paths = _publish_source_profile(spec, root, paths)
+    elif args.profile == "abo":
         root = args.root or DEFAULT_ROOT
         index = args.index or DEFAULT_INDEX
         report_path = args.report or DEFAULT_REPORT
@@ -262,27 +372,11 @@ def main() -> None:
                 }
             )
             return
-        results: dict[str, StagePreflight] = {}
-        for stage in HANDOFF_STAGE_COUNTS:
-            results[stage] = preflight_stage(
-                stage, root / stage / "active", CONFIGS[stage]
-            )
-        materializations = {
-            stage: _core._materialization_evidence_from_result(result)
-            for stage, result in results.items()
-        }
-        created_at = (
-            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        )
-        paths = publish_handoff(
-            index,
-            results,
-            materializations,
-            report_path,
-            handoff_path,
-            training_data_path,
-            created_at,
-        )
+        paths = _publish_legacy_abo(index, root, {
+            "report": report_path,
+            "handoff": handoff_path,
+            "training-data": training_data_path,
+        })
     else:
         if args.index is not None:
             raise ValueError(
@@ -304,21 +398,14 @@ def main() -> None:
                 }
             )
             return
-        results = {
-            stage: source_preflight_stage(
-                THREED_FUTURE_SOURCE_SPEC,
-                stage,
-                root / stage / "active",
-                CONFIGS[stage],
-            )
-            for stage in COMPONENTS
-        }
-        paths = publish_source_handoff(
+        paths = _publish_source_profile(
             THREED_FUTURE_SOURCE_SPEC,
-            results,
-            report_path,
-            handoff_path,
-            training_data_path,
+            root,
+            {
+                "report": report_path,
+                "handoff": handoff_path,
+                "training-data": training_data_path,
+            },
         )
     for path in paths:
         print(path)

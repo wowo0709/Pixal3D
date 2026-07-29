@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import materialize_multiview_production as materialize_cli
 from data_toolkit.pipeline.training_materialization import (
     DEFAULT_INDEX,
     DEFAULT_OUTPUT,
@@ -59,6 +60,23 @@ def test_legacy_materialization_aliases_keep_node17_paths_and_values():
         "/root/node17/data/pixal3d/train/production/3d-future"
     )
     assert HSSD_SOURCE_SPEC.source == "HSSD"
+
+
+def test_hssd_materialization_cli_derives_node16_paths():
+    """A root-aware HSSD invocation must not inherit Node17 paths."""
+    args = materialize_cli._parse_args([
+        "--profile", "hssd",
+        "--data2-root", "/file2/youngwoo/pixal3d",
+        "--local-root", "/home/youngwoo/data/pixal3d",
+    ])
+
+    spec, prepared, output = materialize_cli.resolve_profile_paths(args)
+
+    assert spec.source == "HSSD"
+    assert prepared == Path("/file2/youngwoo/pixal3d/prepared")
+    assert output == Path(
+        "/home/youngwoo/data/pixal3d/train/production/hssd"
+    )
 
 
 def test_3d_future_profile_preserves_observed_candidate_counts():

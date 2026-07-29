@@ -9,6 +9,7 @@ from data_toolkit.pipeline.training_eligibility import (
     policy_evidence,
 )
 from data_toolkit.pipeline.training_materialization import ProductionSourceSpec
+from data_toolkit.pipeline.training_source_profiles import build_source_spec
 from data_toolkit.pipeline import training_preflight
 from data_toolkit.pipeline.training_preflight import (
     StagePreflight,
@@ -19,6 +20,7 @@ from data_toolkit.pipeline.training_preflight import (
     validate_direct_loader,
     write_create_only_json,
 )
+from scripts import preflight_multiview_production as preflight_cli
 
 
 STAGES = ("ss64", "shape512", "shape1024", "pbr1024")
@@ -28,14 +30,85 @@ def canonical_json_bytes(value: object) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
+def test_hssd_preflight_cli_derives_node16_publication_paths():
+    """A root-aware HSSD preflight invocation must publish locally."""
+    args = preflight_cli._parse_args([
+        "--profile", "hssd",
+        "--data2-root", "/file2/youngwoo/pixal3d",
+        "--local-root", "/home/youngwoo/data/pixal3d",
+    ])
+
+    spec, prepared, root = preflight_cli.resolve_profile_paths(args)
+
+    assert spec.source == "HSSD"
+    assert prepared == Path("/file2/youngwoo/pixal3d/prepared")
+    assert root == Path("/home/youngwoo/data/pixal3d/train/production/hssd")
+    assert preflight_cli.source_publication_paths(root) == {
+        "report": Path(
+            "/home/youngwoo/data/pixal3d/train/production/hssd/"
+            "publication/report.json"
+        ),
+        "handoff": Path(
+            "/home/youngwoo/data/pixal3d/train/production/hssd/"
+            "publication/handoff.json"
+        ),
+        "training-data": Path(
+            "/home/youngwoo/data/pixal3d/train/production/hssd/"
+            "training_data.json"
+        ),
+    }
+
+
+def test_hssd_preflight_accepts_passed_production_gate():
+    """A production-gated source must retain its successful gate evidence."""
+    spec = build_source_spec("hssd", Path("/file2/youngwoo/pixal3d"))
+
+    training_preflight.validate_acceptance_evidence(spec, {
+        "acceptance_mode": "production_gate",
+        "original_90_percent_gate_passed": True,
+    })
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {
+            "acceptance_mode": "valid_subset_user_waiver",
+            "original_90_percent_gate_passed": True,
+        },
+        {
+            "acceptance_mode": "production_gate",
+            "original_90_percent_gate_passed": False,
+        },
+    ],
+)
+def test_hssd_preflight_rejects_mismatched_acceptance_evidence(evidence):
+    """Changing either HSSD acceptance field must invalidate the evidence."""
+    spec = build_source_spec("hssd", Path("/file2/youngwoo/pixal3d"))
+
+    with pytest.raises(ValueError, match="acceptance evidence"):
+        training_preflight.validate_acceptance_evidence(spec, evidence)
+
+
+def test_waiver_source_cannot_claim_gate_passed():
+    """A waiver profile cannot falsely claim a passed production gate."""
+    spec = build_source_spec("3d-future", Path("/file2/youngwoo/pixal3d"))
+
+    with pytest.raises(ValueError, match="acceptance evidence"):
+        training_preflight.validate_acceptance_evidence(spec, {
+            "acceptance_mode": "valid_subset_user_waiver",
+            "original_90_percent_gate_passed": True,
+        })
+
+
 @pytest.fixture
 def two_index_preflight(tmp_path):
     indexes = []
     source_indexes = []
-    for shard in ("Fixture-00000", "Fixture-00001"):
+    for shard in ("3D-FUTURE-00000", "3D-FUTURE-00001"):
         path = tmp_path / "indexes" / f"{shard}.json"
         path.parent.mkdir(exist_ok=True)
-        path.write_text(json.dumps({"source": "Fixture", "shard_id": shard}) + "\n")
+        path.write_text(json.dumps({"source": "3D-FUTURE", "shard_id": shard}) + "\n")
         indexes.append(path)
         source_indexes.append(
             {
@@ -47,11 +120,11 @@ def two_index_preflight(tmp_path):
     candidates = {stage: 2 for stage in STAGES}
     exclusions = {stage: int(stage == "shape512") for stage in STAGES}
     spec = ProductionSourceSpec(
-        source="Fixture",
+        source="3D-FUTURE",
         indexes=tuple(indexes),
         expected_batches={
-            "Fixture-00000": ("batch000",),
-            "Fixture-00001": ("batch000",),
+            "3D-FUTURE-00000": ("batch000",),
+            "3D-FUTURE-00001": ("batch000",),
         },
         expected_frozen=2,
         expected_candidate_stages=candidates,
@@ -85,7 +158,7 @@ def two_index_preflight(tmp_path):
         evidence = {
             "schema_version": 1,
             "created_at": "2026-07-28T00:00:00Z",
-            "source": "Fixture",
+            "source": "3D-FUTURE",
             "source_indexes": source_indexes,
             "acceptance_mode": "valid_subset_user_waiver",
             "original_90_percent_gate_passed": False,
@@ -130,7 +203,7 @@ def two_index_preflight(tmp_path):
         (root / "materialization.json").write_bytes(raw)
         materializations[stage] = evidence
         results[stage] = StagePreflight(
-            source="Fixture",
+            source="3D-FUTURE",
             stage=stage,
             root=root,
             asset_count=len(final_scope),
@@ -157,8 +230,8 @@ def test_stage_data_dir_preserves_exact_source_name(tmp_path):
 def test_source_handoff_binds_both_index_digests(two_index_preflight):
     report = build_source_report(*two_index_preflight)
     assert [entry["shard_id"] for entry in report["source_indexes"]] == [
-        "Fixture-00000",
-        "Fixture-00001",
+        "3D-FUTURE-00000",
+        "3D-FUTURE-00001",
     ]
     assert all(len(entry["sha256"]) == 64 for entry in report["source_indexes"])
 
@@ -170,8 +243,8 @@ def test_source_indexes_follow_index_order_not_expected_batch_mapping_order(
     reordered = replace(
         spec,
         expected_batches={
-            "Fixture-00001": ("batch000",),
-            "Fixture-00000": ("batch000",),
+            "3D-FUTURE-00001": ("batch000",),
+            "3D-FUTURE-00000": ("batch000",),
         },
     )
     report = build_source_report(
@@ -181,8 +254,8 @@ def test_source_indexes_follow_index_order_not_expected_batch_mapping_order(
         (entry["shard_id"], Path(entry["path"]).name)
         for entry in report["source_indexes"]
     ] == [
-        ("Fixture-00000", "Fixture-00000.json"),
-        ("Fixture-00001", "Fixture-00001.json"),
+        ("3D-FUTURE-00000", "3D-FUTURE-00000.json"),
+        ("3D-FUTURE-00001", "3D-FUTURE-00001.json"),
     ]
 
 
@@ -196,7 +269,7 @@ def test_preflight_stage_preserves_source_identity(
         "validate_stage_structure",
         lambda source, stage, root, assets: {
             "assets": len(assets),
-            "source_checked": int(source == "Fixture"),
+            "source_checked": int(source == "3D-FUTURE"),
         },
     )
     monkeypatch.setattr(
@@ -207,7 +280,7 @@ def test_preflight_stage_preserves_source_identity(
     result = preflight_stage(
         spec, "ss64", expected.root, Path("unused-config.json")
     )
-    assert result.source == "Fixture"
+    assert result.source == "3D-FUTURE"
     assert result.asset_scope_sha256 == expected.asset_scope_sha256
     assert result.validation_counts == {
         "assets": 2,
@@ -255,10 +328,10 @@ def test_preflight_stage_accepts_stage_local_materializer_count_evidence(
 @pytest.mark.parametrize(
     "mutation, message",
     [
-        ("missing", r"source=Fixture.*stage=ss64"),
+        ("missing", r"source=3D-FUTURE.*stage=ss64"),
         (
             "invalid_observed_count",
-            r"source=Fixture.*training exclusion exceeds candidate count",
+            r"source=3D-FUTURE.*training exclusion exceeds candidate count",
         ),
     ],
 )
@@ -345,11 +418,11 @@ def test_source_report_rejects_noncanonical_materialization_index_path(
 @pytest.mark.parametrize(
     "mutation, message",
     [
-        ("index", r"source=Fixture.*stage=ss64"),
-        ("evidence", r"source=Fixture.*stage=ss64"),
+        ("index", r"source=3D-FUTURE.*stage=ss64"),
+        ("evidence", r"source=3D-FUTURE.*stage=ss64"),
         (
             "changed_materialization",
-            r"source=Fixture.*materialization evidence bytes changed",
+            r"source=3D-FUTURE.*materialization evidence bytes changed",
         ),
     ],
 )
