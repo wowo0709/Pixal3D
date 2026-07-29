@@ -437,3 +437,30 @@ The authoritative post-fix evidence base and compact verification summary are:
 /home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z
 /home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/postfix-verification-summary.txt
 ```
+
+## 20k fine-tuning duration estimate
+
+Each estimate uses that stage's authoritative post-fix `8/4` steps 2-5 mean
+and the six-GPU global batch of 48. Raw compute is the mean multiplied by
+20,000 optimizer steps; the planning value adds 10 percent. These are
+per-stage wall-clock estimates, not GPU-hours.
+
+| Stage | Steady seconds/step | Raw seconds | Raw 20k duration | 10%-margin seconds | 10%-margin duration |
+|---|---:|---:|---:|---:|---:|
+| `ss64` | 12.11578375 | 242,315.675 | 67.31 h (2.80 d) | 266,547.243 | 74.04 h (3.09 d) |
+| `shape512` | 14.37011425 | 287,402.285 | 79.83 h (3.33 d) | 316,142.514 | 87.82 h (3.66 d) |
+| `shape1024` | 43.46975050 | 869,395.010 | 241.50 h (10.06 d) | 956,334.511 | 265.65 h (11.07 d) |
+| `pbr1024` | 44.82507450 | 896,501.490 | 249.03 h (10.38 d) | 986,151.639 | 273.93 h (11.41 d) |
+
+The first three rows use the default allocator profiles. The `pbr1024` timing
+comes from the successful expandable-segments diagnostic and therefore
+requires this launch setting:
+
+```text
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+```
+
+An independent `awk` pass and a decimal-arithmetic pass over the four
+unrounded steady-state step values agreed exactly before report rounding; all
+reported second values differ from the independent calculations by less than
+0.001 seconds.
