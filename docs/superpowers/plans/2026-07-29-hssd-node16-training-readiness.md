@@ -1119,42 +1119,7 @@ git commit -m "feat: prepare Node16 multisource training data"
 - Consumes: paths and CLI from Task 5.
 - Produces: operator-ready local Node16 commands and recovery rules.
 
-- [ ] **Step 1: Add a documentation contract test**
-
-Add to `tests/multiview/test_node16_training_prepare.py`:
-
-```python
-def test_node16_runbook_contains_exact_artifacts_and_safety_rules():
-    text = Path(
-        "docs/hssd_node16_training_runbook_ko.md"
-    ).read_text()
-    for required in (
-        "CUDA_VISIBLE_DEVICES=\"\"",
-        "scripts/prepare_node16_training.py",
-        "--execute",
-        "hssd/training_data.json",
-        "abo-3d-future-hssd/training_data.json",
-        "trainer.args.num_workers = 1",
-        "--training_data",
-        "nvidia-smi",
-        "wandb status",
-        "재실행",
-    ):
-        assert required in text
-```
-
-- [ ] **Step 2: Run the focused test and observe RED**
-
-Run:
-
-```bash
-/opt/conda/envs/pixal3d/bin/python -m pytest -q \
-  tests/multiview/test_node16_training_prepare.py::test_node16_runbook_contains_exact_artifacts_and_safety_rules
-```
-
-Expected: failure because the runbook is absent.
-
-- [ ] **Step 3: Write the Korean runbook**
+- [ ] **Step 1: Write the Korean runbook**
 
 The runbook contains these exact Node16-local preparation commands:
 
@@ -1190,20 +1155,23 @@ checkpoint inspection, and same-command resume. State that partial artifacts
 are never automatically removed; the operator must preserve and report the
 path before any recovery decision.
 
-- [ ] **Step 4: Update existing documentation**
+- [ ] **Step 2: Update existing documentation**
 
 Update README's verified launch section to retain the two-source commands and
 link the new three-source Node16 runbook. Update the preprocessing runbook's
 completed-source section with the observed HSSD boundary and new preparation
 workflow. Do not relabel the older ABO + 3D-FUTURE evidence as three-source.
 
-- [ ] **Step 5: Verify documentation**
+- [ ] **Step 3: Verify documentation and executable CLI surfaces**
 
 Run:
 
 ```bash
 /opt/conda/envs/pixal3d/bin/python -m pytest -q \
   tests/multiview/test_node16_training_prepare.py
+CUDA_VISIBLE_DEVICES="" \
+/opt/conda/envs/pixal3d/bin/python scripts/prepare_node16_training.py --help
+/opt/conda/envs/pixal3d/bin/python train.py --help
 rg -n \
   'HSSD|abo-3d-future-hssd|num_workers|--training_data|CUDA_VISIBLE_DEVICES' \
   README.md docs/data_preprocessing_runbook_ko.md \
@@ -1211,16 +1179,18 @@ rg -n \
 git diff --check
 ```
 
-Expected: contract tests pass and exact local paths are present.
+Expected: preparation tests pass, both executable CLI surfaces expose the
+documented arguments, and manual inspection confirms that the exact local
+paths and safety rules are internally consistent. Human prose is not tested
+through brittle source-text assertions.
 
-- [ ] **Step 6: Commit Task 6**
+- [ ] **Step 4: Commit Task 6**
 
 ```bash
 git add \
   README.md \
   docs/data_preprocessing_runbook_ko.md \
-  docs/hssd_node16_training_runbook_ko.md \
-  tests/multiview/test_node16_training_prepare.py
+  docs/hssd_node16_training_runbook_ko.md
 git commit -m "docs: add HSSD Node16 training runbook"
 ```
 
