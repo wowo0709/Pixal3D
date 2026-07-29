@@ -211,20 +211,22 @@ def three_source_fixture(tmp_path):
     }
     for training_data in source_paths.values():
         source_manifest = json.loads(training_data.read_text())
-        root = Path(source_manifest["stages"]["ss64"]["root"])
-        materialization = json.loads(
-            (root / "materialization.json").read_text()
-        )
-        _populate_stage(
-            root, "ss64", tuple(materialization["stage_scope"])
-        )
+        for stage in STAGES:
+            root = Path(source_manifest["stages"][stage]["root"])
+            materialization = json.loads(
+                (root / "materialization.json").read_text()
+            )
+            _populate_stage(
+                root, stage, tuple(materialization["stage_scope"])
+            )
     combined = tmp_path / "combined" / "training_data.json"
     publish_combined_training_data(source_paths, combined)
     return _TrainingFixture(combined)
 
 
+@pytest.mark.parametrize("stage", STAGES)
 def test_three_source_preflight_loads_boundaries_and_collates(
-    three_source_fixture, monkeypatch
+    three_source_fixture, stage, monkeypatch
 ):
     monkeypatch.setattr(
         torch.cuda,
@@ -233,8 +235,8 @@ def test_three_source_preflight_loads_boundaries_and_collates(
     )
     result = preflight_multisource_stage(
         three_source_fixture.training_data,
-        "ss64",
-        CONFIGS["ss64"],
+        stage,
+        CONFIGS[stage],
     )
     assert result["collated_sources"] == [
         "ABO",
@@ -250,18 +252,20 @@ def one_source_hssd_fixture(tmp_path):
         tmp_path, "HSSD", schema_version=2, count=2
     )
     source_manifest = json.loads(training_data.read_text())
-    root = Path(source_manifest["stages"]["ss64"]["root"])
-    materialization = json.loads(
-        (root / "materialization.json").read_text()
-    )
-    _populate_stage(
-        root, "ss64", tuple(materialization["stage_scope"])
-    )
+    for stage in STAGES:
+        root = Path(source_manifest["stages"][stage]["root"])
+        materialization = json.loads(
+            (root / "materialization.json").read_text()
+        )
+        _populate_stage(
+            root, stage, tuple(materialization["stage_scope"])
+        )
     return training_data
 
 
+@pytest.mark.parametrize("stage", STAGES)
 def test_one_source_hssd_preflight_loads_boundaries_and_collates(
-    one_source_hssd_fixture, monkeypatch
+    one_source_hssd_fixture, stage, monkeypatch
 ):
     monkeypatch.setattr(
         torch.cuda,
@@ -270,8 +274,8 @@ def test_one_source_hssd_preflight_loads_boundaries_and_collates(
     )
     result = preflight_multisource_stage(
         one_source_hssd_fixture,
-        "ss64",
-        CONFIGS["ss64"],
+        stage,
+        CONFIGS[stage],
     )
     assert result["collated_sources"] == ["HSSD"]
     assert result["boundary_instances_checked"] == 2
