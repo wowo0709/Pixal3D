@@ -340,3 +340,137 @@ CUDA_VISIBLE_DEVICES="" \
   so the low-level API cannot bypass it.
 - No deletion, replacement, rename, truncation, dependency, environment,
   production artifact, plan, spec, model, trainer, or W&B change was added.
+
+## Fix Round 2
+
+### Scope
+
+The second review hardening changed:
+
+- `data_toolkit/pipeline/node16_training_prepare.py`
+- `data_toolkit/pipeline/training_preflight.py`
+- `scripts/preflight_multisource_training.py`
+- `tests/multiview/test_node16_training_prepare.py`
+- `tests/multiview/test_training_preflight.py`
+- `tests/multiview/test_multisource_preflight.py`
+- this report
+
+The deferred atomic-publication minor remains out of scope.
+
+### RED Evidence
+
+The exception-path regression group exercised source import, constructor, and
+boundary load plus multisource import, constructor, boundary load, and
+cross-source collate:
+
+```text
+CUDA_VISIBLE_DEVICES="" \
+/opt/conda/envs/pixal3d/bin/python -m pytest -q \
+  tests/multiview/test_training_preflight.py \
+  tests/multiview/test_multisource_preflight.py \
+  -k 'cuda_error_precedes'
+
+7 failed, 56 deselected in 3.11s
+```
+
+One multisource-constructor fixture initially triggered the real lazy dataset
+import while installing its test double. After narrowing the double to a
+synthetic configured class, its isolated RED was:
+
+```text
+1 failed in 1.48s
+```
+
+The corrected regression demonstrated that the ordinary construction wrapper,
+not the CPU-safety error, still escaped. The other six failures likewise
+showed ordinary import/load/collate errors taking precedence after their
+operation initialized CUDA.
+
+Real-filesystem empty-symlink regressions then observed:
+
+```text
+CUDA_VISIBLE_DEVICES="" \
+/opt/conda/envs/pixal3d/bin/python -m pytest -q \
+  tests/multiview/test_node16_training_prepare.py \
+  -k 'empty_symlinked_owned_root'
+
+4 failed, 48 deselected in 0.28s
+```
+
+The runtime-config case followed the empty symlink and created four files
+outside the local root. Source, combined, and evidence roots happened to stop
+as generic partial state, but had not established the required canonical
+non-symlink root invariant before inspection.
+
+### Corrections
+
+- Every caught configured Dataset import, construction, boundary load, and
+  collate exception now runs the CPU-only assertion before ordinary wrapping.
+  If the operation both initializes CUDA and raises, the CPU-safety
+  `RuntimeError` takes precedence. When CUDA remains untouched, existing
+  contextual error wrappers and causes are preserved.
+- Primary-root validation now also validates the exact expected derivation of
+  production, runtime-config, evidence, source, source-stage/active,
+  publication, and combined roots.
+- Low-level runtime creation, source materialization/reuse/publication,
+  combined publication, final-report publication, topology inspection, and
+  create-only file creation revalidate their applicable root immediately
+  before inspection or mutation.
+- A root must be absolute and equal to `resolve(strict=False)`, rejecting
+  lexical dot segments and symlink traversal through either the root or an
+  ancestor.
+
+### GREEN Evidence
+
+Focused exception-path verification:
+
+```text
+7 passed, 56 deselected in 1.66s
+```
+
+Focused empty-symlink verification:
+
+```text
+4 passed, 48 deselected in 0.10s
+```
+
+The source/combined/driver interaction suite passed:
+
+```text
+115 passed in 8.72s
+```
+
+The final affected Task 1–5 CPU-masked suite passed:
+
+```text
+CUDA_VISIBLE_DEVICES="" \
+/opt/conda/envs/pixal3d/bin/python -m pytest -q \
+  tests/multiview/test_node16_training_prepare.py \
+  tests/multiview/test_training_source_profiles.py \
+  tests/multiview/test_training_materialization.py \
+  tests/multiview/test_training_preflight.py \
+  tests/multiview/test_production_preflight.py \
+  tests/multiview/test_training_manifest.py \
+  tests/multiview/test_multisource_preflight.py \
+  tests/multiview/test_training_entrypoint.py
+
+321 passed in 18.40s
+```
+
+### Fix-Round Self-Review
+
+- Mutation check: removing any exception-branch CPU assertion fails its
+  corresponding import, constructor, load, or collate regression.
+- Mutation check: omitting canonical validation from runtime, source,
+  combined, or evidence roots fails the real-filesystem redirect matrix.
+- The tests assert consumer-visible precedence and zero external files, not
+  helper call counts or source text.
+- Existing safe-boundary success behavior, ordinary error context, exact
+  topology checks, and create-only reuse behavior remain covered by the
+  broader suite.
+- These `Path.resolve` checks close the concrete pre-existing empty-symlink
+  redirect. They do not claim descriptor-pinned traversal: a concurrent
+  attacker can still create a check/use race between validation and a later
+  path-based operation. Descriptor pinning is outside this fix round.
+- No delete, replacement, rename, truncation, dependency, environment,
+  production artifact, plan, spec, model, trainer, or W&B change was added.

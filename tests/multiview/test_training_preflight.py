@@ -1,3 +1,4 @@
+import builtins
 import hashlib
 import json
 from dataclasses import replace
@@ -642,3 +643,126 @@ def test_direct_loader_stops_immediately_when_constructor_initializes_cuda(
         )
 
     assert boundary_loads == []
+
+
+def test_direct_loader_cuda_error_precedes_dataset_import_error(
+    tmp_path, monkeypatch
+):
+    import torch
+
+    state = {"initialized": False}
+    original_import = builtins.__import__
+
+    def raising_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "pixal3d" and "datasets" in fromlist:
+            state["initialized"] = True
+            raise LookupError("import failed after CUDA initialization")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(builtins, "__import__", raising_import)
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "dataset": {
+                    "name": "NeverImportedDataset",
+                    "args": {"image_size": 512},
+                }
+            }
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        validate_direct_loader(
+            "3D-FUTURE", "ss64", tmp_path, ["asset-a"], config
+        )
+
+
+def test_direct_loader_cuda_error_precedes_dataset_constructor_error(
+    tmp_path, monkeypatch
+):
+    import torch
+
+    state = {"initialized": False}
+
+    class RaisingDataset:
+        def __init__(self, _roots, **_kwargs):
+            state["initialized"] = True
+            raise LookupError("constructor failed after CUDA initialization")
+
+    from pixal3d import datasets
+
+    monkeypatch.setattr(
+        datasets, "RaisingDataset", RaisingDataset, raising=False
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "dataset": {
+                    "name": "RaisingDataset",
+                    "args": {"image_size": 512},
+                }
+            }
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        validate_direct_loader(
+            "3D-FUTURE", "ss64", tmp_path, ["asset-a"], config
+        )
+
+
+def test_direct_loader_cuda_error_precedes_boundary_load_error(
+    tmp_path, monkeypatch
+):
+    import torch
+
+    state = {"initialized": False}
+
+    class RaisingLoadDataset:
+        def __init__(self, _roots, **_kwargs):
+            self.instances = [
+                ({"base": str(tmp_path)}, "asset-a", "3D-FUTURE")
+            ]
+
+        def get_instance(self, _root, _asset):
+            state["initialized"] = True
+            raise LookupError("load failed after CUDA initialization")
+
+    from pixal3d import datasets
+
+    monkeypatch.setattr(
+        datasets,
+        "RaisingLoadDataset",
+        RaisingLoadDataset,
+        raising=False,
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "dataset": {
+                    "name": "RaisingLoadDataset",
+                    "args": {"image_size": 512},
+                }
+            }
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        validate_direct_loader(
+            "3D-FUTURE", "ss64", tmp_path, ["asset-a"], config
+        )

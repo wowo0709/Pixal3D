@@ -1,3 +1,4 @@
+import builtins
 import csv
 from dataclasses import replace
 import json
@@ -282,7 +283,13 @@ def test_one_source_hssd_preflight_loads_boundaries_and_collates(
 
 
 def _fake_dataset(
-    resolved, *, instances=None, load_error=None, collate_error=None
+    resolved,
+    *,
+    instances=None,
+    load_error=None,
+    collate_error=None,
+    load_hook=None,
+    collate_hook=None,
 ):
     class FakeDataset:
         def __init__(self):
@@ -301,11 +308,15 @@ def _fake_dataset(
             )
 
         def get_instance(self, _root, asset):
+            if load_hook is not None:
+                load_hook()
             if load_error is not None:
                 raise load_error
             return {"asset": asset}
 
         def collate_fn(self, batch):
+            if collate_hook is not None:
+                collate_hook()
             if collate_error is not None:
                 raise collate_error
             return {"assets": [sample["asset"] for sample in batch]}
@@ -387,6 +398,142 @@ def test_preflight_stops_immediately_when_constructor_initializes_cuda(
         )
 
     assert later_calls == []
+
+
+def test_multisource_cuda_error_precedes_dataset_import_error(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    state = {"initialized": False}
+    original_import = builtins.__import__
+
+    def raising_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "pixal3d" and "datasets" in fromlist:
+            state["initialized"] = True
+            raise LookupError("import failed after CUDA initialization")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(builtins, "__import__", raising_import)
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight._construct_configured_dataset(
+            resolved, CONFIGS["ss64"]
+        )
+
+
+def test_multisource_cuda_error_precedes_dataset_constructor_error(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    state = {"initialized": False}
+    dataset_name = "RaisingDataset"
+
+    class RaisingDataset:
+        def __init__(self, _roots, **_kwargs):
+            state["initialized"] = True
+            raise LookupError("constructor failed after CUDA initialization")
+
+    from pixal3d import datasets
+
+    monkeypatch.setattr(
+        preflight,
+        "_dataset_config",
+        lambda _config, _stage: (dataset_name, {}),
+    )
+    monkeypatch.setattr(
+        datasets, dataset_name, RaisingDataset, raising=False
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight._construct_configured_dataset(
+            resolved, CONFIGS["ss64"]
+        )
+
+
+def test_multisource_cuda_error_precedes_boundary_load_error(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "ss64"
+    )
+    state = {"initialized": False}
+    collate_calls = []
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_construct_configured_dataset",
+        lambda _resolved, _config: _fake_dataset(
+            resolved,
+            load_error=LookupError(
+                "load failed after CUDA initialization"
+            ),
+            load_hook=lambda: state.update(initialized=True),
+            collate_hook=lambda: collate_calls.append("collate"),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight_multisource_stage(
+            two_source_fixture.training_data,
+            "ss64",
+            CONFIGS["ss64"],
+        )
+
+    assert collate_calls == []
+
+
+def test_multisource_cuda_error_precedes_collate_error(
+    two_source_fixture, monkeypatch
+):
+    import scripts.preflight_multisource_training as preflight
+
+    resolved = resolve_training_data(
+        two_source_fixture.training_data, "shape512"
+    )
+    state = {"initialized": False}
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        torch.cuda, "is_initialized", lambda: state["initialized"]
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_construct_configured_dataset",
+        lambda _resolved, _config: _fake_dataset(
+            resolved,
+            collate_error=LookupError(
+                "collate failed after CUDA initialization"
+            ),
+            collate_hook=lambda: state.update(initialized=True),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="CPU-only preflight"):
+        preflight_multisource_stage(
+            two_source_fixture.training_data,
+            "shape512",
+            CONFIGS["shape512"],
+        )
 
 
 def test_preflight_rejects_unknown_resolved_source(

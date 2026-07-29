@@ -121,18 +121,73 @@ def require_cpu_only_environment() -> None:
         )
 
 
+def _validate_canonical_owned_root(root: Path, label: str) -> None:
+    """Reject non-absolute roots and any current symlink traversal."""
+    selected = Path(root)
+    if not selected.is_absolute():
+        raise ValueError(f"{label} must be absolute: {selected}")
+    canonical = selected.resolve(strict=False)
+    if selected != canonical:
+        raise ValueError(
+            f"{label} must be canonical and non-symlinked: "
+            f"{selected} resolves to {canonical}"
+        )
+
+
+def _validate_source_derived_roots(output_root: Path) -> None:
+    output = Path(output_root)
+    _validate_canonical_owned_root(output, "source output root")
+    for stage in STAGES:
+        stage_root = output / stage
+        _validate_canonical_owned_root(
+            stage_root, f"source stage={stage} root"
+        )
+        _validate_canonical_owned_root(
+            stage_root / "active", f"source stage={stage} active root"
+        )
+    _validate_canonical_owned_root(
+        output / "publication", "source publication root"
+    )
+
+
+def _validate_derived_roots(paths: PreparationPaths) -> None:
+    local = Path(paths.local_root)
+    expected = {
+        "production root": local / "train/production",
+        "runtime config root": local / "runtime-configs",
+        "evidence root": (
+            local
+            / "train/production/node16-preparation-evidence"
+        ),
+    }
+    selected = {
+        "production root": Path(paths.production_root),
+        "runtime config root": Path(paths.runtime_config_root),
+        "evidence root": Path(paths.evidence_root),
+    }
+    for label, expected_root in expected.items():
+        if selected[label] != expected_root:
+            raise ValueError(
+                f"{label} does not match local-root derivation: "
+                f"expected={expected_root} actual={selected[label]}"
+            )
+        _validate_canonical_owned_root(selected[label], label)
+    for profile in SOURCE_PROFILE_NAMES:
+        _validate_source_derived_roots(
+            source_output_root(profile, paths.local_root)
+        )
+    _validate_canonical_owned_root(
+        paths.combined_training_data.parent, "combined output root"
+    )
+
+
 def validate_roots(paths: PreparationPaths) -> None:
     """Require absolute, normalized roots with no symlink traversal."""
     for name in ("data2_root", "local_root", "repo_root"):
-        root = Path(getattr(paths, name))
-        if not root.is_absolute():
-            raise ValueError(f"{name} root must be absolute: {root}")
-        canonical = root.resolve(strict=False)
-        if root != canonical:
-            raise ValueError(
-                f"{name} root must be canonical and non-symlinked: "
-                f"{root} resolves to {canonical}"
-            )
+        _validate_canonical_owned_root(
+            Path(getattr(paths, name)), f"{name} root"
+        )
+    _validate_derived_roots(paths)
 
 
 def _assert_torch_cpu_only():
@@ -258,6 +313,7 @@ def _canonical_json_bytes(value: object) -> bytes:
 
 def _exclusive_create(path: Path, payload: bytes) -> None:
     path = Path(path)
+    _validate_canonical_owned_root(path.parent, "create-only output root")
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     descriptor = os.open(path, flags, 0o644)
@@ -276,6 +332,7 @@ def _validate_owned_topology(
     label: str,
 ) -> None:
     root = Path(root)
+    _validate_canonical_owned_root(root, label)
     if root.is_symlink() or not root.is_dir():
         raise ValueError(f"{label} root is not a safe directory: {root}")
     with os.scandir(root) as stream:
@@ -300,6 +357,7 @@ def _validate_owned_topology(
 
 def _validate_source_topology(output_root: Path) -> None:
     output = Path(output_root)
+    _validate_source_derived_roots(output)
     _validate_owned_topology(
         output,
         {
@@ -372,6 +430,9 @@ def create_runtime_configs(
     configs: Mapping[str, Path], output_root: Path
 ) -> dict[str, Path]:
     """Create semantic copies changing only trainer.args.num_workers."""
+    _validate_canonical_owned_root(
+        Path(output_root), "runtime config root"
+    )
     originals = validate_source_configs(configs)
     planned_outputs = {
         stage: (
@@ -443,7 +504,9 @@ def _discovered_paths(root: Path) -> list[Path]:
 
 def refuse_partial_source(output_root: Path) -> None:
     """Accept only an absent output root; never repair partial state."""
-    discovered = _discovered_paths(Path(output_root))
+    output = Path(output_root)
+    _validate_canonical_owned_root(output, "owned output root")
+    discovered = _discovered_paths(output)
     if discovered:
         raise ValueError(
             "partial source output requires operator inspection: "
@@ -519,14 +582,12 @@ def verify_existing_source(
     config_paths: Mapping[str, Path],
 ) -> SourcePreparation:
     """Validate a complete source chain and all materialized stage evidence."""
-    _validate_source_topology(
-        Path(publication["training-data"]).parent
-    )
+    output_root = Path(publication["training-data"]).parent
+    _validate_source_topology(output_root)
     validated = validate_source_training_data(
         spec.source, Path(publication["training-data"])
     )
     _validate_selected_publication(validated, publication)
-    output_root = Path(publication["training-data"]).parent
     results = preflight_all_source_stages(
         spec, output_root, config_paths
     )
@@ -546,8 +607,12 @@ def materialize_source(
     config_paths: Mapping[str, Path],
 ) -> SourcePreparation:
     """Materialize an absent source or fully validate a complete one."""
+    _validate_canonical_owned_root(
+        paths.production_root, "production root"
+    )
     spec = build_source_spec(profile, paths.data2_root)
     output = source_output_root(profile, paths.local_root)
+    _validate_source_derived_roots(output)
     publication = _source_publication_paths(output)
     if os.path.lexists(publication["training-data"]):
         _validate_source_topology(output)
@@ -555,6 +620,14 @@ def materialize_source(
     refuse_partial_source(output)
     catalog = load_source_catalog(spec, paths.data2_root / "prepared")
     for stage in STAGES:
+        _validate_canonical_owned_root(output, "source output root")
+        _validate_canonical_owned_root(
+            output / stage, f"source stage={stage} root"
+        )
+        _validate_canonical_owned_root(
+            output / stage / "active",
+            f"source stage={stage} active root",
+        )
         materialize_stage(spec, stage, catalog, output)
     results = preflight_all_source_stages(spec, output, config_paths)
     return SourcePreparation(
@@ -616,6 +689,7 @@ def publish_source(
     prepared: SourcePreparation,
 ) -> dict[str, object]:
     """Publish a new source or report a previously verified source."""
+    _validate_source_derived_roots(prepared.output_root)
     if prepared.spec != build_source_spec(profile, paths.data2_root):
         raise ValueError(f"source preparation does not match profile={profile}")
     if not prepared.reused:
@@ -696,6 +770,12 @@ def preflight_training_data(
 
 def publish_combined(paths: PreparationPaths) -> Path:
     """Publish the canonical three-source manifest create-only."""
+    _validate_canonical_owned_root(
+        paths.production_root, "production root"
+    )
+    _validate_canonical_owned_root(
+        paths.combined_training_data.parent, "combined output root"
+    )
     if os.path.lexists(paths.combined_training_data):
         _validate_owned_topology(
             paths.combined_training_data.parent,
@@ -903,6 +983,10 @@ def write_final_report(
     paths: PreparationPaths, report: Mapping[str, object]
 ) -> Path:
     """Create or validate one immutable canonical preparation report."""
+    _validate_canonical_owned_root(
+        paths.production_root, "production root"
+    )
+    _validate_canonical_owned_root(paths.evidence_root, "evidence root")
     output = paths.evidence_root / "report.json"
     if os.path.lexists(output):
         _validate_owned_topology(

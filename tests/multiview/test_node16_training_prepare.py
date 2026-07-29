@@ -274,6 +274,68 @@ def test_runtime_config_reuse_rejects_unexpected_top_level_sibling(
     assert all(path.exists() for path in outputs.values())
 
 
+@pytest.mark.parametrize(
+    "owned_root", ("runtime", "source", "combined", "evidence")
+)
+def test_empty_symlinked_owned_root_cannot_redirect_writes(
+    tmp_path, monkeypatch, owned_root
+):
+    paths = _paths(tmp_path)
+    outside = tmp_path / f"outside-{owned_root}"
+    outside.mkdir()
+
+    if owned_root == "runtime":
+        target = paths.runtime_config_root
+        target.parent.mkdir(parents=True)
+
+        def operation():
+            return create_runtime_configs(CONFIGS, target)
+    elif owned_root == "source":
+        target = paths.production_root / "abo"
+        target.parent.mkdir(parents=True)
+        monkeypatch.setattr(
+            core,
+            "load_source_catalog",
+            lambda *_args: pytest.fail(
+                "symlinked source root must abort before catalog load"
+            ),
+        )
+
+        def operation():
+            return materialize_source("abo", paths, CONFIGS)
+    elif owned_root == "combined":
+        target = paths.combined_training_data.parent
+        target.parent.mkdir(parents=True)
+        monkeypatch.setattr(
+            core,
+            "publish_combined_training_data",
+            lambda *_args: pytest.fail(
+                "symlinked combined root must abort before publication"
+            ),
+        )
+
+        def operation():
+            return core.publish_combined(paths)
+    else:
+        target = paths.evidence_root
+        target.parent.mkdir(parents=True)
+
+        def operation():
+            return core.write_final_report(
+                paths, _valid_final_report(paths)
+            )
+
+    target.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(
+        ValueError, match="canonical and non-symlinked"
+    ):
+        operation()
+
+    assert target.is_symlink()
+    assert list(outside.iterdir()) == []
+
+
 def test_partial_source_reports_every_path_without_mutation(
     tmp_path, monkeypatch
 ):

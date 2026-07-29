@@ -89,6 +89,7 @@ def _construct_configured_dataset(
 
             dataset_class = getattr(datasets, name)
     except Exception as error:
+        _assert_cpu_only()
         raise RuntimeError(
             f"stage={resolved.stage}: failed to import configured "
             f"dataset {name}"
@@ -97,6 +98,7 @@ def _construct_configured_dataset(
     try:
         dataset = dataset_class(json.dumps(resolved.data_dir), **args)
     except Exception as error:
+        _assert_cpu_only()
         raise RuntimeError(
             f"stage={resolved.stage}: failed to construct configured "
             f"dataset {name}"
@@ -223,6 +225,7 @@ def _boundary_samples(
                         by_key[(source, asset)], asset
                     )
             except Exception as error:
+                _assert_cpu_only()
                 raise RuntimeError(
                     f"source={source} stage={resolved.stage} asset={asset} "
                     "anchor=view00: direct dataset load failed"
@@ -237,20 +240,21 @@ def _boundary_samples(
 
 def _collate_cross_source(dataset, samples: list[dict[str, object]]) -> None:
     _assert_cpu_only()
-    loader = DataLoader(
-        samples,
-        batch_size=len(samples),
-        shuffle=False,
-        num_workers=0,
-        pin_memory=False,
-        collate_fn=dataset.collate_fn,
-    )
     try:
+        loader = DataLoader(
+            samples,
+            batch_size=len(samples),
+            shuffle=False,
+            num_workers=0,
+            pin_memory=False,
+            collate_fn=dataset.collate_fn,
+        )
         with patch.object(
             np.random, "randint", side_effect=lambda low, high: low
         ):
             batch = next(iter(loader))
     except Exception as error:
+        _assert_cpu_only()
         raise RuntimeError("cross-source collate failed") from error
     _assert_cpu_only()
     if not isinstance(batch, Mapping) or not batch:

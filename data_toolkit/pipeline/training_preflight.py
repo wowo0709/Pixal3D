@@ -546,6 +546,7 @@ def _validate_direct_loader(
             from pixal3d import datasets
             dataset_class = getattr(datasets, dataset_name)
     except Exception as error:
+        _assert_cpu_only()
         raise _error(
             stage,
             None,
@@ -557,6 +558,7 @@ def _validate_direct_loader(
             json.dumps(stage_data_dir(source, stage, Path(root))), **dataset_args
         )
     except Exception as error:
+        _assert_cpu_only()
         raise _error(
             stage,
             None,
@@ -591,6 +593,7 @@ def _validate_direct_loader(
                 with patch.object(np.random, "randint", return_value=anchor):
                     pack = dataset.get_instance(root_record, asset)
             except Exception as error:
+                _assert_cpu_only()
                 raise RuntimeError(
                     f"source={source} stage={stage} asset={asset} "
                     f"anchor=view{anchor:02d}: direct dataset load failed"
