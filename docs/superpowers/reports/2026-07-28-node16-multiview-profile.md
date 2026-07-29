@@ -6,11 +6,29 @@ World size: 6 physical GPUs
 Attention backend: `ATTN_BACKEND=sdpa`,
 `SPARSE_ATTN_BACKEND=sdpa`
 
+## Current production defaults
+
+| Stage | Batch/GPU | Split | Six-GPU global batch | Checkpoint interval |
+|---|---:|---:|---:|---:|
+| `ss64` | 8 | 4 | 48 | 2,000 |
+| `shape512` | 8 | 4 | 48 | 2,000 |
+| `shape1024` | 2 | 1 | 12 | 2,000 |
+| `pbr1024` | 2 | 1 | 12 | 2,000 |
+
+All four stages keep 20,000 optimizer steps, snapshots disabled, and only
+the latest five checkpoints. The measurements below were collected before
+this policy change and retain their exact measured batch labels.
+
+All batch-8 profiles and estimates elsewhere in this report are historical.
+In particular, the split-4 profiles used six GPUs and a global batch of 48;
+they do not measure the current global batch 12 defaults for `shape1024` and
+`pbr1024`.
+
 ## Result
 
-The production matrix and conclusions in the first part of this report are the
-preserved **pre-fix baseline**. They are superseded for current code by the
-authoritative post-fix rerun at commit
+The historical production matrix and conclusions in the first part of this
+report are the preserved **pre-fix baseline**. Within the historical batch-8
+study, they are superseded by the authoritative post-fix rerun at commit
 `52917053e05b984121a8f59cb8c3d322b438d855`, documented in
 [Authoritative post-fix rerun](#authoritative-post-fix-rerun).
 
@@ -29,7 +47,7 @@ and `pbr1024 8/4` completes when
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is part of its launch
 environment.
 
-## Exact profile configuration
+## Historical batch-8 profile configuration
 
 Eight untracked configs were generated under:
 
@@ -92,10 +110,12 @@ No run passed `--use_wandb`, `--smoke_steps`, or an alternate batch, split,
 elastic-controller, or model setting. Snapshotting was disabled by
 `i_sample=-1`; `i_save=999999` prevented checkpoint saves.
 
-## Baseline production matrix (pre-fix; superseded)
+## Historical baseline production matrix (pre-fix; superseded)
 
 Physical VRAM values are peak device `memory.used` in MiB, ordered GPU0 through
-GPU5. They include the recorded coexistence baseline as required.
+GPU5. They include the recorded coexistence baseline as required. Every row
+uses batch 8 per GPU, split 2 or 4, and six GPUs; each split-4 profile therefore
+has a global batch of 48.
 
 | Stage | Config | `8/2` result | `8/2` peak MiB, GPU0..5 | `8/4` result | `8/4` five step times, seconds | Mean, seconds | Last-four mean, seconds | `8/4` peak MiB, GPU0..5 |
 |---|---|---|---|---|---|---:|---:|---|
@@ -156,7 +176,7 @@ The same projection stack requested another 24 GiB on GPU0 with 20.00 GiB
 free. The profile process held 71.21 GiB, including 46.49 GiB allocated and
 23.86 GiB reserved but unallocated. This is the baseline production blocker.
 
-## One-factor allocator diagnostics
+## Historical one-factor allocator diagnostics
 
 These diagnostics do not replace the baseline verdicts above. They used the
 same `8/4` configs and command, with only:
@@ -303,8 +323,11 @@ pbr1024-b8s4-attempt2
 
 ## Authoritative post-fix rerun
 
-This section supersedes the baseline's current-code conclusions while
-preserving its measurements and failures above.
+This section is historical relative to the current production defaults. It
+supersedes the baseline's conclusions within the batch-8 study while
+preserving the baseline's measurements and failures above. All profiles here
+use batch 8 per GPU, split 2 or 4, and six GPUs; the split-4 profiles have a
+global batch of 48.
 
 ### Reviewed source and isolation
 
@@ -334,7 +357,7 @@ Its supervisor/worker PIDs also remained
 /home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/final-cleanup-audit.txt
 ```
 
-### Authoritative default-allocator matrix
+### Historical authoritative default-allocator matrix
 
 All eight cells reused the exact existing configs and data paths: K=6,
 world size 6, batch 8 per GPU, split 2 or 4, SDPA, five steps, no W&B, no
@@ -376,7 +399,7 @@ Thus the reviewed streaming aggregation makes `shape1024 8/4` executable with
 the unchanged production-matrix launch, but `pbr1024 8/4` still fragments under
 the default allocator.
 
-### Post-fix PBR allocator diagnostic
+### Historical post-fix PBR allocator diagnostic
 
 After the complete default-allocator matrix, one clearly labelled diagnostic
 reused the exact `pbr1024 8/4` config and changed only:
@@ -397,11 +420,16 @@ The exact trainer record is:
 /file3/youngwoo/pixal3d/ckpts/pbr1024/log_20260729_124948.txt
 ```
 
-Therefore, under this reviewed code and coexistence baseline, the requested
-production split remains `8/4` for all four stages. `pbr1024 8/4` requires
-`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in its launch environment;
-this evidence does not require increasing PBR to split 8. The diagnostic does
-not change the authoritative default-allocator result above.
+The historical study recorded this allocator conclusion:
+
+> Therefore, under this reviewed code and coexistence baseline, the requested
+> production split remains `8/4` for all four stages. `pbr1024 8/4` requires
+> `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in its launch environment;
+> this evidence does not require increasing PBR to split 8. The diagnostic does
+> not change the authoritative default-allocator result above.
+
+That conclusion is a property of the measured historical batch-8 run, not an
+unmeasured claim about the current `pbr1024` batch-2/split-1 default.
 
 ### Guard anomalies, invalid launch, and final cleanup
 
@@ -438,11 +466,16 @@ The authoritative post-fix evidence base and compact verification summary are:
 /home/youngwoo/Pixal3D-training/.profile-evidence/task4c-20260729T0312Z/postfix-verification-summary.txt
 ```
 
-## 20k fine-tuning duration estimate
+## Historical 20k fine-tuning duration estimates
 
-Each estimate uses that stage's authoritative post-fix `8/4` steps 2-5 mean
-and the six-GPU global batch of 48. Raw compute is the mean multiplied by
-20,000 optimizer steps; the planning value adds 10 percent. These are
+The SS64 and Shape512 rows still match their current batch-8/split-4 defaults.
+The Shape1024 and PBR1024 rows are historical batch-8/split-4 estimates and
+are not authoritative for the new batch-2/split-1, global-batch-12 defaults.
+New duration estimates for those stages require a separate profile.
+
+Each historical estimate uses that stage's authoritative post-fix `8/4` steps
+2-5 mean and the six-GPU global batch of 48. Raw compute is the mean multiplied
+by 20,000 optimizer steps; the planning value adds 10 percent. These are
 per-stage wall-clock estimates, not GPU-hours.
 
 | Stage | Steady seconds/step | Raw seconds | Raw 20k duration | 10%-margin seconds | 10%-margin duration |
@@ -452,9 +485,10 @@ per-stage wall-clock estimates, not GPU-hours.
 | `shape1024` | 43.46975076 | 869,395.015 | 241.50 h (10.06 d) | 956,334.517 | 265.65 h (11.07 d) |
 | `pbr1024` | 44.82507479 | 896,501.496 | 249.03 h (10.38 d) | 986,151.645 | 273.93 h (11.41 d) |
 
-The first three rows use the default allocator profiles. The `pbr1024` timing
-comes from the successful expandable-segments diagnostic and therefore
-requires this launch setting:
+The first three historical rows use the default allocator profiles. The
+historical `pbr1024` timing comes from the successful expandable-segments
+diagnostic and, as a property of that measured run, required this launch
+setting:
 
 ```text
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
