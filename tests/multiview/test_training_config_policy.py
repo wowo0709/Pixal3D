@@ -324,3 +324,16 @@ def test_node17_runtime_evidence_rejects_non_path_drift(tmp_path):
 
     with pytest.raises(ValueError, match="exact source path rebase"):
         node17_runtime_config_evidence(outputs, CONFIGS)
+
+
+def test_node17_runtime_evidence_rejects_unchanged_source_paths(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    unchanged = {}
+    for stage, source in CONFIGS.items():
+        runtime = runtime_root / f"{source.stem}.node17.json"
+        runtime.write_bytes(source.read_bytes())
+        unchanged[stage] = runtime
+
+    with pytest.raises(ValueError, match="exact source path rebase"):
+        node17_runtime_config_evidence(unchanged, CONFIGS)

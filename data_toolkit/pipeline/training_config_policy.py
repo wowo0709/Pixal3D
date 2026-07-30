@@ -282,17 +282,15 @@ def node17_runtime_config_evidence(
     """Prove each runtime config is exactly an approved source path rebase."""
     _validate_stage_order(runtime_configs, "runtime configs")
     originals = validate_finetuning_configs(source_configs)
-    reverse_replacements = tuple(
-        (target, source)
-        for source, target in NODE17_PATH_REPLACEMENTS
-    )
     evidence = {}
     for stage, path in runtime_configs.items():
         runtime_path = Path(path)
         raw = _regular_bytes(runtime_path, "runtime config")
         runtime = _json_object(raw, runtime_path, "runtime config")
-        restored = rebase_json_paths(runtime, reverse_replacements)
-        if restored != originals[stage]:
+        expected_runtime = rebase_json_paths(
+            originals[stage], NODE17_PATH_REPLACEMENTS
+        )
+        if runtime != expected_runtime:
             raise ValueError(
                 "runtime config is not the exact source path rebase "
                 f"stage={stage}: {runtime_path}"
