@@ -68,6 +68,22 @@ SOURCE_DIRECTORIES = {
 SOURCE_ORDER = tuple(SOURCE_DIRECTORIES)
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _REVISION = re.compile(r"[0-9a-f]{40}")
+_HISTORICAL_DELIVERY_DOC_PATHS = frozenset(
+    {
+        "docs/node17_three_source_training_runbook_ko.md",
+        (
+            "docs/superpowers/reports/"
+            "2026-07-30-node17-three-source-training-readiness.md"
+        ),
+    }
+)
+_HISTORICAL_VALIDATOR_BOOTSTRAP_PATHS = frozenset(
+    {
+        "data_toolkit/pipeline/node17_training_prepare.py",
+        "scripts/prepare_node17_training.py",
+        "tests/multiview/test_node17_training_prepare.py",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -204,6 +220,128 @@ def clean_git_revision(repo_root: Path) -> str:
     if _REVISION.fullmatch(revision) is None:
         raise ValueError(f"Git HEAD is not a full revision: {revision!r}")
     return revision
+
+
+def _existing_git_commit(repo_root: Path, revision: str, label: str) -> None:
+    if not isinstance(revision, str) or _REVISION.fullmatch(revision) is None:
+        raise ValueError(f"{label} revision is invalid or missing")
+    try:
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(f"{label} revision is missing: {revision}") from error
+
+
+def _git_is_ancestor(
+    repo_root: Path, ancestor: str, descendant: str
+) -> bool:
+    completed = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode not in (0, 1):
+        raise ValueError("failed to inspect Git revision ancestry")
+    return completed.returncode == 0
+
+
+def _git_changed_paths(
+    repo_root: Path, old_revision: str, new_revision: str
+) -> list[str]:
+    output = subprocess.run(
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            f"{old_revision}..{new_revision}",
+            "--",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    return sorted(
+        path.decode("utf-8")
+        for path in output.split(b"\0")
+        if path
+    )
+
+
+def validate_historical_evidence_revision(
+    repo_root: Path,
+    evidence_revision: str,
+    delivery_revision: str,
+    validator_revision: str,
+) -> dict[str, object]:
+    """Bind historical evidence to a docs-only delivered descendant."""
+    root = _canonical_absolute(Path(repo_root), "repo root")
+    current_revision = clean_git_revision(root)
+    _existing_git_commit(root, evidence_revision, "evidence")
+    _existing_git_commit(root, delivery_revision, "delivery")
+    _existing_git_commit(root, validator_revision, "validator")
+    if not _git_is_ancestor(root, evidence_revision, delivery_revision):
+        raise ValueError(
+            "evidence revision is not an ancestor of delivery revision"
+        )
+    if not _git_is_ancestor(root, delivery_revision, validator_revision):
+        raise ValueError(
+            "delivery revision is not an ancestor of validator revision"
+        )
+    if not _git_is_ancestor(root, validator_revision, current_revision):
+        raise ValueError(
+            "validator revision is not an ancestor of current revision"
+        )
+    delivery_paths = _git_changed_paths(
+        root, evidence_revision, delivery_revision
+    )
+    disallowed_delivery = sorted(
+        set(delivery_paths) - _HISTORICAL_DELIVERY_DOC_PATHS
+    )
+    if disallowed_delivery:
+        raise ValueError(
+            "historical delivery contains disallowed changed paths: "
+            f"{disallowed_delivery}"
+        )
+    validator_paths = _git_changed_paths(
+        root, delivery_revision, validator_revision
+    )
+    disallowed_validator = sorted(
+        set(validator_paths) - _HISTORICAL_VALIDATOR_BOOTSTRAP_PATHS
+    )
+    if disallowed_validator:
+        raise ValueError(
+            "historical validator descendant contains disallowed "
+            f"changed paths: {disallowed_validator}"
+        )
+    finalization_paths = _git_changed_paths(
+        root, validator_revision, current_revision
+    )
+    disallowed_finalization = sorted(
+        set(finalization_paths) - _HISTORICAL_DELIVERY_DOC_PATHS
+    )
+    if disallowed_finalization:
+        raise ValueError(
+            "historical finalization contains disallowed changed paths: "
+            f"{disallowed_finalization}"
+        )
+    return {
+        "evidence_revision": evidence_revision,
+        "delivery_revision": delivery_revision,
+        "validator_revision": validator_revision,
+        "current_revision": current_revision,
+        "delivery_changed_paths": delivery_paths,
+        "validator_changed_paths": validator_paths,
+        "finalization_changed_paths": finalization_paths,
+    }
 
 
 def _source_config_paths(
@@ -696,7 +834,10 @@ def _validate_preflight(
 
 
 def _validate_report(
-    paths: Node17PreparationPaths, report: Mapping[str, object]
+    paths: Node17PreparationPaths,
+    report: Mapping[str, object],
+    *,
+    validated_revision: str | None = None,
 ) -> None:
     """Re-hash artifacts and re-resolve every immutable manifest chain."""
     top_level = {
@@ -721,10 +862,15 @@ def _validate_report(
     ):
         raise ValueError("preparation report has invalid schema")
     revision = report["revision"]
+    selected_revision = (
+        clean_git_revision(paths.repo_root)
+        if validated_revision is None
+        else validated_revision
+    )
     if (
         not isinstance(revision, str)
         or _REVISION.fullmatch(revision) is None
-        or clean_git_revision(paths.repo_root) != revision
+        or selected_revision != revision
     ):
         raise ValueError(
             "preparation report has invalid or changed Git revision"
@@ -1026,6 +1172,49 @@ def validate_node17_preparation_report(
     )
     _validate_report(paths, report)
     return output
+
+
+def validate_node17_historical_preparation_report(
+    paths: Node17PreparationPaths,
+    delivery_revision: str,
+    validator_revision: str,
+) -> dict[str, object]:
+    """Revalidate immutable evidence from a trusted docs-only descendant."""
+    validate_roots(paths)
+    output = paths.evidence_root / "report.json"
+    if (
+        not paths.evidence_root.is_dir()
+        or paths.evidence_root.is_symlink()
+        or {entry.name for entry in os.scandir(paths.evidence_root)}
+        != {"report.json"}
+    ):
+        raise ValueError(
+            "partial evidence directory requires operator inspection: "
+            f"{paths.evidence_root}"
+        )
+    report = _json_object(
+        _regular_bytes(output, "preparation report"),
+        output,
+        "preparation report",
+    )
+    revision = report.get("revision")
+    if (
+        not isinstance(revision, str)
+        or _REVISION.fullmatch(revision) is None
+    ):
+        raise ValueError(
+            "preparation report has invalid historical Git revision"
+        )
+    git_evidence = validate_historical_evidence_revision(
+        paths.repo_root,
+        revision,
+        delivery_revision,
+        validator_revision,
+    )
+    _validate_report(
+        paths, report, validated_revision=revision
+    )
+    return {"report": str(output), **git_evidence}
 
 
 def plan_node17_training(

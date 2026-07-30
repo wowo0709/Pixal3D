@@ -30,6 +30,7 @@ from data_toolkit.pipeline.node17_training_prepare import (  # noqa: E402
     Node17PreparationPaths,
     plan_node17_training,
     prepare_node17_training,
+    validate_node17_historical_preparation_report,
 )
 
 
@@ -67,7 +68,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
             "/home/youngwoo/data/pixal3d/train/production/hssd"
         ),
     )
-    parser.add_argument("--execute", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--execute", action="store_true")
+    mode.add_argument("--validate-evidence", action="store_true")
+    parser.add_argument("--delivery-revision")
+    parser.add_argument("--validator-revision")
     return parser.parse_args(argv)
 
 
@@ -81,7 +86,21 @@ def main(argv=None) -> int:
         source_port=args.source_port,
         source_root=args.source_root,
     )
-    if args.execute:
+    if args.validate_evidence:
+        if (
+            args.delivery_revision is None
+            or args.validator_revision is None
+        ):
+            raise ValueError(
+                "--delivery-revision and --validator-revision are "
+                "required with --validate-evidence"
+            )
+        result = validate_node17_historical_preparation_report(
+            paths,
+            args.delivery_revision,
+            args.validator_revision,
+        )
+    elif args.execute:
         report = prepare_node17_training(paths)
         result = {"report": str(report)}
     else:

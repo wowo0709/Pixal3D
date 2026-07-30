@@ -1080,3 +1080,334 @@ def test_cli_defaults_to_read_only_plan(monkeypatch, capsys):
     assert paths.source_root == Path(
         "/home/youngwoo/data/pixal3d/train/production/hssd"
     )
+
+
+def _git(repo: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _historical_git_fixture(
+    tmp_path: Path,
+) -> tuple[Path, str, str]:
+    repo = tmp_path / "historical-repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "config", "user.email", "test@example.com")
+    (repo / "train.py").write_text("print('training')\n")
+    _git(repo, "add", "train.py")
+    _git(repo, "commit", "-m", "execution")
+    evidence_revision = _git(repo, "rev-parse", "HEAD")
+
+    readiness = (
+        repo
+        / "docs/superpowers/reports/"
+        "2026-07-30-node17-three-source-training-readiness.md"
+    )
+    readiness.parent.mkdir(parents=True)
+    readiness.write_text("# readiness\n")
+    _git(repo, "add", str(readiness.relative_to(repo)))
+    _git(repo, "commit", "-m", "delivery docs")
+    delivery_revision = _git(repo, "rev-parse", "HEAD")
+    return repo, evidence_revision, delivery_revision
+
+
+def test_historical_revision_accepts_docs_only_delivery_descendant(
+    tmp_path,
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+
+    result = core.validate_historical_evidence_revision(
+        repo,
+        evidence_revision,
+        delivery_revision,
+        delivery_revision,
+    )
+
+    assert result == {
+        "evidence_revision": evidence_revision,
+        "delivery_revision": delivery_revision,
+        "validator_revision": delivery_revision,
+        "current_revision": delivery_revision,
+        "delivery_changed_paths": [
+            "docs/superpowers/reports/"
+            "2026-07-30-node17-three-source-training-readiness.md"
+        ],
+        "validator_changed_paths": [],
+        "finalization_changed_paths": [],
+    }
+
+
+def test_historical_revision_accepts_exact_validator_bootstrap_paths(
+    tmp_path,
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+    paths = (
+        "data_toolkit/pipeline/node17_training_prepare.py",
+        "scripts/prepare_node17_training.py",
+        "tests/multiview/test_node17_training_prepare.py",
+    )
+    for relative in paths:
+        selected = repo / relative
+        selected.parent.mkdir(parents=True, exist_ok=True)
+        selected.write_text(f"{relative}\n")
+    _git(repo, "add", *paths)
+    _git(repo, "commit", "-m", "validator bootstrap")
+    validator_revision = _git(repo, "rev-parse", "HEAD")
+
+    result = core.validate_historical_evidence_revision(
+        repo,
+        evidence_revision,
+        delivery_revision,
+        validator_revision,
+    )
+
+    assert result["validator_revision"] == validator_revision
+    assert result["current_revision"] == validator_revision
+    assert result["validator_changed_paths"] == sorted(paths)
+    assert result["finalization_changed_paths"] == []
+
+
+def test_historical_revision_rejects_code_change_after_delivery(
+    tmp_path,
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+    (repo / "train.py").write_text("print('changed training')\n")
+    _git(repo, "add", "train.py")
+    _git(repo, "commit", "-m", "code changed")
+
+    with pytest.raises(ValueError, match="disallowed"):
+        core.validate_historical_evidence_revision(
+            repo,
+            evidence_revision,
+            delivery_revision,
+            _git(repo, "rev-parse", "HEAD"),
+        )
+
+
+def test_historical_revision_rejects_non_descendant_delivery(
+    tmp_path,
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+    _git(repo, "checkout", "-b", "unrelated", evidence_revision)
+    (repo / "other.md").write_text("unrelated\n")
+    _git(repo, "add", "other.md")
+    _git(repo, "commit", "-m", "unrelated")
+
+    with pytest.raises(ValueError, match="ancestor"):
+        core.validate_historical_evidence_revision(
+            repo,
+            evidence_revision,
+            delivery_revision,
+            delivery_revision,
+        )
+
+
+def test_historical_revision_rejects_missing_recorded_revision(
+    tmp_path,
+):
+    repo, _evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+
+    with pytest.raises(ValueError, match="missing"):
+        core.validate_historical_evidence_revision(
+            repo,
+            "f" * 40,
+            delivery_revision,
+            delivery_revision,
+        )
+
+
+def test_historical_revision_rejects_dirty_worktree(
+    tmp_path,
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+    (repo / "dirty.txt").write_text("dirty\n")
+
+    with pytest.raises(ValueError, match="clean"):
+        core.validate_historical_evidence_revision(
+            repo,
+            evidence_revision,
+            delivery_revision,
+            delivery_revision,
+        )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "train.py",
+        "configs/gen/unrelated.json",
+        "tests/multiview/unrelated.py",
+        "docs/unrelated.md",
+    ),
+)
+def test_historical_revision_rejects_unrelated_change_after_validator(
+    tmp_path, relative
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+    validator_revision = delivery_revision
+    selected = repo / relative
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    selected.write_text("changed\n")
+    _git(repo, "add", relative)
+    _git(repo, "commit", "-m", "unrelated finalization")
+
+    with pytest.raises(ValueError, match="disallowed"):
+        core.validate_historical_evidence_revision(
+            repo,
+            evidence_revision,
+            delivery_revision,
+            validator_revision,
+        )
+
+
+def test_historical_revision_accepts_task7_docs_after_validator(
+    tmp_path,
+):
+    repo, evidence_revision, delivery_revision = (
+        _historical_git_fixture(tmp_path)
+    )
+    validator_revision = delivery_revision
+    runbook = repo / "docs/node17_three_source_training_runbook_ko.md"
+    runbook.parent.mkdir(parents=True, exist_ok=True)
+    runbook.write_text("# validation\n")
+    _git(repo, "add", str(runbook.relative_to(repo)))
+    _git(repo, "commit", "-m", "final Task7 docs")
+    current_revision = _git(repo, "rev-parse", "HEAD")
+
+    result = core.validate_historical_evidence_revision(
+        repo,
+        evidence_revision,
+        delivery_revision,
+        validator_revision,
+    )
+
+    assert result["current_revision"] == current_revision
+    assert result["finalization_changed_paths"] == [
+        "docs/node17_three_source_training_runbook_ko.md"
+    ]
+
+
+def test_historical_report_revalidates_artifacts_at_recorded_revision(
+    tmp_path, monkeypatch
+):
+    paths, output, _report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    current_revision = "c" * 40
+    delivery_revision = "b" * 40
+    validator_revision = "d" * 40
+    revision_evidence = {
+        "evidence_revision": REVISION,
+        "delivery_revision": delivery_revision,
+        "validator_revision": validator_revision,
+        "current_revision": current_revision,
+        "delivery_changed_paths": ["docs/readiness.md"],
+        "validator_changed_paths": ["scripts/validator.py"],
+        "finalization_changed_paths": ["docs/runbook.md"],
+    }
+    monkeypatch.setattr(
+        core, "clean_git_revision", lambda _root: current_revision
+    )
+    monkeypatch.setattr(
+        core,
+        "validate_historical_evidence_revision",
+        lambda repo, evidence, delivery, validator: (
+            revision_evidence
+            if (
+                repo == paths.repo_root
+                and evidence == REVISION
+                and delivery == delivery_revision
+                and validator == validator_revision
+            )
+            else pytest.fail("historical revision policy mismatch")
+        ),
+    )
+
+    result = core.validate_node17_historical_preparation_report(
+        paths, delivery_revision, validator_revision
+    )
+
+    assert result == {
+        "report": str(output),
+        **revision_evidence,
+    }
+
+
+def test_existing_report_validator_keeps_exact_current_revision_requirement(
+    tmp_path, monkeypatch
+):
+    paths, _output, _report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(
+        core, "clean_git_revision", lambda _root: "c" * 40
+    )
+
+    with pytest.raises(ValueError, match="changed Git revision"):
+        core.validate_node17_preparation_report(paths)
+
+
+def test_cli_historical_validation_is_read_only(
+    monkeypatch, capsys
+):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    module = importlib.import_module("scripts.prepare_node17_training")
+    module = importlib.reload(module)
+    delivery_revision = "b" * 40
+    validator_revision = "d" * 40
+    captured = {}
+
+    def validate(paths, delivery, validator):
+        captured["paths"] = paths
+        captured["delivery_revision"] = delivery
+        captured["validator_revision"] = validator
+        return {"report": "/immutable/report.json"}
+
+    monkeypatch.setattr(
+        module,
+        "validate_node17_historical_preparation_report",
+        validate,
+    )
+    monkeypatch.setattr(
+        module,
+        "prepare_node17_training",
+        lambda _paths: pytest.fail("validation executed mutation"),
+    )
+
+    assert module.main(
+        [
+            "--validate-evidence",
+            "--delivery-revision",
+            delivery_revision,
+            "--validator-revision",
+            validator_revision,
+        ]
+    ) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "report": "/immutable/report.json"
+    }
+    assert captured["delivery_revision"] == delivery_revision
+    assert captured["validator_revision"] == validator_revision
