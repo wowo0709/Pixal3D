@@ -164,7 +164,7 @@ def test_save_logs_keeps_latest_multiview_k_exact_and_averages_legacy_scalars(
 def test_run_can_skip_startup_dataset_snapshot_but_keeps_model_snapshot():
     trainer = object.__new__(BasicTrainer)
     trainer.is_master = True
-    trainer.i_sample = 1000
+    trainer.i_sample = 2000
     trainer.snapshot_dataset_on_start = False
     trainer.snapshot_num_samples = 1
     trainer.snapshot_batch_size = 1
@@ -205,6 +205,7 @@ def test_master_only_snapshot_reaches_barrier_when_rank_zero_sampling_fails(
         BasicTrainer.snapshot(
             trainer, suffix="failure", num_samples=1, batch_size=1
         )
+
     assert barriers == [True]
 
 

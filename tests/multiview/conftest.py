@@ -1,15 +1,17 @@
+import importlib
 import os
 
 import pytest
 import torch
 
 
-@pytest.hookimpl(hookwrapper=True, tryfirst=True)
-def pytest_collection(session):
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
+        return
     original_get_device_name = torch.cuda.get_device_name
-    if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
-        torch.cuda.get_device_name = lambda _device=None: "A100"
+    torch.cuda.get_device_name = lambda _device=None: "A100"
     try:
-        yield
+        importlib.import_module("flex_gemm.ops.grid_sample")
     finally:
         torch.cuda.get_device_name = original_get_device_name
