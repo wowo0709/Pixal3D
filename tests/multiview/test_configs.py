@@ -54,9 +54,16 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         assert expected_batch * 6 == (
             48 if stage in {"ss64", "shape512"} else 12
         )
-        assert trainer_args["i_sample"] == -1
-        assert trainer_args["i_save"] == 2000
-        assert trainer_args["max_checkpoints"] == 5
+        assert trainer_args["num_workers"] == 2
+        assert trainer_args["i_print"] == 10
+        assert trainer_args["i_log"] == 10
+        assert trainer_args["i_sample"] == 1000
+        assert trainer_args["i_save"] == 1000
+        assert trainer_args["max_checkpoints"] == 3
+        if stage == "ss64":
+            assert trainer_args["snapshot_dataset_on_start"] is False
+        else:
+            assert "snapshot_dataset_on_start" not in trainer_args
         assert trainer_args["max_steps"] == 20_000
         assert trainer_args["multiview_stage"] == stage
         assert trainer_args["image_cond_model"]["name"] == "DinoV3ProjFeatureExtractor"

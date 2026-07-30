@@ -161,6 +161,53 @@ def test_save_logs_keeps_latest_multiview_k_exact_and_averages_legacy_scalars(
     assert type(payload["multiview/k"]) is int
 
 
+def test_run_can_skip_startup_dataset_snapshot_but_keeps_model_snapshot():
+    trainer = object.__new__(BasicTrainer)
+    trainer.is_master = True
+    trainer.i_sample = 1000
+    trainer.snapshot_dataset_on_start = False
+    trainer.snapshot_num_samples = 1
+    trainer.snapshot_batch_size = 1
+    trainer.step = 0
+    trainer.max_steps = 0
+    trainer.world_size = 1
+    trainer.writer = None
+    calls = []
+    trainer.snapshot_dataset = lambda **_kwargs: calls.append(
+        "snapshot_dataset"
+    )
+    trainer.snapshot = lambda **kwargs: calls.append(
+        ("snapshot", kwargs.get("suffix"))
+    )
+
+    BasicTrainer.run(trainer)
+
+    assert "snapshot_dataset" not in calls
+    assert ("snapshot", "init") in calls
+
+
+def test_master_only_snapshot_reaches_barrier_when_rank_zero_sampling_fails(
+    monkeypatch,
+):
+    trainer = object.__new__(BasicTrainer)
+    trainer.is_master = True
+    trainer.world_size = 6
+    trainer.step = 0
+    trainer.mix_precision_mode = None
+    trainer.mix_precision_dtype = torch.bfloat16
+    trainer.run_snapshot = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AttributeError("render failed")
+    )
+    barriers = []
+    monkeypatch.setattr(basic.dist, "barrier", lambda: barriers.append(True))
+
+    with pytest.raises(AttributeError, match="render failed"):
+        BasicTrainer.snapshot(
+            trainer, suffix="failure", num_samples=1, batch_size=1
+        )
+    assert barriers == [True]
+
+
 def test_metadata_contains_stage_dataset_sha_k_anchor_and_order():
     caption = format_multiview_metadata(
         "shape512", "ABO", "a" * 64, torch.tensor([1, 7, 4, 0])
@@ -322,6 +369,22 @@ def test_shape_snapshot_wandb_uses_anchor_view_names(tmp_path, monkeypatch):
     assert "samples/sample_gt_view" not in image_payload
     assert "samples/sample_gt_gt_view" not in image_payload
     assert "samples/combined_views" not in image_payload
+
+
+def test_snapshot_prints_wandb_image_submission_step_and_keys(
+    tmp_path, monkeypatch, capsys
+):
+    rendered_views = {
+        "generated": {"anchor_view": torch.zeros(2, 3, 8, 8)},
+        "ground_truth": {"anchor_view": torch.ones(2, 3, 8, 8)},
+    }
+
+    payload = _snapshot_wandb_payload(tmp_path, monkeypatch, rendered_views)
+
+    output = capsys.readouterr().out
+    assert "[W&B] Logged snapshot images at step 7:" in output
+    for key in sorted(payload):
+        assert key in output
 
 
 def test_pbr_snapshot_wandb_uses_anchor_view_attribute_names(

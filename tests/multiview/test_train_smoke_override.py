@@ -18,7 +18,7 @@ from pixal3d.utils.data_utils import (
     BalancedResumableSampler,
     ResumableSampler,
 )
-from train import apply_smoke_overrides, resolve_output_dirs
+from train import apply_smoke_overrides, find_ckpt, resolve_output_dirs
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -156,6 +156,22 @@ def test_explicit_load_dir_overrides_resume_default():
 def test_missing_cli_and_config_output_is_rejected():
     with pytest.raises(ValueError, match="output_dir"):
         resolve_output_dirs({})
+
+
+def test_ckpt_none_starts_fresh_even_when_output_has_a_latest_checkpoint(
+    tmp_path,
+):
+    ckpt_dir = tmp_path / "ckpts"
+    ckpt_dir.mkdir()
+    (ckpt_dir / "misc_step0002000.pt").touch()
+    config = edict({
+        "load_dir": str(tmp_path),
+        "ckpt": "none",
+    })
+
+    resolved = find_ckpt(config)
+
+    assert resolved.load_ckpt is None
 
 
 def test_ten_step_smoke_logs_every_step_samples_five_and_ten_and_saves_ten():

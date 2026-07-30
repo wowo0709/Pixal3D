@@ -106,6 +106,7 @@ class BasicTrainer:
         prefetch_data=True,
         snapshot_batch_size=4,
         snapshot_num_samples=64,
+        snapshot_dataset_on_start=True,
         num_workers=None,
         debug=False,
         i_print=1000,
@@ -146,6 +147,7 @@ class BasicTrainer:
         self.prefetch_data = prefetch_data
         self.snapshot_batch_size = snapshot_batch_size
         self.snapshot_num_samples = snapshot_num_samples
+        self.snapshot_dataset_on_start = snapshot_dataset_on_start
         self.num_workers = num_workers
         self.log = []
         if self.prefetch_data:
@@ -720,41 +722,41 @@ class BasicTrainer:
                 dist.barrier()
                 return
 
-            # Master runs snapshot alone
-            amp_context = partial(torch.autocast, device_type='cuda', dtype=self.mix_precision_dtype) if self.mix_precision_mode == 'amp' else nullcontext
-            with amp_context():
-                samples = self.run_snapshot(num_samples, batch_size=batch_size, verbose=verbose)
+            try:
+                # Master runs snapshot alone
+                amp_context = partial(torch.autocast, device_type='cuda', dtype=self.mix_precision_dtype) if self.mix_precision_mode == 'amp' else nullcontext
+                with amp_context():
+                    samples = self.run_snapshot(num_samples, batch_size=batch_size, verbose=verbose)
 
-            # Extract metadata before preprocessing
-            sample_metadata = samples.pop('_metadata', None)
+                # Extract metadata before preprocessing
+                sample_metadata = samples.pop('_metadata', None)
 
-            # Free GPU memory after sampling, before decode + render
-            torch.cuda.empty_cache()
+                # Free GPU memory after sampling, before decode + render
+                torch.cuda.empty_cache()
 
-            # Preprocess images
-            for key in list(samples.keys()):
-                if samples[key]['type'] == 'sample':
-                    try:
-                        vis = self.visualize_sample(samples[key]['value'])
-                    except RuntimeError as e:
-                        print(f"[Snapshot] WARNING: visualize_sample failed for '{key}': {e}")
-                        # Reset CUDA error state and skip this sample
+                # Preprocess images
+                for key in list(samples.keys()):
+                    if samples[key]['type'] == 'sample':
                         try:
-                            torch.cuda.synchronize()
-                        except RuntimeError:
-                            pass
-                        torch.cuda.empty_cache()
-                        del samples[key]
-                        continue
-                    if isinstance(vis, dict):
-                        for k, v in vis.items():
-                            samples[f'{key}_{k}'] = {'value': v, 'type': 'image'}
-                        del samples[key]
-                    else:
-                        samples[key] = {'value': vis, 'type': 'image'}
-
-            # No gather needed, master already has all samples
-            dist.barrier()
+                            vis = self.visualize_sample(samples[key]['value'])
+                        except Exception as e:
+                            print(f"[Snapshot] WARNING: visualize_sample failed for '{key}': {e}")
+                            # Reset CUDA error state and skip this sample
+                            try:
+                                torch.cuda.synchronize()
+                            except RuntimeError:
+                                pass
+                            torch.cuda.empty_cache()
+                            del samples[key]
+                            continue
+                        if isinstance(vis, dict):
+                            for k, v in vis.items():
+                                samples[f'{key}_{k}'] = {'value': v, 'type': 'image'}
+                            del samples[key]
+                        else:
+                            samples[key] = {'value': vis, 'type': 'image'}
+            finally:
+                dist.barrier()
         else:
             # Distribute sampling across all ranks
             num_samples_per_process = int(np.ceil(num_samples / self.world_size))
@@ -935,6 +937,8 @@ class BasicTrainer:
             # Log images to wandb
             if self.wandb_run is not None and wandb_images:
                 self.wandb_run.log(wandb_images, step=self.step)
+                keys = ", ".join(sorted(wandb_images))
+                print(f"[W&B] Logged snapshot images at step {self.step}: {keys}")
 
         if self.is_master:
             print(' Done.')
@@ -1262,12 +1266,14 @@ class BasicTrainer:
         """
         if self.is_master:
             print('\nStarting training...')
-            if self.i_sample != -1:
+            if self.i_sample != -1 and self.snapshot_dataset_on_start:
                 try:
                     self.snapshot_dataset(num_samples=self.snapshot_num_samples, batch_size=self.snapshot_batch_size)
                 except (RuntimeError, Exception) as e:
                     print(f'\033[93m[WARN] snapshot_dataset failed, skipping: {e}\033[0m')
                     torch.cuda.empty_cache()
+            elif self.i_sample != -1:
+                print('[INFO] Startup dataset snapshot disabled.')
             else:
                 print('[INFO] i_sample=-1, all snapshots disabled.')
         if self.i_sample != -1:
