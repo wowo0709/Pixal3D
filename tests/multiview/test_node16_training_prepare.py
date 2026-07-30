@@ -80,6 +80,7 @@ def _valid_final_report(paths: PreparationPaths) -> dict[str, object]:
     reviewed_marker = paths.repo_root / "reviewed.txt"
     if not reviewed_marker.exists():
         reviewed_marker.write_text("reviewed\n")
+    source_configs = _copy_production_configs(paths.repo_root)
     binding = _deployment_binding(
         paths.local_root.parent, paths.repo_root
     )
@@ -250,7 +251,7 @@ def _valid_final_report(paths: PreparationPaths) -> dict[str, object]:
     )
     runtime_paths = {}
     paths.runtime_config_root.mkdir(parents=True, exist_ok=True)
-    for stage, source_path in core.CONFIGS.items():
+    for stage, source_path in source_configs.items():
         value = json.loads(source_path.read_text())
         value["trainer"]["args"]["num_workers"] = 1
         output = (
@@ -259,7 +260,7 @@ def _valid_final_report(paths: PreparationPaths) -> dict[str, object]:
         )
         output.write_bytes(core._canonical_json_bytes(value))
         runtime_paths[stage] = output
-    runtime = core.runtime_config_evidence(runtime_paths)
+    runtime = core.runtime_config_evidence(runtime_paths, source_configs)
     return {
         "schema_version": 2,
         "cpu_only": True,
@@ -540,7 +541,89 @@ def test_runtime_evidence_rejects_integer_boolean_substitution(
     selected.write_bytes(core._canonical_json_bytes(value))
 
     with pytest.raises(ValueError, match="runtime config"):
-        core.runtime_config_evidence(outputs)
+        core.runtime_config_evidence(outputs, CONFIGS)
+
+
+@pytest.mark.parametrize(
+    ("stage", "mutation"),
+    (
+        ("ss64", "dataset_num_views"),
+        ("shape512", "model_type"),
+        ("shape1024", "optimizer_lr"),
+        ("pbr1024", "checkpoint_path"),
+        ("ss64", "conditioning_model"),
+        ("shape512", "extra_top_level_key"),
+        ("shape1024", "missing_model_field"),
+    ),
+)
+def test_low_level_final_report_rejects_runtime_drift_from_reviewed_config(
+    tmp_path, monkeypatch, stage, mutation
+):
+    """A recomputed digest/summary must not launder any non-worker drift."""
+    paths = _paths(tmp_path)
+    report = _valid_final_report(paths)
+    _patch_final_report_trust(monkeypatch, report)
+    runtime_paths = {
+        selected_stage: Path(record["path"])
+        for selected_stage, record in report["runtime_configs"].items()
+    }
+    selected = runtime_paths[stage]
+    value = json.loads(selected.read_text())
+    if mutation == "dataset_num_views":
+        value["dataset"]["args"]["num_views"] = 1
+    elif mutation == "model_type":
+        value["models"]["denoiser"]["args"]["num_heads"] = "12"
+    elif mutation == "optimizer_lr":
+        value["trainer"]["args"]["optimizer"]["args"]["lr"] = 0.01
+    elif mutation == "checkpoint_path":
+        value["trainer"]["args"]["finetune_ckpt"]["denoiser"] = (
+            "/tmp/unreviewed.pt"
+        )
+    elif mutation == "conditioning_model":
+        value["trainer"]["args"]["image_cond_model"]["args"][
+            "model_name"
+        ] = "unreviewed/model"
+    elif mutation == "extra_top_level_key":
+        value["unreviewed"] = True
+    else:
+        value["models"]["denoiser"]["args"].pop("num_blocks")
+    selected.write_bytes(core._canonical_json_bytes(value))
+    report["runtime_configs"][stage]["sha256"] = sha256(
+        selected.read_bytes()
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="preparation report"):
+        core.write_final_report(paths, report)
+
+    assert not (paths.evidence_root / "report.json").exists()
+
+
+def test_runtime_evidence_binds_exact_reviewed_source_transform(tmp_path):
+    repo_root = tmp_path / "repo"
+    source_configs = _copy_production_configs(repo_root)
+    outputs = create_runtime_configs(
+        source_configs, tmp_path / "runtime-configs"
+    )
+    reformatted = outputs["shape512"]
+    reformatted.write_text(
+        json.dumps(json.loads(reformatted.read_text()), indent=4)
+    )
+
+    evidence = core.runtime_config_evidence(outputs, source_configs)
+
+    for stage in core.STAGES:
+        source = source_configs[stage]
+        runtime = outputs[stage]
+        assert evidence[stage]["source_config"] == {
+            "path": str(source),
+            "sha256": sha256(source.read_bytes()).hexdigest(),
+        }
+        original = json.loads(source.read_text())
+        transformed = json.loads(runtime.read_text())
+        transformed["trainer"]["args"]["num_workers"] = original[
+            "trainer"
+        ]["args"]["num_workers"]
+        assert transformed == original
 
 
 def test_invalid_last_source_config_aborts_before_any_local_mutation(
@@ -1303,7 +1386,10 @@ def test_prepare_orders_sources_then_standalone_and_combined_validation(
     monkeypatch.setattr(
         core,
         "runtime_config_evidence",
-        lambda configs: {"stages": sorted(configs)},
+        lambda configs, source_configs: {
+            "stages": sorted(configs),
+            "sources": sorted(source_configs),
+        },
     )
     scope_evidence = {
         stage: {
@@ -1352,6 +1438,93 @@ def test_prepare_orders_sources_then_standalone_and_combined_validation(
     assert report["deployment"]["manifest"]["sha256"] == (
         deployment.manifest_sha256
     )
+
+
+@pytest.mark.parametrize("tamper_target", ("runtime", "source"))
+def test_prepare_rejects_config_tamper_during_long_materialization(
+    tmp_path, monkeypatch, tamper_target
+):
+    paths = _paths(tmp_path)
+    source_configs = _copy_production_configs(paths.repo_root)
+    deployment = _deployment_binding(tmp_path, paths.repo_root)
+    monkeypatch.setattr(
+        core,
+        "estimate_required_bytes",
+        lambda _paths: DiskEstimate(1, 10 * GIB + 2),
+    )
+    monkeypatch.setattr(
+        core,
+        "assert_free_space",
+        lambda root, required: {
+            "path": str(root),
+            "required_bytes": required,
+            "total_bytes": required + 2,
+            "used_bytes": 1,
+            "free_bytes": required + 1,
+        },
+    )
+    state = {"tampered": False}
+
+    def materialize(profile, _paths, runtime_configs):
+        if not state["tampered"]:
+            if tamper_target == "runtime":
+                target = runtime_configs["ss64"]
+                value = json.loads(target.read_text())
+                value["dataset"]["args"]["num_views"] = 1
+            else:
+                target = source_configs["ss64"]
+                value = json.loads(target.read_text())
+                value["trainer"]["args"]["optimizer"]["args"]["lr"] = 0.01
+            target.write_bytes(core._canonical_json_bytes(value))
+            state["tampered"] = True
+        return SimpleNamespace(reused=False)
+
+    monkeypatch.setattr(core, "materialize_source", materialize)
+    monkeypatch.setattr(
+        core,
+        "publish_source",
+        lambda profile, _paths, prepared: {
+            "profile": profile,
+            "reused": prepared.reused,
+        },
+    )
+    monkeypatch.setattr(
+        core,
+        "preflight_training_data",
+        lambda *_args: {"stages": {}},
+    )
+    monkeypatch.setattr(
+        core,
+        "publish_combined",
+        lambda _paths: paths.combined_training_data,
+    )
+    monkeypatch.setattr(
+        core,
+        "training_scope_evidence",
+        lambda _path: {
+            stage: {
+                "source_counts": {},
+                "total_count": 0,
+                "union_scope_sha256": "0" * 64,
+            }
+            for stage in core.STAGES
+        },
+    )
+    monkeypatch.setattr(
+        core,
+        "write_final_report",
+        lambda *_args: pytest.fail(
+            "tampered config must not reach final report publication"
+        ),
+    )
+
+    with pytest.raises(
+        ValueError, match="exact reviewed source transformation"
+    ):
+        prepare_node16_training(paths, deployment)
+
+    assert state["tampered"] is True
+    assert not (paths.evidence_root / "report.json").exists()
 
 
 def test_source_preflight_stops_after_first_stage_initializes_cuda(
@@ -1495,7 +1668,7 @@ def test_plan_validates_inputs_without_creating_local_roots(
     tmp_path, monkeypatch
 ):
     paths = _paths(tmp_path)
-    paths.repo_root.mkdir(parents=True)
+    _copy_production_configs(paths.repo_root)
     deployment = _deployment_binding(tmp_path, paths.repo_root)
     monkeypatch.setattr(
         core,
@@ -1528,6 +1701,55 @@ def test_plan_validates_inputs_without_creating_local_roots(
         },
     }
     assert not paths.local_root.exists()
+
+
+def test_plan_rejects_unapproved_reviewed_source_config_before_disk_admission(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    configs = _copy_production_configs(paths.repo_root)
+    changed = json.loads(configs["ss64"].read_text())
+    changed["trainer"]["args"]["max_steps"] = 1
+    configs["ss64"].write_bytes(core._canonical_json_bytes(changed))
+    deployment = _deployment_binding(tmp_path, paths.repo_root)
+    monkeypatch.setattr(
+        core,
+        "estimate_required_bytes",
+        lambda _paths: pytest.fail(
+            "invalid config must abort before disk admission"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="source config semantics"):
+        core.plan_node16_training(paths, deployment)
+
+    assert not paths.local_root.exists()
+
+
+def test_plan_rejects_existing_runtime_drift_before_disk_admission(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    configs = _copy_production_configs(paths.repo_root)
+    runtime = create_runtime_configs(configs, paths.runtime_config_root)
+    changed = json.loads(runtime["ss64"].read_text())
+    changed["dataset"]["args"]["num_views"] = 1
+    runtime["ss64"].write_bytes(core._canonical_json_bytes(changed))
+    deployment = _deployment_binding(tmp_path, paths.repo_root)
+    monkeypatch.setattr(
+        core,
+        "estimate_required_bytes",
+        lambda _paths: pytest.fail(
+            "runtime drift must abort before disk admission"
+        ),
+    )
+
+    with pytest.raises(
+        ValueError, match="exact reviewed source transformation"
+    ):
+        core.plan_node16_training(paths, deployment)
+
+    assert not paths.production_root.exists()
 
 
 @pytest.mark.parametrize("entrypoint", ("plan", "execute"))

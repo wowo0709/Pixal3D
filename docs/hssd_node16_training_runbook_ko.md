@@ -14,11 +14,19 @@ create-only이며 학습, 모델, CUDA context, W&B를 시작하지 않는다. �
 하며 generator와 archive는 기존 파일을 덮어쓰지 않는다.
 
 ```bash
+set -euo pipefail
+
 SOURCE_REPO=/absolute/path/to/reviewed/Pixal3D
 DEPLOY_DIR=/absolute/path/to/pixal3d-node16-release
 REVISION="$(git -C "$SOURCE_REPO" rev-parse HEAD)"
 ARCHIVE="$DEPLOY_DIR/Pixal3D-$REVISION.tar"
 DEPLOYMENT_MANIFEST="$DEPLOY_DIR/Pixal3D-$REVISION.deployment-manifest.json"
+ARCHIVE_TMP="$(mktemp "$DEPLOY_DIR/.Pixal3D-$REVISION.tar.tmp.XXXXXX")"
+
+cleanup_archive_tmp() {
+  rm -f -- "$ARCHIVE_TMP"
+}
+trap cleanup_archive_tmp EXIT HUP INT TERM
 
 test "${#REVISION}" -eq 40
 test ! -e "$ARCHIVE"
@@ -28,8 +36,14 @@ python "$SOURCE_REPO/scripts/generate_node16_deployment_manifest.py" \
   --repo-root "$SOURCE_REPO" \
   --revision "$REVISION" \
   --output "$DEPLOYMENT_MANIFEST"
-git -C "$SOURCE_REPO" archive \
-  --format=tar --output="$ARCHIVE" "$REVISION"
+git -C "$SOURCE_REPO" archive --format=tar "$REVISION" > "$ARCHIVE_TMP"
+chmod 0644 "$ARCHIVE_TMP"
+
+# 같은 directory의 임시 inode를 hard-link해 archive를 create-only로
+# publish한다. ARCHIVE가 경합 중 생기면 ln은 덮어쓰지 않고 실패한다.
+ln "$ARCHIVE_TMP" "$ARCHIVE"
+rm -f -- "$ARCHIVE_TMP"
+trap - EXIT HUP INT TERM
 
 sha256sum "$DEPLOYMENT_MANIFEST"
 sha256sum "$ARCHIVE"
@@ -135,9 +149,11 @@ report에서 다음을 함께 점검한다.
   ABO + 3D-FUTURE + HSSD three-source configured Dataset/DataLoader 검증 결과다.
 - `runtime_configs`와 `launch_commands`가 네 stage 모두를 포함하는지 확인한다.
 
-runtime config는 source config의 parsed JSON에서 `trainer.args.num_workers`만 `1`로
-바꾼 create-only 복사본이다. 실행 전 정확한 네 파일과 이 값, report의 SHA-256을
-대조한다.
+runtime config는 deployment manifest로 고정된 source config의 parsed JSON에서
+`trainer.args.num_workers`만 `1`로 바꾼 create-only 복사본이다. 각 stage의
+`runtime_configs.*.source_config.path`와 `source_config.sha256`은 그 reviewed source
+config를 가리키며, preparation의 마지막 승인 시점에 전체 JSON을 다시 비교한다. 실행 전
+정확한 네 runtime/source 파일과 이 값, report의 SHA-256을 대조한다.
 
 ```bash
 python - <<'PY'

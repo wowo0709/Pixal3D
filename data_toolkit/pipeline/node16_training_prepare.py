@@ -519,17 +519,18 @@ def _validate_source_topology(output_root: Path) -> None:
     )
 
 
-def validate_source_configs(
+def _validated_source_configs(
     configs: Mapping[str, Path],
-) -> dict[str, dict[str, object]]:
-    """Parse all source configs and enforce approved training semantics."""
+) -> tuple[dict[str, dict[str, object]], dict[str, bytes]]:
     if tuple(configs) != STAGES:
         raise ValueError(f"source configs must be ordered exactly as {STAGES}")
     parsed = {}
+    raw_by_stage = {}
     for stage, source in configs.items():
         source = Path(source)
+        raw = _regular_bytes(source, "production config")
         value = _json_object(
-            _regular_bytes(source, "production config"),
+            raw,
             source,
             "production config",
         )
@@ -564,6 +565,15 @@ def validate_source_configs(
                 f"actual={actual} path={source}"
             )
         parsed[stage] = value
+        raw_by_stage[stage] = raw
+    return parsed, raw_by_stage
+
+
+def validate_source_configs(
+    configs: Mapping[str, Path],
+) -> dict[str, dict[str, object]]:
+    """Parse all source configs and enforce approved training semantics."""
+    parsed, _raw_by_stage = _validated_source_configs(configs)
     return parsed
 
 
@@ -628,6 +638,29 @@ def create_runtime_configs(
             _exclusive_create(output, _canonical_json_bytes(runtime))
         outputs[stage] = output
     return outputs
+
+
+def _validate_existing_runtime_configs(
+    paths: PreparationPaths,
+    source_configs: Mapping[str, Path],
+) -> None:
+    root = Path(paths.runtime_config_root)
+    if not os.path.lexists(root):
+        return
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"runtime config root is not a safe directory: {root}")
+    if not any(root.iterdir()):
+        return
+    runtime_configs = {
+        stage: root / f"{source.stem}.node16-workers1.json"
+        for stage, source in source_configs.items()
+    }
+    _validate_owned_topology(
+        root,
+        {path.name: "file" for path in runtime_configs.values()},
+        "runtime config",
+    )
+    runtime_config_evidence(runtime_configs, source_configs)
 
 
 def _discovered_paths(root: Path) -> list[Path]:
@@ -956,14 +989,17 @@ def training_scope_evidence(
 
 def runtime_config_evidence(
     configs: Mapping[str, Path],
+    source_configs: Mapping[str, Path],
 ) -> dict[str, dict[str, object]]:
-    """Validate and report the approved six-GPU runtime semantics."""
+    """Validate exact reviewed transforms and report their source binding."""
     if tuple(configs) != STAGES:
         raise ValueError(f"runtime configs must be ordered exactly as {STAGES}")
+    originals, source_bytes = _validated_source_configs(source_configs)
     evidence = {}
     for stage, path in configs.items():
+        raw = _regular_bytes(Path(path), "runtime config")
         value = _json_object(
-            _regular_bytes(Path(path), "runtime config"),
+            raw,
             Path(path),
             "runtime config",
         )
@@ -971,6 +1007,16 @@ def runtime_config_evidence(
             args = value["trainer"]["args"]
         except (KeyError, TypeError) as error:
             raise ValueError(f"invalid runtime config: {path}") from error
+        expected_runtime = json.loads(json.dumps(originals[stage]))
+        expected_runtime["trainer"]["args"]["num_workers"] = 1
+        if (
+            _canonical_json_bytes(value)
+            != _canonical_json_bytes(expected_runtime)
+        ):
+            raise ValueError(
+                "runtime config is not the exact reviewed source "
+                f"transformation stage={stage}: {path}"
+            )
         batch, split, global_batch = _APPROVED_RUNTIME[stage]
         expected = {
             "batch_size_per_gpu": batch,
@@ -997,9 +1043,11 @@ def runtime_config_evidence(
             )
         evidence[stage] = {
             "path": str(Path(path)),
-            "sha256": sha256(
-                _regular_bytes(Path(path), "runtime config")
-            ).hexdigest(),
+            "sha256": sha256(raw).hexdigest(),
+            "source_config": {
+                "path": str(Path(source_configs[stage])),
+                "sha256": sha256(source_bytes[stage]).hexdigest(),
+            },
             "batch_size_per_gpu": batch,
             "batch_split": split,
             "six_gpu_global_batch": global_batch,
@@ -1399,7 +1447,9 @@ def _validate_report_runtime(
                 "preparation report has invalid runtime config path"
             )
     try:
-        expected = runtime_config_evidence(paths_by_stage)
+        expected = runtime_config_evidence(
+            paths_by_stage, _config_paths(paths)
+        )
     except (FileExistsError, OSError, ValueError) as error:
         raise ValueError(
             "preparation report has invalid runtime config evidence"
@@ -1682,6 +1732,9 @@ def plan_node16_training(
     deployment_evidence = verify_deployment_manifest(
         paths.repo_root, deployment
     )
+    source_configs = _config_paths(paths)
+    validate_source_configs(source_configs)
+    _validate_existing_runtime_configs(paths, source_configs)
     estimate = estimate_required_bytes(paths)
     disk = assert_free_space(paths.local_root, estimate.required_bytes)
     return {
@@ -1765,7 +1818,9 @@ def prepare_node16_training(
             ),
             "preflight": combined,
         },
-        "runtime_configs": runtime_config_evidence(runtime_configs),
+        "runtime_configs": runtime_config_evidence(
+            runtime_configs, source_configs
+        ),
         "launch_commands": _launch_commands(paths, runtime_configs),
     }
     return write_final_report(paths, report)
