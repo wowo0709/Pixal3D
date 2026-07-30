@@ -314,12 +314,34 @@ print(json.dumps({
 }, sort_keys=True))
 """.strip()
 
+_REMOTE_MATERIALIZATIONS_SCRIPT = r"""
+import base64
+import json
+import os
+from pathlib import Path
+import stat
+import sys
 
-def _remote_inventory_command(
-    paths: Node17HssdTransferPaths,
+root = Path(sys.argv[1])
+stages = ("ss64", "shape512", "shape1024", "pbr1024")
+materializations = {}
+for stage in stages:
+    path = root / stage / "active/materialization.json"
+    item = os.lstat(path)
+    if not stat.S_ISREG(item.st_mode) or item.st_size <= 0:
+        raise ValueError(f"unsafe or empty materialization: {path}")
+    materializations[stage] = base64.b64encode(
+        path.read_bytes()
+    ).decode("ascii")
+print(json.dumps(materializations, sort_keys=True))
+""".strip()
+
+
+def _remote_python_command(
+    paths: Node17HssdTransferPaths, script: str
 ) -> list[str]:
     encoded = base64.b64encode(
-        _REMOTE_INVENTORY_SCRIPT.encode("utf-8")
+        script.encode("utf-8")
     ).decode("ascii")
     remote = (
         "python3 -c \"import base64;"
@@ -333,6 +355,20 @@ def _remote_inventory_command(
         paths.source_host,
         remote,
     ]
+
+
+def _remote_inventory_command(
+    paths: Node17HssdTransferPaths,
+) -> list[str]:
+    return _remote_python_command(paths, _REMOTE_INVENTORY_SCRIPT)
+
+
+def _remote_materializations_command(
+    paths: Node17HssdTransferPaths,
+) -> list[str]:
+    return _remote_python_command(
+        paths, _REMOTE_MATERIALIZATIONS_SCRIPT
+    )
 
 
 def plan_hssd_transfer(
@@ -413,6 +449,39 @@ def _remote_inventory(
             "remote HSSD inventory output is invalid"
         ) from error
     return TreeInventory(file_count, logical_bytes)
+
+
+def _remote_materializations(
+    paths: Node17HssdTransferPaths,
+    command_runner: CommandRunner,
+) -> dict[str, bytes]:
+    result = _checked_command(
+        _remote_materializations_command(paths),
+        command_runner,
+        "remote HSSD materialization evidence",
+    )
+    try:
+        value = json.loads(result.stdout or "")
+        if not isinstance(value, dict) or set(value) != set(STAGES):
+            raise ValueError(
+                "materializations must contain all four stages"
+            )
+        decoded = {
+            stage: base64.b64decode(value[stage], validate=True)
+            for stage in STAGES
+        }
+        if any(not raw for raw in decoded.values()):
+            raise ValueError("materialization bytes must be non-empty")
+    except (
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+        base64.binascii.Error,
+    ) as error:
+        raise ValueError(
+            "remote HSSD materialization output is invalid"
+        ) from error
+    return decoded
 
 
 def _existing_ancestor(path: Path) -> Path:
@@ -610,20 +679,91 @@ def _staged_materialization_path(
     return paths.staging_root / stage / "active/materialization.json"
 
 
-def _rebase_staged_materializations(
+def _node16_path(value: object, label: str) -> None:
+    prefix = NODE16_DATA2_ROOT
+    if not isinstance(value, str) or not (
+        value == prefix or value.startswith(prefix + "/")
+    ):
+        raise ValueError(
+            f"materialization Node16 origin has invalid {label}: {value!r}"
+        )
+
+
+def _validate_node16_materialization(
     paths: Node17HssdTransferPaths,
-) -> dict[str, str]:
+    stage: str,
+    document: Mapping[str, object],
+) -> None:
+    expected_root = paths.source_root / stage / "active"
+    source_indexes = document.get("source_indexes")
+    packs = document.get("packs")
+    if (
+        document.get("source") != "HSSD"
+        or document.get("stage") != stage
+        or document.get("stage_root") != str(expected_root)
+        or not isinstance(source_indexes, list)
+        or not source_indexes
+        or not isinstance(packs, list)
+        or not packs
+    ):
+        raise ValueError(
+            "materialization Node16 origin identity is invalid: "
+            f"stage={stage}"
+        )
+    for index, reference in enumerate(source_indexes):
+        if not isinstance(reference, Mapping):
+            raise ValueError(
+                "materialization Node16 origin source index is invalid: "
+                f"stage={stage} index={index}"
+            )
+        _node16_path(
+            reference.get("path"),
+            f"stage={stage} source_indexes[{index}].path",
+        )
+    for index, pack in enumerate(packs):
+        if not isinstance(pack, Mapping):
+            raise ValueError(
+                "materialization Node16 origin pack is invalid: "
+                f"stage={stage} index={index}"
+            )
+        path_fields = [
+            name
+            for name in ("pack", "manifest", "path")
+            if name in pack
+        ]
+        if not path_fields:
+            raise ValueError(
+                "materialization Node16 origin pack lacks source paths: "
+                f"stage={stage} index={index}"
+            )
+        for name in path_fields:
+            _node16_path(
+                pack[name],
+                f"stage={stage} packs[{index}].{name}",
+            )
+
+
+def _prepare_original_materializations(
+    paths: Node17HssdTransferPaths,
+    originals: Mapping[str, bytes],
+    target_root: Path,
+) -> tuple[dict[str, str], dict[str, bytes]]:
+    if tuple(originals) != tuple(STAGES):
+        raise ValueError(
+            "original materializations must use canonical stage order"
+        )
     original_digests = {}
+    transformed_bytes = {}
     replacements = (
-        (str(paths.canonical_root), str(paths.staging_root)),
-        (str(paths.source_root), str(paths.staging_root)),
+        (str(paths.source_root), str(target_root)),
         (NODE16_DATA2_ROOT, str(paths.data2_root)),
     )
     for stage in STAGES:
-        path = _staged_materialization_path(paths, stage)
-        raw = _regular_bytes(path, f"stage={stage} materialization")
+        path = paths.source_root / stage / "active/materialization.json"
+        raw = originals[stage]
         original_digests[stage] = sha256(raw).hexdigest()
         document = _json_document(raw, path)
+        _validate_node16_materialization(paths, stage, document)
         rebased = _rebase_json_paths(document, replacements)
         for old_prefix in (str(paths.source_root), NODE16_DATA2_ROOT):
             if _contains_text(rebased, old_prefix):
@@ -631,7 +771,28 @@ def _rebase_staged_materializations(
                     "old Node16 prefix remains in rebased "
                     f"materialization stage={stage}: {old_prefix}"
                 )
-        _atomic_write(path, _canonical_json_bytes(rebased))
+        transformed_bytes[stage] = _canonical_json_bytes(rebased)
+    return original_digests, transformed_bytes
+
+
+def _rebase_staged_materializations(
+    paths: Node17HssdTransferPaths,
+) -> dict[str, str]:
+    originals = {
+        stage: _regular_bytes(
+            _staged_materialization_path(paths, stage),
+            f"stage={stage} materialization",
+        )
+        for stage in STAGES
+    }
+    original_digests, staged_bytes = _prepare_original_materializations(
+        paths, originals, paths.staging_root
+    )
+    for stage in STAGES:
+        _atomic_write(
+            _staged_materialization_path(paths, stage),
+            staged_bytes[stage],
+        )
     return original_digests
 
 
@@ -800,21 +961,19 @@ def _promote_and_publish(
         raise
 
 
-def _reconstruct_source_evidence(
+def _validate_reuse_provenance(
     paths: Node17HssdTransferPaths,
-    target_inventory: TreeInventory,
+    source_inventory: TreeInventory,
+    originals: Mapping[str, bytes],
 ) -> tuple[TreeInventory, dict[str, str], dict[str, str]]:
-    source_logical_bytes = target_inventory.logical_bytes
-    original_digests = {}
+    original_digests, expected_canonical = (
+        _prepare_original_materializations(
+            paths, originals, paths.canonical_root
+        )
+    )
+    current_inventory = _tree_inventory(paths.canonical_root)
+    transferred_logical_bytes = current_inventory.logical_bytes
     canonical_digests = {}
-    reverse_replacements = (
-        (str(paths.canonical_root), str(paths.source_root)),
-        (str(paths.data2_root), NODE16_DATA2_ROOT),
-    )
-    forward_replacements = (
-        (str(paths.source_root), str(paths.canonical_root)),
-        (NODE16_DATA2_ROOT, str(paths.data2_root)),
-    )
     for stage in STAGES:
         path = (
             paths.canonical_root
@@ -830,41 +989,40 @@ def _reconstruct_source_evidence(
                 "canonical materialization bytes do not use canonical "
                 f"serialization: stage={stage}"
             )
-        original_document = _rebase_json_paths(
-            canonical_document, reverse_replacements
-        )
-        if (
-            _rebase_json_paths(original_document, forward_replacements)
-            != canonical_document
-        ):
+        if canonical_raw != expected_canonical[stage]:
             raise ValueError(
-                "canonical materialization cannot be deterministically "
-                f"reversed to Node16 evidence: stage={stage}"
+                "remote original evidence does not transform to current "
+                f"canonical materialization: stage={stage}"
             )
-        original_raw = _canonical_json_bytes(original_document)
-        source_logical_bytes += len(original_raw) - len(canonical_raw)
-        original_digests[stage] = sha256(original_raw).hexdigest()
+        transferred_logical_bytes += (
+            len(originals[stage]) - len(canonical_raw)
+        )
         canonical_digests[stage] = sha256(canonical_raw).hexdigest()
-    return (
-        TreeInventory(
-            target_inventory.file_count, source_logical_bytes
-        ),
-        original_digests,
-        canonical_digests,
+    target_inventory = TreeInventory(
+        current_inventory.file_count, transferred_logical_bytes
     )
+    if target_inventory != source_inventory:
+        raise ValueError(
+            "remote source and evidence-backed target inventories differ: "
+            f"source={source_inventory} target={target_inventory}"
+        )
+    return target_inventory, original_digests, canonical_digests
 
 
 def _reuse_existing(
     paths: Node17HssdTransferPaths,
     validated: SourceTrainingData,
+    source_inventory: TreeInventory,
+    originals: Mapping[str, bytes],
     started: float,
 ) -> HssdTransferResult:
-    target_inventory = _tree_inventory(paths.canonical_root)
     (
-        source_inventory,
+        target_inventory,
         original_digests,
         canonical_digests,
-    ) = _reconstruct_source_evidence(paths, target_inventory)
+    ) = _validate_reuse_provenance(
+        paths, source_inventory, originals
+    )
     reuse_elapsed = time.monotonic() - started
     return HssdTransferResult(
         source_inventory=source_inventory,
@@ -900,7 +1058,11 @@ def transfer_and_publish_hssd(
     configs = _validate_runtime_configs(runtime_configs)
     existing = _validate_existing_canonical(paths)
     if existing is not None:
-        return _reuse_existing(paths, existing, started)
+        source_inventory = _remote_inventory(paths, command_runner)
+        originals = _remote_materializations(paths, command_runner)
+        return _reuse_existing(
+            paths, existing, source_inventory, originals, started
+        )
 
     phase_started = time.monotonic()
     source_inventory = _remote_inventory(paths, command_runner)

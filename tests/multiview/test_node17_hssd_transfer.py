@@ -1,4 +1,5 @@
 from dataclasses import replace
+import base64
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -94,19 +95,75 @@ def _stage_result(
 def _write_staged_materializations(
     paths: transfer.Node17HssdTransferPaths,
     root_prefix: Path,
+    *,
+    shared_root: Path = Path("/file2/youngwoo/pixal3d"),
 ) -> dict[str, StagePreflight]:
     results = {}
     for stage in STAGES:
         active = paths.staging_root / stage / "active"
         active.mkdir(parents=True)
         document = _materialization(
-            stage, root_prefix / stage / "active"
+            stage,
+            root_prefix / stage / "active",
+            shared_root=shared_root,
         )
         raw = _canonical_bytes(document)
         (active / "materialization.json").write_bytes(raw)
         (active / "payload.bin").write_bytes(stage.encode())
         results[stage] = _stage_result(stage, active, document)
     return results
+
+
+def _original_materializations() -> dict[str, bytes]:
+    return {
+        stage: _canonical_bytes(
+            _materialization(
+                stage, NODE16_HSSD / stage / "active"
+            )
+        )
+        for stage in STAGES
+    }
+
+
+def _source_inventory(
+    originals: dict[str, bytes],
+) -> transfer.TreeInventory:
+    return transfer.TreeInventory(
+        file_count=len(STAGES) * 2,
+        logical_bytes=sum(
+            len(originals[stage]) + len(stage.encode())
+            for stage in STAGES
+        ),
+    )
+
+
+def _reuse_runner(
+    originals: dict[str, bytes],
+):
+    inventory = _source_inventory(originals)
+    responses = [
+        json.dumps(
+            {
+                "file_count": inventory.file_count,
+                "logical_bytes": inventory.logical_bytes,
+            }
+        ),
+        json.dumps(
+            {
+                stage: base64.b64encode(raw).decode("ascii")
+                for stage, raw in originals.items()
+            }
+        ),
+    ]
+    calls = []
+
+    def runner(command):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(
+            command, 0, stdout=responses.pop(0)
+        )
+
+    return inventory, runner, calls
 
 
 def _write_existing_canonical_tree(
@@ -238,11 +295,16 @@ def test_plan_rejects_invalid_existing_canonical_chain(
         transfer.plan_hssd_transfer(paths)
 
 
-def test_valid_existing_canonical_chain_is_reused_with_reconstructed_source_evidence(
+def test_valid_existing_canonical_chain_uses_remote_source_evidence(
     tmp_path, monkeypatch
 ):
     paths = _paths(tmp_path)
     _write_existing_canonical_tree(paths)
+    originals = _original_materializations()
+    originals["ss64"] = json.dumps(
+        json.loads(originals["ss64"]), separators=(",", ":")
+    ).encode()
+    source_inventory, runner, calls = _reuse_runner(originals)
     validated = _validated_existing_chain(paths)
     monkeypatch.setattr(
         transfer,
@@ -256,23 +318,18 @@ def test_valid_existing_canonical_chain_is_reused_with_reconstructed_source_evid
             stage: tmp_path / f"{stage}.node17.json"
             for stage in STAGES
         },
-        command_runner=lambda _command: pytest.fail(
-            "valid canonical reuse must not contact Node16"
-        ),
+        command_runner=runner,
     )
 
     assert result.stage_counts == dict.fromkeys(STAGES, 2)
-    assert all(
-        result.original_materialization_sha256[stage]
-        != result.canonical_materialization_sha256[stage]
-        for stage in STAGES
-    )
-    assert result.source_inventory.file_count == (
-        result.target_inventory.file_count
-    )
-    assert result.source_inventory.logical_bytes != (
-        result.target_inventory.logical_bytes
-    )
+    assert result.original_materialization_sha256 == {
+        stage: sha256(raw).hexdigest()
+        for stage, raw in originals.items()
+    }
+    assert result.source_inventory == source_inventory
+    assert result.target_inventory == source_inventory
+    assert len(calls) == 2
+    assert all(command[0] == "ssh" for command in calls)
     assert set(result.elapsed_seconds) == {
         "inventory",
         "transfer",
@@ -316,6 +373,9 @@ def test_existing_canonical_reuse_rejects_noncanonical_materialization_bytes(
         "validate_source_training_data",
         lambda *_args: _validated_existing_chain(paths),
     )
+    _inventory, runner, _calls = _reuse_runner(
+        _original_materializations()
+    )
 
     with pytest.raises(ValueError, match="canonical serialization"):
         transfer.transfer_and_publish_hssd(
@@ -324,9 +384,7 @@ def test_existing_canonical_reuse_rejects_noncanonical_materialization_bytes(
                 stage: tmp_path / f"{stage}.node17.json"
                 for stage in STAGES
             },
-            command_runner=lambda _command: pytest.fail(
-                "invalid canonical reuse must not contact Node16"
-            ),
+            command_runner=runner,
         )
 
 
@@ -481,6 +539,108 @@ def test_materialization_rebase_changes_only_exact_path_prefix_values(
     assert rebased["substring"] == original["substring"]
     assert rebased["sibling"] == original["sibling"]
     assert original["stage_root"] == str(NODE16_HSSD / "ss64/active")
+
+
+@pytest.mark.parametrize("already_node17", ("stage_root", "shared_paths"))
+def test_staged_rebase_rejects_already_node17_source_identity(
+    tmp_path, already_node17
+):
+    paths = _paths(tmp_path)
+    _write_staged_materializations(paths, NODE16_HSSD)
+    selected = (
+        paths.staging_root / "ss64/active/materialization.json"
+    )
+    document = json.loads(selected.read_bytes())
+    if already_node17 == "stage_root":
+        document["stage_root"] = str(
+            paths.canonical_root / "ss64/active"
+        )
+    else:
+        document = transfer._rebase_json_paths(
+            document,
+            (("/file2/youngwoo/pixal3d", str(DATA2_ROOT)),),
+        )
+    selected.write_bytes(_canonical_bytes(document))
+    before = {
+        stage: (
+            paths.staging_root
+            / stage
+            / "active/materialization.json"
+        ).read_bytes()
+        for stage in STAGES
+    }
+
+    with pytest.raises(ValueError, match="Node16 origin"):
+        transfer._rebase_staged_materializations(paths)
+
+    assert {
+        stage: (
+            paths.staging_root
+            / stage
+            / "active/materialization.json"
+        ).read_bytes()
+        for stage in STAGES
+    } == before
+
+
+def test_staged_rebase_validates_all_originals_before_any_rewrite(
+    tmp_path,
+):
+    paths = _paths(tmp_path)
+    _write_staged_materializations(paths, NODE16_HSSD)
+    late_path = (
+        paths.staging_root / "pbr1024/active/materialization.json"
+    )
+    late_path.write_text("{invalid-json")
+    before = {
+        stage: (
+            paths.staging_root
+            / stage
+            / "active/materialization.json"
+        ).read_bytes()
+        for stage in STAGES
+    }
+
+    with pytest.raises(ValueError, match="invalid materialization JSON"):
+        transfer._rebase_staged_materializations(paths)
+
+    assert {
+        stage: (
+            paths.staging_root
+            / stage
+            / "active/materialization.json"
+        ).read_bytes()
+        for stage in STAGES
+    } == before
+
+
+def test_canonical_reuse_rejects_changed_remote_original_evidence(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    _write_existing_canonical_tree(paths)
+    originals = _original_materializations()
+    changed = json.loads(originals["pbr1024"])
+    changed["tool_commits"] = ["different-remote-commit"]
+    originals["pbr1024"] = _canonical_bytes(changed)
+    _inventory, runner, _calls = _reuse_runner(originals)
+    monkeypatch.setattr(
+        transfer,
+        "validate_source_training_data",
+        lambda *_args: _validated_existing_chain(paths),
+    )
+
+    with pytest.raises(
+        ValueError, match="remote original evidence does not transform"
+    ):
+        transfer.transfer_and_publish_hssd(
+            paths,
+            {
+                stage: tmp_path / f"{stage}.node17.json"
+                for stage in STAGES
+            },
+            command_runner=runner,
+        )
 
 
 def test_preflight_result_remap_preserves_all_validated_evidence(tmp_path):
