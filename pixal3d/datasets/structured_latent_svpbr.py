@@ -196,9 +196,9 @@ class SLatPbrVisMixin:
                     cam_up = torch.tensor([0.0, 1.0, 0.0], device=device)
                     
                     anchor_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
-                    anchor_int = utils3d.torch.intrinsics_from_fov_xy(
-                        torch.tensor(fov, device=device),
-                        torch.tensor(fov, device=device)
+                    anchor_int = utils3d.torch.intrinsics_from_fov(
+                        fov_x=torch.tensor(fov, device=device),
+                        fov_y=torch.tensor(fov, device=device)
                     )
                     anchor_ext = anchor_ext.to(device)
                     anchor_int = anchor_int.to(device)

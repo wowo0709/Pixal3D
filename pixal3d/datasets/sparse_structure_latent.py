@@ -194,9 +194,9 @@ class SparseStructureLatentVisMixin:
                 cam_up = torch.tensor([0.0, 0.0, 1.0], device=coords.device)
                 
                 anchor_ext = utils3d.torch.extrinsics_look_at(cam_pos, look_at, cam_up)
-                anchor_int = utils3d.torch.intrinsics_from_fov_xy(
-                    torch.tensor(fov, device=coords.device),
-                    torch.tensor(fov, device=coords.device)
+                anchor_int = utils3d.torch.intrinsics_from_fov(
+                    fov_x=torch.tensor(fov, device=coords.device),
+                    fov_y=torch.tensor(fov, device=coords.device)
                 )
                 
                 # Ensure tensors are on the correct device (utils3d may not preserve device)

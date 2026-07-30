@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 import torch
+import utils3d
 
 from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
     ProjGrid,
@@ -9,6 +12,28 @@ from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
 
 RTOL = 1e-5
 ATOL = 1e-5
+
+
+def test_python_sources_use_current_utils3d_intrinsics_api():
+    repo_root = Path(__file__).resolve().parents[2]
+    obsolete_name = "intrinsics_from_fov" + "_xy"
+    obsolete = [
+        path.relative_to(repo_root)
+        for path in repo_root.rglob("*.py")
+        if obsolete_name in path.read_text()
+    ]
+    assert obsolete == []
+
+
+def test_current_utils3d_square_fov_intrinsics_are_centered():
+    fov = torch.tensor(torch.pi / 2)
+    intrinsics = utils3d.torch.intrinsics_from_fov(
+        fov_x=fov, fov_y=fov
+    )
+    assert intrinsics.shape == (3, 3)
+    assert torch.allclose(
+        intrinsics[:2, 2], torch.tensor([0.5, 0.5])
+    )
 
 
 def test_projection_matrices_keep_anchor_exact_and_non_anchor_relative():
