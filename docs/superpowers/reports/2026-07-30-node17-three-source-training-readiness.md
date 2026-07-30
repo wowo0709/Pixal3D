@@ -6,6 +6,10 @@ Reviewed code revision:
 `34949b1422d4799eef68ab757430051cbf8da604`
 (`docs: expand Node16 verification evidence`).
 
+Historical-evidence validator revision:
+`cdc13bae59fcdbf3b7eab052a94f4f62e5995300`
+(`fix: revalidate historical Node17 evidence`).
+
 ## Outcome and safety boundary
 
 The create-only CPU workflow completed with exit code 0. Node17 now has a
@@ -119,9 +123,33 @@ CUDA_VISIBLE_DEVICES="" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. \
 ```
 
 It independently reproduced all four stage counts and passed every boundary
-collation. A separate call to
+collation. The original exact-revision
 `validate_node17_preparation_report(...)` also re-hashed every referenced
-artifact and re-resolved all source and combined chains successfully.
+artifact and re-resolved all source and combined chains successfully before
+the readiness-only delivery commit.
+
+The final clean delivered descendant is reproducibly validated with:
+
+```text
+CUDA_VISIBLE_DEVICES="" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. \
+/opt/conda/envs/pixal3d/bin/python scripts/prepare_node17_training.py \
+  --validate-evidence \
+  --delivery-revision c3423fd23340b301940cd9c6ea084744caa77bd6 \
+  --validator-revision cdc13bae59fcdbf3b7eab052a94f4f62e5995300
+```
+
+This historical mode does not relax normal preparation or reuse: those paths
+still require exact current HEAD. It requires a clean worktree, verifies all
+three commits and ancestry, then enforces three exact path boundaries:
+
+- execution evidence to delivery: only this Task's readiness/runbook docs;
+- delivery to pinned validator: only the validator core, CLI, and test paths;
+- pinned validator to current HEAD: only the readiness/runbook docs.
+
+Unrelated documentation, code, config, tests, missing/non-descendant
+revisions, and dirty worktrees are rejected. After the path gate, all
+artifacts are re-hashed and all source and combined chains are re-resolved
+against the recorded execution revision.
 
 ## Runtime configs
 

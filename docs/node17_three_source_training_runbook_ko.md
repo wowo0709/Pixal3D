@@ -86,24 +86,34 @@ partial combined 또는 evidence 디렉터리 오류가 발생하면 자동
 다시 hash하고, 세 source chain과 네 combined stage를 다시
 resolve한다. DataLoader preflight나 전송을 다시 실행하지 않는다.
 
+이 검증은 세 revision을 명시적으로 구분한다.
+
+- evidence revision
+  `34949b1422d4799eef68ab757430051cbf8da604`: 준비 실행 및 report가
+  기록한 revision
+- delivery revision
+  `c3423fd23340b301940cd9c6ea084744caa77bd6`: readiness report만
+  추가한 최초 전달 revision
+- validator revision
+  `cdc13bae59fcdbf3b7eab052a94f4f62e5995300`: historical validator
+  구현과 테스트를 고정한 revision
+
+검증기는 clean worktree, 세 commit의 존재 및 ancestry를 확인한다.
+evidence에서 delivery까지는 이 Task의 readiness/runbook 문서만,
+delivery에서 validator까지는 고정된 validator core/CLI/test 세
+경로만, validator에서 현재 HEAD까지는 readiness/runbook 문서 두
+경로만 허용한다. 다른 문서, 학습 코드, config, test 변경은
+거부한다. 일반 plan/execute 및 기존 evidence validator의
+exact-current-revision 규칙은 그대로 유지된다.
+
 ```bash
 cd /root/dev/Pixal3D/.worktrees/multiview-model-extension
-CUDA_VISIBLE_DEVICES="" PYTHONDONTWRITEBYTECODE=1 \
-/opt/conda/envs/pixal3d/bin/python - <<'PY'
-from pathlib import Path
+CUDA_VISIBLE_DEVICES="" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. \
+/opt/conda/envs/pixal3d/bin/python scripts/prepare_node17_training.py \
+  --validate-evidence \
+  --delivery-revision c3423fd23340b301940cd9c6ea084744caa77bd6 \
+  --validator-revision cdc13bae59fcdbf3b7eab052a94f4f62e5995300
 
-from data_toolkit.pipeline.node17_training_prepare import (
-    Node17PreparationPaths,
-    validate_node17_preparation_report,
-)
-
-paths = Node17PreparationPaths.from_roots(
-    Path("/root/data2/pixal3d"),
-    Path("/root/node17/data/pixal3d"),
-    Path("/root/dev/Pixal3D/.worktrees/multiview-model-extension"),
-)
-print(validate_node17_preparation_report(paths))
-PY
 sha256sum \
   /root/node17/data/pixal3d/train/production/node17-preparation-evidence/report.json
 ```
