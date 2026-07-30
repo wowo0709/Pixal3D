@@ -14,6 +14,10 @@ import shutil
 import stat
 from typing import Mapping
 
+from data_toolkit.pipeline.training_config_policy import (
+    STAGE_POLICIES,
+    validate_finetuning_configs,
+)
 from data_toolkit.pipeline.training_manifest import (
     AUTHORIZATION,
     SAMPLING,
@@ -53,12 +57,6 @@ CONFIGS = {
         "configs/gen/"
         "slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json"
     ),
-}
-_APPROVED_RUNTIME = {
-    "ss64": (8, 4, 48),
-    "shape512": (8, 4, 48),
-    "shape1024": (2, 1, 12),
-    "pbr1024": (2, 1, 12),
 }
 
 
@@ -522,49 +520,16 @@ def _validate_source_topology(output_root: Path) -> None:
 def _validated_source_configs(
     configs: Mapping[str, Path],
 ) -> tuple[dict[str, dict[str, object]], dict[str, bytes]]:
-    if tuple(configs) != STAGES:
-        raise ValueError(f"source configs must be ordered exactly as {STAGES}")
-    parsed = {}
+    parsed = validate_finetuning_configs(configs)
     raw_by_stage = {}
     for stage, source in configs.items():
         source = Path(source)
         raw = _regular_bytes(source, "production config")
-        value = _json_object(
-            raw,
-            source,
-            "production config",
-        )
-        try:
-            args = value["trainer"]["args"]
-        except (KeyError, TypeError) as error:
+        if _json_object(raw, source, "production config") != parsed[stage]:
             raise ValueError(
-                f"invalid source config semantics: {source}"
-            ) from error
-        if not isinstance(args, dict):
-            raise ValueError(f"invalid source config semantics: {source}")
-        batch, split, global_batch = _APPROVED_RUNTIME[stage]
-        expected = {
-            "multiview_stage": stage,
-            "batch_size_per_gpu": batch,
-            "batch_split": split,
-            "max_steps": 20_000,
-            "i_save": 2_000,
-            "max_checkpoints": 5,
-            "i_sample": -1,
-        }
-        actual = {name: args.get(name) for name in expected}
-        numeric_names = set(expected) - {"multiview_stage"}
-        if (
-            actual != expected
-            or any(type(actual[name]) is not int for name in numeric_names)
-            or batch * 6 != global_batch
-        ):
-            raise ValueError(
-                f"invalid source config semantics stage={stage}: "
-                f"expected={expected} global_batch={global_batch} "
-                f"actual={actual} path={source}"
+                f"source config changed during validation stage={stage}: "
+                f"{source}"
             )
-        parsed[stage] = value
         raw_by_stage[stage] = raw
     return parsed, raw_by_stage
 
@@ -1017,14 +982,16 @@ def runtime_config_evidence(
                 "runtime config is not the exact reviewed source "
                 f"transformation stage={stage}: {path}"
             )
-        batch, split, global_batch = _APPROVED_RUNTIME[stage]
+        policy = STAGE_POLICIES[stage]
         expected = {
-            "batch_size_per_gpu": batch,
-            "batch_split": split,
+            "batch_size_per_gpu": policy.batch_size_per_gpu,
+            "batch_split": policy.batch_split,
             "max_steps": 20_000,
-            "i_save": 2_000,
-            "max_checkpoints": 5,
-            "i_sample": -1,
+            "i_save": 1_000,
+            "max_checkpoints": 3,
+            "i_sample": 1_000,
+            "i_print": 10,
+            "i_log": 10,
             "num_workers": 1,
             "multiview_stage": stage,
         }
@@ -1048,13 +1015,14 @@ def runtime_config_evidence(
                 "path": str(Path(source_configs[stage])),
                 "sha256": sha256(source_bytes[stage]).hexdigest(),
             },
-            "batch_size_per_gpu": batch,
-            "batch_split": split,
-            "six_gpu_global_batch": global_batch,
+            "batch_size_per_gpu": policy.batch_size_per_gpu,
+            "batch_split": policy.batch_split,
+            "six_gpu_global_batch": policy.six_gpu_global_batch,
             "max_steps": 20_000,
-            "save_interval": 2_000,
-            "retained_checkpoints": 5,
-            "snapshots_disabled": True,
+            "save_interval": 1_000,
+            "retained_checkpoints": 3,
+            "snapshot_interval": 1_000,
+            "startup_dataset_snapshot": stage != "ss64",
             "num_workers_per_rank": 1,
         }
     return evidence

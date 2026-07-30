@@ -527,6 +527,35 @@ def test_runtime_configs_change_only_num_workers(tmp_path):
         assert runtime == original
 
 
+def test_source_configs_use_current_training_policy():
+    parsed = core.validate_source_configs(CONFIGS)
+
+    for stage, config in parsed.items():
+        args = config["trainer"]["args"]
+        assert {
+            name: args[name]
+            for name in (
+                "num_workers",
+                "i_print",
+                "i_log",
+                "i_sample",
+                "i_save",
+                "max_checkpoints",
+            )
+        } == {
+            "num_workers": 2,
+            "i_print": 10,
+            "i_log": 10,
+            "i_sample": 1000,
+            "i_save": 1000,
+            "max_checkpoints": 3,
+        }
+        if stage == "ss64":
+            assert args["snapshot_dataset_on_start"] is False
+        else:
+            assert "snapshot_dataset_on_start" not in args
+
+
 @pytest.mark.parametrize(
     ("stage", "field"),
     (("shape1024", "batch_split"), ("ss64", "num_workers")),
@@ -624,6 +653,12 @@ def test_runtime_evidence_binds_exact_reviewed_source_transform(tmp_path):
             "trainer"
         ]["args"]["num_workers"]
         assert transformed == original
+        assert evidence[stage]["save_interval"] == 1000
+        assert evidence[stage]["retained_checkpoints"] == 3
+        assert evidence[stage]["snapshot_interval"] == 1000
+        assert evidence[stage]["startup_dataset_snapshot"] is (
+            stage != "ss64"
+        )
 
 
 def test_invalid_last_source_config_aborts_before_any_local_mutation(
