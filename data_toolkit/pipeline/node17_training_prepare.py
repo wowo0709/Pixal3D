@@ -13,8 +13,17 @@ import shutil
 import stat
 import subprocess
 import time
-from typing import TYPE_CHECKING, Mapping
+from typing import Mapping
 
+from data_toolkit.pipeline.node17_hssd_transfer import (
+    SOURCE_HOST,
+    SOURCE_PORT,
+    SOURCE_ROOT,
+    HssdTransferResult,
+    Node17HssdTransferPaths,
+    transfer_and_publish_hssd,
+    validate_hssd_transfer_paths,
+)
 from data_toolkit.pipeline.training_config_policy import (
     create_node17_runtime_configs,
     node17_runtime_config_evidence,
@@ -29,21 +38,10 @@ from data_toolkit.pipeline.training_manifest import (
     validate_source_training_data,
 )
 
-if TYPE_CHECKING:
-    from data_toolkit.pipeline.node17_hssd_transfer import (
-        HssdTransferResult,
-        Node17HssdTransferPaths,
-    )
-
 
 GIB = 1024**3
 MINIMUM_FREE_BYTES = 10 * GIB
 PYTHON = Path("/opt/conda/envs/pixal3d/bin/python")
-DEFAULT_SOURCE_HOST = "youngwoo@n16.unist.info"
-DEFAULT_SOURCE_PORT = 55555
-DEFAULT_SOURCE_ROOT = Path(
-    "/home/youngwoo/data/pixal3d/train/production/hssd"
-)
 CONFIGS = {
     "ss64": Path(
         "configs/gen/"
@@ -91,9 +89,9 @@ class Node17PreparationPaths:
         local_root: Path,
         repo_root: Path,
         *,
-        source_host: str = DEFAULT_SOURCE_HOST,
-        source_port: int = DEFAULT_SOURCE_PORT,
-        source_root: Path = DEFAULT_SOURCE_ROOT,
+        source_host: str = SOURCE_HOST,
+        source_port: int = SOURCE_PORT,
+        source_root: Path = SOURCE_ROOT,
     ) -> "Node17PreparationPaths":
         local = Path(local_root)
         production = local / "train/production"
@@ -168,6 +166,7 @@ def validate_roots(paths: Node17PreparationPaths) -> None:
         (paths.combined_training_data, "combined training data"),
     ):
         _canonical_absolute(selected, label)
+    validate_hssd_transfer_paths(_hssd_transfer_paths(paths))
 
 
 def clean_git_revision(repo_root: Path) -> str:
@@ -354,18 +353,6 @@ def preflight_multisource_stage(
     return configured_preflight(training_data, stage, config)
 
 
-def transfer_and_publish_hssd(
-    paths: "Node17HssdTransferPaths",
-    runtime_configs: Mapping[str, Path],
-) -> "HssdTransferResult":
-    """Lazy Task 4 boundary that keeps plan-mode imports CUDA-free."""
-    from data_toolkit.pipeline.node17_hssd_transfer import (
-        transfer_and_publish_hssd as transfer,
-    )
-
-    return transfer(paths, runtime_configs)
-
-
 def preflight_training_data(
     training_data: Path, runtime_configs: Mapping[str, Path]
 ) -> dict[str, object]:
@@ -380,13 +367,15 @@ def preflight_training_data(
     for stage in STAGES:
         _assert_cpu_only()
         started = time.monotonic()
-        results[stage] = preflight_multisource_stage(
-            Path(training_data),
-            stage,
-            Path(runtime_configs[stage]),
-        )
-        elapsed[stage] = time.monotonic() - started
-        _assert_cpu_only()
+        try:
+            results[stage] = preflight_multisource_stage(
+                Path(training_data),
+                stage,
+                Path(runtime_configs[stage]),
+            )
+            elapsed[stage] = time.monotonic() - started
+        finally:
+            _assert_cpu_only()
     elapsed["total"] = time.monotonic() - total_started
     return {"stages": results, "elapsed_seconds": elapsed}
 
@@ -403,11 +392,7 @@ def _source_training_path(
 
 def _hssd_transfer_paths(
     paths: Node17PreparationPaths,
-) -> "Node17HssdTransferPaths":
-    from data_toolkit.pipeline.node17_hssd_transfer import (
-        Node17HssdTransferPaths,
-    )
-
+) -> Node17HssdTransferPaths:
     return Node17HssdTransferPaths(
         source_host=paths.source_host,
         source_port=paths.source_port,
@@ -506,7 +491,7 @@ def _source_chain_evidence(
 
 def _validated_source_chains(
     paths: Node17PreparationPaths,
-    hssd_result: "HssdTransferResult",
+    hssd_result: HssdTransferResult,
 ) -> tuple[dict[str, SourceTrainingData], dict[str, dict[str, object]]]:
     validated = {
         "HSSD": validate_source_training_data(
@@ -544,7 +529,7 @@ def _validated_source_chains(
 
 def _transfer_evidence(
     paths: Node17PreparationPaths,
-    result: "HssdTransferResult",
+    result: HssdTransferResult,
     validated_hssd: SourceTrainingData,
 ) -> dict[str, object]:
     if (
@@ -1075,6 +1060,7 @@ def prepare_node17_training(
 ) -> Path:
     """Execute the complete create-only Node17 preparation workflow."""
     require_cpu_only_environment()
+    _assert_cpu_only()
     total_started = time.monotonic()
     elapsed = {}
     validate_roots(paths)

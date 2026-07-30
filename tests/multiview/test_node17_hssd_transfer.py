@@ -2,9 +2,11 @@ from dataclasses import replace
 import base64
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -244,6 +246,37 @@ def test_plan_rejects_wrong_staging_identity(tmp_path):
 
     with pytest.raises(ValueError, match="staging root"):
         transfer.plan_hssd_transfer(paths)
+
+
+def test_transfer_identity_validation_boundary_is_torch_free(tmp_path):
+    environment = dict(os.environ)
+    environment["CUDA_VISIBLE_DEVICES"] = ""
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    script = (
+        "import sys; "
+        "from pathlib import Path; "
+        "from data_toolkit.pipeline.node17_hssd_transfer import "
+        "Node17HssdTransferPaths, validate_hssd_transfer_paths; "
+        "root = Path('/tmp/node17-transfer-policy-test'); "
+        "paths = Node17HssdTransferPaths("
+        "source_host='youngwoo@n16.unist.info', source_port=55555, "
+        "source_root=Path("
+        "'/home/youngwoo/data/pixal3d/train/production/hssd'), "
+        "data2_root=Path('/root/data2/pixal3d'), "
+        "production_root=root, "
+        "staging_root=root / '.hssd-node16-transfer'); "
+        "validate_hssd_transfer_paths(paths); "
+        "assert 'torch' not in sys.modules"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_plan_builds_stage_only_resumable_and_checksum_commands(tmp_path):

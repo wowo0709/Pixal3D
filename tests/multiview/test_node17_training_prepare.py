@@ -1,22 +1,27 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
+from hashlib import sha256
 import importlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
 
 import pytest
 
+from data_toolkit.pipeline import training_manifest
 from data_toolkit.pipeline import node17_training_prepare as core
 from data_toolkit.pipeline.node17_hssd_transfer import (
+    NODE17_DATA2_ROOT,
     HssdTransferResult,
     TreeInventory,
 )
-from data_toolkit.pipeline.training_manifest import STAGES
+from data_toolkit.pipeline.training_manifest import SAMPLING, STAGES
 
 
 CONFIG_NAMES = {
@@ -36,6 +41,7 @@ CONFIG_NAMES = {
         ".node17.json"
     ),
 }
+REVISION = "a" * 40
 
 
 def _paths(tmp_path: Path) -> core.Node17PreparationPaths:
@@ -113,7 +119,7 @@ def _preflight(source_counts: dict[str, int]) -> dict[str, object]:
                 "stage": stage,
                 "source_counts": dict(source_counts),
                 "total_count": sum(source_counts.values()),
-                "sampling": "uniform-over-union",
+                "sampling": SAMPLING,
                 "boundary_instances_checked": sum(
                     min(count, 2) for count in source_counts.values()
                 ),
@@ -126,6 +132,262 @@ def _preflight(source_counts: dict[str, int]) -> dict[str, object]:
             "total": 1.0,
         },
     }
+
+
+def _scope_digest(scope: list[str]) -> str:
+    return sha256("\n".join(scope).encode()).hexdigest()
+
+
+def _stage_data_dir(
+    source: str, stage: str, root: Path
+) -> dict[str, dict[str, str]]:
+    values = {
+        "base": str(root),
+        "render_cond": str(root / "renders_cond"),
+    }
+    if stage == "ss64":
+        values["ss_latent"] = str(
+            root / "ss_latents/ss_enc_conv3d_16l8_fp16_64_view"
+        )
+    elif stage == "shape512":
+        values["shape_latent"] = str(
+            root
+            / "shape_latents/"
+            "shape_enc_next_dc_f16c32_fp16_512_view"
+        )
+    else:
+        values["shape_latent"] = str(
+            root
+            / "shape_latents/"
+            "shape_enc_next_dc_f16c32_fp16_1024_view"
+        )
+        if stage == "pbr1024":
+            values["pbr_latent"] = str(
+                root
+                / "pbr_latents/"
+                "tex_enc_next_dc_f16c32_fp16_1024_view_fix"
+            )
+    return {source: values}
+
+
+def _write_source_publication(
+    root: Path,
+    source: str,
+    schema_version: int,
+    count: int,
+) -> Path:
+    stages = {}
+    materialization_evidence = {}
+    for stage in STAGES:
+        active = root / stage / "active"
+        active.mkdir(parents=True)
+        scope = [
+            f"{source.lower()}-{stage}-{index}"
+            for index in range(count)
+        ]
+        materialization = {
+            "schema_version": 1,
+            "source": source,
+            "stage": stage,
+            "stage_root": str(active),
+            "asset_count": count,
+            "stage_scope": scope,
+            "stage_scope_sha256": _scope_digest(scope),
+        }
+        materialization_path = active / "materialization.json"
+        materialization_path.write_bytes(
+            core._canonical_json_bytes(materialization)
+        )
+        stages[stage] = {
+            "root": str(active),
+            "asset_count": count,
+            "asset_scope_sha256": _scope_digest(scope),
+            "anchors_checked": count * 2,
+            "validation_counts": {"assets": count},
+            "data_dir": _stage_data_dir(source, stage, active),
+        }
+        materialization_evidence[stage] = {
+            "sha256": sha256(
+                materialization_path.read_bytes()
+            ).hexdigest(),
+            "tool_commits": [f"{source}-{stage}-tool"],
+        }
+
+    publication = root / "publication"
+    publication.mkdir()
+    report_path = publication / "report.json"
+    report = {
+        "schema_version": schema_version,
+        "created_at": "2026-07-30T00:00:00Z",
+        "source": source,
+        "acceptance_mode": (
+            "production_gate"
+            if source == "HSSD"
+            else "valid_subset_user_waiver"
+        ),
+        "original_90_percent_gate_passed": source == "HSSD",
+        "authorization": "training-input use only",
+        "counts": {"stages": dict.fromkeys(STAGES, count)},
+        "eligibility_policy": {"schema_version": 1},
+        "stages": stages,
+        "materialization_evidence": materialization_evidence,
+        "observed_tool_commits": [f"{source}-tool"],
+    }
+    if schema_version == 1:
+        index_path = root / "ABO-00000.json"
+        index_path.write_bytes(
+            core._canonical_json_bytes(
+                {"shard_id": "ABO-00000", "assets": ["abo-asset"]}
+            )
+        )
+        report["shard_id"] = "ABO-00000"
+        report["source_index"] = {
+            "path": str(index_path),
+            "sha256": sha256(index_path.read_bytes()).hexdigest(),
+        }
+    else:
+        index_path = root / f"{source}-00000.json"
+        index_path.write_bytes(
+            core._canonical_json_bytes(
+                {
+                    "shard_id": f"{source}-00000",
+                    "assets": [f"{source.lower()}-asset"],
+                }
+            )
+        )
+        report["source_indexes"] = [
+            {
+                "shard_id": f"{source}-00000",
+                "path": str(index_path),
+                "sha256": sha256(index_path.read_bytes()).hexdigest(),
+            }
+        ]
+    report_path.write_bytes(core._canonical_json_bytes(report))
+    handoff_path = publication / "handoff.json"
+    handoff = {
+        **report,
+        "report": {
+            "path": str(report_path),
+            "sha256": sha256(report_path.read_bytes()).hexdigest(),
+        },
+    }
+    handoff_path.write_bytes(core._canonical_json_bytes(handoff))
+    training_path = root / "training_data.json"
+    training = {
+        **handoff,
+        "handoff": {
+            "path": str(handoff_path),
+            "sha256": sha256(handoff_path.read_bytes()).hexdigest(),
+        },
+    }
+    training_path.write_bytes(core._canonical_json_bytes(training))
+    return training_path
+
+
+def _copy_source_configs(repo_root: Path) -> None:
+    for relative in core.CONFIGS.values():
+        target = repo_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(Path(relative), target)
+
+
+def _real_report_fixture(
+    tmp_path: Path, monkeypatch
+) -> tuple[
+    core.Node17PreparationPaths,
+    Path,
+    dict[str, object],
+]:
+    paths = _compatible_paths(tmp_path)
+    _copy_source_configs(paths.repo_root)
+    source_paths = {
+        "ABO": _write_source_publication(
+            paths.production_root / "abo", "ABO", 1, 2
+        ),
+        "3D-FUTURE": _write_source_publication(
+            paths.production_root / "3d-future",
+            "3D-FUTURE",
+            2,
+            5,
+        ),
+        "HSSD": _write_source_publication(
+            paths.production_root / "hssd", "HSSD", 2, 3
+        ),
+    }
+    hssd = source_paths["HSSD"]
+    canonical_digests = {
+        stage: sha256(
+            (
+                paths.production_root
+                / f"hssd/{stage}/active/materialization.json"
+            ).read_bytes()
+        ).hexdigest()
+        for stage in STAGES
+    }
+    transfer = HssdTransferResult(
+        source_inventory=TreeInventory(20, 50_000),
+        target_inventory=TreeInventory(20, 50_000),
+        original_materialization_sha256={
+            stage: str(index + 1) * 64
+            for index, stage in enumerate(STAGES)
+        },
+        canonical_materialization_sha256=canonical_digests,
+        training_data=hssd,
+        training_data_sha256=sha256(hssd.read_bytes()).hexdigest(),
+        stage_counts=dict.fromkeys(STAGES, 3),
+        elapsed_seconds={
+            "inventory": 0.1,
+            "transfer": 0.2,
+            "verification": 0.1,
+            "evidence_rebase": 0.1,
+            "strict_preflight": 0.2,
+            "promotion": 0.1,
+            "total": 0.8,
+        },
+    )
+    monkeypatch.setattr(
+        core, "clean_git_revision", lambda _root: REVISION
+    )
+    monkeypatch.setattr(
+        core,
+        "assert_free_space",
+        lambda path, required: {
+            "path": str(path),
+            "free_bytes": required + 1_000,
+            "required_bytes": required,
+        },
+    )
+    monkeypatch.setattr(
+        core,
+        "validate_source_training_data",
+        training_manifest._validate_source_training_data_for_fixture,
+    )
+    monkeypatch.setattr(
+        core,
+        "resolve_training_data",
+        training_manifest._resolve_training_data_for_fixture,
+    )
+    monkeypatch.setattr(
+        core,
+        "publish_combined_training_data",
+        training_manifest._publish_combined_training_data_for_fixture,
+    )
+    monkeypatch.setattr(
+        core, "transfer_and_publish_hssd", lambda *_args: transfer
+    )
+
+    def preflight(training_data, _runtime_configs):
+        counts = (
+            {"HSSD": 3}
+            if Path(training_data) == hssd
+            else {"ABO": 2, "3D-FUTURE": 5, "HSSD": 3}
+        )
+        return _preflight(counts)
+
+    monkeypatch.setattr(core, "preflight_training_data", preflight)
+    report_path = core.prepare_node17_training(paths)
+    report = json.loads(report_path.read_text())
+    return paths, report_path, report
 
 
 def test_node17_paths_derive_canonical_training_outputs():
@@ -255,6 +517,140 @@ def test_plan_module_import_does_not_import_torch():
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def _compatible_paths(tmp_path: Path) -> core.Node17PreparationPaths:
+    local = tmp_path / "node17/data/pixal3d"
+    repo = tmp_path / "repo"
+    local.mkdir(parents=True)
+    repo.mkdir()
+    return core.Node17PreparationPaths.from_roots(
+        NODE17_DATA2_ROOT, local, repo
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("data2_root", Path("/root/data2/other"), "data2 root"),
+        ("source_host", "other@n16.unist.info", "source host"),
+        ("source_port", 22, "source port"),
+        (
+            "source_root",
+            Path("/home/youngwoo/data/pixal3d/train/production/other"),
+            "source root",
+        ),
+    ),
+)
+@pytest.mark.parametrize("operation", ("plan", "execute"))
+def test_plan_and_execute_reject_task4_incompatible_identity_before_mutation(
+    tmp_path, monkeypatch, field, value, message, operation
+):
+    paths = replace(_compatible_paths(tmp_path), **{field: value})
+    monkeypatch.setattr(
+        core, "clean_git_revision", lambda _root: "a" * 40
+    )
+    monkeypatch.setattr(
+        core, "validate_finetuning_configs", lambda _configs: {}
+    )
+    monkeypatch.setattr(
+        core,
+        "_validate_existing_runtime_configs",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "assert_free_space",
+        lambda path, required: {
+            "path": str(path),
+            "free_bytes": required + 1,
+            "required_bytes": required,
+        },
+    )
+    monkeypatch.setattr(core, "_assert_cpu_only", lambda: None)
+    monkeypatch.setattr(
+        core,
+        "create_node17_runtime_configs",
+        lambda *_args: pytest.fail("runtime config mutation occurred"),
+    )
+    monkeypatch.setattr(
+        core,
+        "transfer_and_publish_hssd",
+        lambda *_args: pytest.fail("transfer/network occurred"),
+    )
+
+    selected = (
+        core.plan_node17_training
+        if operation == "plan"
+        else core.prepare_node17_training
+    )
+    with pytest.raises(ValueError, match=message):
+        selected(paths)
+
+    assert not paths.runtime_config_root.exists()
+    assert not paths.production_root.exists()
+
+
+def test_prepare_rejects_preinitialized_cuda_before_any_mutation(
+    tmp_path, monkeypatch
+):
+    import torch
+
+    paths = _compatible_paths(tmp_path)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        core,
+        "create_node17_runtime_configs",
+        lambda *_args: pytest.fail("runtime config mutation occurred"),
+    )
+    monkeypatch.setattr(
+        core,
+        "transfer_and_publish_hssd",
+        lambda *_args: pytest.fail("transfer/network occurred"),
+    )
+
+    with pytest.raises(
+        RuntimeError, match="CPU-only preparation initialized CUDA"
+    ):
+        core.prepare_node17_training(paths)
+
+    assert not paths.runtime_config_root.exists()
+    assert not paths.production_root.exists()
+
+
+def test_preflight_rechecks_cuda_when_a_stage_raises(
+    tmp_path, monkeypatch
+):
+    runtime_paths = {
+        stage: tmp_path / f"{stage}.json" for stage in STAGES
+    }
+    initialized = False
+    checks = []
+
+    def cpu_check():
+        checks.append(initialized)
+        if initialized:
+            raise RuntimeError("CPU-only preparation initialized CUDA")
+
+    def failing_stage(*_args):
+        nonlocal initialized
+        initialized = True
+        raise ValueError("configured stage failed")
+
+    monkeypatch.setattr(core, "_assert_cpu_only", cpu_check)
+    monkeypatch.setattr(
+        core, "preflight_multisource_stage", failing_stage
+    )
+
+    with pytest.raises(
+        RuntimeError, match="CPU-only preparation initialized CUDA"
+    ):
+        core.preflight_training_data(
+            tmp_path / "training_data.json", runtime_paths
+        )
+
+    assert checks == [False, True]
 
 
 def test_prepare_uses_existing_task_boundaries_in_required_order(
@@ -541,53 +937,89 @@ def test_combined_publication_rejects_partial_directory(
         core.publish_three_source_combined(paths)
 
 
-def test_final_report_reuses_only_when_invariants_match(
+def test_assembled_report_passes_real_validation_and_immutable_reuse(
     tmp_path, monkeypatch
 ):
-    paths = _paths(tmp_path)
-    validations = []
-    monkeypatch.setattr(
-        core,
-        "_validate_report",
-        lambda selected, report: validations.append(
-            (selected, report["revision"])
-        ),
+    paths, output, report = _real_report_fixture(
+        tmp_path, monkeypatch
     )
-    report = {
-        "revision": "a" * 40,
-        "disk": {"free_bytes": 100, "required_bytes": 50},
-        "elapsed_seconds": {"total": 1.0},
-        "transfer": {"elapsed_seconds": {"total": 0.5}},
-    }
-
-    output = core.write_final_report(paths, report)
     inode = output.stat().st_ino
+    core._validate_report(paths, report)
     rerun = json.loads(json.dumps(report))
-    rerun["disk"]["free_bytes"] = 90
+    rerun["disk"]["free_bytes"] -= 1
     rerun["elapsed_seconds"]["total"] = 7.0
     rerun["transfer"]["elapsed_seconds"]["total"] = 6.0
 
     assert core.write_final_report(paths, rerun) == output
     assert output.stat().st_ino == inode
-    assert validations == [
-        (paths, "a" * 40),
-        (paths, "a" * 40),
-        (paths, "a" * 40),
-    ]
 
-    changed = json.loads(json.dumps(rerun))
-    changed["revision"] = "b" * 40
+
+def test_real_report_validation_rejects_referenced_artifact_byte_change(
+    tmp_path, monkeypatch
+):
+    paths, _output, report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    source_report = Path(
+        report["sources"]["ABO"]["artifacts"]["report"]["path"]
+    )
+    source_report.write_bytes(source_report.read_bytes() + b" ")
+
+    with pytest.raises(ValueError):
+        core._validate_report(paths, report)
+
+
+@pytest.mark.parametrize("layer", ("source", "combined"))
+def test_real_report_validation_rejects_source_and_combined_resolution_change(
+    tmp_path, monkeypatch, layer
+):
+    paths, _output, report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    if layer == "source":
+        materialization = (
+            paths.production_root
+            / "3d-future/ss64/active/materialization.json"
+        )
+        materialization.write_bytes(
+            materialization.read_bytes() + b" "
+        )
+    else:
+        combined_path = paths.combined_training_data
+        combined = json.loads(combined_path.read_text())
+        combined["stages"]["ss64"]["total_count"] += 1
+        combined_path.write_bytes(
+            core._canonical_json_bytes(combined)
+        )
+        report["combined"]["sha256"] = sha256(
+            combined_path.read_bytes()
+        ).hexdigest()
+
+    with pytest.raises(ValueError):
+        core._validate_report(paths, report)
+
+
+def test_real_report_reuse_rejects_changed_invariant(
+    tmp_path, monkeypatch
+):
+    paths, _output, report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    changed = deepcopy(report)
+    changed["transfer"]["original_materialization_sha256"][
+        "ss64"
+    ] = "9" * 64
+
     with pytest.raises(FileExistsError, match="different invariant"):
         core.write_final_report(paths, changed)
 
 
 def test_final_report_rejects_partial_evidence_directory(
-    tmp_path, monkeypatch
+    tmp_path,
 ):
     paths = _paths(tmp_path)
     paths.evidence_root.mkdir(parents=True)
     (paths.evidence_root / "partial.json").write_text("{}")
-    monkeypatch.setattr(core, "_validate_report", lambda *_args: None)
 
     with pytest.raises(ValueError, match="partial evidence"):
         core.write_final_report(paths, {"revision": "a" * 40})

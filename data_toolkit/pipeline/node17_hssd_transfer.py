@@ -13,17 +13,18 @@ import stat
 import subprocess
 import tempfile
 import time
-from typing import Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Mapping, Sequence
 
-from data_toolkit.pipeline import training_preflight
 from data_toolkit.pipeline.training_config_policy import rebase_json_paths
 from data_toolkit.pipeline.training_manifest import (
     STAGES,
     SourceTrainingData,
     validate_source_training_data,
 )
-from data_toolkit.pipeline.training_preflight import StagePreflight
 from data_toolkit.pipeline.training_source_profiles import build_source_spec
+
+if TYPE_CHECKING:
+    from data_toolkit.pipeline.training_preflight import StagePreflight
 
 
 GIB = 1024**3
@@ -45,6 +46,18 @@ _ROLLED_BACK_TOP_LEVEL = _STAGE_TOP_LEVEL | {
 CommandRunner = Callable[
     [Sequence[str]], subprocess.CompletedProcess[str]
 ]
+
+
+class _LazyTrainingPreflight:
+    """Preserve the module boundary without importing Torch for planning."""
+
+    def __getattr__(self, name: str):
+        from data_toolkit.pipeline import training_preflight as module
+
+        return getattr(module, name)
+
+
+training_preflight = _LazyTrainingPreflight()
 
 
 @dataclass(frozen=True)
@@ -243,6 +256,13 @@ def _validate_paths(paths: Node17HssdTransferPaths) -> None:
     if os.path.lexists(production):
         _safe_directory(production, "production root")
     _validate_staging(paths)
+
+
+def validate_hssd_transfer_paths(
+    paths: Node17HssdTransferPaths,
+) -> None:
+    """Validate Task 4 transfer identities without CUDA-heavy imports."""
+    _validate_paths(paths)
 
 
 def _rsync_base_command(
