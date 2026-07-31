@@ -2,7 +2,16 @@ import pytest
 import torch
 from PIL import Image
 
-from pixal3d.pipelines.pixal3d_image_to_3d import normalize_calibrated_views
+from pixal3d.pipelines.pixal3d_image_to_3d import (
+    Pixal3DImageTo3DPipeline,
+    normalize_calibrated_views,
+)
+from pixal3d.pipelines.projection_aggregation import (
+    ProjectionAggregationConfig,
+)
+from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
+    ProjGrid,
+)
 
 
 def image(color):
@@ -79,37 +88,51 @@ def test_multiview_requires_calibrated_transforms():
         )
 
 
-class RecordingGrid(torch.nn.Module):
-    def __init__(self, grid_resolution=2, image_resolution=8):
-        super().__init__()
-        self.grid_resolution = grid_resolution
-        self.image_resolution = image_resolution
-
-
 class RecordingConditioner(torch.nn.Module):
     def __init__(self, image_size=8, grid_resolution=2):
         super().__init__()
         self.image_size = image_size
         self.grid_resolution = grid_resolution
-        self.proj_grid = RecordingGrid(grid_resolution, image_size)
+        self.proj_grid = ProjGrid(grid_resolution, image_size)
         self.calls = []
 
+    @property
+    def fixed_projection_transform(self):
+        return self.proj_grid.front_view_transform_matrix
+
+    def iter_view_features(self, image, **camera):
+        num_views = image.shape[1] if image.ndim == 5 else 1
+        for view_index in range(num_views):
+            value = float(view_index + 1)
+            yield (
+                torch.full((1, 5, 4), value, device=image.device),
+                torch.full(
+                    (1, self.grid_resolution ** 3, 4),
+                    value,
+                    device=image.device,
+                ),
+            )
+
     def forward(self, image, **camera):
-        self.calls.append({
-            "image": image.detach().clone(),
-            "camera_angle_x": camera["camera_angle_x"].detach().clone(),
-            "distance": camera["distance"].detach().clone(),
-            "mesh_scale": camera["mesh_scale"].detach().clone(),
-            "transform_matrix": (
-                None
-                if camera["transform_matrix"] is None
-                else camera["transform_matrix"].detach().clone()
-            ),
-        })
-        batch = image.shape[0]
-        return (
-            torch.zeros(batch, 5, 4),
-            torch.zeros(batch, self.grid_resolution ** 3, 4),
+        self.calls.append(
+            {
+                "image": image.detach().clone(),
+                "camera_angle_x": camera["camera_angle_x"].detach().clone(),
+                "distance": camera["distance"].detach().clone(),
+                "mesh_scale": camera["mesh_scale"].detach().clone(),
+                "transform_matrix": (
+                    None
+                    if camera["transform_matrix"] is None
+                    else camera["transform_matrix"].detach().clone()
+                ),
+            }
+        )
+        groups = list(self.iter_view_features(image, **camera))
+        return tuple(
+            torch.stack([group[index] for group in groups])
+            .float()
+            .mean(dim=0)
+            for index in range(2)
         )
 
 
@@ -153,8 +176,6 @@ def test_all_four_inference_conditioners_receive_the_same_k2_bundle():
 
 
 def test_shape_conditioner_preserves_positional_grid_resolution_override():
-    from pixal3d.pipelines.pixal3d_image_to_3d import Pixal3DImageTo3DPipeline
-
     pipeline = Pixal3DImageTo3DPipeline()
     pipeline._device = "cpu"
     pipeline.low_vram = False
@@ -168,5 +189,95 @@ def test_shape_conditioner_preserves_positional_grid_resolution_override():
     assert len(conditioner.calls) == 1
     assert conditioner.calls[0]["image"].shape == torch.Size([1, 3, 8, 8])
     assert conditioner.calls[0]["transform_matrix"] is None
+    assert conditioner.grid_resolution == 2
+    assert conditioner.proj_grid.grid_resolution == 2
+
+
+def test_sparse_first_explicit_mean_matches_default_dense_mean():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    images = [image("red"), image("blue")]
+    coords = torch.tensor(
+        [[0, 0, 0, 0], [0, 1, 1, 1]], dtype=torch.int32
+    )
+    transforms = torch.eye(4).repeat(1, 2, 1, 1)
+    cameras = {
+        "camera_angle_x": torch.tensor([[0.7, 0.8]]),
+        "distance": torch.tensor([[2.5, 2.7]]),
+        "mesh_scale": torch.tensor([1.0]),
+        "transform_matrix": transforms,
+    }
+
+    default = pipeline.get_proj_cond_shape(
+        conditioner, images, coords, **cameras
+    )
+    experimental = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        aggregation_config=ProjectionAggregationConfig(mode="mean"),
+        **cameras,
+    )
+
+    torch.testing.assert_close(
+        experimental["cond"]["global"], default["cond"]["global"]
+    )
+    torch.testing.assert_close(
+        experimental["cond"]["proj"].feats,
+        default["cond"]["proj"].feats,
+    )
+    assert experimental["cond"]["proj"].feats.shape == (2, 4)
+    assert torch.equal(
+        experimental["neg_cond"]["proj"].coords,
+        coords,
+    )
+    assert torch.count_nonzero(
+        experimental["neg_cond"]["proj"].feats
+    ) == 0
+
+
+def test_sparse_first_rejects_nonzero_sparse_batch_indices():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner()
+    coords = torch.tensor([[1, 0, 0, 0]], dtype=torch.int32)
+    with pytest.raises(ValueError, match="B=1"):
+        pipeline.get_proj_cond_shape(
+            conditioner,
+            [image("red")],
+            coords,
+            0.7,
+            2.5,
+            1.0,
+            aggregation_config=ProjectionAggregationConfig(mode="mean"),
+        )
+
+
+class FailingIteratorConditioner(RecordingConditioner):
+    def iter_view_features(self, *args, **kwargs):
+        raise RuntimeError("synthetic iterator failure")
+        yield
+
+
+def test_sparse_first_restores_grid_override_after_iterator_error():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = FailingIteratorConditioner()
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    with pytest.raises(RuntimeError, match="synthetic iterator failure"):
+        pipeline.get_proj_cond_shape(
+            conditioner,
+            [image("red")],
+            coords,
+            0.7,
+            2.5,
+            1.0,
+            grid_resolution_override=3,
+            aggregation_config=ProjectionAggregationConfig(mode="mean"),
+        )
     assert conditioner.grid_resolution == 2
     assert conditioner.proj_grid.grid_resolution == 2
