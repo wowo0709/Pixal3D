@@ -13,8 +13,6 @@ from queue import Queue
 
 import pixal3d.models as models
 
-torch.set_grad_enabled(False)
-
 def is_valid_sparse_tensor(tensor):
     return torch.isfinite(tensor.feats).all() and torch.isfinite(tensor.coords).all()
 
@@ -23,6 +21,7 @@ def clear_cuda_error():
     torch.cuda.empty_cache()
 
 if __name__ == '__main__':
+    torch.set_grad_enabled(False)
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
                         help='Directory to save the metadata')

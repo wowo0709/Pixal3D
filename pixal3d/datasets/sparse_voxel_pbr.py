@@ -58,7 +58,9 @@ class SparseVoxelPbrVisMixin:
             ]).float().cuda() * 2
             fov = torch.deg2rad(torch.tensor(30)).cuda()
             extrinsics = utils3d.torch.extrinsics_look_at(orig, torch.tensor([0, 0, 0]).float().cuda(), torch.tensor([0, 0, 1]).float().cuda())
-            intrinsics = utils3d.torch.intrinsics_from_fov_xy(fov, fov)
+            intrinsics = utils3d.torch.intrinsics_from_fov(
+                fov_x=fov, fov_y=fov
+            )
             exts.append(extrinsics)
             ints.append(intrinsics)
 

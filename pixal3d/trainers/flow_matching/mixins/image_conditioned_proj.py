@@ -24,6 +24,89 @@ from ....utils.dist_utils import read_file_dist
 # Projection Utilities
 # =============================================================================
 
+def anchor_condition_image(cond: torch.Tensor) -> torch.Tensor:
+    return cond[:, 0] if cond.ndim == 5 else cond
+
+
+def anchor_camera_value(value: torch.Tensor) -> torch.Tensor:
+    return value[:, 0] if value.ndim > 1 else value
+
+
+def _online_mean_tensor_groups(
+    groups: Iterable[Tuple[torch.Tensor, ...]],
+) -> Tuple[torch.Tensor, ...]:
+    iterator = iter(groups)
+    try:
+        first_values = next(iterator)
+    except StopIteration as error:
+        raise ValueError("cannot average an empty tensor group") from error
+
+    output_dtypes = tuple(value.dtype for value in first_values)
+    totals = tuple(
+        value.float()
+        if value.dtype in (torch.float16, torch.bfloat16)
+        else value
+        for value in first_values
+    )
+    count = 1
+    for values in iterator:
+        if len(values) != len(totals):
+            raise ValueError("all tensor groups must have the same size")
+        totals = tuple(
+            total
+            + (
+                value.float()
+                if value.dtype in (torch.float16, torch.bfloat16)
+                else value
+            )
+            for total, value in zip(totals, values)
+        )
+        count += 1
+    return tuple(
+        (total / count).to(output_dtype)
+        if output_dtype in (torch.float16, torch.bfloat16)
+        else total / count
+        for total, output_dtype in zip(totals, output_dtypes)
+    )
+
+
+def make_anchor_marked_view_grid(
+    cond: torch.Tensor, border: int = 4
+) -> torch.Tensor:
+    if cond.ndim == 4:
+        return cond
+    if cond.ndim != 5:
+        raise ValueError("condition must have shape [B,C,H,W] or [B,K,C,H,W]")
+    batch_size, num_views, channels, height, width = cond.shape
+    if channels != 3:
+        raise ValueError("condition visualization requires RGB views")
+    edge = min(border, height // 2, width // 2)
+    views = cond.detach().clone()
+    anchor = views[:, 0]
+    for region in (
+        (slice(None), slice(None), slice(0, edge), slice(None)),
+        (slice(None), slice(None), slice(height - edge, height), slice(None)),
+        (slice(None), slice(None), slice(None), slice(0, edge)),
+        (slice(None), slice(None), slice(None), slice(width - edge, width)),
+    ):
+        anchor[region] = 0.0
+        red_region = (region[0], 0, region[2], region[3])
+        anchor[red_region] = 1.0
+    views[:, 0] = anchor
+    return views.permute(0, 2, 3, 1, 4).reshape(
+        batch_size, channels, height, num_views * width
+    )
+
+
+def format_multiview_metadata(stage, dataset, sha, view_indices) -> str:
+    indices = [int(value) for value in torch.as_tensor(view_indices).tolist()]
+    order = ",".join(str(value) for value in indices)
+    return (
+        f"stage={stage} dataset={dataset} sha={sha} K={len(indices)} "
+        f"anchor=view{indices[0]:02d} views=[{order}]"
+    )
+
+
 def project_points_to_image_batch(
     points_3d: torch.Tensor, 
     transform_matrix: torch.Tensor, 
@@ -139,6 +222,40 @@ def sample_features(fmap: torch.Tensor, queries_ndc: torch.Tensor) -> torch.Tens
 # Projection Grid Module
 # =============================================================================
 
+def compute_multiview_projection_matrices(
+    transform_matrix: torch.Tensor,
+    distance: torch.Tensor,
+    fixed_transform: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if transform_matrix.ndim != 4 or transform_matrix.shape[-2:] != (4, 4):
+        raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
+    if distance.shape != transform_matrix.shape[:2]:
+        raise ValueError("distance must have shape [B, K]")
+    if not torch.isfinite(transform_matrix).all() or not torch.isfinite(distance).all():
+        raise ValueError("camera transforms and distances must be finite")
+    if not torch.isfinite(fixed_transform).all() or fixed_transform.shape != (4, 4):
+        raise ValueError("fixed_transform must be a finite [4, 4] matrix")
+
+    batch_size, num_views = transform_matrix.shape[:2]
+    device_type = transform_matrix.device.type
+    with torch.autocast(device_type=device_type, enabled=False):
+        transforms = transform_matrix.float()
+        anchors = transforms[:, 0]
+        anchor_inverse, info = torch.linalg.inv_ex(anchors)
+        if torch.any(info != 0):
+            raise ValueError("anchor transform must be invertible")
+        anchor_relative = torch.eye(
+            4, dtype=transforms.dtype, device=transforms.device
+        ).expand(batch_size, 1, 4, 4)
+        non_anchor_relative = anchor_inverse[:, None] @ transforms[:, 1:]
+        relative = torch.cat((anchor_relative, non_anchor_relative), dim=1)
+        fixed = fixed_transform.float().expand(batch_size, 4, 4).clone()
+        fixed[:, 1, 3] = -distance[:, 0].float()
+        non_anchor_projection = fixed[:, None] @ non_anchor_relative
+        projection = torch.cat((fixed[:, None], non_anchor_projection), dim=1)
+    return projection, relative
+
+
 class ProjGrid(nn.Module):
     """
     3D Grid Projection Module.
@@ -208,11 +325,11 @@ class ProjGrid(nn.Module):
         grid_points = self.grid_points
         grid_points = grid_points.expand(B, -1, -1)
         grid_points = grid_points / mesh_scale.unsqueeze(-1).unsqueeze(-1) / 2  # Scale alignment
-        assert transform_matrix is None, "transform_matrix is not None"
         if transform_matrix is None:
-            transform_matrix = self.front_view_transform_matrix
-            transform_matrix = transform_matrix.expand(B, -1, -1).clone()
+            transform_matrix = self.front_view_transform_matrix.expand(B, -1, -1).clone()
             transform_matrix[:, 1, 3] = -distance  # Set camera distance
+        elif transform_matrix.shape != (B, 4, 4) or not torch.isfinite(transform_matrix).all():
+            raise ValueError("transform_matrix must be finite with shape [B, 4, 4]")
             
         # Project to image coordinates (simulate Blender projection)
         image_points, depth, valid_mask = project_points_to_image_batch(
@@ -461,7 +578,11 @@ class DinoV3ProjFeatureExtractor(nn.Module):
 
         return F.layer_norm(hidden_states, hidden_states.shape[-1:])
     
-    def forward(
+    @property
+    def fixed_projection_transform(self) -> torch.Tensor:
+        return self.proj_grid.front_view_transform_matrix
+
+    def _forward_single_view(
         self,
         image: Union[torch.Tensor, List[Image.Image]],
         camera_angle_x: Optional[torch.Tensor] = None,
@@ -564,6 +685,62 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         # z_proj stays in proj_channels, each block will project independently
         
         return z_global, z_proj
+
+    def _forward_multiview(
+        self,
+        image: torch.Tensor,
+        camera_angle_x: torch.Tensor,
+        distance: torch.Tensor,
+        mesh_scale: torch.Tensor,
+        transform_matrix: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if image.ndim != 5:
+            raise ValueError("multi-view image must have shape [B, K, C, H, W]")
+        batch_size, num_views = image.shape[:2]
+        expected_vector = (batch_size, num_views)
+        if camera_angle_x is None or camera_angle_x.shape != expected_vector:
+            raise ValueError("camera_angle_x must have shape [B, K]")
+        if distance is None or distance.shape != expected_vector:
+            raise ValueError("distance must have shape [B, K]")
+        if mesh_scale is None or mesh_scale.shape != (batch_size,):
+            raise ValueError("mesh_scale must have shape [B]")
+        if transform_matrix is None or transform_matrix.shape != (
+            batch_size, num_views, 4, 4
+        ):
+            raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
+        if not torch.isfinite(mesh_scale).all() or torch.any(mesh_scale <= 0):
+            raise ValueError("mesh_scale must be finite and positive")
+
+        projection, _ = compute_multiview_projection_matrices(
+            transform_matrix, distance, self.fixed_projection_transform
+        )
+        view_features = (
+            self._forward_single_view(
+                image[:, view_index],
+                camera_angle_x[:, view_index],
+                distance[:, view_index],
+                mesh_scale,
+                projection[:, view_index],
+            )
+            for view_index in range(num_views)
+        )
+        return _online_mean_tensor_groups(view_features)
+
+    def forward(
+        self,
+        image: Union[torch.Tensor, List[Image.Image]],
+        camera_angle_x: Optional[torch.Tensor] = None,
+        distance: Optional[torch.Tensor] = None,
+        mesh_scale: Optional[torch.Tensor] = None,
+        transform_matrix: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(image, torch.Tensor) and image.ndim == 5:
+            return self._forward_multiview(
+                image, camera_angle_x, distance, mesh_scale, transform_matrix
+            )
+        return self._forward_single_view(
+            image, camera_angle_x, distance, mesh_scale, transform_matrix
+        )
     
     @torch.no_grad()
     def visualize_projection(
@@ -813,10 +990,17 @@ class ImageConditionedProjMixin:
     Args:
         image_cond_model: Configuration for the image conditioning model.
     """
-    def __init__(self, *args, image_cond_model: dict, **kwargs):
+    def __init__(
+        self,
+        *args,
+        image_cond_model: dict,
+        multiview_stage: Optional[str] = None,
+        **kwargs,
+    ):
         # Store config before super().__init__ which calls init_models_and_more
         self.image_cond_model_config = image_cond_model
         self.image_cond_model = None  # Will be initialized in init_models_and_more
+        self.multiview_stage = multiview_stage
         self.image_attn_mode = image_cond_model.get('image_attn_mode', 
                                 image_cond_model.get('args', {}).get('image_attn_mode', 'cross'))
         super().__init__(*args, **kwargs)
@@ -1394,6 +1578,7 @@ class ImageConditionedProjMixin:
     def get_cond(self, cond, **kwargs):
         """Get the conditioning data."""
         kwargs.pop('view_idx', None)
+        kwargs.pop('view_indices', None)
         
         if self.image_attn_mode in ('proj', 'gated_proj'):
             # Handle projection mode (both standard proj and gated_proj)
@@ -1447,6 +1632,7 @@ class ImageConditionedProjMixin:
     def get_inference_cond(self, cond, **kwargs):
         """Get the conditioning data for inference."""
         kwargs.pop('view_idx', None)
+        kwargs.pop('view_indices', None)
         
         if self.image_attn_mode in ('proj', 'gated_proj'):
             camera_info = self._extract_camera_info(kwargs)
@@ -1475,7 +1661,15 @@ class ImageConditionedProjMixin:
 
     def vis_cond(self, cond, **kwargs):
         """Visualize the conditioning data."""
-        return {'image': {'value': cond, 'type': 'image'}}
+        anchor = anchor_condition_image(cond)
+        result = {'image': {'value': anchor, 'type': 'image'}}
+        if cond.ndim == 5:
+            result['input_views'] = {
+                'value': make_anchor_marked_view_grid(cond),
+                'type': 'image',
+            }
+            result['anchor'] = {'value': anchor, 'type': 'image'}
+        return result
 
     @torch.no_grad()
     def visualize_projection_test(

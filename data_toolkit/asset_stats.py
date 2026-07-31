@@ -1,10 +1,33 @@
 import os
 import argparse
 import pickle
+from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
 from easydict import EasyDict as edict
 from concurrent.futures import ThreadPoolExecutor
+
+try:
+    from .pipeline.sparse_batching import validate_record_prefix
+except ImportError:  # pragma: no cover - direct script execution
+    from pipeline.sparse_batching import validate_record_prefix
+
+
+def _merge_new_records(metadata, stage_root):
+    new_records = Path(stage_root) / 'new_records'
+    if not new_records.is_dir():
+        return metadata
+    for part in sorted(new_records.glob('part_*.csv')):
+        records = pd.read_csv(part)
+        if records.empty:
+            continue
+        if 'sha256' not in records.columns:
+            raise ValueError(f'sha256 column not found in {part}')
+        records = records.set_index('sha256')
+        if records.index.duplicated().any():
+            records = records.groupby(level=0).first()
+        metadata = records.combine_first(metadata)
+    return metadata
 
 
 if __name__ == '__main__':
@@ -20,8 +43,10 @@ if __name__ == '__main__':
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--world_size', type=int, default=1)
     parser.add_argument('--max_workers', type=int, default=0)
+    parser.add_argument('--record_prefix', default='')
     opt = parser.parse_args()
     opt = edict(vars(opt))
+    opt.record_prefix = validate_record_prefix(opt.record_prefix)
     opt.mesh_dump_root = opt.mesh_dump_root or opt.root
     opt.pbr_dump_root = opt.pbr_dump_root or opt.root
 
@@ -35,8 +60,14 @@ if __name__ == '__main__':
         metadata = metadata.combine_first(pd.read_csv(os.path.join(opt.root, 'asset_stats','metadata.csv')).set_index('sha256'))
     if os.path.exists(os.path.join(opt.mesh_dump_root, 'mesh_dumps', 'metadata.csv')):
         metadata = metadata.combine_first(pd.read_csv(os.path.join(opt.mesh_dump_root, 'mesh_dumps','metadata.csv')).set_index('sha256'))
+    metadata = _merge_new_records(
+        metadata, Path(opt.mesh_dump_root) / 'mesh_dumps'
+    )
     if os.path.exists(os.path.join(opt.pbr_dump_root, 'pbr_dumps', 'metadata.csv')):
         metadata = metadata.combine_first(pd.read_csv(os.path.join(opt.pbr_dump_root, 'pbr_dumps', 'metadata.csv')).set_index('sha256'))
+    metadata = _merge_new_records(
+        metadata, Path(opt.pbr_dump_root) / 'pbr_dumps'
+    )
     metadata = metadata.reset_index()
     if opt.instances is None:
         if 'num_faces' in metadata.columns:
@@ -129,4 +160,12 @@ if __name__ == '__main__':
 
     # save records
     records = pd.DataFrame.from_records(records)
-    records.to_csv(os.path.join(opt.root, 'asset_stats', 'new_records', f'part_{opt.rank}.csv'), index=False)
+    records.to_csv(
+        os.path.join(
+            opt.root,
+            'asset_stats',
+            'new_records',
+            f'part_{opt.record_prefix}{opt.rank}.csv',
+        ),
+        index=False,
+    )

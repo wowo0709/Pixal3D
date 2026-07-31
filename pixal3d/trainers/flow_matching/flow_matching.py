@@ -12,7 +12,11 @@ from ...utils.general_utils import dict_reduce
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
 from .mixins.image_conditioned import ImageConditionedMixin
-from .mixins.image_conditioned_proj import ImageConditionedProjMixin
+from .mixins.image_conditioned_proj import (
+    ImageConditionedProjMixin,
+    anchor_camera_value,
+    format_multiview_metadata,
+)
 
 
 class FlowMatchingTrainer(BasicTrainer):
@@ -492,8 +496,19 @@ class ImageConditionedProjFlowMatchingCFGTrainer(ImageConditionedProjMixin, Flow
             
             # Collect metadata (dataset_name and sha256) for wandb display
             if '_dataset_name' in data and '_sha256' in data:
+                view_indices = data.get('view_indices')
                 for j in range(batch):
-                    sample_metadata.append(f"{data['_dataset_name'][j]}/{data['_sha256'][j]}")
+                    if view_indices is None:
+                        sample_metadata.append(f"{data['_dataset_name'][j]}/{data['_sha256'][j]}")
+                    else:
+                        sample_metadata.append(
+                            format_multiview_metadata(
+                                self.multiview_stage,
+                                data['_dataset_name'][j],
+                                data['_sha256'][j],
+                                view_indices[j],
+                            )
+                        )
             
             # Remove metadata fields before inference
             data.pop('_dataset_name', None)
@@ -534,11 +549,11 @@ class ImageConditionedProjFlowMatchingCFGTrainer(ImageConditionedProjMixin, Flow
         
         # Add camera params if available
         if len(camera_distances) > 0:
-            camera_distance = torch.cat(camera_distances, dim=0)
+            camera_distance = anchor_camera_value(torch.cat(camera_distances, dim=0))
             sample_gt_value['camera_distance'] = camera_distance
             sample_value['camera_distance'] = camera_distance
         if len(camera_angles) > 0:
-            camera_angle_x = torch.cat(camera_angles, dim=0)
+            camera_angle_x = anchor_camera_value(torch.cat(camera_angles, dim=0))
             sample_gt_value['camera_angle_x'] = camera_angle_x
             sample_value['camera_angle_x'] = camera_angle_x
         if len(mesh_scales) > 0:
@@ -576,11 +591,16 @@ class ImageConditionedProjFlowMatchingCFGTrainer(ImageConditionedProjMixin, Flow
         """
         if hasattr(self.dataset, 'visualize_sample'):
             if isinstance(sample, dict):
+                snapshot_sample = dict(sample)
+                for key in ('camera_angle_x', 'camera_distance'):
+                    if key in snapshot_sample:
+                        snapshot_sample[key] = anchor_camera_value(snapshot_sample[key])
+
                 # Extract camera params if available
-                camera_angle_x = sample.get('camera_angle_x')
-                camera_distance = sample.get('camera_distance')
-                mesh_scale = sample.get('mesh_scale')
-                x_0 = sample.get('x_0', sample)
+                camera_angle_x = snapshot_sample.get('camera_angle_x')
+                camera_distance = snapshot_sample.get('camera_distance')
+                mesh_scale = snapshot_sample.get('mesh_scale')
+                x_0 = snapshot_sample.get('x_0', snapshot_sample)
                 
                 return self.dataset.visualize_sample(
                     x_0,

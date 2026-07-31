@@ -10,12 +10,21 @@ from easydict import EasyDict as edict
 
 from ...modules import sparse as sp
 from ...utils.general_utils import dict_reduce
-from ...utils.data_utils import recursive_to_device, cycle, BalancedResumableSampler
+from ...utils.data_utils import (
+    recursive_to_device,
+    cycle,
+    BalancedResumableSampler,
+    ResumableSampler,
+)
 from .flow_matching import FlowMatchingTrainer
 from .mixins.classifier_free_guidance import ClassifierFreeGuidanceMixin
 from .mixins.text_conditioned import TextConditionedMixin
 from .mixins.image_conditioned import ImageConditionedMixin, MultiImageConditionedMixin
-from .mixins.image_conditioned_proj import ImageConditionedProjMixin
+from .mixins.image_conditioned_proj import (
+    ImageConditionedProjMixin,
+    anchor_camera_value,
+    format_multiview_metadata,
+)
 
 
 class SparseFlowMatchingTrainer(FlowMatchingTrainer):
@@ -54,15 +63,23 @@ class SparseFlowMatchingTrainer(FlowMatchingTrainer):
         sigma_min (float): Minimum noise level.
     """
     
-    def prepare_dataloader(self, **kwargs):
+    def prepare_dataloader(self, balanced_sampler: bool = True, **kwargs):
         """
         Prepare dataloader.
         """
-        self.data_sampler = BalancedResumableSampler(
-            self.dataset,
-            shuffle=True,
-            batch_size=self.batch_size_per_gpu,
-        )
+        if not isinstance(balanced_sampler, bool):
+            raise ValueError("balanced_sampler must be a boolean")
+        if balanced_sampler:
+            self.data_sampler = BalancedResumableSampler(
+                self.dataset,
+                shuffle=True,
+                batch_size=self.batch_size_per_gpu,
+            )
+        else:
+            self.data_sampler = ResumableSampler(
+                self.dataset,
+                shuffle=True,
+            )
         if self.num_workers is None or self.num_workers == -1:
             num_workers = max(1, int(np.ceil((os.cpu_count() - 16) / torch.cuda.device_count())))
         else:
@@ -74,7 +91,7 @@ class SparseFlowMatchingTrainer(FlowMatchingTrainer):
             num_workers=num_workers,
             pin_memory=True,
             drop_last=True,
-            persistent_workers=True,
+            persistent_workers=num_workers > 0,
             collate_fn=functools.partial(self.dataset.collate_fn, split_size=self.batch_split),
             sampler=self.data_sampler,
         )
@@ -461,9 +478,20 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
 
         # Collect metadata (dataset_name and sha256) for wandb display
         sample_metadata = []
+        view_indices = data.get('view_indices')
         if '_dataset_name' in data and '_sha256' in data:
             for j in range(min(num_samples, len(data['_dataset_name']))):
-                sample_metadata.append(f"{data['_dataset_name'][j]}/{data['_sha256'][j]}")
+                if view_indices is None:
+                    sample_metadata.append(
+                        f"{data['_dataset_name'][j]}/{data['_sha256'][j]}"
+                    )
+                else:
+                    sample_metadata.append(format_multiview_metadata(
+                        self.multiview_stage,
+                        data['_dataset_name'][j],
+                        data['_sha256'][j],
+                        view_indices[j],
+                    ))
         # Remove metadata fields before inference
         data.pop('_dataset_name', None)
         data.pop('_sha256', None)
@@ -497,6 +525,10 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
         
         sample_gt = {k: v for k, v in data.items()}
         sample = {k: v if k != 'x_0' else sample for k, v in data.items()}
+        for key in ("camera_angle_x", "camera_distance"):
+            if key in sample_gt:
+                sample_gt[key] = anchor_camera_value(sample_gt[key])
+                sample[key] = anchor_camera_value(sample[key])
         sample_dict = {
             'sample_gt': {'value': sample_gt, 'type': 'sample'},
             'sample': {'value': sample, 'type': 'sample'},
@@ -527,13 +559,18 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
         """
         if hasattr(self.dataset, 'visualize_sample'):
             if isinstance(sample, dict):
+                snapshot_sample = dict(sample)
+                for key in ('camera_angle_x', 'camera_distance'):
+                    if key in snapshot_sample:
+                        snapshot_sample[key] = anchor_camera_value(snapshot_sample[key])
+
                 # Extract camera params and pass them explicitly, since some
                 # dataset.visualize_sample() (e.g. SLatShapeVisMixin) expect
                 # separate keyword arguments rather than a single dict.
                 camera_kwargs = {}
                 for k in ('camera_angle_x', 'camera_distance', 'mesh_scale'):
-                    if k in sample:
-                        camera_kwargs[k] = sample[k]
+                    if k in snapshot_sample:
+                        camera_kwargs[k] = snapshot_sample[k]
                 
                 # Try passing camera kwargs explicitly first; fall back to
                 # passing the entire dict if the dataset method doesn't accept them
@@ -543,11 +580,11 @@ class ImageConditionedProjSparseFlowMatchingCFGTrainer(ImageConditionedProjMixin
                 params = list(sig.parameters.keys())
                 if 'camera_angle_x' in params:
                     # Shape-style: visualize_sample(x_0, camera_angle_x=, ...)
-                    x_0 = sample.get('x_0', sample)
+                    x_0 = snapshot_sample.get('x_0', snapshot_sample)
                     return self.dataset.visualize_sample(x_0, **camera_kwargs)
                 else:
                     # Tex/PBR-style: visualize_sample(sample_dict)
-                    return self.dataset.visualize_sample(sample)
+                    return self.dataset.visualize_sample(snapshot_sample)
             else:
                 return self.dataset.visualize_sample(sample)
         else:

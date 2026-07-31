@@ -3,6 +3,8 @@ import json
 from abc import abstractmethod
 import os
 import json
+from pathlib import Path
+from typing import Sequence
 import torch
 import numpy as np
 import pandas as pd
@@ -128,6 +130,7 @@ class StandardDatasetBase(Dataset):
     def __getitem__(self, index) -> Dict[str, Any]:
         try:
             root, instance, dataset_name = self.instances[index]
+            self._current_dataset_name = dataset_name
             pack = self.get_instance(root, instance)
             pack['_dataset_name'] = dataset_name
             pack['_sha256'] = instance
@@ -146,6 +149,71 @@ class StandardDatasetBase(Dataset):
             for k, v in stats.items():
                 lines.append(f'      - {k}: {v}')
         return '\n'.join(lines)
+
+
+def _load_rgba_condition(path: Path, image_size: int) -> torch.Tensor:
+    with Image.open(path) as source:
+        rgba_image = source.convert("RGBA").resize(
+            (image_size, image_size), Image.Resampling.LANCZOS
+        )
+        rgba = torch.from_numpy(np.asarray(rgba_image).copy()).float() / 255.0
+    rgb = rgba[..., :3].permute(2, 0, 1)
+    return rgb * rgba[..., 3].unsqueeze(0)
+
+
+def load_anchor_first_conditions(
+    image_root: Union[str, os.PathLike],
+    *,
+    anchor_index: int,
+    image_size: int,
+    other_view_indices: Sequence[int],
+) -> Dict[str, torch.Tensor]:
+    image_root = Path(image_root).resolve()
+    manifest_path = image_root / "transforms.json"
+    metadata = json.loads(manifest_path.read_text())
+    frames = metadata.get("frames")
+    if not isinstance(frames, list) or len(frames) != 8:
+        raise ValueError("development-training manifest must contain exactly eight frames")
+    if anchor_index not in (0, 1):
+        raise ValueError("target anchor must be view00 or view01")
+    order = [anchor_index, *other_view_indices]
+    if anchor_index in other_view_indices:
+        raise ValueError("anchor must not occur in other_view_indices")
+    if len(order) != 8 or len(set(order)) != 8 or sorted(order) != list(range(8)):
+        raise ValueError("view order must contain all eight render indices exactly once")
+
+    images = []
+    angles = []
+    distances = []
+    transforms = []
+    for view_index in order:
+        frame = frames[view_index]
+        image_path = (image_root / frame["file_path"]).resolve()
+        if not image_path.is_relative_to(image_root) or not image_path.is_file():
+            raise FileNotFoundError(f"missing condition image for view {view_index}: {image_path}")
+        angle = frame.get("camera_angle_x", metadata.get("camera_angle_x"))
+        if angle is None or not np.isfinite(float(angle)):
+            raise ValueError(f"camera_angle_x must be finite for view {view_index}")
+        transform = torch.as_tensor(frame.get("transform_matrix"), dtype=torch.float32)
+        if transform.shape != (4, 4) or not torch.isfinite(transform).all():
+            raise ValueError(f"transform_matrix must be finite [4, 4] for view {view_index}")
+        images.append(_load_rgba_condition(image_path, image_size))
+        angles.append(float(angle))
+        distances.append(torch.linalg.vector_norm(transform[:3, 3]))
+        transforms.append(transform)
+    camera_angles = torch.tensor(angles, dtype=torch.float32)
+    if not torch.isfinite(camera_angles).all():
+        invalid_position = torch.nonzero(~torch.isfinite(camera_angles))[0].item()
+        raise ValueError(
+            f"camera_angle_x must be finite for view {order[invalid_position]}"
+        )
+    return {
+        "cond": torch.stack(images),
+        "camera_angle_x": camera_angles,
+        "camera_distance": torch.stack(distances).float(),
+        "transform_matrix": torch.stack(transforms),
+        "view_indices": torch.tensor(order, dtype=torch.int64),
+    }
 
 
 class ImageConditionedMixin:
@@ -286,6 +354,101 @@ class ViewImageConditionedMixin:
             raise KeyError(f"'total_scale' not found in {scale_json_path}")
         pack['mesh_scale'] = torch.tensor(float(scale_data['total_scale']), dtype=torch.float32)
        
+        return pack
+
+
+MULTIVIEW_CONDITION_KEYS = (
+    "cond",
+    "camera_angle_x",
+    "camera_distance",
+    "transform_matrix",
+    "view_indices",
+)
+
+
+def slice_condition_views(
+    batch: Sequence[Dict[str, Any]], num_views: int
+) -> List[Dict[str, Any]]:
+    if not 1 <= num_views <= 8:
+        raise ValueError("num_views must be between 1 and 8")
+    sliced = []
+    for source in batch:
+        item = dict(source)
+        for key in MULTIVIEW_CONDITION_KEYS:
+            if key not in source or source[key].shape[0] < num_views:
+                raise ValueError(f"{key} does not contain {num_views} aligned views")
+            item[key] = source[key][:num_views]
+        sliced.append(item)
+    return sliced
+
+
+class MultiViewImageConditionedMixin:
+    def __init__(
+        self,
+        roots,
+        *,
+        image_size=518,
+        condition_num_views=8,
+        min_condition_views=2,
+        max_condition_views=6,
+        **kwargs,
+    ):
+        if condition_num_views != 8:
+            raise ValueError("development training requires condition_num_views=8")
+        if not 2 <= min_condition_views <= max_condition_views <= 6:
+            raise ValueError("training view bounds must satisfy 2 <= min <= max <= 6")
+        self.image_size = image_size
+        self.condition_num_views = condition_num_views
+        self.min_condition_views = min_condition_views
+        self.max_condition_views = max_condition_views
+        super().__init__(roots, **kwargs)
+
+    def select_batch_condition_views(self, batch):
+        num_views = int(np.random.randint(
+            self.min_condition_views, self.max_condition_views + 1
+        ))
+        return slice_condition_views(batch, num_views)
+
+    def filter_metadata(self, metadata, dataset_name=None):
+        metadata, stats = super().filter_metadata(metadata, dataset_name=dataset_name)
+        metadata = metadata[metadata["cond_rendered"].notna()]
+        stats["Cond rendered"] = len(metadata)
+        return metadata, stats
+
+    def get_instance(self, root, instance):
+        anchor_index = None
+        try:
+            self.__dict__.pop("_current_view_idx", None)
+            pack = super().get_instance(root, instance)
+            anchor_index = self._current_view_idx
+            other_indices = np.random.permutation(
+                [index for index in range(8) if index != anchor_index]
+            ).tolist()
+            pack.update(load_anchor_first_conditions(
+                os.path.join(root["render_cond"], instance),
+                anchor_index=anchor_index,
+                image_size=self.image_size,
+                other_view_indices=other_indices,
+            ))
+            scale_path = Path(self._current_latent_dir) / f"view{anchor_index:02d}_scale.json"
+            scale = json.loads(scale_path.read_text()).get("total_scale")
+            if scale is None:
+                raise ValueError(f"total_scale must be finite and positive: {scale_path}")
+            mesh_scale = torch.tensor(float(scale), dtype=torch.float32)
+            if not torch.isfinite(mesh_scale) or mesh_scale <= 0:
+                raise ValueError(f"total_scale must be finite and positive: {scale_path}")
+            pack["mesh_scale"] = mesh_scale
+        except Exception as error:
+            source = getattr(self, "_current_dataset_name", "unknown")
+            anchor_index = getattr(self, "_current_view_idx", anchor_index)
+            anchor_context = (
+                "unknown"
+                if anchor_index is None
+                else f"view{int(anchor_index):02d}"
+            )
+            raise RuntimeError(
+                f"source={source} asset={instance} anchor={anchor_context}: {error}"
+            ) from error
         return pack
 
 

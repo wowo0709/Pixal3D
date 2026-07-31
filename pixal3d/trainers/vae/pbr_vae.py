@@ -112,7 +112,9 @@ class PbrVaeTrainer(BasicTrainer):
         
         # build camera
         extrinsics = utils3d.torch.extrinsics_look_at(origin, torch.zeros_like(origin), torch.tensor([0, 0, 1], dtype=torch.float32, device=self.device))
-        intrinsics = utils3d.torch.intrinsics_from_fov_xy(fov, fov)
+        intrinsics = utils3d.torch.intrinsics_from_fov(
+            fov_x=fov, fov_y=fov
+        )
         near = [np.random.uniform(r - 1, r) for r in radius.tolist()]
         
         return {

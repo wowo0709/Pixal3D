@@ -1,0 +1,20 @@
+pipeline_version: pixal3d-mv-v2
+sources: [ObjaverseXL_sketchfab, ABO, HSSD, 3D-FUTURE]
+evaluation_sources: [Toys4k]
+shard_size: 5000
+paths: {data2_root: /root/data2/pixal3d, data3_root: /root/data3/pixal3d, local_root: /root/node17/data/pixal3d}
+render: {num_views: 8, resolution: 512, fov_min_degrees: 10.0, fov_max_degrees: 70.0, camera_policy: pixal3d-mv-camera-v1, blender_version: 4.5.1, cycles_device: OPTIX}
+targets: {views: [0, 1], resolutions: [256, 512, 1024], ss_resolution: 64, latent_dtype: float32}
+batching: {smoke_max_assets: 3, pilot_max_assets: 64, production_max_assets: 256}
+worker_tuning: {dump_steps: [32, 36, 40, 44], voxel_profiles: [[8, 4], [10, 4], [11, 4]], render_workers: 7, encoder_ranks: 7}
+workers: {cpu_threads: 32, dump_workers: 24, voxel_workers: 8, voxel_threads_per_worker: 4, render_workers: 7, encoder_ranks: 7, encoder_loader_threads: 2, encoder_saver_threads: 1}
+parallelism:
+  gpu_count: 7
+  gpu_memory_target_percent: 80
+  gpu_memory_hard_percent: 90
+  cpu_physical_cores: 44
+  chunk_assets: 64
+  max_chunks_in_flight: 3
+  render_workers_per_gpu_steps: [2, 3, 4]
+  encoder_micro_batches: [[256, 16], [512, 8], [1024, 4], [64, 16]]
+limits: {cpu_soft_percent: 80.0, cpu_hard_percent: 90.0, load_soft: 72.0, io_wait_soft_percent: 10.0, ram_soft_available_gib: 96, ram_hard_available_gib: 64, local_free_percent: 15.0, local_free_gib: 120, data2_soft_tib: 16, data2_hard_tib: 18, data2_fs_free_tib: 2, data3_soft_tib: 26, data3_fs_free_tib: 4, swap_soft_mib_per_minute: 256, swap_soft_samples: 3, cpu_temp_soft_celsius: 85, cpu_temp_hard_celsius: 92, gpu_temp_soft_celsius: 80, gpu_temp_hard_celsius: 88, temperature_soft_seconds: 30, recovery_stable_seconds: 30}

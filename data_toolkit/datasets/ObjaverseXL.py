@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import pandas as pd
 import objaverse.xl as oxl
-from utils import get_file_hash
 
 
 def add_args(parser: argparse.ArgumentParser):
@@ -22,7 +21,10 @@ def get_metadata(source, **kwargs):
     return metadata
         
 
-def download(metadata, output_dir, **kwargs):    
+def download(metadata: pd.DataFrame, output_dir: str, **kwargs) -> pd.DataFrame:
+    max_workers = min(int(kwargs.get("max_workers", 8)), 8)
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
     os.makedirs(os.path.join(output_dir, 'raw'), exist_ok=True)
 
     # download annotations
@@ -34,6 +36,7 @@ def download(metadata, output_dir, **kwargs):
         annotations,
         download_dir=os.path.join(output_dir, "raw"),
         save_repo_format="zip",
+        processes=max_workers,
     )
     
     downloaded = {}

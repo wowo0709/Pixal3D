@@ -1,7 +1,12 @@
 import os
 import argparse
+import json
 import math
 import time
+import warnings
+from pathlib import Path
+from typing import Optional
+
 import torch
 import numpy as np
 import cv2
@@ -111,6 +116,38 @@ def init_pipeline(model_path=MODEL_PATH, device="cuda", low_vram=False):
 
     return pipeline
 
+
+FLOW_MODEL_KEYS = (
+    "sparse_structure_flow_model",
+    "shape_slat_flow_model_512",
+    "shape_slat_flow_model_1024",
+    "tex_slat_flow_model_1024",
+)
+
+
+def load_flow_overrides(pipeline, overrides):
+    unknown = set(overrides) - set(FLOW_MODEL_KEYS)
+    if unknown:
+        raise ValueError(f"unknown flow checkpoint overrides: {sorted(unknown)}")
+    for model_key in FLOW_MODEL_KEYS:
+        checkpoint = overrides.get(model_key)
+        if checkpoint is None:
+            continue
+        checkpoint = Path(checkpoint)
+        state_dict = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        incompatible = pipeline.models[model_key].load_state_dict(
+            state_dict, strict=False
+        )
+        missing = set(incompatible.missing_keys)
+        if missing - {"rope_phases"} or incompatible.unexpected_keys:
+            raise RuntimeError(
+                f"incompatible {model_key} checkpoint {checkpoint}: "
+                f"missing={sorted(missing)} "
+                f"unexpected={incompatible.unexpected_keys}"
+            )
+        print(f"[Pipeline] Loaded {model_key}: {checkpoint}")
+
+
 # ============================================================================
 # Camera Estimation
 # ============================================================================
@@ -154,12 +191,106 @@ def get_camera_params_wild_moge(image_path, moge_model, device="cuda", mesh_scal
     )["distance_from_x"]
     return {'camera_angle_x': camera_angle_x, 'distance': distance, 'mesh_scale': mesh_scale}
 
+
+def load_calibrated_manifest(path, *, mesh_scale):
+    path = Path(path).resolve()
+    metadata = json.loads(path.read_text())
+    if not isinstance(metadata, dict):
+        raise ValueError("transforms.json must contain a JSON object")
+    frames = metadata.get("frames")
+    if not isinstance(frames, list) or not 1 <= len(frames) <= 8:
+        raise ValueError("transforms.json must contain between 1 and 8 frames")
+
+    if mesh_scale is None:
+        warnings.warn(
+            "mesh_scale was not provided; assuming canonical unit scale (1.0)",
+            UserWarning,
+            stacklevel=2,
+        )
+        mesh_scale = 1.0
+    try:
+        mesh_scale = float(mesh_scale)
+    except (TypeError, ValueError):
+        raise ValueError("mesh_scale must be finite and positive") from None
+    if not np.isfinite(mesh_scale) or mesh_scale <= 0:
+        raise ValueError("mesh_scale must be finite and positive")
+
+    images = []
+    angles = []
+    distances = []
+    transforms = []
+    for index, frame in enumerate(frames):
+        if not isinstance(frame, dict):
+            raise ValueError(f"frame {index} must be a JSON object")
+        file_path = frame.get("file_path")
+        if not isinstance(file_path, str) or not file_path:
+            raise ValueError(
+                f"file_path must be a non-empty string for frame {index}"
+            )
+        image_path = (path.parent / file_path).resolve()
+        if not image_path.is_relative_to(path.parent):
+            raise ValueError(
+                "frame file_path must remain inside the manifest directory"
+            )
+        if not image_path.is_file():
+            raise FileNotFoundError(
+                f"missing calibrated frame {index}: {image_path}"
+            )
+
+        angle = frame.get("camera_angle_x", metadata.get("camera_angle_x"))
+        try:
+            angle = float(angle)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"camera_angle_x must be finite for frame {index}"
+            ) from None
+        if (
+            not np.isfinite(angle)
+            or abs(angle) > float(np.finfo(np.float32).max)
+        ):
+            raise ValueError(f"camera_angle_x must be finite for frame {index}")
+
+        try:
+            transform = np.asarray(
+                frame.get("transform_matrix"), dtype=np.float32
+            )
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"transform_matrix must be finite [4, 4] for frame {index}"
+            ) from None
+        if transform.shape != (4, 4) or not np.isfinite(transform).all():
+            raise ValueError(
+                f"transform_matrix must be finite [4, 4] for frame {index}"
+            )
+
+        with Image.open(image_path) as source:
+            images.append(source.convert("RGBA"))
+        distance = float(
+            np.linalg.norm(transform[:3, 3].astype(np.float64))
+        )
+        if (
+            not np.isfinite(distance)
+            or distance > float(np.finfo(np.float32).max)
+        ):
+            raise ValueError(f"distance must be finite for frame {index}")
+        angles.append(angle)
+        distances.append(distance)
+        transforms.append(transform)
+
+    return images, {
+        "camera_angle_x": angles,
+        "distance": distances,
+        "mesh_scale": mesh_scale,
+        "transform_matrix": np.stack(transforms),
+    }
+
+
 # ============================================================================
 # Main Inference
 # ============================================================================
 
 def run_inference(
-    image_path: str,
+    image_path: Optional[str],
     output_path: str,
     seed: int = 42,
     ss_guidance_strength: float = 7.5,
@@ -174,7 +305,7 @@ def run_inference(
     tex_slat_guidance_rescale: float = 0.0,
     tex_slat_sampling_steps: int = 12,
     tex_slat_rescale_t: float = 3.0,
-    mesh_scale: float = 1.0,
+    mesh_scale: Optional[float] = None,
     extend_pixel: int = 0,
     image_resolution: int = 512,
     max_num_tokens: int = 49152,
@@ -182,47 +313,88 @@ def run_inference(
     manual_fov: float = -1.0,
     low_vram: bool = False,
     resolution: int = -1,
+    transforms_path: Optional[str] = None,
+    flow_checkpoints: Optional[dict] = None,
 ):
     # Load models
     pipeline = init_pipeline(model_path, low_vram=low_vram)
+    load_flow_overrides(pipeline, flow_checkpoints or {})
 
-    # Preprocess image first — rembg loads to GPU for this call, then offloads.
-    # MoGe is loaded afterwards so both never occupy VRAM at the same time.
-    print(f"[Inference] Processing image: {image_path}")
-    img = Image.open(image_path)
-    image_preprocessed = pipeline.preprocess_image(img)
-
-    # Save preprocessed image for MoGe
-    tmp_path = os.path.join(os.path.dirname(os.path.abspath(output_path)), f"_tmp_preprocessed_{int(time.time()*1000)}.png")
-    image_preprocessed.save(tmp_path)
-
-    # Camera estimation
-    if manual_fov > 0:
-        # Use manually specified FOV (in radians)
-        camera_angle_x = float(manual_fov)
-        grid_point = torch.tensor([-1.0, 0.0, 0.0])
-        distance = distance_from_fov(
-            camera_angle_x, grid_point,
-            torch.tensor([0 - extend_pixel, image_resolution - 1 + extend_pixel]),
-            mesh_scale, image_resolution
-        )["distance_from_x"]
-        camera_params = {'camera_angle_x': camera_angle_x, 'distance': distance, 'mesh_scale': mesh_scale}
-        print(f"[Inference] Using manual FOV: {math.degrees(manual_fov):.2f}° ({manual_fov:.4f} rad), distance={distance:.4f}")
-    else:
-        print("[MoGe-2] Loading model for camera estimation...")
-        moge_model = load_moge_model(device="cuda")
-        print("[Inference] Estimating camera parameters...")
-        camera_params = get_camera_params_wild_moge(
-            tmp_path, moge_model, device="cuda",
-            mesh_scale=mesh_scale, extend_pixel=extend_pixel,
-            image_resolution=image_resolution,
+    if transforms_path is not None:
+        print(f"[Inference] Loading calibrated views: {transforms_path}")
+        images, camera_params = load_calibrated_manifest(
+            transforms_path, mesh_scale=mesh_scale
         )
-        print(f"  camera_angle_x={camera_params['camera_angle_x']:.4f}, distance={camera_params['distance']:.4f}")
-        # MoGe is only needed for camera estimation; free its VRAM for inference.
-        moge_model.cpu()
-        del moge_model
-        torch.cuda.empty_cache()
-    os.remove(tmp_path)
+        image_preprocessed = [
+            pipeline.preprocess_image(view) for view in images
+        ]
+    else:
+        if image_path is None:
+            raise ValueError("image_path is required without transforms_path")
+        if mesh_scale is None:
+            mesh_scale = 1.0
+
+        # Preprocess image first — rembg loads to GPU for this call, then offloads.
+        # MoGe is loaded afterwards so both never occupy VRAM at the same time.
+        print(f"[Inference] Processing image: {image_path}")
+        img = Image.open(image_path)
+        image_preprocessed = pipeline.preprocess_image(img)
+
+        # Save preprocessed image for MoGe
+        tmp_path = os.path.join(
+            os.path.dirname(os.path.abspath(output_path)),
+            f"_tmp_preprocessed_{int(time.time() * 1000)}.png",
+        )
+        image_preprocessed.save(tmp_path)
+
+        # Camera estimation
+        if manual_fov > 0:
+            # Use manually specified FOV (in radians)
+            camera_angle_x = float(manual_fov)
+            grid_point = torch.tensor([-1.0, 0.0, 0.0])
+            distance = distance_from_fov(
+                camera_angle_x,
+                grid_point,
+                torch.tensor(
+                    [
+                        0 - extend_pixel,
+                        image_resolution - 1 + extend_pixel,
+                    ]
+                ),
+                mesh_scale,
+                image_resolution,
+            )["distance_from_x"]
+            camera_params = {
+                "camera_angle_x": camera_angle_x,
+                "distance": distance,
+                "mesh_scale": mesh_scale,
+            }
+            print(
+                f"[Inference] Using manual FOV: "
+                f"{math.degrees(manual_fov):.2f}° "
+                f"({manual_fov:.4f} rad), distance={distance:.4f}"
+            )
+        else:
+            print("[MoGe-2] Loading model for camera estimation...")
+            moge_model = load_moge_model(device="cuda")
+            print("[Inference] Estimating camera parameters...")
+            camera_params = get_camera_params_wild_moge(
+                tmp_path,
+                moge_model,
+                device="cuda",
+                mesh_scale=mesh_scale,
+                extend_pixel=extend_pixel,
+                image_resolution=image_resolution,
+            )
+            print(
+                f"  camera_angle_x={camera_params['camera_angle_x']:.4f}, "
+                f"distance={camera_params['distance']:.4f}"
+            )
+            # MoGe is only needed for camera estimation; free its VRAM for inference.
+            moge_model.cpu()
+            del moge_model
+            torch.cuda.empty_cache()
+        os.remove(tmp_path)
 
     # Run pipeline
     print("[Inference] Running 3D generation pipeline...")
@@ -283,9 +455,17 @@ def run_inference(
     print(f"[Done] GLB saved to: {output_path}")
 
 
-if __name__ == "__main__":
+def build_parser():
     parser = argparse.ArgumentParser(description="Pixal3D Inference: Image to GLB")
-    parser.add_argument("--image", type=str, required=True, help="Path to input image")
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument(
+        "--image",
+        help="Single input image; camera may be estimated with MoGe-2",
+    )
+    inputs.add_argument(
+        "--transforms",
+        help="Calibrated transforms.json with the first frame as anchor",
+    )
     parser.add_argument("--output", type=str, default="./output.glb", help="Output GLB file path")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--fov", type=float, default=-1.0,
@@ -298,15 +478,43 @@ if __name__ == "__main__":
                              "Reduces peak VRAM from ~18GB to ~10-12GB at the cost of slower inference.")
     parser.add_argument("--resolution", type=int, default=-1,
                         help="Pipeline resolution (1024 or 1536). Default: 1024 if --low_vram, else 1536.")
+    parser.add_argument("--ss_ckpt")
+    parser.add_argument("--shape512_ckpt")
+    parser.add_argument("--shape1024_ckpt")
+    parser.add_argument("--pbr1024_ckpt")
+    parser.add_argument("--mesh_scale", type=float)
+    return parser
 
-    args = parser.parse_args()
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    flow_checkpoints = {
+        "sparse_structure_flow_model": args.ss_ckpt,
+        "shape_slat_flow_model_512": args.shape512_ckpt,
+        "shape_slat_flow_model_1024": args.shape1024_ckpt,
+        "tex_slat_flow_model_1024": args.pbr1024_ckpt,
+    }
+    flow_checkpoints = {
+        model_key: checkpoint
+        for model_key, checkpoint in flow_checkpoints.items()
+        if checkpoint is not None
+    }
 
     run_inference(
         image_path=args.image,
+        transforms_path=args.transforms,
         output_path=args.output,
         seed=args.seed,
         manual_fov=args.fov,
         model_path=args.model_path,
         low_vram=args.low_vram,
         resolution=args.resolution,
+        flow_checkpoints=flow_checkpoints,
+        mesh_scale=args.mesh_scale,
     )
+
+
+if __name__ == "__main__":
+    main()

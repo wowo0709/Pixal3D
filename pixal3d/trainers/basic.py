@@ -3,6 +3,8 @@ import os
 import time
 import json
 import copy
+import re
+import tempfile
 import threading
 from functools import partial
 from contextlib import nullcontext
@@ -26,6 +28,21 @@ from ..utils.general_utils import *
 from ..utils.data_utils import recursive_to_device, cycle, ResumableSampler
 from ..utils.dist_utils import *
 from ..utils import grad_clip_utils, elastic_utils
+
+
+def batch_multiview_k(data_list):
+    counts = {
+        int(micro_batch["cond"].shape[1])
+        for micro_batch in data_list
+        if isinstance(micro_batch, dict)
+        and isinstance(micro_batch.get("cond"), torch.Tensor)
+        and micro_batch["cond"].ndim == 5
+    }
+    if not counts:
+        return None
+    if len(counts) != 1:
+        raise ValueError("all micro-batches in one optimizer step must share K")
+    return counts.pop()
 
 
 class BasicTrainer:
@@ -60,6 +77,7 @@ class BasicTrainer:
         i_log (int): Log interval.
         i_sample (int): Sample interval.
         i_save (int): Save interval.
+        max_checkpoints (int or None): Maximum number of complete checkpoints to retain.
         i_ddpcheck (int): DDP check interval.
     """
     def __init__(self,
@@ -88,17 +106,25 @@ class BasicTrainer:
         prefetch_data=True,
         snapshot_batch_size=4,
         snapshot_num_samples=64,
+        snapshot_dataset_on_start=True,
         num_workers=None,
         debug=False,
         i_print=1000,
         i_log=500,
         i_sample=10000,
         i_save=10000,
+        max_checkpoints=None,
         i_ddpcheck=10000,
         wandb_run=None,  # wandb run object
         **kwargs
     ):
         assert batch_size is not None or batch_size_per_gpu is not None, 'Either batch_size or batch_size_per_gpu must be specified.'
+        if max_checkpoints is not None and (
+            isinstance(max_checkpoints, bool)
+            or not isinstance(max_checkpoints, int)
+            or max_checkpoints <= 0
+        ):
+            raise ValueError('max_checkpoints must be a positive integer or None.')
 
         self.models = models
         self.dataset = dataset
@@ -121,6 +147,7 @@ class BasicTrainer:
         self.prefetch_data = prefetch_data
         self.snapshot_batch_size = snapshot_batch_size
         self.snapshot_num_samples = snapshot_num_samples
+        self.snapshot_dataset_on_start = snapshot_dataset_on_start
         self.num_workers = num_workers
         self.log = []
         if self.prefetch_data:
@@ -133,6 +160,7 @@ class BasicTrainer:
         self.i_log = i_log
         self.i_sample = i_sample
         self.i_save = i_save
+        self.max_checkpoints = max_checkpoints
         self.i_ddpcheck = i_ddpcheck        
 
         if dist.is_initialized():
@@ -305,7 +333,7 @@ class BasicTrainer:
             num_workers=num_workers,
             pin_memory=True,
             drop_last=True,
-            persistent_workers=True,
+            persistent_workers=num_workers > 0,
             collate_fn=self.dataset.collate_fn if hasattr(self.dataset, 'collate_fn') else None,
             sampler=self.data_sampler,
         )
@@ -395,53 +423,107 @@ class BasicTrainer:
         """
         assert self.is_master, 'save() should be called only by the rank 0 process.'
         print(f'\nSaving checkpoint at step {self.step}...', end='')
+        ckpt_dir = os.path.join(self.output_dir, 'ckpts')
+        misc_path = os.path.join(ckpt_dir, f'misc_step{self.step:07d}.pt')
+        retention_enabled = self.max_checkpoints is not None
+        if retention_enabled and os.path.exists(misc_path):
+            print(' Already complete, skipping.')
+            return
+        temporary_paths = set()
         
-        model_ckpts = self._master_params_to_state_dicts(self.master_params)
-        for name, model_ckpt in model_ckpts.items():
-            model_ckpt = {k: v.cpu() for k, v in model_ckpt.items()}  # Move to CPU for saving
-            if non_blocking:
-                threading.Thread(
-                    target=torch.save,
-                    args=(model_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_step{self.step:07d}.pt')),
-                ).start()
-            else:
-                torch.save(model_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_step{self.step:07d}.pt'))
-        
-        for i, ema_rate in enumerate(self.ema_rate):
-            ema_ckpts = self._master_params_to_state_dicts(self.ema_params[i])
-            for name, ema_ckpt in ema_ckpts.items():
-                ema_ckpt = {k: v.cpu() for k, v in ema_ckpt.items()}  # Move to CPU for saving
-                if non_blocking:
+        try:
+            model_ckpts = self._master_params_to_state_dicts(self.master_params)
+            for name, model_ckpt in model_ckpts.items():
+                model_ckpt = {k: v.cpu() for k, v in model_ckpt.items()}  # Move to CPU for saving
+                path = os.path.join(ckpt_dir, f'{name}_step{self.step:07d}.pt')
+                if retention_enabled:
+                    self._save_checkpoint_atomically(model_ckpt, path, temporary_paths)
+                elif non_blocking:
                     threading.Thread(
                         target=torch.save,
-                        args=(ema_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_ema{ema_rate}_step{self.step:07d}.pt')),
+                        args=(model_ckpt, path),
                     ).start()
                 else:
-                    torch.save(ema_ckpt, os.path.join(self.output_dir, 'ckpts', f'{name}_ema{ema_rate}_step{self.step:07d}.pt'))
+                    torch.save(model_ckpt, path)
 
-        misc_ckpt = {
-            'optimizer': self.optimizer.state_dict(),
-            'step': self.step,
-            'data_sampler': self.data_sampler.state_dict(),
-        }
-        if self.mix_precision_mode == 'amp' and self.mix_precision_dtype == torch.float16:
-            misc_ckpt['scaler'] = self.scaler.state_dict()
-        elif self.mix_precision_mode == 'inflat_all' and self.mix_precision_dtype == torch.float16:
-            misc_ckpt['log_scale'] = self.log_scale
-        if self.lr_scheduler_config is not None:
-            misc_ckpt['lr_scheduler'] = self.lr_scheduler.state_dict()
-        if self.elastic_controller_config is not None:
-            misc_ckpt['elastic_controller'] = self.elastic_controller.state_dict()
-        if self.grad_clip is not None and not isinstance(self.grad_clip, float):
-            misc_ckpt['grad_clip'] = self.grad_clip.state_dict()
-        if non_blocking:
-            threading.Thread(
-                target=torch.save,
-                args=(misc_ckpt, os.path.join(self.output_dir, 'ckpts', f'misc_step{self.step:07d}.pt')),
-            ).start()
-        else:
-            torch.save(misc_ckpt, os.path.join(self.output_dir, 'ckpts', f'misc_step{self.step:07d}.pt'))
+            for i, ema_rate in enumerate(self.ema_rate):
+                ema_ckpts = self._master_params_to_state_dicts(self.ema_params[i])
+                for name, ema_ckpt in ema_ckpts.items():
+                    ema_ckpt = {k: v.cpu() for k, v in ema_ckpt.items()}  # Move to CPU for saving
+                    path = os.path.join(ckpt_dir, f'{name}_ema{ema_rate}_step{self.step:07d}.pt')
+                    if retention_enabled:
+                        self._save_checkpoint_atomically(ema_ckpt, path, temporary_paths)
+                    elif non_blocking:
+                        threading.Thread(
+                            target=torch.save,
+                            args=(ema_ckpt, path),
+                        ).start()
+                    else:
+                        torch.save(ema_ckpt, path)
+
+            misc_ckpt = {
+                'optimizer': self.optimizer.state_dict(),
+                'step': self.step,
+                'data_sampler': self.data_sampler.state_dict(),
+            }
+            if self.mix_precision_mode == 'amp' and self.mix_precision_dtype == torch.float16:
+                misc_ckpt['scaler'] = self.scaler.state_dict()
+            elif self.mix_precision_mode == 'inflat_all' and self.mix_precision_dtype == torch.float16:
+                misc_ckpt['log_scale'] = self.log_scale
+            if self.lr_scheduler_config is not None:
+                misc_ckpt['lr_scheduler'] = self.lr_scheduler.state_dict()
+            if self.elastic_controller_config is not None:
+                misc_ckpt['elastic_controller'] = self.elastic_controller.state_dict()
+            if self.grad_clip is not None and not isinstance(self.grad_clip, float):
+                misc_ckpt['grad_clip'] = self.grad_clip.state_dict()
+            if retention_enabled:
+                self._save_checkpoint_atomically(misc_ckpt, misc_path, temporary_paths)
+                self._prune_checkpoints()
+            elif non_blocking:
+                threading.Thread(
+                    target=torch.save,
+                    args=(misc_ckpt, misc_path),
+                ).start()
+            else:
+                torch.save(misc_ckpt, misc_path)
+        except Exception:
+            self._cleanup_checkpoint_temps(temporary_paths)
+            raise
         print(' Done.')
+
+    @staticmethod
+    def _save_checkpoint_atomically(checkpoint, path, temporary_paths):
+        fd, temporary_path = tempfile.mkstemp(
+            prefix=f'.{os.path.basename(path)}.',
+            suffix='.tmp',
+            dir=os.path.dirname(path),
+        )
+        os.close(fd)
+        temporary_paths.add(temporary_path)
+        torch.save(checkpoint, temporary_path)
+        os.replace(temporary_path, path)
+        temporary_paths.remove(temporary_path)
+
+    @staticmethod
+    def _cleanup_checkpoint_temps(temporary_paths):
+        for temporary_path in temporary_paths:
+            try:
+                os.remove(temporary_path)
+            except FileNotFoundError:
+                pass
+
+    def _prune_checkpoints(self):
+        ckpt_dir = os.path.join(self.output_dir, 'ckpts')
+        complete_steps = []
+        for filename in os.listdir(ckpt_dir):
+            match = re.match(r'^misc_step(\d+)\.pt$', filename)
+            if match:
+                complete_steps.append(int(match.group(1)))
+        for step in sorted(complete_steps)[:-self.max_checkpoints]:
+            suffix = f'_step{step:07d}.pt'
+            for filename in os.listdir(ckpt_dir):
+                if filename.endswith(suffix):
+                    os.remove(os.path.join(ckpt_dir, filename))
 
     def _remap_checkpoint_keys(self, model_ckpt, model_state_dict):
         """
@@ -640,41 +722,41 @@ class BasicTrainer:
                 dist.barrier()
                 return
 
-            # Master runs snapshot alone
-            amp_context = partial(torch.autocast, device_type='cuda', dtype=self.mix_precision_dtype) if self.mix_precision_mode == 'amp' else nullcontext
-            with amp_context():
-                samples = self.run_snapshot(num_samples, batch_size=batch_size, verbose=verbose)
+            try:
+                # Master runs snapshot alone
+                amp_context = partial(torch.autocast, device_type='cuda', dtype=self.mix_precision_dtype) if self.mix_precision_mode == 'amp' else nullcontext
+                with amp_context():
+                    samples = self.run_snapshot(num_samples, batch_size=batch_size, verbose=verbose)
 
-            # Extract metadata before preprocessing
-            sample_metadata = samples.pop('_metadata', None)
+                # Extract metadata before preprocessing
+                sample_metadata = samples.pop('_metadata', None)
 
-            # Free GPU memory after sampling, before decode + render
-            torch.cuda.empty_cache()
+                # Free GPU memory after sampling, before decode + render
+                torch.cuda.empty_cache()
 
-            # Preprocess images
-            for key in list(samples.keys()):
-                if samples[key]['type'] == 'sample':
-                    try:
-                        vis = self.visualize_sample(samples[key]['value'])
-                    except RuntimeError as e:
-                        print(f"[Snapshot] WARNING: visualize_sample failed for '{key}': {e}")
-                        # Reset CUDA error state and skip this sample
+                # Preprocess images
+                for key in list(samples.keys()):
+                    if samples[key]['type'] == 'sample':
                         try:
-                            torch.cuda.synchronize()
-                        except RuntimeError:
-                            pass
-                        torch.cuda.empty_cache()
-                        del samples[key]
-                        continue
-                    if isinstance(vis, dict):
-                        for k, v in vis.items():
-                            samples[f'{key}_{k}'] = {'value': v, 'type': 'image'}
-                        del samples[key]
-                    else:
-                        samples[key] = {'value': vis, 'type': 'image'}
-
-            # No gather needed, master already has all samples
-            dist.barrier()
+                            vis = self.visualize_sample(samples[key]['value'])
+                        except Exception as e:
+                            print(f"[Snapshot] WARNING: visualize_sample failed for '{key}': {e}")
+                            # Reset CUDA error state and skip this sample
+                            try:
+                                torch.cuda.synchronize()
+                            except RuntimeError:
+                                pass
+                            torch.cuda.empty_cache()
+                            del samples[key]
+                            continue
+                        if isinstance(vis, dict):
+                            for k, v in vis.items():
+                                samples[f'{key}_{k}'] = {'value': v, 'type': 'image'}
+                            del samples[key]
+                        else:
+                            samples[key] = {'value': vis, 'type': 'image'}
+            finally:
+                dist.barrier()
         else:
             # Distribute sampling across all ranks
             num_samples_per_process = int(np.ceil(num_samples / self.world_size))
@@ -793,48 +875,48 @@ class BasicTrainer:
             # --- Save combined images ---
             sample_keys = set(samples.keys())
 
-            # Combined 1: image + sample_gt_view + sample_gt_gt_view (shape)
-            #             image + sample_gt_view_{attr} + sample_gt_gt_view_{attr} (tex, per attribute)
-            # Detect gt_view attribute suffixes from sample keys
-            gt_view_attrs = set()
+            # Combined 1: image + sample_anchor_view + sample_gt_anchor_view (shape)
+            #             image + sample_anchor_view_{attr} + sample_gt_anchor_view_{attr} (tex, per attribute)
+            # Detect anchor_view attribute suffixes from sample keys.
+            anchor_view_attrs = set()
             for k in sample_keys:
-                if k.startswith('sample_gt_view_'):
-                    attr = k[len('sample_gt_view_'):]
-                    gt_view_attrs.add(attr)
+                if k.startswith('sample_anchor_view_'):
+                    attr = k[len('sample_anchor_view_'):]
+                    anchor_view_attrs.add(attr)
             
-            if gt_view_attrs:
+            if anchor_view_attrs:
                 # Tex mode: generate combined view for each PBR attribute
-                for attr in sorted(gt_view_attrs):
-                    combo1_keys = ['image', f'sample_gt_view_{attr}', f'sample_gt_gt_view_{attr}']
+                for attr in sorted(anchor_view_attrs):
+                    combo1_keys = ['image', f'sample_anchor_view_{attr}', f'sample_gt_anchor_view_{attr}']
                     combo1_present = [k for k in combo1_keys if k in sample_keys and samples[k]['type'] == 'image']
                     if len(combo1_present) >= 2:
                         grids = [_make_grid(samples[k]['value']) for k in combo1_present]
                         target_h = max(g.shape[1] for g in grids)
                         grids = [_resize_to_height(g, target_h) for g in grids]
                         combined = torch.cat(grids, dim=2)
-                        combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_views_{attr}_{suffix}.jpg')
+                        combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_anchor_views_{attr}_{suffix}.jpg')
                         utils.save_image(combined, combined_path, normalize=False)
                         if self.wandb_run is not None:
                             grid_np = combined.permute(1, 2, 0).cpu().numpy()
                             grid_np = (grid_np * 255).clip(0, 255).astype(np.uint8)
                             label = ' | '.join(combo1_present)
-                            wandb_images[f'samples/combined_views_{attr}'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
+                            wandb_images[f'samples/combined_anchor_views_{attr}'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
             else:
-                # Shape mode: single gt_view
-                combo1_keys = ['image', 'sample_gt_view', 'sample_gt_gt_view']
+                # Shape mode: single anchor_view
+                combo1_keys = ['image', 'sample_anchor_view', 'sample_gt_anchor_view']
                 combo1_present = [k for k in combo1_keys if k in sample_keys and samples[k]['type'] == 'image']
                 if len(combo1_present) >= 2:
                     grids = [_make_grid(samples[k]['value']) for k in combo1_present]
                     target_h = max(g.shape[1] for g in grids)
                     grids = [_resize_to_height(g, target_h) for g in grids]
                     combined = torch.cat(grids, dim=2)
-                    combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_views_{suffix}.jpg')
+                    combined_path = os.path.join(self.output_dir, 'samples', suffix, f'combined_anchor_views_{suffix}.jpg')
                     utils.save_image(combined, combined_path, normalize=False)
                     if self.wandb_run is not None:
                         grid_np = combined.permute(1, 2, 0).cpu().numpy()
                         grid_np = (grid_np * 255).clip(0, 255).astype(np.uint8)
                         label = ' | '.join(combo1_present)
-                        wandb_images[f'samples/combined_views'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
+                        wandb_images[f'samples/combined_anchor_views'] = wandb.Image(grid_np, caption=f'{label} at step {self.step}{metadata_caption}')
 
             # Combined 2: sample_multiview + sample_gt_multiview
             combo2_keys = ['sample_multiview', 'sample_gt_multiview']
@@ -855,6 +937,8 @@ class BasicTrainer:
             # Log images to wandb
             if self.wandb_run is not None and wandb_images:
                 self.wandb_run.log(wandb_images, step=self.step)
+                keys = ", ".join(sorted(wandb_images))
+                print(f"[W&B] Logged snapshot images at step {self.step}: {keys}")
 
         if self.is_master:
             print(' Done.')
@@ -993,6 +1077,7 @@ class BasicTrainer:
         """
         Run a training step.
         """
+        num_views = batch_multiview_k(data_list)
         step_log = {'loss': {}, 'status': {}}
         amp_context = partial(torch.autocast, device_type='cuda', dtype=self.mix_precision_dtype) if self.mix_precision_mode == 'amp' else nullcontext
         elastic_controller_context = self.elastic_controller.record if self.elastic_controller_config is not None else nullcontext
@@ -1113,6 +1198,9 @@ class BasicTrainer:
         if self.is_master:
             self.update_ema()
 
+        if num_views is not None:
+            step_log["multiview"] = {"k": num_views}
+
         return step_log
 
     def save_logs(self):
@@ -1132,8 +1220,15 @@ class BasicTrainer:
 
         # show with mlflow
         log_show = [l for _, l in self.log if not dict_any(l, lambda x: np.isnan(x))]
+        latest_multiview_k = next((
+            int(log["multiview"]["k"])
+            for log in reversed(log_show)
+            if "multiview" in log and "k" in log["multiview"]
+        ), None)
         log_show = dict_reduce(log_show, lambda x: np.mean(x))
         log_show = dict_flatten(log_show, sep='/')
+        if latest_multiview_k is not None:
+            log_show["multiview/k"] = latest_multiview_k
         if self.writer is not None:
             for key, value in log_show.items():
                 self.writer.add_scalar(key, value, self.step)
@@ -1171,12 +1266,14 @@ class BasicTrainer:
         """
         if self.is_master:
             print('\nStarting training...')
-            if self.i_sample != -1:
+            if self.i_sample != -1 and self.snapshot_dataset_on_start:
                 try:
                     self.snapshot_dataset(num_samples=self.snapshot_num_samples, batch_size=self.snapshot_batch_size)
                 except (RuntimeError, Exception) as e:
                     print(f'\033[93m[WARN] snapshot_dataset failed, skipping: {e}\033[0m')
                     torch.cuda.empty_cache()
+            elif self.i_sample != -1:
+                print('[INFO] Startup dataset snapshot disabled.')
             else:
                 print('[INFO] i_sample=-1, all snapshots disabled.')
         if self.i_sample != -1:
@@ -1275,7 +1372,8 @@ class BasicTrainer:
         if self.world_size > 1:
             dist.barrier()
         if self.is_master:
-            self.writer.close()
+            if self.writer is not None:
+                self.writer.close()
             print('Training finished.')
             
     def profile(self, wait=2, warmup=3, active=5):

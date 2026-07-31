@@ -1,34 +1,90 @@
 import os
-import shutil
 import sys
 import time
 import glob
 import importlib
 import argparse
+from pathlib import Path
+import tempfile
 import pandas as pd
 from easydict import EasyDict as edict
 
 
+def _sync_parent(path):
+    flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0)
+    directory = os.open(Path(path).parent, flags)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _atomic_write_csv(frame, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f'.{path.stem}.',
+            suffix='.csv',
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+        frame.to_csv(temporary, index=False)
+        pd.read_csv(temporary)
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _sync_parent(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _list_optional_directory(path):
+    path = Path(path)
+    return sorted(os.listdir(path)) if path.is_dir() else []
+
+
 def update_metadata(path, opt):
-    if not os.path.exists(path):
+    path = Path(path)
+    if not path.exists():
         return None
     timestamp = str(int(time.time()))
-    os.makedirs(os.path.join(path, 'merged_records'), exist_ok=True)
-    os.makedirs(os.path.join(path, 'new_records'), exist_ok=True)
+    merged_records = path / 'merged_records'
+    new_records = path / 'new_records'
+    merged_records.mkdir(parents=True, exist_ok=True)
+    new_records.mkdir(parents=True, exist_ok=True)
     if opt.from_merged_records:
-        df_files = [f for f in os.listdir(os.path.join(path, 'merged_records')) if f.endswith('.csv')]
-        df_files = [f for f in df_files if int(f.split('_')[0]) >= opt.record_start]
+        source_directory = merged_records
+        record_start = opt.record_start if opt.record_start is not None else 0
+        df_files = []
+        for file_name in _list_optional_directory(source_directory):
+            if not file_name.endswith('.csv'):
+                continue
+            try:
+                if int(file_name.split('_')[0]) >= record_start:
+                    df_files.append(file_name)
+            except ValueError:
+                print(f'Skipping merged record with invalid timestamp: {file_name}')
     else:
-        df_files = [f for f in os.listdir(os.path.join(path, 'new_records')) if f.startswith('part_') and f.endswith('.csv')]
+        source_directory = new_records
+        df_files = [
+            file_name
+            for file_name in _list_optional_directory(source_directory)
+            if file_name.startswith('part_') and file_name.endswith('.csv')
+        ]
     df_parts = []
     for f in df_files:
         try:
-            df_parts.append(pd.read_csv(os.path.join(path, 'new_records', f)))
+            df_parts.append(pd.read_csv(source_directory / f))
         except Exception as e:
             print(f"Failed to read {f}: {e}")
     if len(df_parts) > 0:
-        if os.path.exists(os.path.join(path, 'metadata.csv')):
-            metadata = pd.read_csv(os.path.join(path, 'metadata.csv'))
+        metadata_path = path / 'metadata.csv'
+        if metadata_path.exists():
+            metadata = pd.read_csv(metadata_path)
         else:
             columns = df_parts[0].columns
             metadata = pd.DataFrame(columns=columns)
@@ -41,13 +97,15 @@ def update_metadata(path, opt):
                 if df_part.index.duplicated().any():
                     df_part = df_part.groupby(level=0).first()
                 metadata = df_part.combine_first(metadata)
-        metadata.to_csv(os.path.join(path, 'metadata.csv'))
-        for f in df_files:
-            shutil.move(os.path.join(path, 'new_records', f), os.path.join(path, 'merged_records', f'{timestamp}_{f}'))
+        _atomic_write_csv(metadata.reset_index(), metadata_path)
+        if not opt.from_merged_records:
+            for f in df_files:
+                os.replace(new_records / f, merged_records / f'{timestamp}_{f}')
         return metadata
     else:
-        if os.path.exists(os.path.join(path, 'metadata.csv')):
-            return pd.read_csv(os.path.join(path, 'metadata.csv'))
+        metadata_path = path / 'metadata.csv'
+        if metadata_path.exists():
+            return pd.read_csv(metadata_path)
     return None
 
 
@@ -89,7 +147,7 @@ def build_downloaded_metadata_from_files(raw_root, global_metadata):
     
     # Save as metadata.csv under raw_root
     os.makedirs(raw_root, exist_ok=True)
-    df.to_csv(os.path.join(raw_root, 'metadata.csv'))
+    _atomic_write_csv(df.reset_index(), Path(raw_root) / 'metadata.csv')
     return df
 
 
@@ -99,7 +157,16 @@ def _is_view_dir(dirname):
 
 
 if __name__ == '__main__':
-    dataset_utils = importlib.import_module(f'datasets.{sys.argv[1]}')
+    dataset_name = (
+        sys.argv[1]
+        if len(sys.argv) > 1 and not sys.argv[1].startswith('-')
+        else None
+    )
+    dataset_utils = (
+        importlib.import_module(f'datasets.{dataset_name}')
+        if dataset_name is not None
+        else None
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, required=True,
@@ -134,8 +201,11 @@ if __name__ == '__main__':
     parser.add_argument('--record_start', type=int)
     parser.add_argument('--rebuild', action='store_true',
                         help='Rebuild metadata from scratch, ignore existing metadata.')
-    dataset_utils.add_args(parser)
-    opt = parser.parse_args(sys.argv[2:])
+    if dataset_utils is not None:
+        dataset_utils.add_args(parser)
+    opt = parser.parse_args(sys.argv[2:] if dataset_name is not None else sys.argv[1:])
+    if dataset_utils is None:
+        parser.error('dataset name is required')
     opt = edict(vars(opt))
     opt.download_root = opt.download_root or opt.root
     opt.thumbnail_root = opt.thumbnail_root or opt.root
@@ -158,7 +228,7 @@ if __name__ == '__main__':
         metadata = pd.read_csv(os.path.join(opt.root, 'metadata.csv'))
     else:
         metadata = dataset_utils.get_metadata(**opt)
-        metadata.to_csv(os.path.join(opt.root, 'metadata.csv'), index=False)
+        _atomic_write_csv(metadata, Path(opt.root) / 'metadata.csv')
     
     # merge downloaded
     if opt.from_file:
@@ -187,7 +257,7 @@ if __name__ == '__main__':
         
     # merge dual grid (original, no view transform)
     dual_grid_resolutions = []
-    for dir in os.listdir(opt.dual_grid_root):
+    for dir in _list_optional_directory(opt.dual_grid_root):
         if os.path.isdir(os.path.join(opt.dual_grid_root, dir)) and dir.startswith('dual_grid_') and not dir.startswith('dual_grid_view_'):
             dual_grid_resolutions.append(int(dir.split('_')[-1]))
     dual_grid_metadata = {}
@@ -196,7 +266,7 @@ if __name__ == '__main__':
     
     # merge dual grid view (multi-view)
     dual_grid_view_resolutions = []
-    for dir in os.listdir(opt.dual_grid_root):
+    for dir in _list_optional_directory(opt.dual_grid_root):
         if os.path.isdir(os.path.join(opt.dual_grid_root, dir)) and dir.startswith('dual_grid_view_'):
             dual_grid_view_resolutions.append(int(dir.split('_')[-1]))
     dual_grid_view_metadata = {}
@@ -205,7 +275,7 @@ if __name__ == '__main__':
     
     # merge pbr voxelized (single view)
     pbr_voxel_resolutions = []
-    for dir in os.listdir(opt.pbr_voxel_root):
+    for dir in _list_optional_directory(opt.pbr_voxel_root):
         if os.path.isdir(os.path.join(opt.pbr_voxel_root, dir)) and dir.startswith('pbr_voxels_') and not dir.startswith('pbr_voxels_view_'):
             pbr_voxel_resolutions.append(int(dir.split('_')[-1]))
     pbr_voxel_metadata = {}
@@ -215,7 +285,7 @@ if __name__ == '__main__':
     # merge pbr voxelized view (multi-view)
     # Supports both pbr_voxels_view_{res} and pbr_voxels_view_fix_{res} directory names
     pbr_voxel_view_dirs = {}  # res -> dir_name
-    for dir in os.listdir(opt.pbr_voxel_root):
+    for dir in _list_optional_directory(opt.pbr_voxel_root):
         if os.path.isdir(os.path.join(opt.pbr_voxel_root, dir)) and dir.startswith('pbr_voxels_view_') and not dir.startswith('pbr_voxels_view_fix_'):
             res = int(dir.split('_')[-1])
             pbr_voxel_view_dirs[res] = dir
@@ -314,7 +384,7 @@ if __name__ == '__main__':
                 sub = sub.groupby(level=0).first()
             metadata = metadata.combine_first(sub)
     metadata = metadata.reset_index()
-    metadata.to_csv(os.path.join(opt.root, 'metadata.csv'), index=False)
+    _atomic_write_csv(metadata, Path(opt.root) / 'metadata.csv')
     print(f'Saved merged metadata with {len(metadata)} entries and columns: {list(metadata.columns)}')
 
     # statistics

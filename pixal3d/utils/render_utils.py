@@ -31,7 +31,9 @@ def yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, rs, fovs):
             torch.sin(pitch),
         ]).cuda() * r
         extr = utils3d.torch.extrinsics_look_at(orig, torch.tensor([0, 0, 0]).float().cuda(), torch.tensor([0, 0, 1]).float().cuda())
-        intr = utils3d.torch.intrinsics_from_fov_xy(fov, fov)
+        intr = utils3d.torch.intrinsics_from_fov(
+            fov_x=fov, fov_y=fov
+        )
         extrinsics.append(extr)
         intrinsics.append(intr)
     if not is_list:
@@ -145,7 +147,9 @@ def proj_camera_to_render_params(camera_angle_x, distance):
     extrinsics = utils3d.torch.extrinsics_look_at(orig, target, up)
     
     fov_tensor = torch.tensor(camera_angle_x, dtype=torch.float32).cuda()
-    intrinsics = utils3d.torch.intrinsics_from_fov_xy(fov_tensor, fov_tensor)
+    intrinsics = utils3d.torch.intrinsics_from_fov(
+        fov_x=fov_tensor, fov_y=fov_tensor
+    )
     
     return extrinsics, intrinsics
 

@@ -160,11 +160,54 @@ python train.py \
 
 `--data_dir` is a JSON string describing the dataset layout. Different stages require different keys:
 
+`--output_dir` can be omitted when the config sets `default_output_dir`; otherwise
+provide it explicitly. When `--load_dir` is omitted, training resumes from the
+resolved output directory.
+
 | Stage | Required keys |
 |-------|---------------|
 | Sparse Structure | `base`, `ss_latent`, `render_cond` |
 | Shape | `base`, `shape_latent`, `render_cond` |
 | Texture | `base`, `shape_latent`, `pbr_latent`, `render_cond` |
+
+### Verified ABO + 3D-FUTURE launches
+
+The combined manifest uses every stage-eligible asset from both sources with
+proportional, unweighted concatenation. Before launching, follow the
+publication, recovery, digest-inspection, and CPU-only combined-loader
+verification procedure in
+[docs/data_preprocessing_runbook_ko.md](docs/data_preprocessing_runbook_ko.md).
+
+The operator must first check GPU ownership and available memory, then set
+`CUDA_VISIBLE_DEVICES` to six explicitly selected physical GPU IDs. These
+commands intentionally do not select devices and do not assume that GPU 0 is
+available.
+
+These are verified **two-source** ABO + 3D-FUTURE commands and evidence. For
+the separate Node16-local ABO + 3D-FUTURE + HSSD preparation, runtime-config,
+tmux, monitoring, and resume procedure, use the Korean
+[Node16 HSSD three-source training runbook](docs/hssd_node16_training_runbook_ko.md).
+Do not relabel the two-source evidence below as three-source evidence.
+
+```bash
+TRAINING_DATA=/root/node17/data/pixal3d/train/production/abo-3d-future/training_data.json
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_img2shape_dit_1_3B_512_bf16_proj_multiview_ft1024.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+
+conda run --no-capture-output -n pixal3d python train.py \
+  --config configs/gen/slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json \
+  --training_data "$TRAINING_DATA" --num_gpus 6 --use_wandb
+```
 
 ### Example: Training All Three Stages
 
@@ -244,7 +287,7 @@ python train.py \
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--config` | Config JSON path | *required* |
-| `--output_dir` | Output directory | *required* |
+| `--output_dir` | Output directory | config `default_output_dir`, otherwise *required* |
 | `--data_dir` | Dataset JSON string | `./data/` |
 | `--load_dir` | Checkpoint load directory | `output_dir` |
 | `--ckpt` | Resume from step | `latest` |
@@ -295,4 +338,3 @@ If you find this work useful, please consider citing:
 ## 📜 License
 
 This project is released under the [MIT License](LICENSE). The third-party components included in this project remain licensed under their respective original terms; see [NOTICE](NOTICE) for the full list of dependencies and their licenses.
-

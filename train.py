@@ -19,6 +19,7 @@ except ImportError:
 
 from pixal3d import models, datasets, trainers
 from pixal3d.utils.dist_utils import setup_dist
+from data_toolkit.pipeline import training_manifest
 
 
 def find_ckpt(cfg):
@@ -56,6 +57,33 @@ def get_model_summary(model):
     model_summary = f'Number of parameters: {num_params:,}\n'
     model_summary += f'Number of trainable parameters: {num_trainable_params:,}\n'
     return model_summary
+
+
+def apply_smoke_overrides(cfg, smoke_steps):
+    if smoke_steps is None:
+        return cfg
+    if smoke_steps not in (1, 10):
+        raise ValueError("smoke_steps must be 1 or 10")
+    cfg.trainer.args.max_steps = smoke_steps
+    cfg.trainer.args.i_log = 1
+    cfg.trainer.args.i_sample = 1 if smoke_steps == 1 else 5
+    cfg.trainer.args.i_save = smoke_steps
+    cfg.trainer.args.snapshot_batch_size = 1
+    cfg.trainer.args.snapshot_num_samples = 1
+    cfg.trainer.args.num_workers = 0
+    cfg.trainer.args.prefetch_data = False
+    return cfg
+
+
+def resolve_output_dirs(config, cli_output_dir=None, cli_load_dir=""):
+    default_output_dir = config.get("default_output_dir")
+    output_dir = cli_output_dir or default_output_dir
+    if not output_dir:
+        raise ValueError(
+            "output_dir is required: pass --output_dir or set default_output_dir in the config"
+        )
+    load_dir = cli_load_dir or output_dir
+    return output_dir, load_dir
 
 
 def main(local_rank, cfg):
@@ -161,14 +189,26 @@ if __name__ == '__main__':
     ## config
     parser.add_argument('--config', type=str, required=True, help='Experiment config file')
     ## io and resume
-    parser.add_argument('--output_dir', type=str, required=True, help='Output directory')
+    parser.add_argument(
+        '--output_dir',
+        type=str,
+        default=None,
+        help='Output directory; defaults to config default_output_dir',
+    )
     parser.add_argument('--load_dir', type=str, default='', help='Load directory, default to output_dir')
     parser.add_argument('--ckpt', type=str, default='latest', help='Checkpoint step to resume training, default to latest')
-    parser.add_argument('--data_dir', type=str, default='./data/', help='Data directory')
+    parser.add_argument(
+        '--training_data',
+        type=str,
+        default=None,
+        help='Verified combined training manifest; mutually exclusive with --data_dir',
+    )
+    parser.add_argument('--data_dir', type=str, default=None, help='Data directory')
     parser.add_argument('--auto_retry', type=int, default=3, help='Number of retries on error')
     ## dubug
     parser.add_argument('--tryrun', action='store_true', help='Try run without training')
     parser.add_argument('--profile', action='store_true', help='Profile training')
+    parser.add_argument('--smoke_steps', type=int, choices=(1, 10))
     ## multi-node and multi-gpu
     parser.add_argument('--num_nodes', type=int, default=1, help='Number of nodes')
     parser.add_argument('--node_rank', type=int, default=0, help='Node rank')
@@ -181,14 +221,40 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_name', type=str, default='', help='Wandb run name, default to output_dir basename')
     parser.add_argument('--wandb_id', type=str, default='', help='Wandb run id for resuming')
     opt = parser.parse_args()
-    opt.load_dir = opt.load_dir if opt.load_dir != '' else opt.output_dir
-    opt.num_gpus = torch.cuda.device_count() if opt.num_gpus == -1 else opt.num_gpus
     ## Load config
     config = json.load(open(opt.config, 'r'))
+    try:
+        resolved_data_dir, training_evidence = (
+            training_manifest.resolve_training_input(
+                config,
+                cli_data_dir=opt.data_dir,
+                cli_training_data=opt.training_data,
+            )
+        )
+        resolved_output_dir, resolved_load_dir = resolve_output_dirs(
+            config,
+            cli_output_dir=opt.output_dir,
+            cli_load_dir=opt.load_dir,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    opt.data_dir = resolved_data_dir
+    opt.output_dir = resolved_output_dir
+    opt.load_dir = resolved_load_dir
+    opt.num_gpus = torch.cuda.device_count() if opt.num_gpus == -1 else opt.num_gpus
     ## Combine arguments and config
     cfg = edict()
     cfg.update(opt.__dict__)
     cfg.update(config)
+    cfg.data_dir = resolved_data_dir
+    cfg.output_dir = resolved_output_dir
+    cfg.load_dir = resolved_load_dir
+    if training_evidence is not None:
+        cfg.training_evidence = training_evidence
+    else:
+        cfg.pop("training_evidence", None)
+    apply_smoke_overrides(cfg, opt.smoke_steps)
     print('\n\nConfig:')
     print('=' * 80)
     print(json.dumps(cfg.__dict__, indent=4))
@@ -227,4 +293,3 @@ if __name__ == '__main__':
                 traceback.print_exc()
                 print(f'{"="*60}')
                 print(f'Retrying ({rty + 1}/{cfg.auto_retry})...')
-            
