@@ -1,5 +1,11 @@
 """Multi-view correspondence experiments."""
 
+from .artifacts import (
+    BundleCorruption,
+    validate_artifact_bundle,
+    write_artifact_bundle,
+    write_failed_artifact_bundle,
+)
 from .corruptions import (
     ControlledCorruption,
     corrupt_local_color,
@@ -39,6 +45,10 @@ from .warps import (
 )
 
 __all__ = [
+    "BundleCorruption",
+    "validate_artifact_bundle",
+    "write_artifact_bundle",
+    "write_failed_artifact_bundle",
     "ControlledCorruption",
     "corrupt_local_color",
     "corrupt_local_deletion",
