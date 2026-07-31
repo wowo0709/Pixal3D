@@ -259,6 +259,29 @@ def test_run_inference_forwards_projection_aggregation(tmp_path, monkeypatch):
         pipeline.run_kwargs["projection_aggregation"]["shape512"].mode
         == "consensus"
     )
+    assert pipeline.run_kwargs["pipeline_type"] == "1024_cascade"
+
+
+def test_run_inference_keeps_1536_default_without_projection_aggregation(
+    tmp_path, monkeypatch
+):
+    pipeline = RecordingPipeline()
+    monkeypatch.setattr(inference, "init_pipeline", lambda *args, **kwargs: pipeline)
+    monkeypatch.setattr(
+        inference.o_voxel.postprocess,
+        "to_glb",
+        lambda **kwargs: RecordingGlb(),
+    )
+    image_path = tmp_path / "input.png"
+    Image.new("RGBA", (4, 4)).save(image_path)
+
+    inference.run_inference(
+        image_path=str(image_path),
+        output_path=str(tmp_path / "output.glb"),
+        manual_fov=0.7,
+    )
+
+    assert pipeline.run_kwargs["pipeline_type"] == "1536_cascade"
 
 
 def test_programmatic_calibrated_inference_omission_warns_once(

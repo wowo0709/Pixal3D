@@ -204,14 +204,32 @@ uses the original dense/default conditioner path. Explicit `mean` selects the
 sparse-first path but returns an FP32-accumulated arithmetic mean cast back to
 the source dtype.
 
+This inference prototype supports only `pipeline_type="1024_cascade"`.
+Enabling aggregation without an explicit resolution selects 1024. An explicit
+1536 aggregation request is rejected, while omission of aggregation preserves
+the ordinary defaults (1024 with low-VRAM mode, otherwise 1536). R=96/1536 is
+intentionally unsupported and is outside the reported memory budget; enabling
+it requires a later measured memory study.
+
+Programmatic oracle masks must have shape `[K,1,H,W]`, use the same view order,
+and share the already-preprocessed coordinate frame of the supplied images.
+The pipeline only resizes masks to conditioner resolution. It rejects
+`oracle_masks` with `preprocess_image=True`; callers must provide aligned
+image/mask pairs with `preprocess_image=False`.
+
 The B=1 limitation is enforced from sparse coordinates:
 `_flat_sparse_indices` rejects any nonzero coordinate batch index. The path
 still creates one transient dense `[1,R^3,2048]` projection per view and
 retains a `[K,N_active,2048]` source-dtype tensor. `chunk_size` bounds only
-FP32 scoring and fusion temporaries, not that retained tensor. For `K=4` bf16
-features, retained sparse feature memory is 128 MiB at 8,192 active tokens and
-512 MiB at 32,768 active tokens, excluding diagnostics, model state,
-transient dense projection, and allocator overhead.
+FP32 scoring and fusion temporaries, not that retained tensor. Retained sparse
+bytes scale as `K * N_active * C * bytes_per_element`. For K=4, C=2048, and
+bf16, this is 128 MiB at 8,192 tokens, 512 MiB at 32,768, and 768 MiB at the
+configured 49,152-token threshold. The threshold is not a hard ceiling: at
+the forced 1024 fallback the count can remain higher, up to the R=64 lattice
+bound of 262,144 tokens and 4 GiB of retained sparse state. Separately, the
+one-view-at-a-time transient dense R=64 projection is 1 GiB. All figures
+exclude diagnostics, model state, temporary FP32 buffers, and allocator
+overhead. They apply to the 1024 cascade, not the unsupported R=96/1536 path.
 
 ## Feature and Weight Definitions
 
@@ -608,7 +626,7 @@ PYTHONPATH=/tmp/pixal3d-flex-gemm-stub.gIVSQA${PYTHONPATH:+:$PYTHONPATH} \
   tests/multiview/test_inference_manifest.py -v
 ```
 
-Result: 87 passed, 0 skipped, no warnings, in 3.70s.
+Result after final review fixes: 93 passed, 0 skipped, no warnings, in 4.57s.
 
 Full CPU regression:
 
@@ -617,8 +635,8 @@ CUDA_VISIBLE_DEVICES='' \
   conda run -n pixal3d python -m pytest tests/multiview -q
 ```
 
-Result: 800 passed, 32 skipped, and 6 identical `wandb`
-`DeprecationWarning`s in 58.49s.
+Result after final review fixes: 806 passed, 32 skipped, and 6 identical
+`wandb` `DeprecationWarning`s in 58.40s.
 
 The successful no-driver run used an external import-only `flex_gemm` stub at
 `/tmp/pixal3d-flex-gemm-stub.gIVSQA`; a temporary `.pth` outside the repository
@@ -626,11 +644,15 @@ made it visible to child collection processes. The repository-pinned
 `wandb==0.26.1` dependency was installed into the `pixal3d` conda environment.
 Neither environment adjustment is a production-code change.
 
-The focused suite proves that the CLI is opt-in, explicit sparse-first mean
-matches the original default dense mean, `alpha=0` exactly recovers mean,
+The focused suite proves that the CLI is opt-in and that explicit sparse-first
+mean is bitwise equal to the production `_online_mean_tensor_groups` reference
+for nontrivial synthetic bf16 per-view values with active-coordinate gathering
+and a grid-resolution override. It also proves `alpha=0` exactly recovers mean,
 projection subset geometry matches the full grid, invalid and non-finite
-weights fall back safely, and the conditioner adds no trainable parameter.
-These are CPU interface/numerical regressions, not checkpoint or 3D evidence.
+weights fall back safely, consensus diagnostic weights do not change when an
+oracle mask is supplied, and the conditioner adds no trainable parameter.
+These are CPU synthetic interface/numerical regressions, not real DINO/GPU,
+checkpoint, or 3D evidence.
 
 ## Success and Stop Criteria
 

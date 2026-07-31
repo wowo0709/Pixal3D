@@ -39,6 +39,14 @@ residual consensus, or programmatic oracle routing for Shape-512, Shape-1024,
 and PBR-1024. SS-64, training, denoisers, ProjectAttention modules, state-dict
 keys, and trainable parameters are unchanged.
 
+The prototype is deliberately restricted to `pipeline_type="1024_cascade"`.
+When aggregation is enabled and the CLI resolution is omitted, inference
+selects that cascade; an explicit 1536 request is rejected. The ordinary
+defaults remain unchanged when aggregation is omitted: 1024 under
+`--low_vram`, otherwise 1536. The R=96/1536 path is intentionally unsupported,
+is not covered by the memory budget below, and requires a later measured
+memory study.
+
 The existing `_forward_multiview` arithmetic-mean implementation remains the
 default and the reference regression path. The implementation is CPU-regression
 verified, but no multi-view checkpoint-dependent 3D experiment, GPU validation,
@@ -284,6 +292,13 @@ diagnostics mapping receives `scores`, `weights`, `projected_corruption`,
 `pixel_xy`, `depth`, `valid_mask`, and `coords`. Oracle masks are diagnostic in
 consensus mode and affect weights only in `mode="oracle"`.
 
+Each programmatic oracle mask tensor has shape `[K,1,H,W]` and must have the
+same view order and already-preprocessed coordinate frame as the supplied
+images. The pipeline only resizes masks to conditioner resolution; it does not
+reproduce image preprocessing for masks. Therefore `oracle_masks` with
+`preprocess_image=True` fails closed. Callers must align image/mask pairs and
+pass `preprocess_image=False`.
+
 ## Memory Audit
 
 The following table counts only a bf16 projected feature buffer:
@@ -296,6 +311,7 @@ The following table counts only a bf16 projected feature buffer:
 | four dense 64-grid views | `[1,4,64^3,2048]` | 4 GiB |
 | four sparse 8,192-token views | `[4,8192,2048]` | 128 MiB |
 | four sparse 32,768-token views | `[4,32768,2048]` | 512 MiB |
+| four sparse 49,152-token views | `[4,49152,2048]` | 768 MiB |
 
 These figures exclude DINO, NAF, temporary FP32 normalization/accumulation,
 global tokens, the flow denoiser, and allocator fragmentation. The current
@@ -308,8 +324,16 @@ dtype, plus per-view global tokens and `[K,N_active]` diagnostic weights
 `[1,R^3,C]` dense projection at a time. `chunk_size=4096` bounds the FP32
 normalization, scoring, weighting, and fusion temporaries inside
 `aggregate_projected_features`; it does not chunk or reduce the retained
-`[K,N_active,C]` tensor. Thus the bf16 retained sparse feature state is
-128 MiB for `[4,8192,2048]` and 512 MiB for `[4,32768,2048]`.
+`[K,N_active,C]` tensor. Retained sparse bytes scale linearly as
+`K * N_active * C * bytes_per_element`: with K=4, C=2048, and bf16 they are
+128 MiB at 8,192 tokens, 512 MiB at 32,768 tokens, and 768 MiB at the
+configured 49,152-token threshold. That threshold is not a hard ceiling: the
+1024 fallback stops reducing resolution even when the count remains above it,
+so the R=64 lattice bound can reach 262,144 active tokens and 4 GiB of retained
+sparse state. This is distinct from the one-view-at-a-time transient dense
+R=64 projection, which is 1 GiB. These figures assume the 1024 cascade. They
+do not cover R=96/1536, which this prototype rejects pending a measured memory
+study.
 
 ## Candidate Integration Points
 
@@ -431,6 +455,7 @@ The CLI defaults are exact:
 | `--projection_stages` | `shape512,shape1024,pbr1024` | parsed only when aggregation is enabled |
 | `--projection_alpha` | `0.5` | residual-to-uniform coefficient |
 | `--projection_temperature` | `0.1` | consensus softmax temperature |
+| `--resolution` | 1024 with aggregation; otherwise existing default | aggregation is rejected for an explicit 1536 cascade |
 
 Oracle routing and `global_mode="projection_weights"` are programmatic
 interfaces, not CLI choices. CLI-created configs retain the dataclass defaults
@@ -468,7 +493,8 @@ PYTHONPATH=/tmp/pixal3d-flex-gemm-stub.gIVSQA${PYTHONPATH:+:$PYTHONPATH} \
   tests/multiview/test_inference_manifest.py -v
 ```
 
-Result: `87 passed` in 3.70s, with 0 skipped tests and no warnings.
+Result after final review fixes: `93 passed` in 4.57s, with 0 skipped
+tests and no warnings.
 
 Full multi-view CPU regression:
 
@@ -477,7 +503,8 @@ CUDA_VISIBLE_DEVICES='' \
   conda run -n pixal3d python -m pytest tests/multiview -q
 ```
 
-Result: `800 passed, 32 skipped, 6 warnings` in 58.49s. All six warnings
+Result after final review fixes: `806 passed, 32 skipped, 6 warnings` in
+58.40s. All six warnings
 were the same `wandb` `DeprecationWarning`; there were no failures.
 The conda environment was missing its repository-pinned `wandb==0.26.1`, so
 that dependency was installed before the successful run.
@@ -494,12 +521,19 @@ The focused results include:
 - `test_projection_aggregation_cli_is_opt_in`, proving omission retains the
   default path;
 - `test_sparse_first_explicit_mean_matches_default_dense_mean`, proving
-  explicit sparse-first mean matches default dense mean;
+  bitwise equality against the production `_online_mean_tensor_groups`
+  reference for nontrivial synthetic bf16 per-view values, active-coordinate
+  gathering, and a grid-resolution override;
 - exact `alpha=0` mean recovery for consensus and oracle;
 - `K=1`, repeated-view, permutation, dtype, gradient, non-finite, oracle, and
   outlier-routing coverage;
 - indexed projection geometry equivalence; and
 - `test_multiview_conditioner_adds_no_trainable_parameter`.
+
+This exact-mean regression is CPU synthetic numerical evidence. It does not
+claim bitwise equivalence for real DINO/NAF features on GPU. Consensus
+diagnostic weights are also asserted unchanged when an oracle mask is
+supplied, proving diagnostic-only masks do not leak into consensus routing.
 
 Source hygiene also passed: `git diff --check` produced no output,
 `git status --short` was empty before documentation edits, and `rg` found

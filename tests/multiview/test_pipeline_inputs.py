@@ -14,6 +14,7 @@ from pixal3d.pipelines.projection_aggregation import (
 )
 from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
     ProjGrid,
+    _online_mean_tensor_groups,
 )
 
 
@@ -206,6 +207,40 @@ def test_run_routes_stage_aggregation_without_intervening_in_ss():
         assert calls[stage]["aggregation_config"] is config
 
 
+def test_run_rejects_projection_aggregation_for_1536_cascade_before_models():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline.default_pipeline_type = "1536_cascade"
+
+    with pytest.raises(ValueError, match="1024_cascade"):
+        pipeline.run(
+            image("red"),
+            {"camera_angle_x": 0.7, "distance": 2.5, "mesh_scale": 1.0},
+            preprocess_image=False,
+            projection_aggregation={
+                "shape512": ProjectionAggregationConfig(mode="mean")
+            },
+        )
+
+
+def test_run_rejects_oracle_masks_with_preprocessing_before_model_work():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline.default_pipeline_type = "1024_cascade"
+    pipeline.preprocess_image = lambda _: pytest.fail(
+        "image preprocessing must not run"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="aligned image/mask pairs.*preprocess_image=False",
+    ):
+        pipeline.run(
+            image("red"),
+            {"camera_angle_x": 0.7, "distance": 2.5, "mesh_scale": 1.0},
+            preprocess_image=True,
+            oracle_masks=torch.zeros(1, 1, 8, 8),
+        )
+
+
 class RecordingConditioner(torch.nn.Module):
     def __init__(self, image_size=8, grid_resolution=2):
         super().__init__()
@@ -245,12 +280,8 @@ class RecordingConditioner(torch.nn.Module):
                 ),
             }
         )
-        groups = list(self.iter_view_features(image, **camera))
-        return tuple(
-            torch.stack([group[index] for group in groups])
-            .float()
-            .mean(dim=0)
-            for index in range(2)
+        return _online_mean_tensor_groups(
+            self.iter_view_features(image, **camera)
         )
 
 
@@ -315,10 +346,28 @@ def test_sparse_first_explicit_mean_matches_default_dense_mean():
     pipeline = Pixal3DImageTo3DPipeline()
     pipeline._device = "cpu"
     pipeline.low_vram = False
-    conditioner = RecordingConditioner(grid_resolution=2)
+    class NontrivialBfloat16Conditioner(RecordingConditioner):
+        def iter_view_features(self, image, **camera):
+            num_views = image.shape[1] if image.ndim == 5 else 1
+            token_count = self.grid_resolution ** 3
+            for view_index in range(num_views):
+                global_features = (
+                    torch.arange(20, device=image.device).reshape(1, 5, 4)
+                    + 0.375 * view_index
+                ).to(torch.bfloat16)
+                projected_features = (
+                    torch.arange(
+                        token_count * 4, device=image.device
+                    ).reshape(1, token_count, 4)
+                    * 0.125
+                    + 0.375 * view_index
+                ).to(torch.bfloat16)
+                yield global_features, projected_features
+
+    conditioner = NontrivialBfloat16Conditioner(grid_resolution=2)
     images = [image("red"), image("blue")]
     coords = torch.tensor(
-        [[0, 0, 0, 0], [0, 1, 1, 1]], dtype=torch.int32
+        [[0, 0, 1, 2], [0, 2, 0, 1]], dtype=torch.int32
     )
     transforms = torch.eye(4).repeat(1, 2, 1, 1)
     cameras = {
@@ -329,23 +378,30 @@ def test_sparse_first_explicit_mean_matches_default_dense_mean():
     }
 
     default = pipeline.get_proj_cond_shape(
-        conditioner, images, coords, **cameras
+        conditioner,
+        images,
+        coords,
+        grid_resolution_override=3,
+        **cameras,
     )
     experimental = pipeline.get_proj_cond_shape(
         conditioner,
         images,
         coords,
+        grid_resolution_override=3,
         aggregation_config=ProjectionAggregationConfig(mode="mean"),
         **cameras,
     )
 
-    torch.testing.assert_close(
+    assert torch.equal(
         experimental["cond"]["global"], default["cond"]["global"]
     )
-    torch.testing.assert_close(
+    assert torch.equal(
         experimental["cond"]["proj"].feats,
         default["cond"]["proj"].feats,
     )
+    assert experimental["cond"]["global"].dtype == torch.bfloat16
+    assert experimental["cond"]["proj"].feats.dtype == torch.bfloat16
     assert experimental["cond"]["proj"].feats.shape == (2, 4)
     assert torch.equal(
         experimental["neg_cond"]["proj"].coords,
@@ -451,13 +507,14 @@ def test_consensus_oracle_mask_is_diagnostic_only():
     config = ProjectionAggregationConfig(
         mode="consensus", alpha=1.0, temperature=0.1
     )
+    diagnostics_without_mask = {}
     without_mask = pipeline.get_proj_cond_shape(
         conditioner,
         images,
         coords,
         aggregation_config=config,
         oracle_masks=None,
-        diagnostics={},
+        diagnostics=diagnostics_without_mask,
         **cameras,
     )
     diagnostics = {}
@@ -473,6 +530,12 @@ def test_consensus_oracle_mask_is_diagnostic_only():
     torch.testing.assert_close(
         with_mask["cond"]["proj"].feats,
         without_mask["cond"]["proj"].feats,
+    )
+    torch.testing.assert_close(
+        diagnostics["weights"],
+        diagnostics_without_mask["weights"],
+        rtol=0,
+        atol=0,
     )
     assert diagnostics["projected_corruption"].shape == (
         len(images), coords.shape[0]

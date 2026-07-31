@@ -417,7 +417,14 @@ def run_inference(
         "guidance_rescale": tex_slat_guidance_rescale, "rescale_t": tex_slat_rescale_t,
     }
 
-    pipeline_type = f"{resolution if resolution > 0 else (1024 if low_vram else 1536)}_cascade"
+    default_resolution = (
+        1024
+        if low_vram or projection_aggregation is not None
+        else 1536
+    )
+    pipeline_type = (
+        f"{resolution if resolution > 0 else default_resolution}_cascade"
+    )
     print(f"[Inference] Using pipeline_type={pipeline_type}")
     mesh_list, (shape_slat, tex_slat, res) = pipeline.run(
         image_preprocessed,
@@ -506,7 +513,10 @@ def build_parser():
                         help="Enable low-VRAM mode: models stay on CPU and are loaded to GPU on-demand per stage. "
                              "Reduces peak VRAM from ~18GB to ~10-12GB at the cost of slower inference.")
     parser.add_argument("--resolution", type=int, default=-1,
-                        help="Pipeline resolution (1024 or 1536). Default: 1024 if --low_vram, else 1536.")
+                        help="Pipeline resolution (1024 or 1536). Default: 1024 "
+                             "with --low_vram or --projection_aggregation, "
+                             "otherwise 1536. Projection aggregation supports "
+                             "only 1024.")
     parser.add_argument("--ss_ckpt")
     parser.add_argument("--shape512_ckpt")
     parser.add_argument("--shape1024_ckpt")
@@ -516,6 +526,8 @@ def build_parser():
         "--projection_aggregation",
         choices=("mean", "consensus"),
         default=None,
+        help="Experimental correspondence aggregation for the 1024 cascade "
+             "only; R=96/1536 is unsupported.",
     )
     parser.add_argument(
         "--projection_stages",

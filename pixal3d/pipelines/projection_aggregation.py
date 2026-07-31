@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -21,8 +22,8 @@ class ProjectionAggregationConfig:
             raise ValueError("mode must be mean, consensus, or oracle")
         if not 0.0 <= self.alpha <= 1.0:
             raise ValueError("alpha must be in [0, 1]")
-        if self.temperature <= 0.0:
-            raise ValueError("temperature must be positive")
+        if not math.isfinite(self.temperature) or self.temperature <= 0.0:
+            raise ValueError("temperature must be finite and positive")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
         if self.global_mode not in {"mean", "projection_weights"}:

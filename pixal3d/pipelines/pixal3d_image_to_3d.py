@@ -992,9 +992,26 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             return_latent (bool): Whether to return the latent codes.
             pipeline_type (str): The type of the pipeline. Options: '1024_cascade', '1536_cascade'.
             max_num_tokens (int): The maximum number of tokens to use.
+            projection_aggregation: Optional experimental stage configurations;
+                supported only with the 1024 cascade.
+            oracle_masks: Optional `[K,1,H,W]` masks aligned with the supplied
+                preprocessed images. Requires `preprocess_image=False`.
         """
         # Check pipeline type
         pipeline_type = pipeline_type or self.default_pipeline_type
+        if (
+            projection_aggregation is not None
+            and pipeline_type != "1024_cascade"
+        ):
+            raise ValueError(
+                "projection aggregation is supported only for "
+                "pipeline_type='1024_cascade'"
+            )
+        if oracle_masks is not None and preprocess_image:
+            raise ValueError(
+                "oracle_masks require already aligned image/mask pairs; "
+                "provide them with preprocess_image=False"
+            )
         if pipeline_type == '1024_cascade':
             assert 'shape_slat_flow_model_512' in self.models, "No 512 resolution shape SLat flow model found."
             assert 'shape_slat_flow_model_1024' in self.models, "No 1024 resolution shape SLat flow model found."
