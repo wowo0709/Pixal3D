@@ -19,7 +19,7 @@ class ConditionerHarness(DinoV3ProjFeatureExtractor):
             [0.0, 0.0, 0.0, 1.0],
         ]))
         self.multiview_aggregation = None
-        self.last_multiview_aggregation_diagnostics = None
+        self._last_multiview_aggregation_diagnostics = None
         self.single_view_calls = 0
 
     @property
@@ -222,7 +222,7 @@ def test_aggregation_exact_bypass_preserves_lazy_stream_and_clears_diagnostics(
     )
     model = ConditionerHarness()
     model.multiview_aggregation = policy
-    model.last_multiview_aggregation_diagnostics = object()
+    model._last_multiview_aggregation_diagnostics = object()
 
     actual = model(
         torch.zeros(1, num_views, 3, 2, 2),
@@ -271,6 +271,26 @@ def test_configured_consensus_favors_agreeing_projections_without_model_state():
     assert torch.all(diagnostics.weights[0, 3] < diagnostics.weights[0, 0])
     assert set(model.state_dict()) == state_keys_before
     assert [parameter for parameter in model.parameters() if parameter.requires_grad] == trainable_before
+
+
+def test_aggregation_diagnostics_is_read_only():
+    """Catches callers replacing the latest conditioner diagnostics."""
+    model = ConsensusConditionerHarness()
+    model.multiview_aggregation = {
+        "mode": "consensus",
+        "alpha": 1.0,
+        "temperature": 0.2,
+        "chunk_size": 1,
+        "cache_device": "cpu",
+    }
+
+    model(torch.tensor([1.0, 1.0, 1.0, -1.0]).reshape(1, 4, 1, 1, 1), **cameras(4))
+    diagnostics = model.last_multiview_aggregation_diagnostics
+
+    assert diagnostics is not None
+    with pytest.raises(AttributeError):
+        model.last_multiview_aggregation_diagnostics = object()
+    assert model.last_multiview_aggregation_diagnostics is diagnostics
 
 
 @pytest.mark.parametrize("key", ["camera_angle_x", "distance", "transform_matrix"])

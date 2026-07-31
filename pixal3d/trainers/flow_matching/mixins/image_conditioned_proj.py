@@ -500,7 +500,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         self.multiview_aggregation = (
             None if multiview_aggregation is None else dict(multiview_aggregation)
         )
-        self.last_multiview_aggregation_diagnostics: Optional[
+        self._last_multiview_aggregation_diagnostics: Optional[
             ProjectionAggregationDiagnostics
         ] = None
         if naf_target_size is None:
@@ -540,6 +540,12 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         self.proj_channels = self.embed_dim * 2 if use_naf_upsample else self.embed_dim
         
         # NOTE: proj_linear removed — now lives in each denoiser block's ProjectAttention
+
+    @property
+    def last_multiview_aggregation_diagnostics(
+        self,
+    ) -> Optional[ProjectionAggregationDiagnostics]:
+        return self._last_multiview_aggregation_diagnostics
 
     def _parse_multiview_aggregation_policy(self):
         policy = self.multiview_aggregation
@@ -776,7 +782,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             or aggregation_settings["alpha"] == 0.0
             or num_views == 1
         ):
-            self.last_multiview_aggregation_diagnostics = None
+            self._last_multiview_aggregation_diagnostics = None
             view_features = (
                 self._forward_single_view(
                     image[:, view_index],
@@ -814,7 +820,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         z_global, = _online_mean_tensor_groups(
             (global_feature,) for global_feature in global_features
         )
-        self.last_multiview_aggregation_diagnostics = ProjectionAggregationDiagnostics(
+        self._last_multiview_aggregation_diagnostics = ProjectionAggregationDiagnostics(
             scores=diagnostics.scores.detach().cpu(),
             weights=diagnostics.weights.detach().cpu(),
             entropy=diagnostics.entropy.detach().cpu(),
