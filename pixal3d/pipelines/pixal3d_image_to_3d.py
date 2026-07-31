@@ -14,6 +14,10 @@ from .projection_aggregation import (
 from ..modules.sparse import SparseTensor
 from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
+from ..trainers.flow_matching.mixins.image_conditioned_proj import (
+    compute_multiview_projection_matrices,
+    sample_features,
+)
 
 
 def normalize_calibrated_views(image, camera_params):
@@ -471,6 +475,51 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             flat_indices = _flat_sparse_indices(
                 coords, image_cond_model.grid_resolution
             )
+            projected_corruption = None
+            pixel_xy = None
+            depth = None
+            valid_mask = None
+            if oracle_masks is None:
+                if aggregation_config.mode == "oracle":
+                    raise ValueError("oracle mode requires oracle_masks")
+            else:
+                projection = None
+                if transform_matrix is not None:
+                    projection, _ = compute_multiview_projection_matrices(
+                        transform_matrix,
+                        distance,
+                        image_cond_model.fixed_projection_transform,
+                    )
+                    projection = projection.reshape(num_views, 4, 4)
+                pixel_xy, depth, valid_mask, ndc_xy = (
+                    image_cond_model.proj_grid.project_grid_points(
+                        camera_angle_x.reshape(-1),
+                        distance.reshape(-1),
+                        mesh_scale.expand(num_views),
+                        projection,
+                        point_indices=flat_indices,
+                    )
+                )
+                masks = oracle_masks.to(device=device, dtype=torch.float32)
+                if masks.ndim != 4 or masks.shape[:2] != (num_views, 1):
+                    raise ValueError(
+                        "oracle_masks must have shape [K, 1, H, W]"
+                    )
+                target_resolution = (
+                    image_cond_model.proj_grid.image_resolution,
+                    image_cond_model.proj_grid.image_resolution,
+                )
+                if masks.shape[-2:] != target_resolution:
+                    masks = torch.nn.functional.interpolate(
+                        masks,
+                        size=target_resolution,
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                projected_corruption = sample_features(
+                    masks, ndc_xy
+                ).squeeze(1)
+
             view_global = []
             per_view_sparse = None
             for view_index, (global_features, dense_features) in enumerate(
@@ -504,7 +553,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
                 aggregate_projected_features(
                     per_view_sparse,
                     aggregation_config,
-                    projected_corruption=None,
+                    projected_corruption=(
+                        projected_corruption
+                        if aggregation_config.mode == "oracle"
+                        else None
+                    ),
                 )
             )
             fused_global = aggregate_global_features(
@@ -528,8 +581,19 @@ class Pixal3DImageTo3DPipeline(Pipeline):
                     "weights": aggregation_diagnostics.weights.detach().cpu(),
                     "projected_corruption": (
                         None
-                        if aggregation_diagnostics.projected_corruption is None
-                        else aggregation_diagnostics.projected_corruption.detach().cpu()
+                        if projected_corruption is None
+                        else projected_corruption.detach().cpu()
+                    ),
+                    "pixel_xy": (
+                        None if pixel_xy is None else pixel_xy.detach().cpu()
+                    ),
+                    "depth": (
+                        None if depth is None else depth.detach().cpu()
+                    ),
+                    "valid_mask": (
+                        None
+                        if valid_mask is None
+                        else valid_mask.detach().cpu()
                     ),
                     "coords": coords.detach().cpu(),
                 }

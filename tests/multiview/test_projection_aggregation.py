@@ -138,6 +138,30 @@ def test_all_zero_oracle_reliability_falls_back_to_uniform_weights():
     )
 
 
+def test_oracle_routing_rejects_corrupted_view_and_falls_back_if_all_corrupt():
+    features = torch.tensor([[[1.0, 1.0]], [[9.0, 9.0]]])
+    masks = torch.tensor([[0.0], [1.0]])
+    fused, diagnostics = aggregate_projected_features(
+        features,
+        ProjectionAggregationConfig(mode="oracle", alpha=1.0),
+        projected_corruption=masks,
+    )
+    torch.testing.assert_close(fused, torch.tensor([[1.0, 1.0]]))
+    torch.testing.assert_close(
+        diagnostics.weights[:, 0], torch.tensor([1.0, 0.0])
+    )
+
+    all_corrupt, diagnostics = aggregate_projected_features(
+        features,
+        ProjectionAggregationConfig(mode="oracle", alpha=1.0),
+        projected_corruption=torch.ones(2, 1),
+    )
+    torch.testing.assert_close(all_corrupt, torch.tensor([[5.0, 5.0]]))
+    torch.testing.assert_close(
+        diagnostics.weights[:, 0], torch.tensor([0.5, 0.5])
+    )
+
+
 @pytest.mark.parametrize(
     "corruption",
     [

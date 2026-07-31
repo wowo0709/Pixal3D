@@ -281,3 +281,124 @@ def test_sparse_first_restores_grid_override_after_iterator_error():
         )
     assert conditioner.grid_resolution == 2
     assert conditioner.proj_grid.grid_resolution == 2
+
+
+def test_oracle_mask_uses_same_active_projection_coordinates(monkeypatch):
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    masks = torch.zeros(2, 1, 8, 8)
+    masks[1, :, 4:, 4:] = 1.0
+    diagnostics = {}
+    transforms = torch.eye(4).repeat(1, 2, 1, 1)
+
+    pipeline.get_proj_cond_shape(
+        conditioner,
+        [image("red"), image("blue")],
+        coords,
+        camera_angle_x=torch.tensor([[0.7, 0.7]]),
+        distance=torch.tensor([[2.5, 2.5]]),
+        mesh_scale=torch.tensor([1.0]),
+        transform_matrix=transforms,
+        aggregation_config=ProjectionAggregationConfig(
+            mode="oracle", alpha=1.0
+        ),
+        oracle_masks=masks,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["projected_corruption"].shape == (2, 1)
+    assert diagnostics["pixel_xy"].shape == (2, 1, 2)
+    assert diagnostics["depth"].shape == (2, 1)
+    assert diagnostics["valid_mask"].shape == (2, 1)
+
+
+def test_consensus_oracle_mask_is_diagnostic_only():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    images = [image("red"), image("blue")]
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    cameras = {
+        "camera_angle_x": torch.tensor([[0.7, 0.7]]),
+        "distance": torch.tensor([[2.5, 2.5]]),
+        "mesh_scale": torch.tensor([1.0]),
+        "transform_matrix": torch.eye(4).repeat(1, 2, 1, 1),
+    }
+    masks = torch.zeros(2, 1, 8, 8)
+    masks[1, :, 4:, 4:] = 1.0
+    config = ProjectionAggregationConfig(
+        mode="consensus", alpha=1.0, temperature=0.1
+    )
+    without_mask = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        aggregation_config=config,
+        oracle_masks=None,
+        diagnostics={},
+        **cameras,
+    )
+    diagnostics = {}
+    with_mask = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        aggregation_config=config,
+        oracle_masks=masks,
+        diagnostics=diagnostics,
+        **cameras,
+    )
+    torch.testing.assert_close(
+        with_mask["cond"]["proj"].feats,
+        without_mask["cond"]["proj"].feats,
+    )
+    assert diagnostics["projected_corruption"].shape == (
+        len(images), coords.shape[0]
+    )
+
+
+def test_uncalibrated_single_view_projects_oracle_mask():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    diagnostics = {}
+
+    pipeline.get_proj_cond_shape(
+        conditioner,
+        [image("red")],
+        coords,
+        camera_angle_x=torch.tensor([[0.7]]),
+        distance=torch.tensor([[2.5]]),
+        mesh_scale=torch.tensor([1.0]),
+        transform_matrix=None,
+        aggregation_config=ProjectionAggregationConfig(
+            mode="oracle", alpha=1.0
+        ),
+        oracle_masks=torch.zeros(1, 1, 8, 8),
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["projected_corruption"].shape == (1, 1)
+    assert diagnostics["pixel_xy"].shape == (1, 1, 2)
+
+
+def test_oracle_mode_requires_oracle_masks():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+
+    with pytest.raises(ValueError, match="oracle mode requires oracle_masks"):
+        pipeline.get_proj_cond_shape(
+            conditioner,
+            [image("red")],
+            coords,
+            aggregation_config=ProjectionAggregationConfig(mode="oracle"),
+        )
