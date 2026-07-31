@@ -13,6 +13,7 @@ import shutil
 import tempfile
 from typing import Iterable, Sequence
 
+import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
@@ -94,6 +95,24 @@ def _tensor_image(
         raise ValueError("corrupted image values must be finite and in [0,1]")
     pixels = image.mul(255).round().to(dtype=torch.uint8).permute(1, 2, 0).numpy()
     return Image.fromarray(pixels, mode="RGB")
+
+
+def _saved_png_oracle_mask(
+    source: Image.Image,
+    corrupted: Image.Image,
+    reported_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Keep only reported pixels that still exceed the saved PNG threshold."""
+    expected_size = source.size
+    _mask_image(reported_mask, expected_size=expected_size)
+    source_pixels = torch.from_numpy(
+        np.asarray(source.convert("RGB"), dtype=np.int16).copy()
+    )
+    corrupted_pixels = torch.from_numpy(
+        np.asarray(corrupted.convert("RGB"), dtype=np.int16).copy()
+    )
+    saved_change = (corrupted_pixels - source_pixels).abs().amax(dim=2).gt(1)
+    return reported_mask & saved_change
 
 
 def _artifact(path: str, payload: bytes) -> dict[str, str]:
@@ -248,6 +267,7 @@ def _request_payload(
     if [item.arm for item in ordered] != ["c1", "c2", "c3"]:
         raise ValueError("completed bundles require exactly one c1, c2, and c3 arm")
     corruption_records = []
+    serialized_corruptions = []
     for entry in ordered:
         if not 0 <= entry.view_index < len(views):
             raise ValueError("corruption view_index is outside the calibrated views")
@@ -260,11 +280,15 @@ def _request_payload(
         oracle_path = (
             f"corruptions/{entry.arm}/view_{entry.view_index:02d}/oracle_mask.png"
         )
-        image_bytes = _png_bytes(
-            _tensor_image(entry.corruption.image, expected_size=view.image.size)
+        image = _tensor_image(
+            entry.corruption.image, expected_size=view.image.size
         )
+        saved_oracle = _saved_png_oracle_mask(
+            view.image, image, entry.corruption.oracle_mask
+        )
+        image_bytes = _png_bytes(image)
         oracle_bytes = _png_bytes(
-            _mask_image(entry.corruption.oracle_mask, expected_size=view.image.size)
+            _mask_image(saved_oracle, expected_size=view.image.size)
         )
         files[image_path] = image_bytes
         files[oracle_path] = oracle_bytes
@@ -278,9 +302,21 @@ def _request_payload(
                 "oracle_mask": _artifact(oracle_path, oracle_bytes),
             }
         )
+        serialized_corruptions.append(
+            BundleCorruption(
+                arm=entry.arm,
+                view_index=entry.view_index,
+                corruption=ControlledCorruption(
+                    image=entry.corruption.image,
+                    oracle_mask=saved_oracle,
+                    kind=entry.corruption.kind,
+                    parameters=entry.corruption.parameters,
+                ),
+            )
+        )
 
     contact_bytes = _png_bytes(
-        _render_contact_sheet(views, foreground_masks, ordered)
+        _render_contact_sheet(views, foreground_masks, serialized_corruptions)
     )
     files["contact_sheet.png"] = contact_bytes
     manifest = {

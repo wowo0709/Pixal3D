@@ -181,6 +181,44 @@ def test_bundle_resume_validates_identical_complete_run_without_rewriting(tmp_pa
     assert after == before
 
 
+def test_bundle_oracle_mask_uses_saved_png_change_threshold(tmp_path):
+    views, masks = _views_and_masks(tmp_path)
+    one_quantization_step = torch.tensor(
+        (59 / 255, 69 / 255, 79 / 255), dtype=torch.float32
+    ).view(3, 1, 1)
+    oracle = torch.zeros((12, 16), dtype=torch.bool)
+    oracle[4:8, 6:11] = True
+    corruptions = [
+        BundleCorruption(
+            arm=entry.arm,
+            view_index=1,
+            corruption=ControlledCorruption(
+                image=one_quantization_step.expand(3, 12, 16).clone(),
+                oracle_mask=oracle,
+                kind=entry.corruption.kind,
+                parameters=entry.corruption.parameters,
+            ),
+        )
+        for entry in _corruptions()
+    ]
+
+    run_dir = write_artifact_bundle(
+        tmp_path / "bundles",
+        "quantization-threshold",
+        views,
+        masks,
+        corruptions,
+        seed=42,
+        mesh_scale=1.0,
+    )
+
+    for arm in ("c1", "c2", "c3"):
+        saved_mask = Image.open(
+            run_dir / f"corruptions/{arm}/view_01/oracle_mask.png"
+        ).convert("L")
+        assert saved_mask.getbbox() is None
+
+
 def test_bundle_refuses_hash_mismatched_complete_run_without_overwriting(tmp_path):
     views, masks = _views_and_masks(tmp_path)
     arguments = (tmp_path / "bundles", "case-001", views, masks, _corruptions())
