@@ -125,6 +125,40 @@ def test_nonfinite_consensus_scores_fall_back_to_uniform_weights():
     )
 
 
+def test_all_zero_oracle_reliability_falls_back_to_uniform_weights():
+    features = torch.ones(3, 2, 4)
+    corruption = torch.ones(3, 2)
+    _, diagnostics = aggregate_projected_features(
+        features,
+        ProjectionAggregationConfig(mode="oracle", alpha=1.0),
+        projected_corruption=corruption,
+    )
+    torch.testing.assert_close(
+        diagnostics.weights, torch.full((3, 2), 1.0 / 3.0)
+    )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        torch.tensor([[float("inf")], [0.0], [0.0]]),
+        torch.tensor([[float("-inf")], [0.0], [0.0]]),
+        torch.tensor([[float("inf")], [float("-inf")], [float("nan")]]),
+    ],
+    ids=["positive-infinity", "negative-infinity", "mixed-nonfinite"],
+)
+def test_nonfinite_oracle_confidence_falls_back_to_uniform_weights(corruption):
+    features = torch.ones(3, 1, 4)
+    _, diagnostics = aggregate_projected_features(
+        features,
+        ProjectionAggregationConfig(mode="oracle", alpha=1.0),
+        projected_corruption=corruption,
+    )
+    torch.testing.assert_close(
+        diagnostics.weights, torch.full((3, 1), 1.0 / 3.0)
+    )
+
+
 def test_global_features_default_to_fp32_arithmetic_mean():
     features = torch.arange(4 * 5 * 6).reshape(4, 5, 6).to(torch.bfloat16)
     weights = torch.tensor(

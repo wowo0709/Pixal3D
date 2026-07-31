@@ -117,12 +117,15 @@ def aggregate_projected_features(
             routing = torch.where(finite, routing, uniform)
             weights = _residual_weights(routing, config.alpha)
         else:
-            reliability = (
-                1.0 - projected_corruption[:, start:stop].float()
+            corruption = projected_corruption[:, start:stop].float()
+            finite_corruption = torch.isfinite(corruption)
+            reliability = torch.where(
+                finite_corruption, 1.0 - corruption, torch.zeros_like(corruption)
             ).clamp(0.0, 1.0)
             denominator = reliability.sum(dim=0, keepdim=True)
             routing = reliability / denominator.clamp_min(1e-6)
-            routing = torch.where(denominator > 0, routing, uniform)
+            valid = finite_corruption.all(dim=0, keepdim=True) & (denominator > 0)
+            routing = torch.where(valid, routing, uniform)
             weights = _residual_weights(routing, config.alpha)
         fused = (
             chunk.float().mean(dim=0)
