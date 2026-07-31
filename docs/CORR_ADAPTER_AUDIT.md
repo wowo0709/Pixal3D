@@ -1,14 +1,15 @@
 # CorrAdapter-Style Multi-View Conditioning Audit
 
 **Date:** 2026-07-31
-**Pixal3D source:** `feature/multiview-correspondence-node11` at `3ff6fca5`
+**Pixal3D source:** `feature/multiview-correspondence-node11`, implementation
+reviewed through `9f2388d`
 **CorrAdapter source:** `/root/dev/CorrAdapter` at `a269d22`
 **Scope:** Inference-time correspondence-aware aggregation for the
 Shape-512, Shape-1024, and PBR-1024 stages of multi-view Pixal3D
 
 ## Executive Summary
 
-The current multi-view Pixal3D conditioner processes each calibrated view
+The default multi-view Pixal3D conditioner processes each calibrated view
 through the unchanged single-view DINOv3/NAF projection path and then computes
 an arithmetic mean of both global tokens and projected features. The mean is
 performed in
@@ -32,8 +33,16 @@ therefore adds an inference-only sparse-first aggregation path:
 5. return the unchanged `{"global": ..., "proj": SparseTensor(...)}` denoiser
    contract.
 
+The implemented inference prototype adds the selected sparse-first path without
+changing that default. `ProjectionAggregationConfig` enables explicit mean,
+residual consensus, or programmatic oracle routing for Shape-512, Shape-1024,
+and PBR-1024. SS-64, training, denoisers, ProjectAttention modules, state-dict
+keys, and trainable parameters are unchanged.
+
 The existing `_forward_multiview` arithmetic-mean implementation remains the
-default and the reference regression path.
+default and the reference regression path. The implementation is CPU-regression
+verified, but no multi-view checkpoint-dependent 3D experiment, GPU validation,
+or 3D result has been run.
 
 CorrAdapter itself does not aggregate pre-denoiser DINO projection volumes.
 Its released implementations add a bypass branch inside selected diffusion
@@ -241,12 +250,20 @@ SS-64 is excluded from correspondence interventions.
 
 ### Inference sparse selection
 
-`Pixal3DImageTo3DPipeline.get_proj_cond_shape` currently:
+`Pixal3DImageTo3DPipeline.get_proj_cond_shape` has two paths:
 
-1. invokes the conditioner, which has already averaged dense per-view volumes;
-2. reshapes `[B,R^3,2048]` to `[B,R,R,R,2048]`;
-3. gathers the provided active coordinates; and
-4. constructs a `SparseTensor`.
+1. With `aggregation_config=None`, it invokes the unchanged conditioner,
+   reshapes the already averaged dense projection, gathers active coordinates,
+   and constructs a `SparseTensor`.
+2. With a `ProjectionAggregationConfig`, it calls
+   `DinoV3ProjFeatureExtractor.iter_view_features`, gathers the active
+   coordinates immediately from each transient per-view dense projection,
+   retains a `[K,N_active,C]` sparse tensor, calls
+   `aggregate_projected_features`, calls `aggregate_global_features`, and
+   returns the same sparse conditioning contract.
+
+`_projection_stage_arguments` routes configs only to `shape512`, `shape1024`,
+and `pbr1024`. A config is opt-in per stage; SS-64 has no aggregation argument.
 
 ### Training sparse selection
 
@@ -254,17 +271,18 @@ SS-64 is excluded from correspondence interventions.
 dense condition encoding and view mean first, sparse coordinate selection
 second.
 
-The selected prototype is inference-only. The training path remains unchanged.
-The current inference pipeline uses `B=1`; the experimental sparse-first path
-will reject larger batches rather than silently mishandle ragged sparse
-coordinates.
+The prototype is inference-only. The training path remains unchanged.
+`_flat_sparse_indices` requires every coordinate batch index to be zero and
+raises `ValueError("experimental projection aggregation supports B=1")`
+otherwise. General or ragged `B>1` sparse batching is not implemented.
 
-For oracle-mask lookup and visualization, the experimental path must recompute
+For oracle-mask lookup and visualization, the experimental path recomputes
 the active coordinates' `image_points`, `depth`, and `valid_mask` with
-`project_points_to_image_batch` using the same scaled/rotated grid points and
-the same per-view projection transform used by `ProjGrid`. This metadata is
-diagnostic only in the first method. It must not change feature values or
-weights unless the selected arm explicitly requests oracle-mask routing.
+`ProjGrid.project_grid_points` using the same scaled/rotated grid points and
+the same per-view projection transform used for feature sampling. The optional
+diagnostics mapping receives `scores`, `weights`, `projected_corruption`,
+`pixel_xy`, `depth`, `valid_mask`, and `coords`. Oracle masks are diagnostic in
+consensus mode and affect weights only in `mode="oracle"`.
 
 ## Memory Audit
 
@@ -282,6 +300,16 @@ The following table counts only a bf16 projected feature buffer:
 These figures exclude DINO, NAF, temporary FP32 normalization/accumulation,
 global tokens, the flow denoiser, and allocator fragmentation. The current
 online mean also maintains an FP32 accumulator for half-precision inputs.
+
+The implemented sparse-first path preallocates and retains exactly one
+`per_view_sparse` tensor with shape `[K,N_active,C]` in the source feature
+dtype, plus per-view global tokens and `[K,N_active]` diagnostic weights
+(`scores` also exists for consensus). It still materializes one transient
+`[1,R^3,C]` dense projection at a time. `chunk_size=4096` bounds the FP32
+normalization, scoring, weighting, and fusion temporaries inside
+`aggregate_projected_features`; it does not chunk or reduce the retained
+`[K,N_active,C]` tensor. Thus the bf16 retained sparse feature state is
+128 MiB for `[4,8192,2048]` and 512 MiB for `[4,32768,2048]`.
 
 ## Candidate Integration Points
 
@@ -304,10 +332,10 @@ Disadvantages:
 
 ### B. Sparse-first inference aggregation — selected
 
-Add an explicit per-view sparse aggregation path for
+The implementation adds an explicit per-view sparse aggregation path for
 `get_proj_cond_shape`. Each view is encoded sequentially, its active
 coordinates are gathered immediately, and only sparse per-view features are
-retained or chunked.
+retained; fusion over the retained tensor is token-chunked.
 
 Advantages:
 
@@ -378,9 +406,39 @@ The transferable idea is reliable local routing. The exact CorrAdapter module,
 q/k cache schedule, row-wise search, and denoising-block placement are not
 directly transferable.
 
+## Implemented Interfaces and Defaults
+
+The final public and internal interfaces are:
+
+- `ProjectionAggregationConfig(mode="mean", alpha=0.5, temperature=0.1,
+  chunk_size=4096, global_mode="mean")`;
+- `ProjectionAggregationDiagnostics(scores, weights,
+  projected_corruption)`;
+- `aggregate_projected_features(features, config,
+  projected_corruption=None)` for `[K,N,C]` sparse features;
+- `aggregate_global_features(features, projection_weights, mode=...)`;
+- `DinoV3ProjFeatureExtractor.iter_view_features(...)`;
+- `ProjGrid.project_grid_points(..., point_indices=None)`;
+- `Pixal3DImageTo3DPipeline.get_proj_cond_shape(...,
+  aggregation_config=None, oracle_masks=None, diagnostics=None)`; and
+- `inference.py::build_projection_aggregation_configs(...)`.
+
+The CLI defaults are exact:
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--projection_aggregation` | omitted / `None` | choices are `mean` and `consensus`; omission keeps the original dense/default path |
+| `--projection_stages` | `shape512,shape1024,pbr1024` | parsed only when aggregation is enabled |
+| `--projection_alpha` | `0.5` | residual-to-uniform coefficient |
+| `--projection_temperature` | `0.1` | consensus softmax temperature |
+
+Oracle routing and `global_mode="projection_weights"` are programmatic
+interfaces, not CLI choices. CLI-created configs retain the dataclass defaults
+`chunk_size=4096` and `global_mode="mean"`.
+
 ## Safe Modification Boundary
 
-The first implementation must:
+The implementation was constrained to:
 
 - remain behind an explicit inference option;
 - default to the existing equal-mean path;
@@ -395,26 +453,68 @@ The first implementation must:
 - fall back to uniform weights for `K=1`, non-finite scores, or degenerate
   normalization.
 
-## Required Regression Gates
+## Regression Evidence
 
-Before checkpoint experiments:
+Focused CPU regression:
 
-- existing 19 focused conditioner/mean/projection tests remain green;
-- explicit equal-mean mode matches the current default;
-- `K=1` matches the existing path;
-- repeated views preserve the existing result;
-- small-tensor sparse aggregation matches a naive reference;
-- `alpha=0` is equal mean;
-- identical per-view features produce uniform confidence;
-- one synthetic outlier receives lower confidence;
-- L/H shape, order, dtype, and device are preserved; and
-- no new trainable parameter is introduced.
+```bash
+PYTHONPATH=/tmp/pixal3d-flex-gemm-stub.gIVSQA${PYTHONPATH:+:$PYTHONPATH} \
+  conda run -n pixal3d python -m pytest \
+  tests/multiview/test_projection_aggregation.py \
+  tests/multiview/test_conditioner.py \
+  tests/multiview/test_online_mean.py \
+  tests/multiview/test_projection_geometry.py \
+  tests/multiview/test_pipeline_inputs.py \
+  tests/multiview/test_inference_manifest.py -v
+```
+
+Result: `87 passed` in 3.70s, with 0 skipped tests and no warnings.
+
+Full multi-view CPU regression:
+
+```bash
+CUDA_VISIBLE_DEVICES='' \
+  conda run -n pixal3d python -m pytest tests/multiview -q
+```
+
+Result: `800 passed, 32 skipped, 6 warnings` in 58.49s. All six warnings
+were the same `wandb` `DeprecationWarning`; there were no failures.
+The conda environment was missing its repository-pinned `wandb==0.26.1`, so
+that dependency was installed before the successful run.
+
+This host has no active CUDA/Triton driver. An external, import-only
+`flex_gemm` stub at `/tmp/pixal3d-flex-gemm-stub.gIVSQA` was used. A temporary
+`.pth` file outside the repository made the stub visible to subprocess
+collection tests that deliberately remove `PYTHONPATH`. The stub raises if
+`grid_sample_3d` is executed; it only permits CPU test collection and is not
+part of the repository.
+
+The focused results include:
+
+- `test_projection_aggregation_cli_is_opt_in`, proving omission retains the
+  default path;
+- `test_sparse_first_explicit_mean_matches_default_dense_mean`, proving
+  explicit sparse-first mean matches default dense mean;
+- exact `alpha=0` mean recovery for consensus and oracle;
+- `K=1`, repeated-view, permutation, dtype, gradient, non-finite, oracle, and
+  outlier-routing coverage;
+- indexed projection geometry equivalence; and
+- `test_multiview_conditioner_adds_no_trainable_parameter`.
+
+Source hygiene also passed: `git diff --check` produced no output,
+`git status --short` was empty before documentation edits, and `rg` found
+implementation and test references for `ProjectionAggregationConfig`,
+`iter_view_features`, and `project_grid_points`.
 
 ## Audit Conclusion
 
-Correspondence-aware aggregation is feasible without modifying the flow model,
-but the implementation should not stack dense per-view volumes. The correct
-first prototype is sparse-first, projection-only, residual-to-uniform
-aggregation at inference time. It should be evaluated against both the trained
-equal-mean baseline and controlled oracle corruption masks before any
-deformable transport or denoiser-level adapter is attempted.
+Correspondence-aware aggregation is implemented without modifying the flow
+model or stacking dense all-view volumes. The prototype is sparse-first,
+projection-only, residual-to-uniform aggregation at inference time, with an
+exact equal-mean control and programmatic oracle path.
+
+The CPU implementation and regressions establish interface and numerical
+behavior only. No multi-view checkpoint identity has been supplied or guessed,
+and no checkpoint-dependent multi-view 3D experiment, GPU/3D validation,
+render comparison, or quality claim has been run. Those results remain gated
+on the checkpoint handoff and experiment design.

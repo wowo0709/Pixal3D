@@ -1,7 +1,8 @@
 # Multi-View Pixal3D Correspondence-Aware Conditioning Design
 
 **Date:** 2026-07-31
-**Status:** Research direction approved; written specification pending user review
+**Status:** Stage 1 prototype implemented and CPU-regression verified;
+checkpoint-dependent 3D experiment pending
 **Branch:** `feature/multiview-correspondence-node11`
 **Depends on:** `docs/CORR_ADAPTER_AUDIT.md`
 
@@ -152,7 +153,7 @@ For Shape/PBR stages with active coordinates `Q`:
 2. encode each view with the unchanged single-view DINOv3/NAF path;
 3. reshape that view's dense `[B,R^3,2048]` projection;
 4. gather only `Q`, producing `[N_active,2048]`;
-5. retain the per-view sparse feature in bf16 or process it in voxel chunks;
+5. retain all per-view sparse features in one `[K,N_active,2048]` tensor;
 6. aggregate views with the selected strategy;
 7. arithmetic-mean the five global tokens for the primary experiment; and
 8. return the existing sparse condition dictionary.
@@ -162,6 +163,55 @@ The flow model and ProjectAttention remain unchanged.
 The first implementation supports pipeline inference with `B=1`. It raises a
 clear error for a larger batch. General ragged sparse batching is outside this
 prototype.
+
+### Implemented interfaces and defaults
+
+The implemented code paths are:
+
+- `ProjectionAggregationConfig`;
+- `ProjectionAggregationDiagnostics`;
+- `aggregate_projected_features`;
+- `aggregate_global_features`;
+- `DinoV3ProjFeatureExtractor.iter_view_features`;
+- `ProjGrid.project_grid_points`;
+- `Pixal3DImageTo3DPipeline.get_proj_cond_shape`; and
+- `inference.py::build_projection_aggregation_configs`.
+
+`ProjectionAggregationConfig` defaults to:
+
+```text
+mode="mean"
+alpha=0.5
+temperature=0.1
+chunk_size=4096
+global_mode="mean"
+```
+
+CLI defaults are:
+
+```text
+--projection_aggregation  omitted / None
+--projection_stages       shape512,shape1024,pbr1024
+--projection_alpha        0.5
+--projection_temperature  0.1
+```
+
+The CLI aggregation choices are `mean` and `consensus`. Oracle routing
+requires programmatic `mode="oracle"` plus masks, and projection-weighted
+global fusion requires programmatic `global_mode="projection_weights"`.
+Omitting `--projection_aggregation` leaves `projection_aggregation=None` and
+uses the original dense/default conditioner path. Explicit `mean` selects the
+sparse-first path but returns an FP32-accumulated arithmetic mean cast back to
+the source dtype.
+
+The B=1 limitation is enforced from sparse coordinates:
+`_flat_sparse_indices` rejects any nonzero coordinate batch index. The path
+still creates one transient dense `[1,R^3,2048]` projection per view and
+retains a `[K,N_active,2048]` source-dtype tensor. `chunk_size` bounds only
+FP32 scoring and fusion temporaries, not that retained tensor. For `K=4` bf16
+features, retained sparse feature memory is 128 MiB at 8,192 active tokens and
+512 MiB at 32,768 active tokens, excluding diagnostics, model state,
+transient dense projection, and allocator overhead.
 
 ## Feature and Weight Definitions
 
@@ -241,16 +291,20 @@ view scalar and use it to weight corresponding CLS/register tokens. This is a
 separate arm, not part of the initial method. Per-view global tokens are never
 concatenated into a new token sequence.
 
+The diagnostic is implemented as
+`global_mode="projection_weights"` by averaging voxel weights into one scalar
+per view. It remains programmatic and is not the CLI/default primary path.
+
 ## Stage 1 Comparison Arms
 
 | Arm | Projection fusion | Global fusion | Purpose |
 | --- | --- | --- | --- |
-| S0 | arithmetic mean | arithmetic mean | trained baseline |
-| S1 | residual consensus | arithmetic mean | primary method |
-| S2 | pure consensus | arithmetic mean | distribution-shift stress test |
-| S3 | residual oracle-mask routing | arithmetic mean | realistic oracle headroom |
-| S4 | pure oracle rejection | arithmetic mean | controlled upper bound |
-| S5 | residual consensus | confidence-coupled mean | global leakage diagnostic |
+| S0 | CLI omitted, or explicit `mode="mean"` | `global_mode="mean"` | trained baseline and explicit-mean regression control |
+| S1 | `mode="consensus", alpha=0.5, temperature=0.1` | `global_mode="mean"` | primary method |
+| S2 | `mode="consensus", alpha=1.0` | `global_mode="mean"` | distribution-shift stress test |
+| S3 | `mode="oracle", alpha=0.5` plus masks | `global_mode="mean"` | realistic oracle headroom |
+| S4 | `mode="oracle", alpha=1.0` plus masks | `global_mode="mean"` | controlled upper bound |
+| S5 | residual consensus | `global_mode="projection_weights"` | global leakage diagnostic |
 
 The minimal first 3D gate is S0, S1, and S3. S2, S4, and S5 are run only after
 the basic pipeline and artifact checks pass.
@@ -342,6 +396,11 @@ Track B starts only if Track A shows measurable oracle headroom.
 - measure clean-reference feature error; and
 - reject methods that harm identical/clean views.
 
+Implementation-level Gate A checks are complete for aggregation math,
+projected mask sampling, projection metadata, sparse/default mean equality,
+non-finite fallbacks, and unchanged trainable-parameter count. Dataset-level
+clean-reference metrics have not been run.
+
 ### Gate B — Shape-512 stage-local pilot
 
 - fixed SS coordinates;
@@ -393,6 +452,11 @@ The central preservation question is:
 Consistency alone is not a sufficient success metric.
 
 ## 3D Evaluation
+
+No multi-view checkpoint-dependent 3D experiment has been run. No checkpoint
+identity has been supplied or guessed, and there is no GPU/3D validation,
+render comparison, or 3D quality result for this prototype. The following
+remains the required protocol after checkpoint handoff.
 
 When checkpoints are available, record:
 
@@ -509,6 +573,8 @@ Before any 3D experiment, record for Shape-512, Shape-1024, and PBR-1024:
 No checkpoint path is guessed, and no public single-view checkpoint is used as
 a substitute.
 
+As of this implementation verification, that handoff has not occurred.
+
 ## Reproducibility Manifest
 
 Each run records:
@@ -526,6 +592,45 @@ Each run records:
 - sampler and CFG settings;
 - artifact paths; and
 - completion/failure state.
+
+## Implementation Verification Evidence
+
+Focused CPU regression:
+
+```bash
+PYTHONPATH=/tmp/pixal3d-flex-gemm-stub.gIVSQA${PYTHONPATH:+:$PYTHONPATH} \
+  conda run -n pixal3d python -m pytest \
+  tests/multiview/test_projection_aggregation.py \
+  tests/multiview/test_conditioner.py \
+  tests/multiview/test_online_mean.py \
+  tests/multiview/test_projection_geometry.py \
+  tests/multiview/test_pipeline_inputs.py \
+  tests/multiview/test_inference_manifest.py -v
+```
+
+Result: 87 passed, 0 skipped, no warnings, in 3.70s.
+
+Full CPU regression:
+
+```bash
+CUDA_VISIBLE_DEVICES='' \
+  conda run -n pixal3d python -m pytest tests/multiview -q
+```
+
+Result: 800 passed, 32 skipped, and 6 identical `wandb`
+`DeprecationWarning`s in 58.49s.
+
+The successful no-driver run used an external import-only `flex_gemm` stub at
+`/tmp/pixal3d-flex-gemm-stub.gIVSQA`; a temporary `.pth` outside the repository
+made it visible to child collection processes. The repository-pinned
+`wandb==0.26.1` dependency was installed into the `pixal3d` conda environment.
+Neither environment adjustment is a production-code change.
+
+The focused suite proves that the CLI is opt-in, explicit sparse-first mean
+matches the original default dense mean, `alpha=0` exactly recovers mean,
+projection subset geometry matches the full grid, invalid and non-finite
+weights fall back safely, and the conditioner adds no trainable parameter.
+These are CPU interface/numerical regressions, not checkpoint or 3D evidence.
 
 ## Success and Stop Criteria
 
