@@ -17,6 +17,8 @@ from PIL import Image
 @dataclass(frozen=True)
 class CalibratedView:
     frame_index: int
+    manifest_root: Path
+    frame_file_path: str
     image_path: Path
     image: Image.Image
     camera_angle_x: float
@@ -83,8 +85,9 @@ def load_calibrated_views(
     for frame_index, frame in enumerate(frames[:num_views]):
         if not isinstance(frame, dict):
             raise ValueError(f"frame {frame_index} must be a JSON object")
+        frame_file_path = frame.get("file_path")
         image_path = _contained_file(
-            manifest_root, frame.get("file_path"), field="file_path"
+            manifest_root, frame_file_path, field="file_path"
         )
         camera_angle_x = _finite_float(
             frame.get("camera_angle_x", metadata.get("camera_angle_x")),
@@ -122,6 +125,8 @@ def load_calibrated_views(
         views.append(
             CalibratedView(
                 frame_index=frame_index,
+                manifest_root=manifest_root,
+                frame_file_path=frame_file_path,
                 image_path=image_path,
                 image=image,
                 camera_angle_x=camera_angle_x,
@@ -141,25 +146,13 @@ def resolve_foreground_mask(
     if not isinstance(frame, dict):
         raise ValueError("frame must be a JSON object")
 
-    file_value = frame.get("file_path")
-    if not isinstance(file_value, str) or not file_value:
-        raise ValueError("file_path must identify the calibrated view")
-    relative_image = Path(file_value)
-    if relative_image.is_absolute() or ".." in relative_image.parts:
-        raise ValueError("file_path must name a file inside the manifest directory")
-    resolved_image = view.image_path.resolve()
-    part_count = len(relative_image.parts)
-    try:
-        manifest_root = resolved_image.parents[part_count - 1]
-    except IndexError as exc:
-        raise ValueError("file_path must identify the calibrated view") from exc
-    if (manifest_root / relative_image).resolve() != resolved_image:
-        raise ValueError("file_path must identify the calibrated view")
+    if frame.get("file_path") != view.frame_file_path:
+        raise ValueError("frame file_path does not match loaded view provenance")
 
     explicit_value = frame.get("foreground_mask_path")
     if explicit_value is not None:
         mask_path = _contained_file(
-            manifest_root, explicit_value, field="foreground_mask_path"
+            view.manifest_root, explicit_value, field="foreground_mask_path"
         )
         raw = mask_path.read_bytes()
         try:
@@ -191,9 +184,7 @@ def resolve_foreground_mask(
 
     provider = rembg_provider
     if provider is None:
-        from pixal3d.pipelines.rembg import BiRefNet
-
-        provider = BiRefNet()
+        provider = _default_rembg_provider()
     segmented = provider(view.image.convert("RGB"))
     if not isinstance(segmented, Image.Image):
         raise ValueError("rembg provider must return a PIL image")
@@ -221,3 +212,11 @@ def _mask_tensor(image: Image.Image, *, expected_size: tuple[int, int]) -> torch
 def _require_nonempty(mask: torch.Tensor) -> None:
     if not mask.any():
         raise ValueError("foreground mask is empty")
+
+
+def _default_rembg_provider():
+    from pixal3d.pipelines.rembg import BiRefNet
+
+    provider = BiRefNet()
+    provider.cuda()
+    return provider

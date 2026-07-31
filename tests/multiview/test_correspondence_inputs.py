@@ -1,6 +1,8 @@
 import json
 import math
 from hashlib import sha256
+import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -155,6 +157,28 @@ def test_calibrated_views_reject_symlink_target_escape(tmp_path):
         )
 
 
+def test_calibrated_views_accept_symlink_target_inside_manifest_directory(tmp_path):
+    _write_image(tmp_path / "real.png", (4, 5, 6, 255))
+    (tmp_path / "images").mkdir()
+    (tmp_path / "images" / "alias.png").symlink_to("../real.png")
+    Image.new("L", (4, 3), 255).save(tmp_path / "mask.png")
+    frame = {
+        "file_path": "images/alias.png",
+        "foreground_mask_path": "mask.png",
+        "camera_angle_x": 0.7,
+        "transform_matrix": _transform(),
+    }
+
+    views, _ = load_calibrated_views(
+        _write_manifest(tmp_path, [frame]), mesh_scale=1.0, num_views=1
+    )
+
+    assert views[0].image.getpixel((0, 0)) == (4, 5, 6, 255)
+    assert views[0].manifest_root == tmp_path.resolve()
+    assert views[0].frame_file_path == "images/alias.png"
+    assert resolve_foreground_mask(views[0], frame).mask.all()
+
+
 def test_calibrated_views_reject_insufficient_frames(tmp_path):
     frames = [
         {
@@ -214,6 +238,31 @@ def test_mask_explicit_path_cannot_escape_manifest_directory(tmp_path):
     outside = tmp_path.parent / f"{tmp_path.name}-mask.png"
     Image.new("L", view.image.size, 255).save(outside)
     frame["foreground_mask_path"] = f"../{outside.name}"
+
+    with pytest.raises(ValueError, match="inside the manifest directory"):
+        resolve_foreground_mask(view, frame, rembg_provider=lambda image: image)
+
+
+def test_mask_rejects_frame_file_path_that_differs_from_loaded_provenance(tmp_path):
+    view, frame = _load_single_view(tmp_path, color=(10, 20, 30, 255))
+    mask_path = tmp_path / "images" / "mask.png"
+    Image.new("L", view.image.size, 255).save(mask_path)
+    spoofed = {
+        **frame,
+        "file_path": "view.png",
+        "foreground_mask_path": "mask.png",
+    }
+
+    with pytest.raises(ValueError, match="file_path does not match loaded view"):
+        resolve_foreground_mask(view, spoofed, rembg_provider=lambda image: image)
+
+
+def test_mask_rejects_explicit_symlink_target_outside_manifest_directory(tmp_path):
+    view, frame = _load_single_view(tmp_path, color=(10, 20, 30, 255))
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-mask.png"
+    Image.new("L", view.image.size, 255).save(outside)
+    (tmp_path / "linked-mask.png").symlink_to(outside)
+    frame["foreground_mask_path"] = "linked-mask.png"
 
     with pytest.raises(ValueError, match="inside the manifest directory"):
         resolve_foreground_mask(view, frame, rembg_provider=lambda image: image)
@@ -307,3 +356,45 @@ def test_mask_rejects_empty_rembg_result(tmp_path):
 
     with pytest.raises(ValueError, match="foreground mask is empty"):
         resolve_foreground_mask(view, frame, rembg_provider=provider)
+
+
+def test_mask_default_rembg_is_lazy_and_moves_model_to_cuda_before_call(
+    tmp_path, monkeypatch
+):
+    explicit_view, explicit_frame = _load_single_view(
+        tmp_path, color=(10, 20, 30, 255)
+    )
+    explicit_path = tmp_path / "explicit.png"
+    Image.new("L", explicit_view.image.size, 255).save(explicit_path)
+    explicit_frame["foreground_mask_path"] = explicit_path.name
+    events = []
+
+    class FakeBiRefNet:
+        def __init__(self):
+            events.append("construct")
+
+        def cuda(self):
+            events.append("cuda")
+
+        def __call__(self, image):
+            events.append("call")
+            image.putalpha(Image.new("L", image.size, 255))
+            return image
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pixal3d.pipelines.rembg",
+        SimpleNamespace(BiRefNet=FakeBiRefNet),
+    )
+
+    resolve_foreground_mask(explicit_view, explicit_frame)
+    assert events == []
+
+    opaque_view, opaque_frame = _load_single_view(
+        tmp_path, color=(10, 20, 30), mode="RGB", file_path="opaque.png"
+    )
+    foreground = resolve_foreground_mask(opaque_view, opaque_frame)
+
+    assert events == ["construct", "cuda", "call"]
+    assert foreground.provenance == "rembg"
+    assert foreground.mask.all()
