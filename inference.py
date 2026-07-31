@@ -5,7 +5,7 @@ import math
 import time
 import warnings
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 import torch
 import numpy as np
@@ -19,6 +19,7 @@ os.environ["FLEX_GEMM_AUTOTUNE_CACHE_PATH"] = os.path.join(os.path.dirname(os.pa
 os.environ["FLEX_GEMM_AUTOTUNER_VERBOSE"] = '1'
 
 from pixal3d.pipelines import Pixal3DImageTo3DPipeline
+from pixal3d.pipelines.projection_aggregation import ProjectionAggregationConfig
 import o_voxel
 
 # ============================================================================
@@ -315,6 +316,9 @@ def run_inference(
     resolution: int = -1,
     transforms_path: Optional[str] = None,
     flow_checkpoints: Optional[dict] = None,
+    projection_aggregation: Optional[
+        Mapping[str, ProjectionAggregationConfig]
+    ] = None,
 ):
     # Load models
     pipeline = init_pipeline(model_path, low_vram=low_vram)
@@ -426,6 +430,7 @@ def run_inference(
         return_latent=True,
         pipeline_type=pipeline_type,
         max_num_tokens=max_num_tokens,
+        projection_aggregation=projection_aggregation,
     )
 
     mesh = mesh_list[0]
@@ -453,6 +458,30 @@ def run_inference(
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     glb.export(output_path, extension_webp=True)
     print(f"[Done] GLB saved to: {output_path}")
+
+
+def build_projection_aggregation_configs(
+    *,
+    mode,
+    stages,
+    alpha,
+    temperature,
+):
+    if mode is None:
+        return None
+    stage_names = [value.strip() for value in stages.split(",") if value.strip()]
+    allowed = {"shape512", "shape1024", "pbr1024"}
+    if not stage_names or set(stage_names) - allowed:
+        raise ValueError(
+            "projection stages must be a comma-separated subset of "
+            "shape512,shape1024,pbr1024"
+        )
+    config = ProjectionAggregationConfig(
+        mode=mode,
+        alpha=alpha,
+        temperature=temperature,
+    )
+    return {stage: config for stage in stage_names}
 
 
 def build_parser():
@@ -483,6 +512,17 @@ def build_parser():
     parser.add_argument("--shape1024_ckpt")
     parser.add_argument("--pbr1024_ckpt")
     parser.add_argument("--mesh_scale", type=float)
+    parser.add_argument(
+        "--projection_aggregation",
+        choices=("mean", "consensus"),
+        default=None,
+    )
+    parser.add_argument(
+        "--projection_stages",
+        default="shape512,shape1024,pbr1024",
+    )
+    parser.add_argument("--projection_alpha", type=float, default=0.5)
+    parser.add_argument("--projection_temperature", type=float, default=0.1)
     return parser
 
 
@@ -502,6 +542,13 @@ def main(argv=None):
         if checkpoint is not None
     }
 
+    projection_aggregation = build_projection_aggregation_configs(
+        mode=args.projection_aggregation,
+        stages=args.projection_stages,
+        alpha=args.projection_alpha,
+        temperature=args.projection_temperature,
+    )
+
     run_inference(
         image_path=args.image,
         transforms_path=args.transforms,
@@ -513,6 +560,7 @@ def main(argv=None):
         resolution=args.resolution,
         flow_checkpoints=flow_checkpoints,
         mesh_scale=args.mesh_scale,
+        projection_aggregation=projection_aggregation,
     )
 
 
