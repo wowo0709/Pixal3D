@@ -694,8 +694,31 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         mesh_scale: torch.Tensor,
         transform_matrix: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        return _online_mean_tensor_groups(
+            self.iter_view_features(
+                image,
+                camera_angle_x,
+                distance,
+                mesh_scale,
+                transform_matrix,
+            )
+        )
+
+    def iter_view_features(
+        self,
+        image: torch.Tensor,
+        camera_angle_x: torch.Tensor,
+        distance: torch.Tensor,
+        mesh_scale: torch.Tensor,
+        transform_matrix: Optional[torch.Tensor],
+    ) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
+        if image.ndim == 4:
+            yield self._forward_single_view(
+                image, camera_angle_x, distance, mesh_scale, transform_matrix
+            )
+            return
         if image.ndim != 5:
-            raise ValueError("multi-view image must have shape [B, K, C, H, W]")
+            raise ValueError("image must have shape [B,C,H,W] or [B,K,C,H,W]")
         batch_size, num_views = image.shape[:2]
         expected_vector = (batch_size, num_views)
         if camera_angle_x is None or camera_angle_x.shape != expected_vector:
@@ -704,9 +727,18 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             raise ValueError("distance must have shape [B, K]")
         if mesh_scale is None or mesh_scale.shape != (batch_size,):
             raise ValueError("mesh_scale must have shape [B]")
-        if transform_matrix is None or transform_matrix.shape != (
-            batch_size, num_views, 4, 4
-        ):
+        if transform_matrix is None:
+            if num_views != 1:
+                raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
+            yield self._forward_single_view(
+                image[:, 0],
+                camera_angle_x[:, 0],
+                distance[:, 0],
+                mesh_scale,
+                None,
+            )
+            return
+        if transform_matrix.shape != (batch_size, num_views, 4, 4):
             raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
         if not torch.isfinite(mesh_scale).all() or torch.any(mesh_scale <= 0):
             raise ValueError("mesh_scale must be finite and positive")
@@ -714,17 +746,14 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         projection, _ = compute_multiview_projection_matrices(
             transform_matrix, distance, self.fixed_projection_transform
         )
-        view_features = (
-            self._forward_single_view(
+        for view_index in range(num_views):
+            yield self._forward_single_view(
                 image[:, view_index],
                 camera_angle_x[:, view_index],
                 distance[:, view_index],
                 mesh_scale,
                 projection[:, view_index],
             )
-            for view_index in range(num_views)
-        )
-        return _online_mean_tensor_groups(view_features)
 
     def forward(
         self,
