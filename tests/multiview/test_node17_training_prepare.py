@@ -1154,8 +1154,15 @@ def test_historical_revision_accepts_exact_validator_bootstrap_paths(
         _historical_git_fixture(tmp_path)
     )
     paths = (
+        "docs/node17_three_source_training_runbook_ko.md",
+        (
+            "docs/superpowers/reports/"
+            "2026-07-30-node17-three-source-training-readiness.md"
+        ),
+        "data_toolkit/pipeline/node17_hssd_transfer.py",
         "data_toolkit/pipeline/node17_training_prepare.py",
         "scripts/prepare_node17_training.py",
+        "tests/multiview/test_node17_hssd_transfer.py",
         "tests/multiview/test_node17_training_prepare.py",
     )
     for relative in paths:

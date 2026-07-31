@@ -86,7 +86,7 @@ _HISTORICAL_VALIDATOR_BOOTSTRAP_PATHS = frozenset(
         "tests/multiview/test_node17_hssd_transfer.py",
         "tests/multiview/test_node17_training_prepare.py",
     }
-)
+) | _HISTORICAL_DELIVERY_DOC_PATHS
 
 
 @dataclass(frozen=True)
