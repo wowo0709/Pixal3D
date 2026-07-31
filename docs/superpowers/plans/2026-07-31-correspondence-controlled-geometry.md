@@ -221,11 +221,29 @@ def affine_forward_field(
     ...
 
 
+def affine_inverse_grid(
+    matrix: torch.Tensor,
+    *,
+    height: int,
+    width: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    ...
+
+
 def invert_forward_field(
     forward_field_px: torch.Tensor,
     *,
     iterations: int = 12,
+    convergence_tolerance_px: float = 1e-3,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    ...
+
+
+def warp_affine(
+    image: torch.Tensor,
+    affected_mask: torch.Tensor,
+    matrix: torch.Tensor,
+) -> ControlledWarp:
     ...
 
 
@@ -235,6 +253,7 @@ def warp_with_forward_field(
     forward_field_px: torch.Tensor,
     *,
     inverse_iterations: int = 12,
+    convergence_tolerance_px: float = 1e-3,
 ) -> ControlledWarp:
     ...
 
@@ -246,6 +265,7 @@ def smooth_random_forward_field(
     max_displacement_px: float,
     coarse_size: int = 5,
     blur_kernel_size: int = 9,
+    max_gradient: float = 0.5,
 ) -> torch.Tensor:
     ...
 ```
@@ -298,11 +318,17 @@ Run the Step 2 command.
 
 Use a `5x5` one-channel image with a marker at clean pixel `(1,2)`.
 
-- identity affine matrix `[[1,0,0],[0,1,0]]` yields exact zero forward
-  field, identity inverse grid, no invalid pixels, and unchanged image;
-- translation matrix `[[1,0,1],[0,1,-1]]` yields forward field
-  `(dx=1,dy=-1)` everywhere, and moves the marker to `(2,1)` in the warped
+- identity affine matrix `[[1,0,0],[0,1,0]]` passed to `warp_affine()`
+  yields exact zero forward field, an exact matrix-derived identity inverse
+  grid, no invalid pixels, and unchanged image;
+- translation matrix `[[1,0,1],[0,1,-1]]` passed to `warp_affine()` yields
+  forward field `(dx=1,dy=-1)` everywhere, an inverse grid derived from the
+  exact inverse affine matrix, and moves the marker to `(2,1)` in the warped
   image;
+- passing that same constant translation field to
+  `invert_forward_field(iterations=12)` yields the same interior inverse
+  coordinates and invalid border mask as the exact affine inverse, proving
+  the numerical solver does not exhibit even/odd zero-padding oscillation;
 - the translation artifact stores the forward field, not the negated inverse
   sampling displacement;
 - pixels whose inverse source coordinate is outside `[0,W-1]x[0,H-1]` are
@@ -320,23 +346,46 @@ CUDA_VISIBLE_DEVICES="" /opt/conda/envs/pixal3d/bin/python -m pytest \
 
 Expected: failures because field and warp APIs are missing.
 
-- [ ] **Step 7: Implement affine fields, inversion, and resampling**
+- [ ] **Step 7: Implement exact affine fields/inversion and smooth-field inversion**
 
 Build a pixel-center mesh `[H,W,2]`. `affine_forward_field()` applies the
 forward `2x3` matrix to homogeneous clean pixel coordinates and subtracts
 the clean coordinates.
 
-`invert_forward_field()` solves `p_src + u(p_src) = p_dst` by fixed-point
-iteration:
+`affine_inverse_grid()` augments the `2x3` forward matrix to a homogeneous
+`3x3` matrix, rejects singular matrices, computes its exact inverse in FP32,
+and applies that inverse to every destination pixel. It returns normalized
+source coordinates and an invalid mask based on whether the exact source
+pixel is outside `[0,W-1]x[0,H-1]`.
+
+`warp_affine()` must use `affine_forward_field()` for the stored oracle
+forward displacement and `affine_inverse_grid()` for resampling. It must not
+route affine transforms through iterative field inversion.
+
+For non-affine smooth fields, `invert_forward_field()` solves
+`p_src + u(p_src) = p_dst` by fixed-point iteration:
 
 ```text
 p_src_0 = p_dst
 p_src_{t+1} = p_dst - sample(u, p_src_t)
 ```
 
-Sample the displacement with bilinear `grid_sample`, zero padding, and
-`align_corners=False`. Return the final normalized source grid and an
-invalid mask computed from final source pixel coordinates before padding.
+Sample displacement during the numerical solver with bilinear
+`grid_sample`, `padding_mode="border"`, and `align_corners=False`. Border
+extension is a solver convention only: it prevents an out-of-bounds
+candidate from reading a fictitious zero displacement and oscillating back
+inside. It does not make an out-of-bounds source valid.
+
+After the final iteration, sample the border-extended displacement once
+more and compute:
+
+```text
+residual = ||p_src + u(p_src) - p_dst||_2
+```
+
+The returned invalid mask is true if the final source pixel is outside the
+image or residual exceeds `convergence_tolerance_px`. Validate that
+`iterations >= 1` and the tolerance is finite and positive.
 
 `warp_with_forward_field()` validates finite floating image/field and bool
 mask shapes, obtains the inverse grid, samples with bilinear/zero padding,
@@ -362,8 +411,10 @@ For a fixed boolean central mask and seed `20260731`, assert:
 - max vector magnitude is `<= max_displacement_px + 1e-5`;
 - field shape is `[H,W,2]`, FP32, finite;
 - `max_displacement_px=0` yields exact zero;
+- maximum horizontal or vertical neighboring displacement-vector difference
+  is `<= max_gradient + 1e-5`;
 - invalid even blur kernel, coarse size below two, negative displacement,
-  and empty mask are rejected.
+  non-positive/invalid gradient limit, and empty mask are rejected.
 
 Warp a coordinate-ramp image with a small deterministic field and assert the
 artifact is finite, has the documented shapes, and preserves image values
@@ -385,8 +436,15 @@ Use a local CPU `torch.Generator().manual_seed(seed)` to sample a
 `[1,2,coarse_size,coarse_size]` normal field. Bilinearly resize to H/W,
 apply `torchvision.transforms.functional.gaussian_blur` with the odd kernel,
 permute to `[H,W,2]`, multiply by the boolean mask, and rescale globally so
-the maximum vector magnitude is at most `max_displacement_px`. Return FP32
-on the mask device. Do not change global RNG state.
+both conditions hold:
+
+```text
+max ||u(p)||_2 <= max_displacement_px
+max_{horizontal/vertical neighbors} ||u(p)-u(q)||_2 <= max_gradient
+```
+
+Use one global non-increasing scale factor so direction and smoothness are
+preserved. Return FP32 on the mask device. Do not change global RNG state.
 
 - [ ] **Step 12: Run focused and full regressions**
 
