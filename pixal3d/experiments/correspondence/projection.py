@@ -21,6 +21,13 @@ def _require_tensor(value: torch.Tensor, *, name: str) -> None:
         raise TypeError(f"{name} must be a torch.Tensor")
 
 
+def _validate_floating_finite(value: torch.Tensor, *, name: str) -> None:
+    if not value.is_floating_point():
+        raise ValueError(f"{name} must be floating point")
+    if not torch.isfinite(value).all():
+        raise ValueError(f"{name} must be finite")
+
+
 def project_points_for_views(
     points_3d: torch.Tensor,
     projection_transforms: torch.Tensor,
@@ -29,30 +36,33 @@ def project_points_for_views(
     resolution: int,
 ) -> MultiviewProjection:
     """Project shared or batched points independently into each camera view."""
+    _require_tensor(points_3d, name="points_3d")
+    _require_tensor(projection_transforms, name="projection_transforms")
+    _require_tensor(camera_angle_x, name="camera_angle_x")
+    _validate_floating_finite(points_3d, name="points_3d")
+    _validate_floating_finite(
+        projection_transforms, name="projection_transforms"
+    )
+    _validate_floating_finite(camera_angle_x, name="camera_angle_x")
+    if points_3d.ndim not in (2, 3) or points_3d.shape[-1] != 3:
+        raise ValueError("points_3d must have shape [N, 3] or [B, N, 3]")
+    if projection_transforms.ndim != 4 or projection_transforms.shape[-2:] != (4, 4):
+        raise ValueError("projection_transforms must have shape [B, K, 4, 4]")
+    batch_size, view_count = projection_transforms.shape[:2]
+    if camera_angle_x.shape != (batch_size, view_count):
+        raise ValueError("camera_angle_x must have shape [B, K]")
+    if not (camera_angle_x > 0).all():
+        raise ValueError("camera_angle_x FOV must be positive")
+    if isinstance(resolution, bool) or not isinstance(resolution, int) or resolution < 1:
+        raise ValueError("resolution must be an integer at least 1")
+    if points_3d.ndim == 3 and points_3d.shape[0] != batch_size:
+        raise ValueError("batched points_3d must have matching B")
+
     # This import must remain local: the existing projector imports correspondence
     # aggregation during its module initialization.
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
         project_points_to_image_batch,
     )
-
-    _require_tensor(points_3d, name="points_3d")
-    _require_tensor(projection_transforms, name="projection_transforms")
-    _require_tensor(camera_angle_x, name="camera_angle_x")
-    if points_3d.ndim not in (2, 3) or points_3d.shape[-1] != 3:
-        raise ValueError("points_3d must have shape [N, 3] or [B, N, 3]")
-    if projection_transforms.ndim != 4 or projection_transforms.shape[-2:] != (4, 4):
-        raise ValueError("projection_transforms must have shape [B, K, 4, 4]")
-    if not torch.isfinite(projection_transforms).all():
-        raise ValueError("projection_transforms must be finite")
-    batch_size, view_count = projection_transforms.shape[:2]
-    if camera_angle_x.shape != (batch_size, view_count):
-        raise ValueError("camera_angle_x must have shape [B, K]")
-    if not torch.isfinite(camera_angle_x).all() or not (camera_angle_x > 0).all():
-        raise ValueError("FOV must be finite and positive")
-    if isinstance(resolution, bool) or not isinstance(resolution, int) or resolution < 1:
-        raise ValueError("resolution must be an integer at least 1")
-    if points_3d.ndim == 3 and points_3d.shape[0] != batch_size:
-        raise ValueError("batched points_3d must have matching B")
 
     point_count = points_3d.shape[-2]
     if points_3d.ndim == 2:

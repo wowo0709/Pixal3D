@@ -72,6 +72,55 @@ def test_project_points_for_views_rejects_invalid_geometry_inputs(
         project_points_for_views(points, transforms, fovs, resolution=resolution)
 
 
+@pytest.mark.parametrize(
+    ("points", "transforms", "fovs", "error"),
+    [
+        (
+            torch.ones(2, 3, dtype=torch.int64),
+            torch.eye(4).reshape(1, 1, 4, 4),
+            torch.ones(1, 1),
+            "points_3d",
+        ),
+        (
+            torch.tensor([[float("nan"), 0.0, -1.0]]),
+            torch.eye(4).reshape(1, 1, 4, 4),
+            torch.ones(1, 1),
+            "points_3d",
+        ),
+        (
+            torch.ones(2, 3),
+            torch.eye(4, dtype=torch.int64).reshape(1, 1, 4, 4),
+            torch.ones(1, 1),
+            "projection_transforms",
+        ),
+        (
+            torch.ones(2, 3),
+            torch.full((1, 1, 4, 4), float("nan")),
+            torch.ones(1, 1),
+            "projection_transforms",
+        ),
+        (
+            torch.ones(2, 3),
+            torch.eye(4).reshape(1, 1, 4, 4),
+            torch.ones(1, 1, dtype=torch.int64),
+            "camera_angle_x",
+        ),
+        (
+            torch.ones(2, 3),
+            torch.eye(4).reshape(1, 1, 4, 4),
+            torch.tensor([[float("nan")]]),
+            "camera_angle_x",
+        ),
+    ],
+)
+def test_project_points_for_views_rejects_nonfloating_and_nonfinite_inputs(
+    points, transforms, fovs, error
+):
+    """Would fail if invalid projection tensors reached the legacy primitive."""
+    with pytest.raises(ValueError, match=error):
+        project_points_for_views(points, transforms, fovs, resolution=8)
+
+
 def test_sample_oracle_masks_uses_pixel_center_coordinates_and_zero_padding():
     """Would fail if sampling used corner alignment, border padding, or validity."""
     masks = torch.zeros((1, 1, 3, 3), dtype=torch.float32)
