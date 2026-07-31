@@ -69,6 +69,43 @@ def _image() -> torch.Tensor:
     return torch.cat((y + x, 0.8 * y + x, 0.6 * y + 0.5 * x)).clamp(0, 1)
 
 
+def _invoke_corruption_with_non_cpu_tensor(kind: str, tensor_name: str) -> None:
+    image = _image()
+    foreground = _foreground()
+    region = foreground.clone()
+    tensors = {
+        "image": image,
+        "foreground": foreground,
+        "region": region,
+    }
+    tensors[tensor_name] = torch.empty_like(tensors[tensor_name], device="meta")
+    if kind == "c1":
+        corrupt_local_color(
+            **tensors,
+            hue=0.1,
+            saturation=1.0,
+            brightness=1.0,
+        )
+    elif kind == "c2":
+        corrupt_procedural_pattern(**tensors, seed=1)
+    else:
+        corrupt_local_deletion(**tensors)
+
+
+def test_region_sampling_rejects_non_cpu_foreground_without_gpu():
+    foreground = torch.empty((4, 4), dtype=torch.bool, device="meta")
+
+    with pytest.raises(ValueError, match="foreground must be on CPU"):
+        sample_foreground_region(foreground, seed=1)
+
+
+@pytest.mark.parametrize("kind", ["c1", "c2", "c3"])
+@pytest.mark.parametrize("tensor_name", ["image", "foreground", "region"])
+def test_corruptions_reject_each_non_cpu_tensor_without_gpu(kind, tensor_name):
+    with pytest.raises(ValueError, match=f"{tensor_name} must be on CPU"):
+        _invoke_corruption_with_non_cpu_tensor(kind, tensor_name)
+
+
 def test_c1_changes_only_region_and_oracle_reports_actual_changed_pixels():
     image = _image()
     foreground = _foreground()

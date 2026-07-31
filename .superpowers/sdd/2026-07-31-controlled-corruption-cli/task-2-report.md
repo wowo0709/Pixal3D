@@ -34,3 +34,18 @@ made GREEN before starting the next behavior group.
 
 No real dataset, model, conditioning path, flow checkpoint, GPU computation,
 training, mesh/depth generation, or external pattern/logo asset was used.
+
+## Fix round 1 — explicit CPU-only tensor contract
+
+- Added early, named CPU-device validation for `image`, `foreground`, and
+  `region`; non-CPU tensors are rejected rather than copied or operated on.
+- Added hardware-independent regression coverage with meta tensors for region
+  sampling and every tensor argument of C1, C2, and C3.
+
+Exact focused verification:
+
+```text
+$ /opt/conda/envs/pixal3d/bin/python -m pytest tests/multiview/test_correspondence_corruptions.py -q
+...................................                                      [100%]
+35 passed in 1.08s
+```

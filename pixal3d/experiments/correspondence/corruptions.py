@@ -20,6 +20,8 @@ class ControlledCorruption:
 def _validate_mask(mask: torch.Tensor, *, name: str) -> None:
     if not isinstance(mask, torch.Tensor) or mask.ndim != 2 or mask.dtype != torch.bool:
         raise ValueError(f"{name} must be a bool [H,W] tensor")
+    if mask.device.type != "cpu":
+        raise ValueError(f"{name} must be on CPU")
 
 
 def _validate_corruption_inputs(
@@ -34,14 +36,14 @@ def _validate_corruption_inputs(
         or image.dtype != torch.float32
     ):
         raise ValueError("image must be a float32 [3,H,W] tensor")
+    if image.device.type != "cpu":
+        raise ValueError("image must be on CPU")
     if not torch.isfinite(image).all() or image.min() < 0 or image.max() > 1:
         raise ValueError("image values must be finite and in [0,1]")
     _validate_mask(foreground, name="foreground")
     _validate_mask(region, name="region")
     if image.shape[1:] != foreground.shape or region.shape != foreground.shape:
         raise ValueError("image, foreground, and region spatial shapes must match")
-    if image.device != foreground.device or region.device != foreground.device:
-        raise ValueError("image, foreground, and region must share a device")
     if (region & ~foreground).any():
         raise ValueError("region must be inside foreground")
 
