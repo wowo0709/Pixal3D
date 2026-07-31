@@ -139,6 +139,8 @@ def affine_inverse_grid(
         inverse_matrix = torch.linalg.inv(homogeneous_matrix)
     except RuntimeError as error:
         raise ValueError("matrix must not be singular") from error
+    if not torch.isfinite(inverse_matrix).all():
+        raise ValueError("affine inverse matrix must be finite")
 
     destination_points = _pixel_mesh(
         height=height,
@@ -159,15 +161,47 @@ def affine_inverse_grid(
     source_points = (
         homogeneous_source[..., :2] / homogeneous_source[..., 2:].clone()
     )
+    if not torch.isfinite(source_points).all():
+        raise ValueError("affine source coordinates must be finite")
+    boundary_tolerance = (
+        16.0 * torch.finfo(torch.float32).eps * max(height, width)
+    )
+    source_x = source_points[..., 0]
+    source_y = source_points[..., 1]
+    source_x = torch.where(
+        source_x.abs() <= boundary_tolerance,
+        source_x.new_zeros(()),
+        source_x,
+    )
+    source_x = torch.where(
+        (source_x - (width - 1)).abs() <= boundary_tolerance,
+        source_x.new_tensor(float(width - 1)),
+        source_x,
+    )
+    source_y = torch.where(
+        source_y.abs() <= boundary_tolerance,
+        source_y.new_zeros(()),
+        source_y,
+    )
+    source_y = torch.where(
+        (source_y - (height - 1)).abs() <= boundary_tolerance,
+        source_y.new_tensor(float(height - 1)),
+        source_y,
+    )
+    source_points = torch.stack((source_x, source_y), dim=-1)
     invalid_mask = _outside_image(
         source_points,
         height=height,
         width=width,
     )
-    return (
-        pixel_to_normalized(source_points, height=height, width=width),
-        invalid_mask,
+    normalized_grid = pixel_to_normalized(
+        source_points,
+        height=height,
+        width=width,
     )
+    if not torch.isfinite(normalized_grid).all():
+        raise ValueError("affine normalized grid must be finite")
+    return normalized_grid, invalid_mask
 
 
 def _outside_image(
@@ -404,6 +438,15 @@ def smooth_random_forward_field(
         or blur_kernel_size % 2 == 0
     ):
         raise ValueError("blur_kernel_size must be a positive odd integer")
+    height, width = affected_mask.shape
+    blur_padding = blur_kernel_size // 2
+    if height <= blur_padding or width <= blur_padding:
+        raise ValueError(
+            "height and width must each be greater than "
+            f"blur_kernel_size // 2 ({blur_padding}); got "
+            f"height={height}, width={width}, "
+            f"blur_kernel_size={blur_kernel_size}"
+        )
     if (
         isinstance(max_gradient, bool)
         or not isinstance(max_gradient, (int, float))
@@ -412,7 +455,6 @@ def smooth_random_forward_field(
     ):
         raise ValueError("max_gradient must be finite and positive")
 
-    height, width = affected_mask.shape
     if max_displacement_px == 0:
         return torch.zeros(
             (height, width, 2),

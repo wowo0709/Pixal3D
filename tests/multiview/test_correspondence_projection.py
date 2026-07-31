@@ -121,6 +121,22 @@ def test_project_points_for_views_rejects_nonfloating_and_nonfinite_inputs(
         project_points_for_views(points, transforms, fovs, resolution=8)
 
 
+def test_project_points_for_views_rejects_mixed_geometry_dtypes():
+    """Would fail if mixed dtypes reached the legacy projector's batched matmul."""
+    points = torch.ones((2, 3), dtype=torch.float64)
+    transforms = torch.eye(4, dtype=torch.float32).reshape(1, 1, 4, 4)
+    fovs = torch.ones((1, 1), dtype=torch.float32)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "points_3d, projection_transforms, and camera_angle_x"
+            ".*same dtype"
+        ),
+    ):
+        project_points_for_views(points, transforms, fovs, resolution=8)
+
+
 def test_sample_oracle_masks_uses_pixel_center_coordinates_and_zero_padding():
     """Would fail if sampling used corner alignment, border padding, or validity."""
     masks = torch.zeros((1, 1, 3, 3), dtype=torch.float32)

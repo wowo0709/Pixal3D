@@ -44,6 +44,21 @@ def project_points_for_views(
         projection_transforms, name="projection_transforms"
     )
     _validate_floating_finite(camera_angle_x, name="camera_angle_x")
+    geometry_tensors = (
+        points_3d,
+        projection_transforms,
+        camera_angle_x,
+    )
+    if len({value.dtype for value in geometry_tensors}) != 1:
+        raise ValueError(
+            "points_3d, projection_transforms, and camera_angle_x "
+            "must share the same dtype"
+        )
+    if len({value.device for value in geometry_tensors}) != 1:
+        raise ValueError(
+            "points_3d, projection_transforms, and camera_angle_x "
+            "must share the same device"
+        )
     if points_3d.ndim not in (2, 3) or points_3d.shape[-1] != 3:
         raise ValueError("points_3d must have shape [N, 3] or [B, N, 3]")
     if projection_transforms.ndim != 4 or projection_transforms.shape[-2:] != (4, 4):

@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 
@@ -165,6 +167,71 @@ def test_affine_warp_uses_exact_inverse_for_nontranslation_transform():
     )
 
 
+@pytest.mark.parametrize(
+    ("degrees", "expected_k"),
+    [(90, 3), (180, 2), (270, 1)],
+)
+def test_c4_center_rotations_preserve_all_pixels_and_exact_nearest_mapping(
+    degrees, expected_k
+):
+    """Would fail if roundoff classified exact C4 boundary pixels as outside."""
+    angle = torch.tensor(math.radians(degrees), dtype=torch.float32)
+    cosine = torch.cos(angle)
+    sine = torch.sin(angle)
+    center = 2.0
+    matrix = torch.stack(
+        (
+            torch.stack(
+                (
+                    cosine,
+                    -sine,
+                    center - cosine * center + sine * center,
+                )
+            ),
+            torch.stack(
+                (
+                    sine,
+                    cosine,
+                    center - sine * center - cosine * center,
+                )
+            ),
+        )
+    )
+    source_image = torch.arange(25).reshape(5, 5)
+    image = torch.ones((1, 5, 5), dtype=torch.float32)
+    affected_mask = torch.ones((5, 5), dtype=torch.bool)
+
+    artifact = warp_affine(image, affected_mask, matrix)
+    source_points = normalized_to_pixel(
+        artifact.inverse_grid_norm,
+        height=5,
+        width=5,
+    ).round().to(dtype=torch.long)
+    nearest_result = source_image[
+        source_points[..., 1],
+        source_points[..., 0],
+    ]
+
+    assert not artifact.invalid_mask.any()
+    assert torch.equal(artifact.warped_image, image)
+    assert artifact.warped_image.sum().item() == 25.0
+    assert torch.equal(
+        nearest_result,
+        torch.rot90(source_image, k=expected_k, dims=(-2, -1)),
+    )
+
+
+def test_affine_inverse_keeps_materially_fractional_out_of_bounds_invalid():
+    """Would fail if boundary roundoff tolerance admitted real OOB coordinates."""
+    matrix = torch.tensor([[1.0, 0.0, 0.01], [0.0, 1.0, 0.0]])
+    expected_invalid = torch.zeros((5, 5), dtype=torch.bool)
+    expected_invalid[:, 0] = True
+
+    _, invalid_mask = affine_inverse_grid(matrix, height=5, width=5)
+
+    assert torch.equal(invalid_mask, expected_invalid)
+
+
 def test_field_inversion_marks_in_bounds_nonconverged_sources_invalid():
     """Would fail if invalidity checked bounds but omitted fixed-point residual."""
     forward_field = torch.zeros((3, 3, 2))
@@ -205,6 +272,17 @@ def test_identity_affine_inverse_rejects_a_singular_matrix():
 
     with pytest.raises(ValueError, match="singular"):
         affine_inverse_grid(singular, height=5, width=5)
+
+
+def test_affine_inverse_rejects_nonfinite_ill_conditioned_inverse():
+    """Would fail if an overflowing affine inverse returned an all-valid artifact."""
+    ill_conditioned = torch.tensor(
+        [[1e-39, 0.0, 0.0], [0.0, 1e-39, 0.0]],
+        dtype=torch.float32,
+    )
+
+    with pytest.raises(ValueError, match="affine inverse matrix.*finite"):
+        affine_inverse_grid(ill_conditioned, height=5, width=5)
 
 
 @pytest.mark.parametrize(
@@ -323,6 +401,23 @@ def test_smooth_random_field_is_exactly_zero_for_zero_displacement():
     )
 
     assert torch.equal(field, torch.zeros((11, 11, 2), dtype=torch.float32))
+
+
+@pytest.mark.parametrize("shape", [(4, 11), (11, 4)])
+def test_smooth_random_field_rejects_dimensions_too_small_for_blur(shape):
+    """Would fail if invalid reflect padding escaped as a low-level error."""
+    affected_mask = torch.ones(shape, dtype=torch.bool)
+
+    with pytest.raises(
+        ValueError,
+        match="height.*width.*blur_kernel_size",
+    ):
+        smooth_random_forward_field(
+            affected_mask,
+            seed=20260731,
+            max_displacement_px=1.0,
+            blur_kernel_size=9,
+        )
 
 
 @pytest.mark.parametrize(
