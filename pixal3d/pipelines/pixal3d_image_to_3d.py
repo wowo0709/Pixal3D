@@ -6,9 +6,18 @@ import numpy as np
 from PIL import Image
 from .base import Pipeline
 from . import samplers, rembg
+from .projection_aggregation import (
+    ProjectionAggregationConfig,
+    aggregate_global_features,
+    aggregate_projected_features,
+)
 from ..modules.sparse import SparseTensor
 from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
+from ..trainers.flow_matching.mixins.image_conditioned_proj import (
+    compute_multiview_projection_matrices,
+    sample_features,
+)
 
 
 def normalize_calibrated_views(image, camera_params):
@@ -56,6 +65,34 @@ def normalize_calibrated_views(image, camera_params):
     }
 
 
+def _projection_stage_arguments(
+    configs: Optional[Mapping[str, ProjectionAggregationConfig]],
+    *,
+    oracle_masks: Optional[torch.Tensor],
+    diagnostics: Optional[MutableMapping[str, dict]],
+) -> dict[str, dict]:
+    allowed = {"shape512", "shape1024", "pbr1024"}
+    unknown = set(configs or {}) - allowed
+    if unknown:
+        raise ValueError(
+            "projection aggregation stages must be shape512, "
+            "shape1024, pbr1024"
+        )
+
+    arguments = {}
+    for stage in ("shape512", "shape1024", "pbr1024"):
+        config = (configs or {}).get(stage)
+        stage_diagnostics = None
+        if config is not None and diagnostics is not None:
+            stage_diagnostics = diagnostics.setdefault(stage, {})
+        arguments[stage] = {
+            "aggregation_config": config,
+            "oracle_masks": oracle_masks if config is not None else None,
+            "diagnostics": stage_diagnostics,
+        }
+    return arguments
+
+
 def pil_views_to_tensor(images, image_size, device):
     tensors = []
     for view in images:
@@ -63,6 +100,32 @@ def pil_views_to_tensor(images, image_size, device):
         array = np.asarray(resized.convert("RGB"), dtype=np.float32) / 255.0
         tensors.append(torch.from_numpy(array.copy()).permute(2, 0, 1))
     return torch.stack(tensors).unsqueeze(0).to(device)
+
+
+def _flat_sparse_indices(
+    coords: torch.Tensor, grid_resolution: int
+) -> torch.Tensor:
+    if coords.ndim != 2 or coords.shape[1] != 4:
+        raise ValueError("coords must have shape [N, 4]")
+    if torch.any(coords[:, 0] != 0):
+        raise ValueError("experimental projection aggregation supports B=1")
+    xyz = coords[:, 1:].long()
+    if torch.any(xyz < 0) or torch.any(xyz >= grid_resolution):
+        raise ValueError("sparse coordinates are outside the projection grid")
+    return (
+        xyz[:, 0] * grid_resolution * grid_resolution
+        + xyz[:, 1] * grid_resolution
+        + xyz[:, 2]
+    )
+
+
+def _gather_sparse_projection(
+    dense: torch.Tensor,
+    flat_indices: torch.Tensor,
+) -> torch.Tensor:
+    if dense.ndim != 3 or dense.shape[0] != 1:
+        raise ValueError("experimental projection aggregation supports B=1")
+    return dense[0, flat_indices]
 
 
 class Pixal3DImageTo3DPipeline(Pipeline):
@@ -314,6 +377,9 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         mesh_scale: float = 1.0,
         grid_resolution_override: int = None,
         transform_matrix=None,
+        aggregation_config: Optional[ProjectionAggregationConfig] = None,
+        oracle_masks: Optional[torch.Tensor] = None,
+        diagnostics: Optional[MutableMapping[str, Any]] = None,
     ) -> dict:
         """
         Get proj conditioning for shape/texture stages (sparse-token aligned).
@@ -327,6 +393,9 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale: Mesh scale.
             grid_resolution_override: Override the grid resolution if not None.
             transform_matrix: Optional per-view camera transforms [1, K, 4, 4].
+            aggregation_config: Optional sparse-first aggregation configuration.
+            oracle_masks: Optional per-view masks reserved for oracle aggregation.
+            diagnostics: Optional caller-owned aggregation diagnostics dictionary.
 
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': SparseTensor}
@@ -336,61 +405,239 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             image_cond_model.to(device)
 
         orig_grid_res = image_cond_model.grid_resolution
-        if grid_resolution_override is not None and grid_resolution_override != orig_grid_res:
-            image_cond_model.grid_resolution = grid_resolution_override
-            image_cond_model.proj_grid = image_cond_model.proj_grid.__class__(
-                grid_resolution=grid_resolution_override,
-                image_resolution=image_cond_model.proj_grid.image_resolution,
-            ).to(device)
+        if aggregation_config is None:
+            if grid_resolution_override is not None and grid_resolution_override != orig_grid_res:
+                image_cond_model.grid_resolution = grid_resolution_override
+                image_cond_model.proj_grid = image_cond_model.proj_grid.__class__(
+                    grid_resolution=grid_resolution_override,
+                    image_resolution=image_cond_model.proj_grid.image_resolution,
+                ).to(device)
 
-        B = 1
-        num_views = len(image)
-        image_tensor = pil_views_to_tensor(image, image_cond_model.image_size, device)
-        camera_angle_x = torch.as_tensor(
-            camera_angle_x, dtype=torch.float32, device=device
-        ).reshape(1, num_views)
-        distance = torch.as_tensor(
-            distance, dtype=torch.float32, device=device
-        ).reshape(1, num_views)
-        mesh_scale = torch.as_tensor(
-            mesh_scale, dtype=torch.float32, device=device
-        ).reshape(1)
-        if transform_matrix is not None:
-            transform_matrix = torch.as_tensor(
-                transform_matrix, dtype=torch.float32, device=device
-            ).reshape(1, num_views, 4, 4)
-        if num_views == 1 and transform_matrix is None:
-            image_tensor = image_tensor[:, 0]
-            camera_angle_x = camera_angle_x[:, 0]
-            distance = distance[:, 0]
-        z_global, z_proj = image_cond_model(
-            image_tensor,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
-        )
-        grid_res = image_cond_model.grid_resolution
-        z_proj_grid = z_proj.reshape(B, grid_res, grid_res, grid_res, -1)
-        batch_indices = coords[:, 0].long()
-        x_coords = coords[:, 1].long()
-        y_coords = coords[:, 2].long()
-        z_coords = coords[:, 3].long()
-        z_proj_sparse = z_proj_grid[batch_indices, x_coords, y_coords, z_coords]
-        z_proj_st = SparseTensor(feats=z_proj_sparse, coords=coords)
+            B = 1
+            num_views = len(image)
+            image_tensor = pil_views_to_tensor(image, image_cond_model.image_size, device)
+            camera_angle_x = torch.as_tensor(
+                camera_angle_x, dtype=torch.float32, device=device
+            ).reshape(1, num_views)
+            distance = torch.as_tensor(
+                distance, dtype=torch.float32, device=device
+            ).reshape(1, num_views)
+            mesh_scale = torch.as_tensor(
+                mesh_scale, dtype=torch.float32, device=device
+            ).reshape(1)
+            if transform_matrix is not None:
+                transform_matrix = torch.as_tensor(
+                    transform_matrix, dtype=torch.float32, device=device
+                ).reshape(1, num_views, 4, 4)
+            if num_views == 1 and transform_matrix is None:
+                image_tensor = image_tensor[:, 0]
+                camera_angle_x = camera_angle_x[:, 0]
+                distance = distance[:, 0]
+            z_global, z_proj = image_cond_model(
+                image_tensor,
+                camera_angle_x=camera_angle_x,
+                distance=distance,
+                mesh_scale=mesh_scale,
+                transform_matrix=transform_matrix,
+            )
+            grid_res = image_cond_model.grid_resolution
+            z_proj_grid = z_proj.reshape(B, grid_res, grid_res, grid_res, -1)
+            batch_indices = coords[:, 0].long()
+            x_coords = coords[:, 1].long()
+            y_coords = coords[:, 2].long()
+            z_coords = coords[:, 3].long()
+            z_proj_sparse = z_proj_grid[
+                batch_indices, x_coords, y_coords, z_coords
+            ]
+            z_proj_st = SparseTensor(feats=z_proj_sparse, coords=coords)
 
-        if grid_resolution_override is not None and grid_resolution_override != orig_grid_res:
-            image_cond_model.grid_resolution = orig_grid_res
-            image_cond_model.proj_grid = image_cond_model.proj_grid.__class__(
-                grid_resolution=orig_grid_res,
-                image_resolution=image_cond_model.proj_grid.image_resolution,
-            ).to(device)
+            if grid_resolution_override is not None and grid_resolution_override != orig_grid_res:
+                image_cond_model.grid_resolution = orig_grid_res
+                image_cond_model.proj_grid = image_cond_model.proj_grid.__class__(
+                    grid_resolution=orig_grid_res,
+                    image_resolution=image_cond_model.proj_grid.image_resolution,
+                ).to(device)
 
+            if self.low_vram:
+                image_cond_model.cpu()
+            return {
+                'cond': {'global': z_global, 'proj': z_proj_st},
+                'neg_cond': {'global': torch.zeros_like(z_global), 'proj': SparseTensor(feats=torch.zeros_like(z_proj_sparse), coords=coords)},
+            }
+
+        original_proj_grid = image_cond_model.proj_grid
+        aggregation_diagnostics = None
+        try:
+            if (
+                grid_resolution_override is not None
+                and grid_resolution_override != orig_grid_res
+            ):
+                image_cond_model.grid_resolution = grid_resolution_override
+                image_cond_model.proj_grid = image_cond_model.proj_grid.__class__(
+                    grid_resolution=grid_resolution_override,
+                    image_resolution=image_cond_model.proj_grid.image_resolution,
+                ).to(device)
+
+            num_views = len(image)
+            image_tensor = pil_views_to_tensor(
+                image, image_cond_model.image_size, device
+            )
+            camera_angle_x = torch.as_tensor(
+                camera_angle_x, dtype=torch.float32, device=device
+            ).reshape(1, num_views)
+            distance = torch.as_tensor(
+                distance, dtype=torch.float32, device=device
+            ).reshape(1, num_views)
+            mesh_scale = torch.as_tensor(
+                mesh_scale, dtype=torch.float32, device=device
+            ).reshape(1)
+            if transform_matrix is not None:
+                transform_matrix = torch.as_tensor(
+                    transform_matrix, dtype=torch.float32, device=device
+                ).reshape(1, num_views, 4, 4)
+            if num_views == 1 and transform_matrix is None:
+                image_tensor = image_tensor[:, 0]
+                camera_angle_x = camera_angle_x[:, 0]
+                distance = distance[:, 0]
+
+            flat_indices = _flat_sparse_indices(
+                coords, image_cond_model.grid_resolution
+            )
+            projected_corruption = None
+            pixel_xy = None
+            depth = None
+            valid_mask = None
+            if oracle_masks is None:
+                if aggregation_config.mode == "oracle":
+                    raise ValueError("oracle mode requires oracle_masks")
+            else:
+                projection = None
+                if transform_matrix is not None:
+                    projection, _ = compute_multiview_projection_matrices(
+                        transform_matrix,
+                        distance,
+                        image_cond_model.fixed_projection_transform,
+                    )
+                    projection = projection.reshape(num_views, 4, 4)
+                pixel_xy, depth, valid_mask, ndc_xy = (
+                    image_cond_model.proj_grid.project_grid_points(
+                        camera_angle_x.reshape(-1),
+                        distance.reshape(-1),
+                        mesh_scale.expand(num_views),
+                        projection,
+                        point_indices=flat_indices,
+                    )
+                )
+                masks = oracle_masks.to(device=device, dtype=torch.float32)
+                if masks.ndim != 4 or masks.shape[:2] != (num_views, 1):
+                    raise ValueError(
+                        "oracle_masks must have shape [K, 1, H, W]"
+                    )
+                target_resolution = (
+                    image_cond_model.proj_grid.image_resolution,
+                    image_cond_model.proj_grid.image_resolution,
+                )
+                if masks.shape[-2:] != target_resolution:
+                    masks = torch.nn.functional.interpolate(
+                        masks,
+                        size=target_resolution,
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                projected_corruption = sample_features(
+                    masks, ndc_xy
+                ).squeeze(1)
+
+            view_global = []
+            per_view_sparse = None
+            for view_index, (global_features, dense_features) in enumerate(
+                image_cond_model.iter_view_features(
+                    image_tensor,
+                    camera_angle_x=camera_angle_x,
+                    distance=distance,
+                    mesh_scale=mesh_scale,
+                    transform_matrix=transform_matrix,
+                )
+            ):
+                view_global.append(global_features[0])
+                sparse_features = _gather_sparse_projection(
+                    dense_features, flat_indices
+                )
+                if per_view_sparse is None:
+                    per_view_sparse = torch.empty(
+                        (
+                            num_views,
+                            sparse_features.shape[0],
+                            sparse_features.shape[1],
+                        ),
+                        dtype=sparse_features.dtype,
+                        device=sparse_features.device,
+                    )
+                per_view_sparse[view_index].copy_(sparse_features)
+            if per_view_sparse is None:
+                raise ValueError("at least one view is required")
+
+            fused_sparse, aggregation_diagnostics = (
+                aggregate_projected_features(
+                    per_view_sparse,
+                    aggregation_config,
+                    projected_corruption=(
+                        projected_corruption
+                        if aggregation_config.mode == "oracle"
+                        else None
+                    ),
+                )
+            )
+            fused_global = aggregate_global_features(
+                torch.stack(view_global, dim=0),
+                aggregation_diagnostics.weights,
+                mode=aggregation_config.global_mode,
+            )
+        finally:
+            if grid_resolution_override is not None:
+                image_cond_model.grid_resolution = orig_grid_res
+                image_cond_model.proj_grid = original_proj_grid
+
+        if diagnostics is not None:
+            diagnostics.update(
+                {
+                    "scores": (
+                        None
+                        if aggregation_diagnostics.scores is None
+                        else aggregation_diagnostics.scores.detach().cpu()
+                    ),
+                    "weights": aggregation_diagnostics.weights.detach().cpu(),
+                    "projected_corruption": (
+                        None
+                        if projected_corruption is None
+                        else projected_corruption.detach().cpu()
+                    ),
+                    "pixel_xy": (
+                        None if pixel_xy is None else pixel_xy.detach().cpu()
+                    ),
+                    "depth": (
+                        None if depth is None else depth.detach().cpu()
+                    ),
+                    "valid_mask": (
+                        None
+                        if valid_mask is None
+                        else valid_mask.detach().cpu()
+                    ),
+                    "coords": coords.detach().cpu(),
+                }
+            )
+
+        fused_proj = SparseTensor(feats=fused_sparse, coords=coords)
         if self.low_vram:
             image_cond_model.cpu()
         return {
-            'cond': {'global': z_global, 'proj': z_proj_st},
-            'neg_cond': {'global': torch.zeros_like(z_global), 'proj': SparseTensor(feats=torch.zeros_like(z_proj_sparse), coords=coords)},
+            "cond": {"global": fused_global, "proj": fused_proj},
+            "neg_cond": {
+                "global": torch.zeros_like(fused_global),
+                "proj": SparseTensor(
+                    feats=torch.zeros_like(fused_sparse), coords=coords
+                ),
+            },
         }
 
     # =========================================================================
@@ -718,6 +965,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         return_latent: bool = False,
         pipeline_type: Optional[str] = None,
         max_num_tokens: int = 49152,
+        projection_aggregation: Optional[
+            Mapping[str, ProjectionAggregationConfig]
+        ] = None,
+        oracle_masks: Optional[torch.Tensor] = None,
+        projection_diagnostics: Optional[MutableMapping[str, dict]] = None,
     ) -> List[MeshWithVoxel]:
         """
         Run the Pixal3D pipeline (proj mode, cascade).
@@ -740,9 +992,26 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             return_latent (bool): Whether to return the latent codes.
             pipeline_type (str): The type of the pipeline. Options: '1024_cascade', '1536_cascade'.
             max_num_tokens (int): The maximum number of tokens to use.
+            projection_aggregation: Optional experimental stage configurations;
+                supported only with the 1024 cascade.
+            oracle_masks: Optional `[K,1,H,W]` masks aligned with the supplied
+                preprocessed images. Requires `preprocess_image=False`.
         """
         # Check pipeline type
         pipeline_type = pipeline_type or self.default_pipeline_type
+        if (
+            projection_aggregation is not None
+            and pipeline_type != "1024_cascade"
+        ):
+            raise ValueError(
+                "projection aggregation is supported only for "
+                "pipeline_type='1024_cascade'"
+            )
+        if oracle_masks is not None and preprocess_image:
+            raise ValueError(
+                "oracle_masks require already aligned image/mask pairs; "
+                "provide them with preprocess_image=False"
+            )
         if pipeline_type == '1024_cascade':
             assert 'shape_slat_flow_model_512' in self.models, "No 512 resolution shape SLat flow model found."
             assert 'shape_slat_flow_model_1024' in self.models, "No 1024 resolution shape SLat flow model found."
@@ -770,6 +1039,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         distance = cameras["distance"]
         mesh_scale = cameras["mesh_scale"]
         transform_matrix = cameras["transform_matrix"]
+        stage_arguments = _projection_stage_arguments(
+            projection_aggregation,
+            oracle_masks=oracle_masks,
+            diagnostics=projection_diagnostics,
+        )
         torch.manual_seed(seed)
 
         # ---- Stage 1: Sparse Structure (proj) ----
@@ -795,6 +1069,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             distance=distance,
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
+            **stage_arguments["shape512"],
         )
         lr_slat = self.sample_shape_slat(
             cond_shape_lr, self.models['shape_slat_flow_model_512'],
@@ -838,6 +1113,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
             grid_resolution_override=actual_grid_res,
+            **stage_arguments["shape1024"],
         )
         noise_hr = SparseTensor(
             feats=torch.randn(hr_coords_unique.shape[0], self.models['shape_slat_flow_model_1024'].in_channels).to(self.device),
@@ -872,6 +1148,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
             grid_resolution_override=tex_grid_res,
+            **stage_arguments["pbr1024"],
         )
         tex_slat = self.sample_tex_slat(
             cond_tex, self.models['tex_slat_flow_model_1024'],

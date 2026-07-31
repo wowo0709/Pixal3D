@@ -1,8 +1,21 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 from PIL import Image
 
-from pixal3d.pipelines.pixal3d_image_to_3d import normalize_calibrated_views
+from pixal3d.pipelines.pixal3d_image_to_3d import (
+    Pixal3DImageTo3DPipeline,
+    _projection_stage_arguments,
+    normalize_calibrated_views,
+)
+from pixal3d.pipelines.projection_aggregation import (
+    ProjectionAggregationConfig,
+)
+from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
+    ProjGrid,
+    _online_mean_tensor_groups,
+)
 
 
 def image(color):
@@ -79,11 +92,153 @@ def test_multiview_requires_calibrated_transforms():
         )
 
 
-class RecordingGrid(torch.nn.Module):
-    def __init__(self, grid_resolution=2, image_resolution=8):
-        super().__init__()
-        self.grid_resolution = grid_resolution
-        self.image_resolution = image_resolution
+def test_projection_stage_arguments_reject_unknown_stage():
+    with pytest.raises(ValueError, match="shape512, shape1024, pbr1024"):
+        _projection_stage_arguments(
+            {"ss64": ProjectionAggregationConfig(mode="consensus")},
+            oracle_masks=None,
+            diagnostics=None,
+        )
+
+
+def test_projection_stage_arguments_route_only_named_stages():
+    configs = {
+        "shape512": ProjectionAggregationConfig(mode="consensus"),
+        "pbr1024": ProjectionAggregationConfig(mode="mean"),
+    }
+    diagnostics = {}
+    masks = torch.zeros(4, 1, 8, 8)
+
+    arguments = _projection_stage_arguments(
+        configs,
+        oracle_masks=masks,
+        diagnostics=diagnostics,
+    )
+
+    assert arguments["shape512"]["aggregation_config"] is configs["shape512"]
+    assert arguments["shape1024"]["aggregation_config"] is None
+    assert arguments["pbr1024"]["aggregation_config"] is configs["pbr1024"]
+    assert arguments["shape512"]["oracle_masks"] is masks
+    assert arguments["shape1024"]["oracle_masks"] is None
+    assert set(diagnostics) == {"shape512", "pbr1024"}
+
+
+def test_run_routes_stage_aggregation_without_intervening_in_ss():
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+
+    class FakeSlat:
+        def __init__(self, coords):
+            self.coords = coords
+            self.device = torch.device("cpu")
+
+        def __mul__(self, other):
+            return self
+
+        def __add__(self, other):
+            return self
+
+    def make_pipeline(calls):
+        def sample_slat(*args, **kwargs):
+            return SimpleNamespace(samples=FakeSlat(coords))
+
+        def get_ss(
+            image, *, camera_angle_x, distance, mesh_scale, transform_matrix
+        ):
+            calls.append(("ss64", {}))
+            return {}
+
+        def get_shape(model, image, stage_coords, **kwargs):
+            calls.append((model, kwargs))
+            return {}
+
+        pipeline = Pixal3DImageTo3DPipeline()
+        pipeline._device = "cpu"
+        pipeline.low_vram = False
+        pipeline.default_pipeline_type = "1024_cascade"
+        pipeline.image_cond_model_ss = object()
+        pipeline.image_cond_model_shape_512 = "shape512"
+        pipeline.image_cond_model_shape_1024 = "shape1024"
+        pipeline.image_cond_model_tex_1024 = "pbr1024"
+        pipeline.models = {
+            "shape_slat_flow_model_512": SimpleNamespace(in_channels=1),
+            "shape_slat_flow_model_1024": SimpleNamespace(in_channels=1),
+            "tex_slat_flow_model_1024": SimpleNamespace(in_channels=1),
+            "shape_slat_decoder": SimpleNamespace(
+                upsample=lambda slat, upsample_times: coords
+            ),
+        }
+        pipeline.shape_slat_normalization = {"std": [1.0], "mean": [0.0]}
+        pipeline.shape_slat_sampler_params = {}
+        pipeline.shape_slat_sampler = SimpleNamespace(sample=sample_slat)
+        pipeline.get_proj_cond_ss = get_ss
+        pipeline.get_proj_cond_shape = get_shape
+        pipeline.sample_sparse_structure = lambda *args, **kwargs: coords
+        pipeline.sample_shape_slat = lambda *args, **kwargs: FakeSlat(coords)
+        pipeline.sample_tex_slat = lambda *args, **kwargs: FakeSlat(coords)
+        pipeline.decode_latent = lambda *args, **kwargs: []
+        return pipeline
+
+    def run_with(configs):
+        calls = []
+        result = make_pipeline(calls).run(
+            image("red"),
+            {"camera_angle_x": 0.7, "distance": 2.5, "mesh_scale": 1.0},
+            preprocess_image=False,
+            projection_aggregation=configs,
+        )
+        assert result == []
+        return calls
+
+    assert [stage for stage, _ in run_with(None)] == [
+        "ss64",
+        "shape512",
+        "shape1024",
+        "pbr1024",
+    ]
+
+    configs = {
+        "shape512": ProjectionAggregationConfig(mode="consensus"),
+        "shape1024": ProjectionAggregationConfig(mode="mean"),
+        "pbr1024": ProjectionAggregationConfig(mode="oracle"),
+    }
+    calls = dict(run_with(configs))
+    assert calls["ss64"] == {}
+    for stage, config in configs.items():
+        assert calls[stage]["aggregation_config"] is config
+
+
+def test_run_rejects_projection_aggregation_for_1536_cascade_before_models():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline.default_pipeline_type = "1536_cascade"
+
+    with pytest.raises(ValueError, match="1024_cascade"):
+        pipeline.run(
+            image("red"),
+            {"camera_angle_x": 0.7, "distance": 2.5, "mesh_scale": 1.0},
+            preprocess_image=False,
+            projection_aggregation={
+                "shape512": ProjectionAggregationConfig(mode="mean")
+            },
+        )
+
+
+def test_run_rejects_oracle_masks_with_preprocessing_before_model_work():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline.default_pipeline_type = "1024_cascade"
+    pipeline.preprocess_image = lambda _: pytest.fail(
+        "image preprocessing must not run"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="aligned image/mask pairs.*preprocess_image=False",
+    ):
+        pipeline.run(
+            image("red"),
+            {"camera_angle_x": 0.7, "distance": 2.5, "mesh_scale": 1.0},
+            preprocess_image=True,
+            oracle_masks=torch.zeros(1, 1, 8, 8),
+        )
 
 
 class RecordingConditioner(torch.nn.Module):
@@ -91,25 +246,42 @@ class RecordingConditioner(torch.nn.Module):
         super().__init__()
         self.image_size = image_size
         self.grid_resolution = grid_resolution
-        self.proj_grid = RecordingGrid(grid_resolution, image_size)
+        self.proj_grid = ProjGrid(grid_resolution, image_size)
         self.calls = []
 
+    @property
+    def fixed_projection_transform(self):
+        return self.proj_grid.front_view_transform_matrix
+
+    def iter_view_features(self, image, **camera):
+        num_views = image.shape[1] if image.ndim == 5 else 1
+        for view_index in range(num_views):
+            value = float(view_index + 1)
+            yield (
+                torch.full((1, 5, 4), value, device=image.device),
+                torch.full(
+                    (1, self.grid_resolution ** 3, 4),
+                    value,
+                    device=image.device,
+                ),
+            )
+
     def forward(self, image, **camera):
-        self.calls.append({
-            "image": image.detach().clone(),
-            "camera_angle_x": camera["camera_angle_x"].detach().clone(),
-            "distance": camera["distance"].detach().clone(),
-            "mesh_scale": camera["mesh_scale"].detach().clone(),
-            "transform_matrix": (
-                None
-                if camera["transform_matrix"] is None
-                else camera["transform_matrix"].detach().clone()
-            ),
-        })
-        batch = image.shape[0]
-        return (
-            torch.zeros(batch, 5, 4),
-            torch.zeros(batch, self.grid_resolution ** 3, 4),
+        self.calls.append(
+            {
+                "image": image.detach().clone(),
+                "camera_angle_x": camera["camera_angle_x"].detach().clone(),
+                "distance": camera["distance"].detach().clone(),
+                "mesh_scale": camera["mesh_scale"].detach().clone(),
+                "transform_matrix": (
+                    None
+                    if camera["transform_matrix"] is None
+                    else camera["transform_matrix"].detach().clone()
+                ),
+            }
+        )
+        return _online_mean_tensor_groups(
+            self.iter_view_features(image, **camera)
         )
 
 
@@ -153,8 +325,6 @@ def test_all_four_inference_conditioners_receive_the_same_k2_bundle():
 
 
 def test_shape_conditioner_preserves_positional_grid_resolution_override():
-    from pixal3d.pipelines.pixal3d_image_to_3d import Pixal3DImageTo3DPipeline
-
     pipeline = Pixal3DImageTo3DPipeline()
     pipeline._device = "cpu"
     pipeline.low_vram = False
@@ -170,3 +340,246 @@ def test_shape_conditioner_preserves_positional_grid_resolution_override():
     assert conditioner.calls[0]["transform_matrix"] is None
     assert conditioner.grid_resolution == 2
     assert conditioner.proj_grid.grid_resolution == 2
+
+
+def test_sparse_first_explicit_mean_matches_default_dense_mean():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    class NontrivialBfloat16Conditioner(RecordingConditioner):
+        def iter_view_features(self, image, **camera):
+            num_views = image.shape[1] if image.ndim == 5 else 1
+            token_count = self.grid_resolution ** 3
+            for view_index in range(num_views):
+                global_features = (
+                    torch.arange(20, device=image.device).reshape(1, 5, 4)
+                    + 0.375 * view_index
+                ).to(torch.bfloat16)
+                projected_features = (
+                    torch.arange(
+                        token_count * 4, device=image.device
+                    ).reshape(1, token_count, 4)
+                    * 0.125
+                    + 0.375 * view_index
+                ).to(torch.bfloat16)
+                yield global_features, projected_features
+
+    conditioner = NontrivialBfloat16Conditioner(grid_resolution=2)
+    images = [image("red"), image("blue")]
+    coords = torch.tensor(
+        [[0, 0, 1, 2], [0, 2, 0, 1]], dtype=torch.int32
+    )
+    transforms = torch.eye(4).repeat(1, 2, 1, 1)
+    cameras = {
+        "camera_angle_x": torch.tensor([[0.7, 0.8]]),
+        "distance": torch.tensor([[2.5, 2.7]]),
+        "mesh_scale": torch.tensor([1.0]),
+        "transform_matrix": transforms,
+    }
+
+    default = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        grid_resolution_override=3,
+        **cameras,
+    )
+    experimental = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        grid_resolution_override=3,
+        aggregation_config=ProjectionAggregationConfig(mode="mean"),
+        **cameras,
+    )
+
+    assert torch.equal(
+        experimental["cond"]["global"], default["cond"]["global"]
+    )
+    assert torch.equal(
+        experimental["cond"]["proj"].feats,
+        default["cond"]["proj"].feats,
+    )
+    assert experimental["cond"]["global"].dtype == torch.bfloat16
+    assert experimental["cond"]["proj"].feats.dtype == torch.bfloat16
+    assert experimental["cond"]["proj"].feats.shape == (2, 4)
+    assert torch.equal(
+        experimental["neg_cond"]["proj"].coords,
+        coords,
+    )
+    assert torch.count_nonzero(
+        experimental["neg_cond"]["proj"].feats
+    ) == 0
+
+
+def test_sparse_first_rejects_nonzero_sparse_batch_indices():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner()
+    coords = torch.tensor([[1, 0, 0, 0]], dtype=torch.int32)
+    with pytest.raises(ValueError, match="B=1"):
+        pipeline.get_proj_cond_shape(
+            conditioner,
+            [image("red")],
+            coords,
+            0.7,
+            2.5,
+            1.0,
+            aggregation_config=ProjectionAggregationConfig(mode="mean"),
+        )
+
+
+class FailingIteratorConditioner(RecordingConditioner):
+    def iter_view_features(self, *args, **kwargs):
+        raise RuntimeError("synthetic iterator failure")
+        yield
+
+
+def test_sparse_first_restores_grid_override_after_iterator_error():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = FailingIteratorConditioner()
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    with pytest.raises(RuntimeError, match="synthetic iterator failure"):
+        pipeline.get_proj_cond_shape(
+            conditioner,
+            [image("red")],
+            coords,
+            0.7,
+            2.5,
+            1.0,
+            grid_resolution_override=3,
+            aggregation_config=ProjectionAggregationConfig(mode="mean"),
+        )
+    assert conditioner.grid_resolution == 2
+    assert conditioner.proj_grid.grid_resolution == 2
+
+
+def test_oracle_mask_uses_same_active_projection_coordinates(monkeypatch):
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    masks = torch.zeros(2, 1, 8, 8)
+    masks[1, :, 4:, 4:] = 1.0
+    diagnostics = {}
+    transforms = torch.eye(4).repeat(1, 2, 1, 1)
+
+    pipeline.get_proj_cond_shape(
+        conditioner,
+        [image("red"), image("blue")],
+        coords,
+        camera_angle_x=torch.tensor([[0.7, 0.7]]),
+        distance=torch.tensor([[2.5, 2.5]]),
+        mesh_scale=torch.tensor([1.0]),
+        transform_matrix=transforms,
+        aggregation_config=ProjectionAggregationConfig(
+            mode="oracle", alpha=1.0
+        ),
+        oracle_masks=masks,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["projected_corruption"].shape == (2, 1)
+    assert diagnostics["pixel_xy"].shape == (2, 1, 2)
+    assert diagnostics["depth"].shape == (2, 1)
+    assert diagnostics["valid_mask"].shape == (2, 1)
+
+
+def test_consensus_oracle_mask_is_diagnostic_only():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    images = [image("red"), image("blue")]
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    cameras = {
+        "camera_angle_x": torch.tensor([[0.7, 0.7]]),
+        "distance": torch.tensor([[2.5, 2.5]]),
+        "mesh_scale": torch.tensor([1.0]),
+        "transform_matrix": torch.eye(4).repeat(1, 2, 1, 1),
+    }
+    masks = torch.zeros(2, 1, 8, 8)
+    masks[1, :, 4:, 4:] = 1.0
+    config = ProjectionAggregationConfig(
+        mode="consensus", alpha=1.0, temperature=0.1
+    )
+    diagnostics_without_mask = {}
+    without_mask = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        aggregation_config=config,
+        oracle_masks=None,
+        diagnostics=diagnostics_without_mask,
+        **cameras,
+    )
+    diagnostics = {}
+    with_mask = pipeline.get_proj_cond_shape(
+        conditioner,
+        images,
+        coords,
+        aggregation_config=config,
+        oracle_masks=masks,
+        diagnostics=diagnostics,
+        **cameras,
+    )
+    torch.testing.assert_close(
+        with_mask["cond"]["proj"].feats,
+        without_mask["cond"]["proj"].feats,
+    )
+    torch.testing.assert_close(
+        diagnostics["weights"],
+        diagnostics_without_mask["weights"],
+        rtol=0,
+        atol=0,
+    )
+    assert diagnostics["projected_corruption"].shape == (
+        len(images), coords.shape[0]
+    )
+
+
+def test_uncalibrated_single_view_projects_oracle_mask():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+    diagnostics = {}
+
+    pipeline.get_proj_cond_shape(
+        conditioner,
+        [image("red")],
+        coords,
+        camera_angle_x=torch.tensor([[0.7]]),
+        distance=torch.tensor([[2.5]]),
+        mesh_scale=torch.tensor([1.0]),
+        transform_matrix=None,
+        aggregation_config=ProjectionAggregationConfig(
+            mode="oracle", alpha=1.0
+        ),
+        oracle_masks=torch.zeros(1, 1, 8, 8),
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["projected_corruption"].shape == (1, 1)
+    assert diagnostics["pixel_xy"].shape == (1, 1, 2)
+
+
+def test_oracle_mode_requires_oracle_masks():
+    pipeline = Pixal3DImageTo3DPipeline()
+    pipeline._device = "cpu"
+    pipeline.low_vram = False
+    conditioner = RecordingConditioner(grid_resolution=2)
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+
+    with pytest.raises(ValueError, match="oracle mode requires oracle_masks"):
+        pipeline.get_proj_cond_shape(
+            conditioner,
+            [image("red")],
+            coords,
+            aggregation_config=ProjectionAggregationConfig(mode="oracle"),
+        )

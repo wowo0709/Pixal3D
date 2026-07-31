@@ -293,6 +293,42 @@ class ProjGrid(nn.Module):
             [0.0, 0.0, 0.0, 1.0]
         ])
         self.register_buffer("front_view_transform_matrix", front_view_transform_matrix)
+
+    def project_grid_points(
+        self,
+        camera_angle_x: torch.Tensor,
+        distance: torch.Tensor,
+        mesh_scale: torch.Tensor,
+        transform_matrix: Optional[torch.Tensor] = None,
+        *,
+        point_indices: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch_size = camera_angle_x.shape[0]
+        grid_points = self.grid_points
+        if point_indices is not None:
+            grid_points = grid_points[point_indices.long()]
+        grid_points = grid_points.expand(batch_size, -1, -1)
+        grid_points = grid_points / mesh_scale[:, None, None] / 2
+        if transform_matrix is None:
+            transform_matrix = self.front_view_transform_matrix.expand(
+                batch_size, -1, -1
+            ).clone()
+            transform_matrix[:, 1, 3] = -distance
+        elif (
+            transform_matrix.shape != (batch_size, 4, 4)
+            or not torch.isfinite(transform_matrix).all()
+        ):
+            raise ValueError(
+                "transform_matrix must be finite with shape [B, 4, 4]"
+            )
+        pixel_xy, depth, valid = project_points_to_image_batch(
+            grid_points,
+            transform_matrix,
+            camera_angle_x,
+            self.image_resolution,
+        )
+        ndc_xy = (pixel_xy + 0.5) / self.image_resolution * 2 - 1
+        return pixel_xy, depth, valid, ndc_xy
         
     def forward(
         self, 
@@ -321,23 +357,13 @@ class ProjGrid(nn.Module):
             B, H, W, C = features_map.shape
         else:
             B, C, H, W = features_map.shape
-            
-        grid_points = self.grid_points
-        grid_points = grid_points.expand(B, -1, -1)
-        grid_points = grid_points / mesh_scale.unsqueeze(-1).unsqueeze(-1) / 2  # Scale alignment
-        if transform_matrix is None:
-            transform_matrix = self.front_view_transform_matrix.expand(B, -1, -1).clone()
-            transform_matrix[:, 1, 3] = -distance  # Set camera distance
-        elif transform_matrix.shape != (B, 4, 4) or not torch.isfinite(transform_matrix).all():
-            raise ValueError("transform_matrix must be finite with shape [B, 4, 4]")
-            
-        # Project to image coordinates (simulate Blender projection)
-        image_points, depth, valid_mask = project_points_to_image_batch(
-            grid_points, transform_matrix, camera_angle_x, self.image_resolution
+
+        _, _, _, image_points_norm = self.project_grid_points(
+            camera_angle_x,
+            distance,
+            mesh_scale,
+            transform_matrix,
         )
-        
-        # Normalize to [-1, 1] for grid_sample
-        image_points_norm = (image_points + 0.5) / self.image_resolution * 2 - 1
         
         if BHWC:
             features_map = features_map.permute(0, 3, 1, 2)  # [B, C, H, W]
@@ -694,8 +720,31 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         mesh_scale: torch.Tensor,
         transform_matrix: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        return _online_mean_tensor_groups(
+            self.iter_view_features(
+                image,
+                camera_angle_x,
+                distance,
+                mesh_scale,
+                transform_matrix,
+            )
+        )
+
+    def iter_view_features(
+        self,
+        image: torch.Tensor,
+        camera_angle_x: torch.Tensor,
+        distance: torch.Tensor,
+        mesh_scale: torch.Tensor,
+        transform_matrix: Optional[torch.Tensor],
+    ) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
+        if image.ndim == 4:
+            yield self._forward_single_view(
+                image, camera_angle_x, distance, mesh_scale, transform_matrix
+            )
+            return
         if image.ndim != 5:
-            raise ValueError("multi-view image must have shape [B, K, C, H, W]")
+            raise ValueError("image must have shape [B,C,H,W] or [B,K,C,H,W]")
         batch_size, num_views = image.shape[:2]
         expected_vector = (batch_size, num_views)
         if camera_angle_x is None or camera_angle_x.shape != expected_vector:
@@ -704,9 +753,18 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             raise ValueError("distance must have shape [B, K]")
         if mesh_scale is None or mesh_scale.shape != (batch_size,):
             raise ValueError("mesh_scale must have shape [B]")
-        if transform_matrix is None or transform_matrix.shape != (
-            batch_size, num_views, 4, 4
-        ):
+        if transform_matrix is None:
+            if num_views != 1:
+                raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
+            yield self._forward_single_view(
+                image[:, 0],
+                camera_angle_x[:, 0],
+                distance[:, 0],
+                mesh_scale,
+                None,
+            )
+            return
+        if transform_matrix.shape != (batch_size, num_views, 4, 4):
             raise ValueError("transform_matrix must have shape [B, K, 4, 4]")
         if not torch.isfinite(mesh_scale).all() or torch.any(mesh_scale <= 0):
             raise ValueError("mesh_scale must be finite and positive")
@@ -714,17 +772,14 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         projection, _ = compute_multiview_projection_matrices(
             transform_matrix, distance, self.fixed_projection_transform
         )
-        view_features = (
-            self._forward_single_view(
+        for view_index in range(num_views):
+            yield self._forward_single_view(
                 image[:, view_index],
                 camera_angle_x[:, view_index],
                 distance[:, view_index],
                 mesh_scale,
                 projection[:, view_index],
             )
-            for view_index in range(num_views)
-        )
-        return _online_mean_tensor_groups(view_features)
 
     def forward(
         self,

@@ -27,6 +27,9 @@ class ConditionerHarness(DinoV3ProjFeatureExtractor):
         self, image, camera_angle_x, distance, mesh_scale, transform_matrix
     ):
         global_feature = image.mean(dim=(-2, -1))[:, None, :]
+        if transform_matrix is None:
+            transform_matrix = self.front[None].expand(image.shape[0], -1, -1).clone()
+            transform_matrix[:, 1, 3] = -distance
         projected = transform_matrix[:, :3, :4].reshape(image.shape[0], 1, 12)
         return global_feature, projected
 
@@ -40,6 +43,41 @@ def cameras(k):
         "mesh_scale": torch.ones(1),
         "transform_matrix": transforms,
     }
+
+
+def test_iter_view_features_matches_current_per_view_projection_order():
+    model = ConditionerHarness()
+    image = torch.arange(48, dtype=torch.float32).reshape(1, 4, 3, 2, 2)
+    camera = cameras(4)
+
+    groups = list(model.iter_view_features(image, **camera))
+
+    assert len(groups) == 4
+    default_global, default_projected = model(image, **camera)
+    expected_global = torch.stack([group[0] for group in groups]).mean(dim=0)
+    expected_projected = torch.stack([group[1] for group in groups]).mean(dim=0)
+    torch.testing.assert_close(default_global, expected_global)
+    torch.testing.assert_close(default_projected, expected_projected)
+
+
+def test_iter_view_features_supports_uncalibrated_k1_without_transform():
+    model = ConditionerHarness()
+    image = torch.arange(12, dtype=torch.float32).reshape(1, 3, 2, 2)
+    groups = list(
+        model.iter_view_features(
+            image,
+            camera_angle_x=torch.tensor([0.7]),
+            distance=torch.tensor([2.5]),
+            mesh_scale=torch.ones(1),
+            transform_matrix=None,
+        )
+    )
+    assert len(groups) == 1
+    expected = model._forward_single_view(
+        image, torch.tensor([0.7]), torch.tensor([2.5]), torch.ones(1), None
+    )
+    for actual, reference in zip(groups[0], expected):
+        torch.testing.assert_close(actual, reference)
 
 
 def test_k1_matches_single_view_with_exact_fp32_gate():

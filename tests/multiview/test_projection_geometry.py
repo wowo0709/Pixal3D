@@ -7,6 +7,7 @@ import utils3d
 from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
     ProjGrid,
     compute_multiview_projection_matrices,
+    sample_features,
 )
 
 
@@ -68,6 +69,36 @@ def test_proj_grid_default_and_explicit_anchor_paths_match():
     expected = grid(features, fov, distance, scale)
     actual = grid(features, fov, distance, scale, explicit)
     torch.testing.assert_close(actual, expected, rtol=RTOL, atol=ATOL)
+
+
+def test_project_grid_points_indexed_subset_matches_full_grid():
+    grid = ProjGrid(grid_resolution=3, image_resolution=12)
+    fov = torch.tensor([0.7])
+    distance = torch.tensor([2.5])
+    scale = torch.tensor([1.0])
+    indices = torch.tensor([0, 4, 26])
+
+    full = grid.project_grid_points(fov, distance, scale)
+    subset = grid.project_grid_points(
+        fov, distance, scale, point_indices=indices
+    )
+
+    for subset_value, full_value in zip(subset, full):
+        torch.testing.assert_close(subset_value, full_value[:, indices])
+
+
+def test_proj_grid_forward_uses_public_projection_ndc():
+    grid = ProjGrid(grid_resolution=2, image_resolution=8)
+    features = torch.arange(12, dtype=torch.float32).reshape(1, 2, 2, 3)
+    fov = torch.tensor([0.7])
+    distance = torch.tensor([2.5])
+    scale = torch.tensor([1.0])
+    _, _, _, ndc = grid.project_grid_points(fov, distance, scale)
+    expected = sample_features(
+        features.permute(0, 3, 1, 2), ndc
+    ).permute(0, 2, 1)
+    actual = grid(features, fov, distance, scale)
+    torch.testing.assert_close(actual, expected)
 
 
 @pytest.mark.parametrize(

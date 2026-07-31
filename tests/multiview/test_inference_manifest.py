@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
+from pixal3d.pipelines.projection_aggregation import ProjectionAggregationConfig
 
 import inference
 from inference import (
@@ -13,6 +14,37 @@ from inference import (
     load_calibrated_manifest,
     load_flow_overrides,
 )
+
+
+def test_projection_aggregation_cli_is_opt_in():
+    args = build_parser().parse_args(["--image", "input.png"])
+
+    assert args.projection_aggregation is None
+    assert args.projection_stages == "shape512,shape1024,pbr1024"
+    assert args.projection_alpha == 0.5
+    assert args.projection_temperature == 0.1
+
+
+def test_projection_aggregation_cli_parses_consensus():
+    args = build_parser().parse_args(
+        [
+            "--transforms",
+            "transforms.json",
+            "--projection_aggregation",
+            "consensus",
+            "--projection_stages",
+            "shape512,pbr1024",
+            "--projection_alpha",
+            "0.25",
+            "--projection_temperature",
+            "0.2",
+        ]
+    )
+
+    assert args.projection_aggregation == "consensus"
+    assert args.projection_stages == "shape512,pbr1024"
+    assert args.projection_alpha == 0.25
+    assert args.projection_temperature == 0.2
 
 
 def write_manifest(tmp_path, frames, **metadata):
@@ -181,6 +213,7 @@ class RecordingPipeline:
 
     def run(self, image, *, camera_params, **kwargs):
         self.camera_params = camera_params
+        self.run_kwargs = kwargs
         mesh = type(
             "Mesh",
             (),
@@ -200,6 +233,55 @@ class RecordingGlb:
 
     def export(self, output_path, *, extension_webp):
         pass
+
+
+def test_run_inference_forwards_projection_aggregation(tmp_path, monkeypatch):
+    pipeline = RecordingPipeline()
+    monkeypatch.setattr(inference, "init_pipeline", lambda *args, **kwargs: pipeline)
+    monkeypatch.setattr(
+        inference.o_voxel.postprocess,
+        "to_glb",
+        lambda **kwargs: RecordingGlb(),
+    )
+    image_path = tmp_path / "input.png"
+    Image.new("RGBA", (4, 4)).save(image_path)
+
+    inference.run_inference(
+        image_path=str(image_path),
+        output_path=str(tmp_path / "output.glb"),
+        manual_fov=0.7,
+        projection_aggregation={
+            "shape512": ProjectionAggregationConfig(mode="consensus")
+        },
+    )
+
+    assert (
+        pipeline.run_kwargs["projection_aggregation"]["shape512"].mode
+        == "consensus"
+    )
+    assert pipeline.run_kwargs["pipeline_type"] == "1024_cascade"
+
+
+def test_run_inference_keeps_1536_default_without_projection_aggregation(
+    tmp_path, monkeypatch
+):
+    pipeline = RecordingPipeline()
+    monkeypatch.setattr(inference, "init_pipeline", lambda *args, **kwargs: pipeline)
+    monkeypatch.setattr(
+        inference.o_voxel.postprocess,
+        "to_glb",
+        lambda **kwargs: RecordingGlb(),
+    )
+    image_path = tmp_path / "input.png"
+    Image.new("RGBA", (4, 4)).save(image_path)
+
+    inference.run_inference(
+        image_path=str(image_path),
+        output_path=str(tmp_path / "output.glb"),
+        manual_fov=0.7,
+    )
+
+    assert pipeline.run_kwargs["pipeline_type"] == "1536_cascade"
 
 
 def test_programmatic_calibrated_inference_omission_warns_once(

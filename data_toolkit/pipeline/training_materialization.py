@@ -120,6 +120,16 @@ class FamilyPack:
     source_index_sha256: str
 
 
+def _add_exception_note(error: BaseException, note: str) -> None:
+    add_note = getattr(error, "add_note", None)
+    if add_note is not None:
+        add_note(note)
+        return
+    notes = list(getattr(error, "__notes__", ()))
+    notes.append(note)
+    error.__notes__ = notes
+
+
 def _read_regular_bytes(path: Path, description: str) -> bytes:
     path = Path(path)
     try:
@@ -1128,7 +1138,8 @@ def _materialize_stage(
                     "staging retained in pinned stage parent as "
                     f"{temporary_name}"
                 ) from preservation_error
-            error.add_note(
+            _add_exception_note(
+                error,
                 f"failed materialization preserved at {rejected_attempt}"
             )
         raise
