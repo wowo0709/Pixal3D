@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 from PIL import Image
@@ -118,6 +120,90 @@ def test_projection_stage_arguments_route_only_named_stages():
     assert arguments["shape512"]["oracle_masks"] is masks
     assert arguments["shape1024"]["oracle_masks"] is None
     assert set(diagnostics) == {"shape512", "pbr1024"}
+
+
+def test_run_routes_stage_aggregation_without_intervening_in_ss():
+    coords = torch.tensor([[0, 0, 0, 0]], dtype=torch.int32)
+
+    class FakeSlat:
+        def __init__(self, coords):
+            self.coords = coords
+            self.device = torch.device("cpu")
+
+        def __mul__(self, other):
+            return self
+
+        def __add__(self, other):
+            return self
+
+    def make_pipeline(calls):
+        def sample_slat(*args, **kwargs):
+            return SimpleNamespace(samples=FakeSlat(coords))
+
+        def get_ss(
+            image, *, camera_angle_x, distance, mesh_scale, transform_matrix
+        ):
+            calls.append(("ss64", {}))
+            return {}
+
+        def get_shape(model, image, stage_coords, **kwargs):
+            calls.append((model, kwargs))
+            return {}
+
+        pipeline = Pixal3DImageTo3DPipeline()
+        pipeline._device = "cpu"
+        pipeline.low_vram = False
+        pipeline.default_pipeline_type = "1024_cascade"
+        pipeline.image_cond_model_ss = object()
+        pipeline.image_cond_model_shape_512 = "shape512"
+        pipeline.image_cond_model_shape_1024 = "shape1024"
+        pipeline.image_cond_model_tex_1024 = "pbr1024"
+        pipeline.models = {
+            "shape_slat_flow_model_512": SimpleNamespace(in_channels=1),
+            "shape_slat_flow_model_1024": SimpleNamespace(in_channels=1),
+            "tex_slat_flow_model_1024": SimpleNamespace(in_channels=1),
+            "shape_slat_decoder": SimpleNamespace(
+                upsample=lambda slat, upsample_times: coords
+            ),
+        }
+        pipeline.shape_slat_normalization = {"std": [1.0], "mean": [0.0]}
+        pipeline.shape_slat_sampler_params = {}
+        pipeline.shape_slat_sampler = SimpleNamespace(sample=sample_slat)
+        pipeline.get_proj_cond_ss = get_ss
+        pipeline.get_proj_cond_shape = get_shape
+        pipeline.sample_sparse_structure = lambda *args, **kwargs: coords
+        pipeline.sample_shape_slat = lambda *args, **kwargs: FakeSlat(coords)
+        pipeline.sample_tex_slat = lambda *args, **kwargs: FakeSlat(coords)
+        pipeline.decode_latent = lambda *args, **kwargs: []
+        return pipeline
+
+    def run_with(configs):
+        calls = []
+        result = make_pipeline(calls).run(
+            image("red"),
+            {"camera_angle_x": 0.7, "distance": 2.5, "mesh_scale": 1.0},
+            preprocess_image=False,
+            projection_aggregation=configs,
+        )
+        assert result == []
+        return calls
+
+    assert [stage for stage, _ in run_with(None)] == [
+        "ss64",
+        "shape512",
+        "shape1024",
+        "pbr1024",
+    ]
+
+    configs = {
+        "shape512": ProjectionAggregationConfig(mode="consensus"),
+        "shape1024": ProjectionAggregationConfig(mode="mean"),
+        "pbr1024": ProjectionAggregationConfig(mode="oracle"),
+    }
+    calls = dict(run_with(configs))
+    assert calls["ss64"] == {}
+    for stage, config in configs.items():
+        assert calls[stage]["aggregation_config"] is config
 
 
 class RecordingConditioner(torch.nn.Module):

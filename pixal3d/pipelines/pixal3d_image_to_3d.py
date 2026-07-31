@@ -1036,7 +1036,6 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             distance=distance,
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
-            **stage_arguments["shape512"],
         )
         ss_res = 32
         coords = self.sample_sparse_structure(
@@ -1053,6 +1052,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             distance=distance,
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
+            **stage_arguments["shape512"],
         )
         lr_slat = self.sample_shape_slat(
             cond_shape_lr, self.models['shape_slat_flow_model_512'],
