@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from hashlib import sha256
 
 import pytest
@@ -10,6 +11,7 @@ from pixal3d.experiments.correspondence import (
     CalibratedView,
     ControlledCorruption,
     ForegroundMask,
+    validate_artifact_bundle,
     write_artifact_bundle,
     write_failed_artifact_bundle,
 )
@@ -80,6 +82,18 @@ def _corruptions():
 
 def _sha(path):
     return sha256(path.read_bytes()).hexdigest()
+
+
+def _write_canonical_manifest(path, manifest):
+    path.write_text(
+        json.dumps(
+            manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    )
 
 
 def test_bundle_atomically_writes_canonical_manifest_relative_paths_and_hashes(
@@ -199,6 +213,159 @@ def test_bundle_refuses_existing_run_symlink_outside_output_directory(tmp_path):
     with pytest.raises(ValueError, match="run directory must not be a symlink"):
         write_artifact_bundle(
             output,
+            "case-001",
+            views,
+            masks,
+            corruptions,
+            seed=42,
+            mesh_scale=1.0,
+        )
+
+
+def test_validator_rejects_manifest_symlink_outside_run_directory(tmp_path):
+    views, masks = _views_and_masks(tmp_path)
+    run_dir = write_artifact_bundle(
+        tmp_path / "bundles",
+        "case-001",
+        views,
+        masks,
+        _corruptions(),
+        seed=42,
+        mesh_scale=1.0,
+    )
+    manifest_path = run_dir / "manifest.json"
+    outside = tmp_path / "outside-manifest.json"
+    manifest_path.rename(outside)
+    manifest_path.symlink_to(outside)
+
+    with pytest.raises(
+        ValueError, match="manifest must be a non-symlink regular file"
+    ):
+        validate_artifact_bundle(run_dir)
+
+
+def _drop_schema(manifest):
+    manifest.pop("schema_version")
+
+
+def _wrong_schema(manifest):
+    manifest["schema_version"] = 2
+
+
+def _wrong_run_id(manifest):
+    manifest["run_id"] = "different-run"
+
+
+def _wrong_k(manifest):
+    manifest["K"] += 1
+
+
+def _missing_view_camera(manifest):
+    manifest["views"][0].pop("camera_angle_x")
+
+
+def _missing_view_transform(manifest):
+    manifest["views"][0].pop("transform_matrix")
+
+
+def _missing_source_provenance(manifest):
+    manifest["views"][0]["source"].pop("input_sha256")
+
+
+def _missing_mask_provenance(manifest):
+    manifest["views"][0]["foreground_mask"].pop("provenance")
+
+
+def _missing_corruption_arm(manifest):
+    manifest["corruptions"] = manifest["corruptions"][:2]
+
+
+def _duplicate_corruption_arm(manifest):
+    manifest["corruptions"][2]["arm"] = "c2"
+
+
+def _wrong_corruption_path(manifest):
+    source = manifest["views"][1]["source"]
+    manifest["corruptions"][0]["image"] = {
+        "path": source["path"],
+        "sha256": source["sha256"],
+    }
+
+
+def _noninteger_corruption_view_index(manifest):
+    manifest["corruptions"][0]["view_index"] = "1"
+
+
+def _completed_with_failure_reason(manifest):
+    manifest["failure_reason"] = "must be absent on success"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        _drop_schema,
+        _wrong_schema,
+        _wrong_run_id,
+        _wrong_k,
+        _missing_view_camera,
+        _missing_view_transform,
+        _missing_source_provenance,
+        _missing_mask_provenance,
+        _missing_corruption_arm,
+        _duplicate_corruption_arm,
+        _wrong_corruption_path,
+        _noninteger_corruption_view_index,
+        _completed_with_failure_reason,
+    ],
+)
+def test_validator_rejects_canonical_incomplete_completed_contract(
+    tmp_path, mutation
+):
+    views, masks = _views_and_masks(tmp_path)
+    run_dir = write_artifact_bundle(
+        tmp_path / "bundles",
+        "case-001",
+        views,
+        masks,
+        _corruptions(),
+        seed=42,
+        mesh_scale=1.0,
+    )
+    manifest_path = run_dir / "manifest.json"
+    manifest = deepcopy(json.loads(manifest_path.read_text()))
+    mutation(manifest)
+    _write_canonical_manifest(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="invalid completed bundle contract"):
+        validate_artifact_bundle(run_dir)
+
+
+def test_validator_rejects_failed_contract_without_failure_reason(tmp_path):
+    run_dir = write_failed_artifact_bundle(
+        tmp_path / "bundles",
+        "failed-mask",
+        seed=42,
+        mesh_scale=1.0,
+        num_views=4,
+        failure_reason="foreground mask is empty",
+    )
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["failure_reason"] = None
+    _write_canonical_manifest(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="invalid failed bundle contract"):
+        validate_artifact_bundle(run_dir)
+
+
+def test_bundle_rejects_invalid_corruption_entry_with_value_error(tmp_path):
+    views, masks = _views_and_masks(tmp_path)
+    corruptions = _corruptions()
+    corruptions[0] = object()
+
+    with pytest.raises(ValueError, match="corruptions have invalid entries"):
+        write_artifact_bundle(
+            tmp_path / "bundles",
             "case-001",
             views,
             masks,

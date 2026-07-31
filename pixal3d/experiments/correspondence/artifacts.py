@@ -21,6 +21,7 @@ from .inputs import CalibratedView, ForegroundMask
 
 
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _EXPECTED_KINDS = {
     "c1": "c1_color",
     "c2": "c2_pattern",
@@ -241,13 +242,13 @@ def _request_payload(
             }
         )
 
+    if not all(isinstance(item, BundleCorruption) for item in corruptions):
+        raise ValueError("corruptions have invalid entries")
     ordered = sorted(corruptions, key=lambda item: item.arm)
     if [item.arm for item in ordered] != ["c1", "c2", "c3"]:
         raise ValueError("completed bundles require exactly one c1, c2, and c3 arm")
     corruption_records = []
     for entry in ordered:
-        if not isinstance(entry, BundleCorruption):
-            raise ValueError("corruptions have invalid entries")
         if not 0 <= entry.view_index < len(views):
             raise ValueError("corruption view_index is outside the calibrated views")
         if entry.corruption.kind != _EXPECTED_KINDS[entry.arm]:
@@ -349,29 +350,206 @@ def _artifact_records(manifest: dict) -> Iterable[dict]:
     yield manifest["contact_sheet"]
 
 
-def validate_artifact_bundle(run_dir: Path) -> dict:
-    """Validate the canonical manifest and every artifact it references."""
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
-    root = Path(run_dir).resolve()
-    manifest_path = root / "manifest.json"
+
+def _is_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and _SHA256.fullmatch(value) is not None
+
+
+def _is_artifact_record(
+    value: object, *, path: str, extra_keys: frozenset[str] = frozenset()
+) -> bool:
+    required = {"path", "sha256", *extra_keys}
+    return (
+        isinstance(value, dict)
+        and set(value) == required
+        and value.get("path") == path
+        and _is_sha256(value.get("sha256"))
+    )
+
+
+def _is_transform(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 4
+        and all(
+            isinstance(row, list)
+            and len(row) == 4
+            and all(_is_finite_number(component) for component in row)
+            for row in value
+        )
+    )
+
+
+def _completed_contract_is_valid(manifest: dict) -> bool:
+    views = manifest["views"]
+    if (
+        manifest["failure_reason"] is not None
+        or not isinstance(views, list)
+        or manifest["K"] != len(views)
+        or not views
+    ):
+        return False
+    view_keys = {
+        "view_index",
+        "frame_index",
+        "camera_angle_x",
+        "distance",
+        "transform_matrix",
+        "source",
+        "foreground_mask",
+    }
+    for index, view in enumerate(views):
+        source_path = f"views/view_{index:02d}/source.png"
+        foreground_path = f"views/view_{index:02d}/foreground_mask.png"
+        if not isinstance(view, dict) or set(view) != view_keys:
+            return False
+        if (
+            not _is_int(view["view_index"])
+            or view["view_index"] != index
+            or not _is_int(view["frame_index"])
+            or view["frame_index"] < 0
+            or not _is_finite_number(view["camera_angle_x"])
+            or not _is_finite_number(view["distance"])
+            or view["distance"] < 0
+            or not _is_transform(view["transform_matrix"])
+            or not _is_artifact_record(
+                view["source"],
+                path=source_path,
+                extra_keys=frozenset({"input_sha256"}),
+            )
+            or not _is_sha256(view["source"].get("input_sha256"))
+            or not _is_artifact_record(
+                view["foreground_mask"],
+                path=foreground_path,
+                extra_keys=frozenset({"provenance", "source_sha256"}),
+            )
+            or view["foreground_mask"].get("provenance")
+            not in {"explicit", "alpha", "rembg"}
+            or not _is_sha256(
+                view["foreground_mask"].get("source_sha256")
+            )
+        ):
+            return False
+
+    corruptions = manifest["corruptions"]
+    if not isinstance(corruptions, list) or len(corruptions) != 3:
+        return False
+    corruption_keys = {
+        "arm",
+        "view_index",
+        "kind",
+        "parameters",
+        "image",
+        "oracle_mask",
+    }
+    for arm, corruption in zip(("c1", "c2", "c3"), corruptions):
+        if not isinstance(corruption, dict) or set(corruption) != corruption_keys:
+            return False
+        view_index = corruption["view_index"]
+        if not _is_int(view_index) or not 0 <= view_index < len(views):
+            return False
+        root = f"corruptions/{arm}/view_{view_index:02d}"
+        if (
+            corruption["arm"] != arm
+            or corruption["kind"] != _EXPECTED_KINDS[arm]
+            or not isinstance(corruption["parameters"], dict)
+            or not _is_artifact_record(
+                corruption["image"], path=f"{root}/image.png"
+            )
+            or not _is_artifact_record(
+                corruption["oracle_mask"], path=f"{root}/oracle_mask.png"
+            )
+        ):
+            return False
+    return True
+
+
+def _failed_contract_is_valid(manifest: dict) -> bool:
+    return (
+        isinstance(manifest["failure_reason"], str)
+        and bool(manifest["failure_reason"].strip())
+        and manifest["views"] == []
+        and manifest["corruptions"] == []
+    )
+
+
+def _validate_manifest_contract(manifest: dict, *, expected_run_id: str) -> None:
+    required_keys = {
+        "schema_version",
+        "run_id",
+        "status",
+        "failure_reason",
+        "K",
+        "seed",
+        "mesh_scale",
+        "views",
+        "corruptions",
+        "contact_sheet",
+    }
+    status = manifest.get("status")
+    common_valid = (
+        set(manifest) == required_keys
+        and _is_int(manifest.get("schema_version"))
+        and manifest.get("schema_version") == 1
+        and isinstance(manifest.get("run_id"), str)
+        and _RUN_ID.fullmatch(manifest["run_id"]) is not None
+        and manifest["run_id"] == expected_run_id
+        and status in {"completed", "failed"}
+        and _is_int(manifest.get("K"))
+        and manifest["K"] > 0
+        and _is_int(manifest.get("seed"))
+        and _is_finite_number(manifest.get("mesh_scale"))
+        and manifest["mesh_scale"] > 0
+        and _is_artifact_record(
+            manifest.get("contact_sheet"), path="contact_sheet.png"
+        )
+    )
+    if not common_valid:
+        label = status if status in {"completed", "failed"} else "bundle"
+        raise ValueError(f"artifact bundle has invalid {label} bundle contract")
+    if status == "completed" and not _completed_contract_is_valid(manifest):
+        raise ValueError("artifact bundle has invalid completed bundle contract")
+    if status == "failed" and not _failed_contract_is_valid(manifest):
+        raise ValueError("artifact bundle has invalid failed bundle contract")
+
+
+def _validate_artifact_bundle(run_dir: Path, *, expected_run_id: str) -> dict:
+    unresolved_root = Path(run_dir).absolute()
+    if unresolved_root.is_symlink() or not unresolved_root.is_dir():
+        raise ValueError("artifact bundle must be a non-symlink directory")
+    root = unresolved_root.resolve()
+    manifest_path = unresolved_root / "manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError(
+            "artifact bundle manifest must be a non-symlink regular file"
+        )
+    if not manifest_path.resolve().is_relative_to(root):
+        raise ValueError(
+            "artifact bundle manifest must be a non-symlink regular file"
+        )
+
     try:
         raw = manifest_path.read_bytes()
         manifest = json.loads(raw)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("artifact bundle has no readable manifest") from exc
-    if not isinstance(manifest, dict) or manifest.get("status") not in {
-        "completed",
-        "failed",
-    }:
+    if not isinstance(manifest, dict):
         raise ValueError("artifact bundle manifest has invalid status")
     if raw != _canonical_json(manifest):
         raise ValueError("artifact bundle manifest is not canonical JSON")
-    try:
-        records = list(_artifact_records(manifest))
-    except (KeyError, TypeError) as exc:
-        raise ValueError(
-            "artifact bundle manifest has invalid artifact records"
-        ) from exc
+    _validate_manifest_contract(manifest, expected_run_id=expected_run_id)
+    records = list(_artifact_records(manifest))
     for record in records:
         if not isinstance(record, dict):
             raise ValueError("artifact bundle manifest has invalid artifact records")
@@ -389,6 +567,13 @@ def validate_artifact_bundle(run_dir: Path) -> dict:
         if actual_hash != expected_hash:
             raise ValueError(f"artifact hash mismatch: {relative_value}")
     return manifest
+
+
+def validate_artifact_bundle(run_dir: Path) -> dict:
+    """Validate the bundle schema and every artifact it references."""
+
+    path = Path(run_dir)
+    return _validate_artifact_bundle(path, expected_run_id=path.name)
 
 
 def _validate_run_id(run_id: str) -> None:
@@ -422,7 +607,7 @@ def _publish_bundle(
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(payload)
         (staging / "manifest.json").write_bytes(_canonical_json(manifest))
-        validate_artifact_bundle(staging)
+        _validate_artifact_bundle(staging, expected_run_id=run_id)
         staging.rename(target)
     finally:
         if staging.exists():
