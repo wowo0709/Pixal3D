@@ -1,5 +1,12 @@
 """Multi-view correspondence experiments."""
 
+from .corruptions import (
+    ControlledCorruption,
+    corrupt_local_color,
+    corrupt_local_deletion,
+    corrupt_procedural_pattern,
+    sample_foreground_region,
+)
 from .inputs import (
     CalibratedView,
     ForegroundMask,
@@ -32,6 +39,11 @@ from .warps import (
 )
 
 __all__ = [
+    "ControlledCorruption",
+    "corrupt_local_color",
+    "corrupt_local_deletion",
+    "corrupt_procedural_pattern",
+    "sample_foreground_region",
     "CalibratedView",
     "ForegroundMask",
     "load_calibrated_views",
