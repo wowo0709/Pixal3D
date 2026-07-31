@@ -830,9 +830,10 @@ def _validate_runtime_configs(
     }
 
 
-def _preflight_staging(
+def _preflight_root(
     paths: Node17HssdTransferPaths,
     runtime_configs: Mapping[str, Path],
+    root: Path,
 ) -> tuple[object, dict[str, StagePreflight]]:
     configs = _validate_runtime_configs(runtime_configs)
     spec = build_source_spec("hssd", paths.data2_root)
@@ -844,7 +845,7 @@ def _preflight_staging(
             results[stage] = training_preflight.preflight_stage(
                 spec,
                 stage,
-                paths.staging_root / stage / "active",
+                root / stage / "active",
                 configs[stage],
             )
     finally:
@@ -853,6 +854,15 @@ def _preflight_staging(
         else:
             os.environ["CUDA_VISIBLE_DEVICES"] = previous_cuda
     return spec, results
+
+
+def _preflight_staging(
+    paths: Node17HssdTransferPaths,
+    runtime_configs: Mapping[str, Path],
+) -> tuple[object, dict[str, StagePreflight]]:
+    return _preflight_root(
+        paths, runtime_configs, paths.staging_root
+    )
 
 
 def _promote_stage_preflight(
@@ -1034,6 +1044,7 @@ def _reuse_existing(
     validated: SourceTrainingData,
     source_inventory: TreeInventory,
     originals: Mapping[str, bytes],
+    runtime_configs: Mapping[str, Path],
     started: float,
 ) -> HssdTransferResult:
     (
@@ -1043,7 +1054,25 @@ def _reuse_existing(
     ) = _validate_reuse_provenance(
         paths, source_inventory, originals
     )
-    reuse_elapsed = time.monotonic() - started
+    inventory_elapsed = time.monotonic() - started
+    preflight_started = time.monotonic()
+    _spec, strict_results = _preflight_root(
+        paths, runtime_configs, paths.canonical_root
+    )
+    strict_preflight_elapsed = time.monotonic() - preflight_started
+    for stage in STAGES:
+        result = strict_results[stage]
+        expected_root = paths.canonical_root / stage / "active"
+        if (
+            result.stage != stage
+            or Path(result.root) != expected_root
+            or result.asset_count != validated.stages[stage].total_count
+            or result.materialization_sha256 != canonical_digests[stage]
+        ):
+            raise ValueError(
+                "strict canonical HSSD preflight does not match the "
+                f"published source chain: stage={stage}"
+            )
     return HssdTransferResult(
         source_inventory=source_inventory,
         target_inventory=target_inventory,
@@ -1052,15 +1081,15 @@ def _reuse_existing(
         training_data=paths.canonical_root / "training_data.json",
         training_data_sha256=validated.sha256,
         stage_counts={
-            stage: validated.stages[stage].total_count
+            stage: strict_results[stage].asset_count
             for stage in STAGES
         },
         elapsed_seconds={
-            "inventory": reuse_elapsed,
+            "inventory": inventory_elapsed,
             "transfer": 0.0,
             "verification": 0.0,
             "evidence_rebase": 0.0,
-            "strict_preflight": 0.0,
+            "strict_preflight": strict_preflight_elapsed,
             "promotion": 0.0,
             "total": time.monotonic() - started,
         },
@@ -1081,7 +1110,12 @@ def transfer_and_publish_hssd(
         source_inventory = _remote_inventory(paths, command_runner)
         originals = _remote_materializations(paths, command_runner)
         return _reuse_existing(
-            paths, existing, source_inventory, originals, started
+            paths,
+            existing,
+            source_inventory,
+            originals,
+            configs,
+            started,
         )
 
     phase_started = time.monotonic()

@@ -1315,6 +1315,7 @@ def test_historical_report_revalidates_artifacts_at_recorded_revision(
     paths, output, _report = _real_report_fixture(
         tmp_path, monkeypatch
     )
+    report_sha256 = sha256(output.read_bytes()).hexdigest()
     current_revision = "c" * 40
     delivery_revision = "b" * 40
     validator_revision = "d" * 40
@@ -1346,13 +1347,97 @@ def test_historical_report_revalidates_artifacts_at_recorded_revision(
     )
 
     result = core.validate_node17_historical_preparation_report(
-        paths, delivery_revision, validator_revision
+        paths,
+        delivery_revision,
+        validator_revision,
+        report_sha256,
     )
 
     assert result == {
         "report": str(output),
+        "report_sha256": report_sha256,
         **revision_evidence,
     }
+
+
+@pytest.mark.parametrize(
+    "report_sha256",
+    (
+        None,
+        "",
+        "a" * 63,
+        "A" * 64,
+        "g" * 64,
+        "0" * 64,
+    ),
+)
+def test_historical_report_requires_matching_lowercase_external_digest(
+    tmp_path, monkeypatch, report_sha256
+):
+    paths, output, _report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+
+    with pytest.raises(ValueError, match="report SHA-256"):
+        core.validate_node17_historical_preparation_report(
+            paths,
+            "b" * 40,
+            "d" * 40,
+            report_sha256,
+        )
+
+
+def test_historical_report_rejects_raw_tamper_before_json_parsing(
+    tmp_path, monkeypatch
+):
+    paths, output, _report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    trusted_sha256 = sha256(output.read_bytes()).hexdigest()
+    raw = bytearray(output.read_bytes())
+    raw[-2] ^= 1
+    output.write_bytes(raw)
+    monkeypatch.setattr(
+        core.json,
+        "loads",
+        lambda *_args, **_kwargs: pytest.fail(
+            "report JSON was parsed before external digest verification"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="report SHA-256"):
+        core.validate_node17_historical_preparation_report(
+            paths,
+            "b" * 40,
+            "d" * 40,
+            trusted_sha256,
+        )
+
+
+def test_historical_report_rejects_valid_looking_internal_mutation(
+    tmp_path, monkeypatch
+):
+    paths, output, report = _real_report_fixture(
+        tmp_path, monkeypatch
+    )
+    trusted_sha256 = sha256(output.read_bytes()).hexdigest()
+    report["revision"] = "b" * 40
+    output.write_bytes(core._canonical_json_bytes(report))
+    monkeypatch.setattr(
+        core,
+        "validate_historical_evidence_revision",
+        lambda *_args: pytest.fail(
+            "mutated report fields were accepted before pin verification"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="report SHA-256"):
+        core.validate_node17_historical_preparation_report(
+            paths,
+            "b" * 40,
+            "d" * 40,
+            trusted_sha256,
+        )
 
 
 def test_existing_report_validator_keeps_exact_current_revision_requirement(
@@ -1378,12 +1463,14 @@ def test_cli_historical_validation_is_read_only(
     module = importlib.reload(module)
     delivery_revision = "b" * 40
     validator_revision = "d" * 40
+    report_sha256 = "e" * 64
     captured = {}
 
-    def validate(paths, delivery, validator):
+    def validate(paths, delivery, validator, trusted_report_sha256):
         captured["paths"] = paths
         captured["delivery_revision"] = delivery
         captured["validator_revision"] = validator
+        captured["report_sha256"] = trusted_report_sha256
         return {"report": "/immutable/report.json"}
 
     monkeypatch.setattr(
@@ -1404,6 +1491,8 @@ def test_cli_historical_validation_is_read_only(
             delivery_revision,
             "--validator-revision",
             validator_revision,
+            "--report-sha256",
+            report_sha256,
         ]
     ) == 0
     assert json.loads(capsys.readouterr().out) == {
@@ -1411,3 +1500,24 @@ def test_cli_historical_validation_is_read_only(
     }
     assert captured["delivery_revision"] == delivery_revision
     assert captured["validator_revision"] == validator_revision
+    assert captured["report_sha256"] == report_sha256
+
+
+def test_cli_historical_validation_requires_report_digest(
+    monkeypatch
+):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    module = importlib.import_module("scripts.prepare_node17_training")
+    module = importlib.reload(module)
+
+    with pytest.raises(ValueError, match="--report-sha256"):
+        module.main(
+            [
+                "--validate-evidence",
+                "--delivery-revision",
+                "b" * 40,
+                "--validator-revision",
+                "d" * 40,
+            ]
+        )

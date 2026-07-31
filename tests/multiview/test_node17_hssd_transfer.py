@@ -257,7 +257,7 @@ def test_transfer_identity_validation_boundary_is_torch_free(tmp_path):
         "from pathlib import Path; "
         "from data_toolkit.pipeline.node17_hssd_transfer import "
         "Node17HssdTransferPaths, validate_hssd_transfer_paths; "
-        "root = Path('/tmp/node17-transfer-policy-test'); "
+        f"root = Path({str(tmp_path)!r}); "
         "paths = Node17HssdTransferPaths("
         "source_host='youngwoo@n16.unist.info', source_port=55555, "
         "source_root=Path("
@@ -344,13 +344,24 @@ def test_valid_existing_canonical_chain_uses_remote_source_evidence(
         "validate_source_training_data",
         lambda *_args: validated,
     )
+    strict_calls = []
+
+    def preflight(_spec, stage, root, config):
+        strict_calls.append((stage, root, config))
+        document = json.loads((root / "materialization.json").read_bytes())
+        return _stage_result(stage, root, document)
+
+    monkeypatch.setattr(
+        transfer.training_preflight, "preflight_stage", preflight
+    )
+    runtime_configs = {
+        stage: tmp_path / f"{stage}.node17.json"
+        for stage in STAGES
+    }
 
     result = transfer.transfer_and_publish_hssd(
         paths,
-        {
-            stage: tmp_path / f"{stage}.node17.json"
-            for stage in STAGES
-        },
+        runtime_configs,
         command_runner=runner,
     )
 
@@ -363,6 +374,15 @@ def test_valid_existing_canonical_chain_uses_remote_source_evidence(
     assert result.target_inventory == source_inventory
     assert len(calls) == 2
     assert all(command[0] == "ssh" for command in calls)
+    assert strict_calls == [
+        (
+            stage,
+            paths.canonical_root / stage / "active",
+            runtime_configs[stage],
+        )
+        for stage in STAGES
+    ]
+    assert result.elapsed_seconds["strict_preflight"] >= 0.0
     assert set(result.elapsed_seconds) == {
         "inventory",
         "transfer",
@@ -372,6 +392,50 @@ def test_valid_existing_canonical_chain_uses_remote_source_evidence(
         "promotion",
         "total",
     }
+
+
+def test_existing_canonical_reuse_rejects_strict_preflight_failure(
+    tmp_path, monkeypatch
+):
+    paths = _paths(tmp_path)
+    _write_existing_canonical_tree(paths)
+    originals = _original_materializations()
+    _inventory, runner, _calls = _reuse_runner(originals)
+    monkeypatch.setattr(
+        transfer,
+        "validate_source_training_data",
+        lambda *_args: _validated_existing_chain(paths),
+    )
+    strict_calls = []
+
+    def preflight(_spec, stage, root, _config):
+        strict_calls.append((stage, root))
+        if stage == "shape1024":
+            raise ValueError("same-sized payload corruption")
+        document = json.loads((root / "materialization.json").read_bytes())
+        return _stage_result(stage, root, document)
+
+    monkeypatch.setattr(
+        transfer.training_preflight, "preflight_stage", preflight
+    )
+
+    with pytest.raises(ValueError, match="same-sized payload corruption"):
+        transfer.transfer_and_publish_hssd(
+            paths,
+            {
+                stage: tmp_path / f"{stage}.node17.json"
+                for stage in STAGES
+            },
+            command_runner=runner,
+        )
+
+    assert strict_calls == [
+        (
+            stage,
+            paths.canonical_root / stage / "active",
+        )
+        for stage in STAGES[:3]
+    ]
 
 
 def test_existing_canonical_reuse_rejects_externally_bound_chain(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from hashlib import sha256
+import hmac
 import json
 import math
 import os
@@ -79,8 +80,10 @@ _HISTORICAL_DELIVERY_DOC_PATHS = frozenset(
 )
 _HISTORICAL_VALIDATOR_BOOTSTRAP_PATHS = frozenset(
     {
+        "data_toolkit/pipeline/node17_hssd_transfer.py",
         "data_toolkit/pipeline/node17_training_prepare.py",
         "scripts/prepare_node17_training.py",
+        "tests/multiview/test_node17_hssd_transfer.py",
         "tests/multiview/test_node17_training_prepare.py",
     }
 )
@@ -1178,6 +1181,7 @@ def validate_node17_historical_preparation_report(
     paths: Node17PreparationPaths,
     delivery_revision: str,
     validator_revision: str,
+    report_sha256: str,
 ) -> dict[str, object]:
     """Revalidate immutable evidence from a trusted docs-only descendant."""
     validate_roots(paths)
@@ -1192,8 +1196,24 @@ def validate_node17_historical_preparation_report(
             "partial evidence directory requires operator inspection: "
             f"{paths.evidence_root}"
         )
+    if (
+        not isinstance(report_sha256, str)
+        or _DIGEST.fullmatch(report_sha256) is None
+    ):
+        raise ValueError(
+            "trusted external report SHA-256 must be exactly 64 "
+            "lowercase hexadecimal characters"
+        )
+    raw_report = _regular_bytes(output, "preparation report")
+    actual_sha256 = sha256(raw_report).hexdigest()
+    if not hmac.compare_digest(actual_sha256, report_sha256):
+        raise ValueError(
+            "trusted external report SHA-256 does not match immutable "
+            f"report bytes: expected={report_sha256} "
+            f"actual={actual_sha256}"
+        )
     report = _json_object(
-        _regular_bytes(output, "preparation report"),
+        raw_report,
         output,
         "preparation report",
     )
@@ -1214,7 +1234,11 @@ def validate_node17_historical_preparation_report(
     _validate_report(
         paths, report, validated_revision=revision
     )
-    return {"report": str(output), **git_evidence}
+    return {
+        "report": str(output),
+        "report_sha256": actual_sha256,
+        **git_evidence,
+    }
 
 
 def plan_node17_training(

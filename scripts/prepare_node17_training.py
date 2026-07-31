@@ -73,6 +73,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     mode.add_argument("--validate-evidence", action="store_true")
     parser.add_argument("--delivery-revision")
     parser.add_argument("--validator-revision")
+    parser.add_argument("--report-sha256")
     return parser.parse_args(argv)
 
 
@@ -90,15 +91,17 @@ def main(argv=None) -> int:
         if (
             args.delivery_revision is None
             or args.validator_revision is None
+            or args.report_sha256 is None
         ):
             raise ValueError(
-                "--delivery-revision and --validator-revision are "
-                "required with --validate-evidence"
+                "--delivery-revision, --validator-revision, and "
+                "--report-sha256 are required with --validate-evidence"
             )
         result = validate_node17_historical_preparation_report(
             paths,
             args.delivery_revision,
             args.validator_revision,
+            args.report_sha256,
         )
     elif args.execute:
         report = prepare_node17_training(paths)
