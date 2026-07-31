@@ -7,8 +7,8 @@ Reviewed code revision:
 (`docs: expand Node16 verification evidence`).
 
 Historical-evidence validator revision:
-`cdc13bae59fcdbf3b7eab052a94f4f62e5995300`
-(`fix: revalidate historical Node17 evidence`).
+`453ef3e6d92d57aa0d29d6f61fa488f63ea4847c`
+(`fix: pin evidence and revalidate HSSD reuse`).
 
 ## Outcome and safety boundary
 
@@ -135,15 +135,19 @@ CUDA_VISIBLE_DEVICES="" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. \
 /opt/conda/envs/pixal3d/bin/python scripts/prepare_node17_training.py \
   --validate-evidence \
   --delivery-revision c3423fd23340b301940cd9c6ea084744caa77bd6 \
-  --validator-revision cdc13bae59fcdbf3b7eab052a94f4f62e5995300
+  --validator-revision 453ef3e6d92d57aa0d29d6f61fa488f63ea4847c \
+  --report-sha256 87e1d3c5b3bd8867743d593ab9a88234afaf1d42d45a90b4da048b5001e9349e
 ```
 
 This historical mode does not relax normal preparation or reuse: those paths
 still require exact current HEAD. It requires a clean worktree, verifies all
-three commits and ancestry, then enforces three exact path boundaries:
+three commits and ancestry, and verifies the raw immutable `report.json`
+bytes against the independently supplied SHA-256 before parsing any report
+field. It then enforces three exact path boundaries:
 
 - execution evidence to delivery: only this Task's readiness/runbook docs;
-- delivery to pinned validator: only the validator core, CLI, and test paths;
+- delivery to pinned validator: only the two validator/HSSD-transfer cores,
+  CLI, and their two exact test paths;
 - pinned validator to current HEAD: only the readiness/runbook docs.
 
 Unrelated documentation, code, config, tests, missing/non-descendant
