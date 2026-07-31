@@ -1,5 +1,12 @@
 """Multi-view correspondence experiments."""
 
+from .inputs import (
+    CalibratedView,
+    ForegroundMask,
+    load_calibrated_views,
+    resolve_foreground_mask,
+)
+
 from .metrics import (
     branch_norms,
     feature_cosine_error,
@@ -25,6 +32,10 @@ from .warps import (
 )
 
 __all__ = [
+    "CalibratedView",
+    "ForegroundMask",
+    "load_calibrated_views",
+    "resolve_foreground_mask",
     "branch_norms",
     "feature_cosine_error",
     "feature_l2_drift",
