@@ -95,7 +95,7 @@ resolve한다. DataLoader preflight나 전송을 다시 실행하지 않는다.
   `c3423fd23340b301940cd9c6ea084744caa77bd6`: readiness report만
   추가한 최초 전달 revision
 - validator revision
-  `453ef3e6d92d57aa0d29d6f61fa488f63ea4847c`: historical validator와
+  `697a9d47dda9e79360f8c883abae85188e934aa6`: historical validator와
   canonical HSSD 재사용 strict preflight 구현 및 테스트를 고정한
   revision
 - trusted report SHA-256
@@ -105,12 +105,12 @@ resolve한다. DataLoader preflight나 전송을 다시 실행하지 않는다.
 
 검증기는 clean worktree, 세 commit의 존재 및 ancestry를 확인한다.
 evidence에서 delivery까지는 이 Task의 readiness/runbook 문서만,
-delivery에서 validator까지는 고정된 validator/HSSD-transfer core
-두 경로, CLI 한 경로, 대응 test 두 경로만, validator에서 현재
-HEAD까지는 readiness/runbook 문서 두 경로만 허용한다. 다른 문서,
-학습 코드, config, test 변경은 거부한다. 일반 plan/execute 및
-기존 evidence validator의 exact-current-revision 규칙은 그대로
-유지된다.
+delivery에서 validator까지는 readiness/runbook 문서 두 경로,
+고정된 validator/HSSD-transfer core 두 경로, CLI 한 경로, 대응
+test 두 경로만, validator에서 현재 HEAD까지는 readiness/runbook
+문서 두 경로만 허용한다. 다른 문서, 학습 코드, config, test
+변경은 거부한다. 일반 plan/execute 및 기존 evidence validator의
+exact-current-revision 규칙은 그대로 유지된다.
 
 ```bash
 cd /root/dev/Pixal3D/.worktrees/multiview-model-extension
@@ -118,7 +118,7 @@ CUDA_VISIBLE_DEVICES="" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. \
 /opt/conda/envs/pixal3d/bin/python scripts/prepare_node17_training.py \
   --validate-evidence \
   --delivery-revision c3423fd23340b301940cd9c6ea084744caa77bd6 \
-  --validator-revision 453ef3e6d92d57aa0d29d6f61fa488f63ea4847c \
+  --validator-revision 697a9d47dda9e79360f8c883abae85188e934aa6 \
   --report-sha256 87e1d3c5b3bd8867743d593ab9a88234afaf1d42d45a90b4da048b5001e9349e
 
 sha256sum \
