@@ -4,6 +4,7 @@ from PIL import Image
 
 from pixal3d.pipelines.pixal3d_image_to_3d import (
     Pixal3DImageTo3DPipeline,
+    _projection_stage_arguments,
     normalize_calibrated_views,
 )
 from pixal3d.pipelines.projection_aggregation import (
@@ -86,6 +87,37 @@ def test_multiview_requires_calibrated_transforms():
             [image("red"), image("blue")],
             {"camera_angle_x": [0.7, 0.8], "distance": [2.5, 2.7]},
         )
+
+
+def test_projection_stage_arguments_reject_unknown_stage():
+    with pytest.raises(ValueError, match="shape512, shape1024, pbr1024"):
+        _projection_stage_arguments(
+            {"ss64": ProjectionAggregationConfig(mode="consensus")},
+            oracle_masks=None,
+            diagnostics=None,
+        )
+
+
+def test_projection_stage_arguments_route_only_named_stages():
+    configs = {
+        "shape512": ProjectionAggregationConfig(mode="consensus"),
+        "pbr1024": ProjectionAggregationConfig(mode="mean"),
+    }
+    diagnostics = {}
+    masks = torch.zeros(4, 1, 8, 8)
+
+    arguments = _projection_stage_arguments(
+        configs,
+        oracle_masks=masks,
+        diagnostics=diagnostics,
+    )
+
+    assert arguments["shape512"]["aggregation_config"] is configs["shape512"]
+    assert arguments["shape1024"]["aggregation_config"] is None
+    assert arguments["pbr1024"]["aggregation_config"] is configs["pbr1024"]
+    assert arguments["shape512"]["oracle_masks"] is masks
+    assert arguments["shape1024"]["oracle_masks"] is None
+    assert set(diagnostics) == {"shape512", "pbr1024"}
 
 
 class RecordingConditioner(torch.nn.Module):

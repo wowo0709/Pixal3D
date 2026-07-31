@@ -65,6 +65,34 @@ def normalize_calibrated_views(image, camera_params):
     }
 
 
+def _projection_stage_arguments(
+    configs: Optional[Mapping[str, ProjectionAggregationConfig]],
+    *,
+    oracle_masks: Optional[torch.Tensor],
+    diagnostics: Optional[MutableMapping[str, dict]],
+) -> dict[str, dict]:
+    allowed = {"shape512", "shape1024", "pbr1024"}
+    unknown = set(configs or {}) - allowed
+    if unknown:
+        raise ValueError(
+            "projection aggregation stages must be shape512, "
+            "shape1024, pbr1024"
+        )
+
+    arguments = {}
+    for stage in ("shape512", "shape1024", "pbr1024"):
+        config = (configs or {}).get(stage)
+        stage_diagnostics = None
+        if config is not None and diagnostics is not None:
+            stage_diagnostics = diagnostics.setdefault(stage, {})
+        arguments[stage] = {
+            "aggregation_config": config,
+            "oracle_masks": oracle_masks if config is not None else None,
+            "diagnostics": stage_diagnostics,
+        }
+    return arguments
+
+
 def pil_views_to_tensor(images, image_size, device):
     tensors = []
     for view in images:
@@ -937,6 +965,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         return_latent: bool = False,
         pipeline_type: Optional[str] = None,
         max_num_tokens: int = 49152,
+        projection_aggregation: Optional[
+            Mapping[str, ProjectionAggregationConfig]
+        ] = None,
+        oracle_masks: Optional[torch.Tensor] = None,
+        projection_diagnostics: Optional[MutableMapping[str, dict]] = None,
     ) -> List[MeshWithVoxel]:
         """
         Run the Pixal3D pipeline (proj mode, cascade).
@@ -989,6 +1022,11 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         distance = cameras["distance"]
         mesh_scale = cameras["mesh_scale"]
         transform_matrix = cameras["transform_matrix"]
+        stage_arguments = _projection_stage_arguments(
+            projection_aggregation,
+            oracle_masks=oracle_masks,
+            diagnostics=projection_diagnostics,
+        )
         torch.manual_seed(seed)
 
         # ---- Stage 1: Sparse Structure (proj) ----
@@ -998,6 +1036,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             distance=distance,
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
+            **stage_arguments["shape512"],
         )
         ss_res = 32
         coords = self.sample_sparse_structure(
@@ -1057,6 +1096,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
             grid_resolution_override=actual_grid_res,
+            **stage_arguments["shape1024"],
         )
         noise_hr = SparseTensor(
             feats=torch.randn(hr_coords_unique.shape[0], self.models['shape_slat_flow_model_1024'].in_channels).to(self.device),
@@ -1091,6 +1131,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
             transform_matrix=transform_matrix,
             grid_resolution_override=tex_grid_res,
+            **stage_arguments["pbr1024"],
         )
         tex_slat = self.sample_tex_slat(
             cond_tex, self.models['tex_slat_flow_model_1024'],
