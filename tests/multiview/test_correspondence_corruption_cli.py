@@ -101,6 +101,11 @@ def test_cli_requires_every_dataset_and_scale_option(tmp_path, missing_option):
 
     assert result.returncode == 2
     assert missing_option in result.stderr
+    output = Path(values["--output-dir"])
+    if missing_option == "--output-dir":
+        assert not output.exists()
+    else:
+        _assert_failed_bundle(output, failure_text=missing_option)
 
 
 @pytest.mark.parametrize("corrupt_index", ["-1", "4"])
@@ -122,6 +127,9 @@ def test_cli_rejects_corrupt_view_index_outside_first_k(
 
     assert result.returncode == 2
     assert "corrupt-view-index" in result.stderr
+    _assert_failed_bundle(
+        tmp_path / "output", failure_text="--corrupt-view-index"
+    )
 
 
 @pytest.mark.parametrize(
@@ -142,6 +150,7 @@ def test_cli_has_no_flow_gpu_or_model_arguments(tmp_path, unsupported):
     assert result.returncode == 2
     assert "unrecognized arguments" in result.stderr
     assert unsupported in result.stderr
+    _assert_failed_bundle(tmp_path / "output", failure_text=unsupported)
 
 
 @pytest.mark.parametrize("mesh_scale", ["0", "-1", "nan", "inf"])
@@ -158,6 +167,7 @@ def test_cli_parser_requires_finite_positive_mesh_scale(tmp_path, mesh_scale):
     assert result.returncode == 2
     assert "--mesh-scale" in result.stderr
     assert "finite and positive" in result.stderr
+    _assert_failed_bundle(tmp_path / "output", failure_text="--mesh-scale")
 
 
 @pytest.mark.parametrize("seed", [str(-(2**63) - 1), str(2**64)])
@@ -176,6 +186,7 @@ def test_cli_parser_rejects_seed_outside_torch_range(tmp_path, seed):
     assert result.returncode == 2
     assert "--seed" in result.stderr
     assert "PyTorch seed range" in result.stderr
+    _assert_failed_bundle(tmp_path / "output", failure_text="--seed")
 
 
 @pytest.mark.parametrize("seed", [str(-(2**63)), str(2**64 - 1)])
@@ -198,6 +209,78 @@ def test_cli_accepts_both_inclusive_torch_seed_bounds(tmp_path, seed):
     _assert_failed_bundle(
         output, failure_text="transforms path must name a manifest file"
     )
+
+
+def test_cli_does_not_abbreviate_output_dir_or_create_its_value(tmp_path):
+    output = tmp_path / "must-not-exist"
+
+    result = _run_cli(
+        "--transforms",
+        str(tmp_path / "transforms.json"),
+        "--output-d",
+        str(output),
+        "--mesh-scale",
+        "1.0",
+    )
+
+    assert result.returncode == 2
+    assert "the following arguments are required: --output-dir" in result.stderr
+    assert not output.exists()
+
+
+def test_cli_parser_failure_refuses_symlinked_output_destination(tmp_path):
+    external = tmp_path / "external"
+    external.mkdir()
+    output = tmp_path / "output"
+    output.symlink_to(external, target_is_directory=True)
+
+    result = _run_cli(
+        "--transforms",
+        str(tmp_path / "transforms.json"),
+        "--output-dir",
+        str(output),
+        "--mesh-scale",
+        "nan",
+    )
+
+    assert result.returncode == 2
+    assert "output_dir must be a real directory" in result.stderr
+    assert list(external.iterdir()) == []
+
+
+def test_cli_recovers_from_invalid_index_without_overwriting_failure(tmp_path):
+    transforms, _, _ = _write_synthetic_dataset(tmp_path / "dataset")
+    output = tmp_path / "output"
+    common = (
+        "--transforms",
+        str(transforms),
+        "--output-dir",
+        str(output),
+        "--mesh-scale",
+        "1.0",
+    )
+
+    invalid = _run_cli(
+        *common,
+        "--corrupt-view-index",
+        "4",
+    )
+
+    assert invalid.returncode == 2
+    failed_dir = _assert_failed_bundle(
+        output, failure_text="--corrupt-view-index"
+    )
+
+    recovered = _run_cli(*common)
+
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    run_directories = [path for path in output.iterdir() if path.is_dir()]
+    assert len(run_directories) == 2
+    assert failed_dir in run_directories
+    assert {
+        json.loads((path / "manifest.json").read_text())["status"]
+        for path in run_directories
+    } == {"failed", "completed"}
 
 
 def test_cli_builds_and_resumes_complete_synthetic_calibrated_bundle(tmp_path):

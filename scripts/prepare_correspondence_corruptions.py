@@ -31,6 +31,15 @@ from pixal3d.experiments.correspondence import (  # noqa: E402
 )
 
 
+class _UsageError(ValueError):
+    pass
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise _UsageError(message)
+
+
 def _positive_float(value: str) -> float:
     try:
         number = float(value)
@@ -65,8 +74,9 @@ def _torch_seed(value: str) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Prepare CPU-only C1-C3 controlled corruptions."
+    parser = _ArgumentParser(
+        description="Prepare CPU-only C1-C3 controlled corruptions.",
+        allow_abbrev=False,
     )
     parser.add_argument("--transforms", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -77,6 +87,20 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _explicit_output_dir(arguments: list[str]) -> Path | None:
+    parser = argparse.ArgumentParser(
+        add_help=False,
+        allow_abbrev=False,
+        exit_on_error=False,
+    )
+    parser.add_argument("--output-dir", type=Path)
+    try:
+        known, _ = parser.parse_known_args(arguments)
+    except argparse.ArgumentError:
+        return None
+    return known.output_dir
+
+
 def _run_id(*, num_views: int, corrupt_view_index: int, seed: int) -> str:
     return f"controlled-corruption-k{num_views}-v{corrupt_view_index}-s{seed}"
 
@@ -84,6 +108,29 @@ def _run_id(*, num_views: int, corrupt_view_index: int, seed: int) -> str:
 def _failed_run_id(run_id: str, failure_reason: str) -> str:
     reason_digest = sha256(failure_reason.encode("utf-8")).hexdigest()[:12]
     return f"{run_id}-failed-{reason_digest}"
+
+
+def _publish_usage_failure(arguments: list[str], failure_reason: str) -> None:
+    output_dir = _explicit_output_dir(arguments)
+    if output_dir is None:
+        return
+    run_id = _failed_run_id(
+        "controlled-corruption-invalid-invocation", failure_reason
+    )
+    try:
+        write_failed_artifact_bundle(
+            output_dir,
+            run_id,
+            seed=42,
+            mesh_scale=1.0,
+            num_views=4,
+            failure_reason=failure_reason,
+        )
+    except (OSError, TypeError, ValueError) as publication_error:
+        print(
+            f"error: failed to publish failure bundle: {publication_error}",
+            file=sys.stderr,
+        )
 
 
 def _reject_model_fallback(_image):
@@ -170,9 +217,17 @@ def _prepare(arguments: argparse.Namespace) -> Path:
 
 def main() -> int:
     parser = _parser()
-    arguments = parser.parse_args()
-    if not 0 <= arguments.corrupt_view_index < arguments.num_views:
-        parser.error("--corrupt-view-index must be in [0, --num-views)")
+    raw_arguments = sys.argv[1:]
+    try:
+        arguments = parser.parse_args(raw_arguments)
+        if not 0 <= arguments.corrupt_view_index < arguments.num_views:
+            parser.error("--corrupt-view-index must be in [0, --num-views)")
+    except _UsageError as error:
+        reason = str(error)
+        parser.print_usage(sys.stderr)
+        print(f"{parser.prog}: error: {reason}", file=sys.stderr)
+        _publish_usage_failure(raw_arguments, reason)
+        return 2
     run_id = _run_id(
         num_views=arguments.num_views,
         corrupt_view_index=arguments.corrupt_view_index,

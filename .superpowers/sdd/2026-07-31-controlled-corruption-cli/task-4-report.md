@@ -135,3 +135,54 @@ $ git diff --check
 - Failed diagnostic bundles are retained when corrected inputs later complete;
   this preserves evidence and avoids mutating Task 3's immutable bundles.
 - No known blockers or unresolved correctness concerns.
+
+## Fix round 1/5 — parser failures publish safe diagnostics
+
+Status: DONE
+
+Commit: `fix: publish cli parser failure manifests` (the fix-round commit
+containing this report update)
+
+### Finding addressed
+
+Argparse type/required/unknown-option errors and the cross-field corrupt-index
+check previously exited before the runtime failure-publication boundary. A
+usable exact `--output-dir` now receives an immutable, reason-digested failed
+bundle with safe valid diagnostic defaults while the CLI retains exit code 2.
+Missing, malformed, or abbreviated output options publish nothing, and Task 3
+continues to reject file/symlink output destinations without writing through
+them. `allow_abbrev=False` now enforces the exact CLI surface.
+
+The regression coverage includes missing required arguments, out-of-range
+indices, invalid seed and mesh-scale values, unknown model/GPU/flow arguments,
+abbreviated output, a symlinked output destination, and recovery from an
+invalid index to a successful run without overwriting the failed diagnostic.
+Successful C1-C3 orchestration, deterministic completed IDs, CPU-only behavior,
+and no-real-dataset boundaries are unchanged.
+
+### RED evidence
+
+```text
+$ CUDA_VISIBLE_DEVICES='' /opt/conda/envs/pixal3d/bin/python -m pytest tests/multiview/test_correspondence_corruption_cli.py -q -k 'requires_every or outside_first_k or no_flow or finite_positive or outside_torch_range or abbreviate or parser_failure or recovers_from_invalid'
+16 failed, 1 passed, 7 deselected in 50.50s
+```
+
+All 16 failures showed either the absent output directory/failed bundle or the
+old argparse abbreviation behavior. The one passing case was the existing
+safe behavior when `--output-dir` itself was omitted.
+
+### Fresh final verification
+
+```text
+$ CUDA_VISIBLE_DEVICES='' /opt/conda/envs/pixal3d/bin/python -m pytest tests/multiview/test_correspondence_corruption_cli.py -q
+........................                                                 [100%]
+24 passed in 82.93s (0:01:22)
+```
+
+```text
+$ git diff --check
+(exit 0, no output)
+```
+
+Independent fix-round re-review found no remaining Critical or Important
+issues. No new concerns or blockers were identified.
