@@ -862,8 +862,10 @@ def test_materialize_stage_keeps_tolerant_pbr_scale_and_removes_coordinate_misma
         assert not (component / rejected).exists()
 
 
-def test_materialize_stage_rejects_final_count_and_preserves_attempt(tmp_path):
-    """A wrong approved count must preserve the rejected staging attempt."""
+def test_materialize_stage_preserves_attempt_without_masking_original_error(
+    tmp_path,
+):
+    """Preserving a failed attempt must retain the original error and note."""
     latent_specs = {("shape-512", ASSET_B, 1): {"count": 8193}}
     index, prepared, _, _ = write_catalog_fixture(
         tmp_path, shape512_includes_all=True, latent_specs=latent_specs
@@ -873,7 +875,7 @@ def test_materialize_stage_rejects_final_count_and_preserves_attempt(tmp_path):
     )
     rejected = tmp_path / "rejected"
     rejected.mkdir()
-    with pytest.raises(ValueError, match="final|training exclusion"):
+    with pytest.raises(ValueError) as error_info:
         materialize_stage(
             "shape512", catalog, tmp_path / "output", index_path=index,
             expected_counts={"shape512": 2}, expected_waiver={
@@ -882,6 +884,13 @@ def test_materialize_stage_rejects_final_count_and_preserves_attempt(tmp_path):
             expected_stage_counts={"shape512": 2},
             expected_training_exclusion_counts={"shape512": 1},
         )
+    assert error_info.value.args == (
+        "unexpected shape512 final scope count: 1",
+    )
+    assert len(error_info.value.__notes__) == 1
+    assert error_info.value.__notes__[0].startswith(
+        "failed materialization preserved at "
+    )
     parent = tmp_path / "output" / "shape512"
     assert not (parent / "active").exists()
     assert not list(parent.glob(".materializing-*"))
