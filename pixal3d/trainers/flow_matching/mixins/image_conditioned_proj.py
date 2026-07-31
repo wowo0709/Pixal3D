@@ -7,6 +7,7 @@ supporting camera-aware 3D-to-2D feature mapping.
 
 from typing import *
 import os
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,6 +19,10 @@ from PIL import Image, ImageDraw
 import torch.distributed as dist
 from ....utils import dist_utils
 from ....utils.dist_utils import read_file_dist
+from ....experiments.correspondence.aggregation import (
+    ProjectionAggregationDiagnostics,
+    aggregate_consensus_projection,
+)
 
 
 # =============================================================================
@@ -485,12 +490,19 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         grid_resolution: int = 16,
         use_naf_upsample: bool = False,
         naf_target_size: Optional[List[int]] = None,
+        multiview_aggregation: Optional[Mapping[str, object]] = None,
     ):
         super().__init__()
         self.model_name = model_name
         self.image_size = image_size
         self.grid_resolution = grid_resolution
         self.use_naf_upsample = use_naf_upsample
+        self.multiview_aggregation = (
+            None if multiview_aggregation is None else dict(multiview_aggregation)
+        )
+        self.last_multiview_aggregation_diagnostics: Optional[
+            ProjectionAggregationDiagnostics
+        ] = None
         if naf_target_size is None:
             self.naf_target_size = (128, 128)
         elif isinstance(naf_target_size, int):
@@ -528,6 +540,48 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         self.proj_channels = self.embed_dim * 2 if use_naf_upsample else self.embed_dim
         
         # NOTE: proj_linear removed — now lives in each denoiser block's ProjectAttention
+
+    def _parse_multiview_aggregation_policy(self):
+        policy = self.multiview_aggregation
+        if policy is None:
+            return "equal_mean", None
+        if not isinstance(policy, Mapping):
+            raise ValueError("multiview_aggregation must be a mapping")
+
+        mode = policy.get("mode")
+        if mode == "equal_mean":
+            if set(policy) != {"mode"}:
+                raise ValueError("equal_mean aggregation accepts only mode")
+            return "equal_mean", None
+        if mode != "consensus":
+            raise ValueError("multiview_aggregation mode must be equal_mean or consensus")
+
+        expected_keys = {"mode", "alpha", "temperature", "chunk_size", "cache_device"}
+        if set(policy) != expected_keys:
+            missing = expected_keys - set(policy)
+            if missing:
+                raise ValueError(
+                    "consensus aggregation requires " + ", ".join(sorted(missing))
+                )
+            raise ValueError("consensus aggregation contains unsupported keys")
+
+        alpha = policy["alpha"]
+        if type(alpha) is not float or not math.isfinite(alpha) or not 0.0 <= alpha <= 1.0:
+            raise ValueError("consensus alpha must be a finite float between 0 and 1")
+        temperature = policy["temperature"]
+        if type(temperature) is not float or not math.isfinite(temperature) or temperature <= 0.0:
+            raise ValueError("consensus temperature must be a finite positive float")
+        chunk_size = policy["chunk_size"]
+        if type(chunk_size) is not int or chunk_size < 1:
+            raise ValueError("consensus chunk_size must be a positive int")
+        if policy["cache_device"] != "cpu":
+            raise ValueError("consensus cache_device must be cpu")
+        return "consensus", {
+            "alpha": alpha,
+            "temperature": temperature,
+            "chunk_size": chunk_size,
+            "cache_device": "cpu",
+        }
     
     def _load_naf(self):
         """Lazy-load pretrained NAF model."""
@@ -714,17 +768,59 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         projection, _ = compute_multiview_projection_matrices(
             transform_matrix, distance, self.fixed_projection_transform
         )
-        view_features = (
-            self._forward_single_view(
+        aggregation_mode, aggregation_settings = (
+            self._parse_multiview_aggregation_policy()
+        )
+        if (
+            aggregation_mode == "equal_mean"
+            or aggregation_settings["alpha"] == 0.0
+            or num_views == 1
+        ):
+            self.last_multiview_aggregation_diagnostics = None
+            view_features = (
+                self._forward_single_view(
+                    image[:, view_index],
+                    camera_angle_x[:, view_index],
+                    distance[:, view_index],
+                    mesh_scale,
+                    projection[:, view_index],
+                )
+                for view_index in range(num_views)
+            )
+            return _online_mean_tensor_groups(view_features)
+
+        global_features = []
+        projection_features = []
+        for view_index in range(num_views):
+            z_global, z_proj = self._forward_single_view(
                 image[:, view_index],
                 camera_angle_x[:, view_index],
                 distance[:, view_index],
                 mesh_scale,
                 projection[:, view_index],
             )
-            for view_index in range(num_views)
+            global_features.append(z_global)
+            projection_features.append(
+                z_proj.detach().to(device="cpu", dtype=z_proj.dtype, copy=True)
+            )
+        z_proj, diagnostics = aggregate_consensus_projection(
+            projection_features,
+            alpha=aggregation_settings["alpha"],
+            temperature=aggregation_settings["temperature"],
+            chunk_size=aggregation_settings["chunk_size"],
+            compute_device=image.device,
+            output_device=image.device,
         )
-        return _online_mean_tensor_groups(view_features)
+        z_global, = _online_mean_tensor_groups(
+            (global_feature,) for global_feature in global_features
+        )
+        self.last_multiview_aggregation_diagnostics = ProjectionAggregationDiagnostics(
+            scores=diagnostics.scores.detach().cpu(),
+            weights=diagnostics.weights.detach().cpu(),
+            entropy=diagnostics.entropy.detach().cpu(),
+            fallback_mask=diagnostics.fallback_mask.detach().cpu(),
+        )
+        return z_global, z_proj
 
     def forward(
         self,

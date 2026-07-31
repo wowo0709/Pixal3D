@@ -18,6 +18,9 @@ class ConditionerHarness(DinoV3ProjFeatureExtractor):
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ]))
+        self.multiview_aggregation = None
+        self.last_multiview_aggregation_diagnostics = None
+        self.single_view_calls = 0
 
     @property
     def fixed_projection_transform(self):
@@ -26,8 +29,20 @@ class ConditionerHarness(DinoV3ProjFeatureExtractor):
     def _forward_single_view(
         self, image, camera_angle_x, distance, mesh_scale, transform_matrix
     ):
+        self.single_view_calls += 1
         global_feature = image.mean(dim=(-2, -1))[:, None, :]
         projected = transform_matrix[:, :3, :4].reshape(image.shape[0], 1, 12)
+        return global_feature, projected
+
+
+class ConsensusConditionerHarness(ConditionerHarness):
+    def _forward_single_view(
+        self, image, camera_angle_x, distance, mesh_scale, transform_matrix,
+    ):
+        self.single_view_calls += 1
+        value = image[:, 0, 0, 0]
+        global_feature = value[:, None, None]
+        projected = value[:, None, None].expand(-1, 2, 4).clone()
         return global_feature, projected
 
 
@@ -116,6 +131,146 @@ def test_multiview_delegates_a_lazy_view_stream_to_online_mean(monkeypatch):
         "is_one_shot_iterator": True,
         "num_groups": 3,
     }
+
+
+@pytest.mark.parametrize(
+    ("policy", "message"),
+    [
+        ({}, "mode"),
+        ({"mode": "unsupported"}, "mode"),
+        (
+            {"mode": "consensus", "temperature": 0.2, "chunk_size": 1,
+             "cache_device": "cpu"},
+            "alpha",
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.0, "chunk_size": 1,
+             "cache_device": "cpu"},
+            "temperature",
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.0, "temperature": 0.2,
+             "cache_device": "cpu"},
+            "chunk_size",
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.0, "temperature": 0.2,
+             "chunk_size": 1, "cache_device": "cuda"},
+            "cache_device",
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.5, "temperature": 0.2,
+             "chunk_size": 1, "cache_device": "cpu"},
+            "alpha",
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.0, "temperature": 0.0,
+             "chunk_size": 1, "cache_device": "cpu"},
+            "temperature",
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.0, "temperature": 0.2,
+             "chunk_size": 0, "cache_device": "cpu"},
+            "chunk_size",
+        ),
+    ],
+)
+def test_aggregation_policy_rejects_invalid_mappings_before_view_extraction(
+    policy, message,
+):
+    """Catches accepting an invalid policy after extracting expensive views."""
+    model = ConditionerHarness()
+    model.multiview_aggregation = policy
+
+    with pytest.raises(ValueError, match=message):
+        model(torch.zeros(1, 2, 3, 2, 2), **cameras(2))
+
+    assert model.single_view_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("policy", "num_views"),
+    [
+        (None, 3),
+        ({"mode": "equal_mean"}, 3),
+        (
+            {"mode": "consensus", "alpha": 0.0, "temperature": 0.2,
+             "chunk_size": 1, "cache_device": "cpu"},
+            3,
+        ),
+        (
+            {"mode": "consensus", "alpha": 1.0, "temperature": 0.2,
+             "chunk_size": 1, "cache_device": "cpu"},
+            1,
+        ),
+    ],
+)
+def test_aggregation_exact_bypass_preserves_lazy_stream_and_clears_diagnostics(
+    monkeypatch, policy, num_views,
+):
+    """Catches bypasses that retain stale diagnostics or materialize the view stream."""
+    expected = (torch.tensor([17.0]), torch.tensor([23.0]))
+    observed = {}
+
+    def inspect_view_stream(groups):
+        observed["is_one_shot_iterator"] = iter(groups) is groups
+        observed["num_groups"] = sum(1 for _ in groups)
+        return expected
+
+    monkeypatch.setattr(
+        image_conditioned_proj, "_online_mean_tensor_groups", inspect_view_stream,
+    )
+    model = ConditionerHarness()
+    model.multiview_aggregation = policy
+    model.last_multiview_aggregation_diagnostics = object()
+
+    actual = model(
+        torch.zeros(1, num_views, 3, 2, 2),
+        **cameras(num_views),
+    )
+
+    assert actual is expected
+    assert observed == {
+        "is_one_shot_iterator": True,
+        "num_groups": num_views,
+    }
+    assert model.last_multiview_aggregation_diagnostics is None
+
+
+def test_configured_consensus_favors_agreeing_projections_without_model_state():
+    """Catches consensus configuration being ignored or persisting learned state."""
+    model = ConsensusConditionerHarness()
+    state_keys_before = set(model.state_dict())
+    trainable_before = [parameter for parameter in model.parameters() if parameter.requires_grad]
+    model.multiview_aggregation = {
+        "mode": "consensus",
+        "alpha": 1.0,
+        "temperature": 0.2,
+        "chunk_size": 1,
+        "cache_device": "cpu",
+    }
+    image = torch.tensor([1.0, 1.0, 1.0, -1.0]).reshape(1, 4, 1, 1, 1)
+
+    z_global, z_proj = model(image, **cameras(4))
+
+    torch.testing.assert_close(z_global, torch.tensor([[[0.5]]]))
+    assert torch.all(z_proj > 0.5)
+    assert z_proj.shape == (1, 2, 4)
+    assert z_proj.dtype is image.dtype
+    assert z_proj.device == image.device
+    diagnostics = model.last_multiview_aggregation_diagnostics
+    assert diagnostics is not None
+    assert diagnostics.scores.device.type == "cpu"
+    assert diagnostics.weights.device.type == "cpu"
+    torch.testing.assert_close(
+        diagnostics.weights.sum(dim=1),
+        torch.ones((1, 2), dtype=torch.float32),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert torch.all(diagnostics.weights[0, 3] < diagnostics.weights[0, 0])
+    assert set(model.state_dict()) == state_keys_before
+    assert [parameter for parameter in model.parameters() if parameter.requires_grad] == trainable_before
 
 
 @pytest.mark.parametrize("key", ["camera_angle_x", "distance", "transform_matrix"])
