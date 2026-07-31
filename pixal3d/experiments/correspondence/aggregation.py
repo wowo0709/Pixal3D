@@ -88,21 +88,35 @@ def aggregate_consensus_projection_naive(
 
     feature_dim = channel_count // 2
     low_features, high_features = (
-        stacked_features[..., :feature_dim],
-        stacked_features[..., feature_dim:],
+        stacked_features[..., :feature_dim].to(dtype=torch.float32),
+        stacked_features[..., feature_dim:].to(dtype=torch.float32),
     )
+    degenerate_view_mask = (
+        (torch.linalg.vector_norm(low_features, dim=-1) <= 1e-6)
+        | (torch.linalg.vector_norm(high_features, dim=-1) <= 1e-6)
+    ).any(dim=1)
     normalized_low = F.normalize(low_features, dim=-1, eps=1e-6)
     normalized_high = F.normalize(high_features, dim=-1, eps=1e-6)
 
+    low_leave_one_out = (
+        normalized_low.sum(dim=1, keepdim=True) - normalized_low
+    )
+    high_leave_one_out = (
+        normalized_high.sum(dim=1, keepdim=True) - normalized_high
+    )
+    degenerate_prototype_mask = (
+        (torch.linalg.vector_norm(low_leave_one_out, dim=-1) <= 1e-6)
+        | (torch.linalg.vector_norm(high_leave_one_out, dim=-1) <= 1e-6)
+    ).any(dim=1)
+    degeneracy_mask = degenerate_view_mask | degenerate_prototype_mask
+
     low_prototypes = F.normalize(
-        (normalized_low.sum(dim=1, keepdim=True) - normalized_low)
-        / (view_count - 1),
+        low_leave_one_out / (view_count - 1),
         dim=-1,
         eps=1e-6,
     )
     high_prototypes = F.normalize(
-        (normalized_high.sum(dim=1, keepdim=True) - normalized_high)
-        / (view_count - 1),
+        high_leave_one_out / (view_count - 1),
         dim=-1,
         eps=1e-6,
     )
@@ -112,6 +126,26 @@ def aggregate_consensus_projection_naive(
     )
     diagnostics = residual_to_uniform_weights(
         scores, alpha=alpha, temperature=temperature
+    )
+    uniform_weights = torch.full_like(
+        diagnostics.weights, 1.0 / view_count
+    )
+    weights = torch.where(
+        degeneracy_mask.unsqueeze(1), uniform_weights, diagnostics.weights
+    )
+    uniform_entropy = -(
+        uniform_weights
+        * torch.log(
+            uniform_weights.clamp_min(torch.finfo(uniform_weights.dtype).tiny)
+        )
+    ).sum(dim=1)
+    diagnostics = ProjectionAggregationDiagnostics(
+        scores=diagnostics.scores,
+        weights=weights,
+        entropy=torch.where(
+            degeneracy_mask, uniform_entropy, diagnostics.entropy
+        ),
+        fallback_mask=diagnostics.fallback_mask | degeneracy_mask,
     )
     fused = (stacked_features * diagnostics.weights.unsqueeze(-1)).sum(dim=1)
     return fused.to(dtype=stacked_features.dtype), diagnostics

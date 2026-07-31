@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from pixal3d.experiments.correspondence.aggregation import (
+    aggregate_consensus_projection,
     aggregate_consensus_projection_naive,
     residual_to_uniform_weights,
 )
@@ -69,6 +70,67 @@ def test_identical_views_produce_uniform_weights_and_input_feature():
     )
 
 
+def test_naive_mixed_degenerate_rows_use_exact_uniform_fallback():
+    stacked = torch.tensor(
+        [
+            [
+                [[0.0, 0.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0]],
+                [[1.0, 0.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0]],
+                [[1.0, 0.0, 1.0, 0.0], [-1.0, 0.0, 1.0, 0.0]],
+            ]
+        ]
+    )
+
+    _, diagnostics = aggregate_consensus_projection_naive(
+        stacked, alpha=1.0, temperature=0.2
+    )
+
+    assert diagnostics.weights.dtype == torch.float32
+    torch.testing.assert_close(
+        diagnostics.weights,
+        torch.full((1, 3, 2), 1.0 / 3.0, dtype=torch.float32),
+        rtol=0,
+        atol=0,
+    )
+    assert torch.equal(
+        diagnostics.fallback_mask,
+        torch.ones((1, 2), dtype=torch.bool),
+    )
+
+
+def test_chunked_mixed_degenerate_rows_use_exact_uniform_fallback():
+    stacked = torch.tensor(
+        [
+            [
+                [[0.0, 0.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0]],
+                [[1.0, 0.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0]],
+                [[1.0, 0.0, 1.0, 0.0], [-1.0, 0.0, 1.0, 0.0]],
+            ]
+        ]
+    )
+
+    _, diagnostics = aggregate_consensus_projection(
+        [stacked[:, view_index] for view_index in range(3)],
+        alpha=1.0,
+        temperature=0.2,
+        chunk_size=1,
+        compute_device="cpu",
+        output_device="cpu",
+    )
+
+    assert diagnostics.weights.dtype == torch.float32
+    torch.testing.assert_close(
+        diagnostics.weights,
+        torch.full((1, 3, 2), 1.0 / 3.0, dtype=torch.float32),
+        rtol=0,
+        atol=0,
+    )
+    assert torch.equal(
+        diagnostics.fallback_mask,
+        torch.ones((1, 2), dtype=torch.bool),
+    )
+
+
 def test_k1_returns_sole_feature_and_trivial_diagnostics():
     feature = torch.tensor([[[2.0, -1.0, 0.5, 4.0]]])
 
@@ -112,10 +174,6 @@ def test_naive_rejects_invalid_temperature():
 
 
 def test_sequence_rejects_shape_mismatch():
-    from pixal3d.experiments.correspondence.aggregation import (
-        aggregate_consensus_projection,
-    )
-
     with pytest.raises(ValueError, match="same shape"):
         aggregate_consensus_projection(
             [torch.ones(1, 3, 4), torch.ones(1, 2, 4)],
@@ -128,10 +186,6 @@ def test_sequence_rejects_shape_mismatch():
 
 
 def test_chunked_aggregation_matches_naive_reference():
-    from pixal3d.experiments.correspondence.aggregation import (
-        aggregate_consensus_projection,
-    )
-
     generator = torch.Generator().manual_seed(20260731)
     stacked = torch.randn(2, 4, 11, 8, generator=generator)
     expected, expected_diag = aggregate_consensus_projection_naive(
@@ -155,10 +209,6 @@ def test_chunked_aggregation_matches_naive_reference():
 
 
 def test_chunked_aggregation_rejects_nonpositive_chunk_size():
-    from pixal3d.experiments.correspondence.aggregation import (
-        aggregate_consensus_projection,
-    )
-
     with pytest.raises(ValueError, match="chunk_size"):
         aggregate_consensus_projection(
             [torch.ones(1, 3, 4)],

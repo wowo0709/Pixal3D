@@ -809,6 +809,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             projection_features.append(
                 z_proj.detach().to(device="cpu", dtype=z_proj.dtype, copy=True)
             )
+            del z_proj
         z_proj, diagnostics = aggregate_consensus_projection(
             projection_features,
             alpha=aggregation_settings["alpha"],

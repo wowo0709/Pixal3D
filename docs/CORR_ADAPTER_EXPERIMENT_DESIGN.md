@@ -1,6 +1,6 @@
 # Multi-view Correspondence-aware Routing/Transport 실험 설계
 
-> 상태: 사용자 승인 대기
+> 상태: 사용자 승인 완료 — Stage 1 feature-level foundation 구현 완료
 > 작성일: 2026-07-31
 > 대상 브랜치: `feature/multiview-correspondence`
 > 구현 대상: multi-view Shape512, Shape1024, PBR1024

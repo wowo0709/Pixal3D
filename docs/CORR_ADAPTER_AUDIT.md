@@ -1,6 +1,6 @@
 # CorrAdapter-style Multi-view Pixal3D 코드 감사
 
-> 상태: 설계 승인 전 Stage 0 초안
+> 상태: 사용자 승인 완료 — Stage 0 코드 감사
 > 작성일: 2026-07-31
 > 실험 저장소: `Pixal3D`의 linked worktree
 > `/root/dev/Pixal3D/.worktrees/multiview-model-extension`

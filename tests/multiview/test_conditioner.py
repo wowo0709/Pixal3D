@@ -1,3 +1,5 @@
+import weakref
+
 import pytest
 import torch
 import torch.nn as nn
@@ -271,6 +273,59 @@ def test_configured_consensus_favors_agreeing_projections_without_model_state():
     assert torch.all(diagnostics.weights[0, 3] < diagnostics.weights[0, 0])
     assert set(model.state_dict()) == state_keys_before
     assert [parameter for parameter in model.parameters() if parameter.requires_grad] == trainable_before
+
+
+def test_configured_consensus_releases_original_projections_before_reuse(
+    monkeypatch,
+):
+    """Catches retaining a full source projection after its CPU cache copy."""
+    original_aggregate = image_conditioned_proj.aggregate_consensus_projection
+    projection_refs = []
+    released_before_extraction = []
+    released_before_aggregation = []
+
+    class ProjectionLifetimeHarness(ConsensusConditionerHarness):
+        def _forward_single_view(
+            self, image, camera_angle_x, distance, mesh_scale, transform_matrix,
+        ):
+            if projection_refs:
+                released_before_extraction.append(
+                    all(projection_ref() is None for projection_ref in projection_refs)
+                )
+            z_global, z_proj = super()._forward_single_view(
+                image, camera_angle_x, distance, mesh_scale, transform_matrix,
+            )
+            projection_refs.append(weakref.ref(z_proj))
+            return z_global, z_proj
+
+    def inspect_projection_lifetime(*args, **kwargs):
+        released_before_aggregation.append(
+            all(projection_ref() is None for projection_ref in projection_refs)
+        )
+        return original_aggregate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        image_conditioned_proj,
+        "aggregate_consensus_projection",
+        inspect_projection_lifetime,
+    )
+    model = ProjectionLifetimeHarness()
+    model.multiview_aggregation = {
+        "mode": "consensus",
+        "alpha": 1.0,
+        "temperature": 0.2,
+        "chunk_size": 1,
+        "cache_device": "cpu",
+    }
+
+    model(
+        torch.tensor([1.0, 1.0, 1.0, -1.0]).reshape(1, 4, 1, 1, 1),
+        **cameras(4),
+    )
+
+    assert released_before_extraction == [True, True, True]
+    assert released_before_aggregation == [True]
+    assert all(projection_ref() is None for projection_ref in projection_refs)
 
 
 def test_aggregation_diagnostics_is_read_only():
