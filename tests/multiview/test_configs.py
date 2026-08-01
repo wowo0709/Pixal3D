@@ -31,6 +31,10 @@ BATCH_POLICIES = {
     "shape1024": (2, 1),
     "pbr1024": (2, 1),
 }
+ELASTIC_UPDATE_EVERY = {
+    "shape1024": 20_000,
+    "pbr1024": 20_000,
+}
 
 
 def test_four_configs_use_batchwide_k_and_matching_checkpoints():
@@ -65,6 +69,11 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         else:
             assert "snapshot_dataset_on_start" not in trainer_args
         assert trainer_args["max_steps"] == 20_000
+        if stage in ELASTIC_UPDATE_EVERY:
+            assert (
+                trainer_args["elastic"]["args"]["update_every"]
+                == ELASTIC_UPDATE_EVERY[stage]
+            )
         assert trainer_args["multiview_stage"] == stage
         assert trainer_args["image_cond_model"]["name"] == "DinoV3ProjFeatureExtractor"
         assert trainer_args["finetune_ckpt"] == {

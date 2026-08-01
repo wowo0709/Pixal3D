@@ -80,7 +80,8 @@
                 "name": "LinearMemoryController",
                 "args": {
                     "target_ratio": 0.75,
-                    "max_mem_ratio_start": 0.25
+                    "max_mem_ratio_start": 0.25,
+                    "update_every": 20000
                 }
             },
             "grad_clip": {
