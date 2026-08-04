@@ -35,6 +35,12 @@ ELASTIC_UPDATE_EVERY = {
     "shape1024": 20_000,
     "pbr1024": 20_000,
 }
+SNAPSHOT_INTERVALS = {
+    "ss64": 1_000,
+    "shape512": 1_000,
+    "shape1024": -1,
+    "pbr1024": 1_000,
+}
 
 
 def test_four_configs_use_batchwide_k_and_matching_checkpoints():
@@ -61,7 +67,7 @@ def test_four_configs_use_batchwide_k_and_matching_checkpoints():
         assert trainer_args["num_workers"] == 2
         assert trainer_args["i_print"] == 10
         assert trainer_args["i_log"] == 10
-        assert trainer_args["i_sample"] == 1000
+        assert trainer_args["i_sample"] == SNAPSHOT_INTERVALS[stage]
         assert trainer_args["i_save"] == 1000
         assert trainer_args["max_checkpoints"] == 3
         if stage == "ss64":
