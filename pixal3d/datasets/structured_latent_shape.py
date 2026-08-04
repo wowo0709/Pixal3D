@@ -13,6 +13,16 @@ from ..utils.data_utils import load_balanced_group_indices
 
 
 class SLatShapeVisMixin(SLatVisMixin):
+    @staticmethod
+    def _has_valid_face_indices(faces: torch.Tensor, num_vertices: int) -> bool:
+        """Return whether every triangle index can be passed to nvdiffrast safely."""
+        return (
+            faces.numel() > 0
+            and num_vertices > 0
+            and faces.min().item() >= 0
+            and faces.max().item() < num_vertices
+        )
+
     def _loading_slat_dec(self):
         if self.slat_dec is not None:
             return
@@ -82,9 +92,10 @@ class SLatShapeVisMixin(SLatVisMixin):
                 print(f"[visualize_sample] Warning: sample {i} has empty mesh, skipping")
                 multiview_images.append(image)
                 continue
-            if faces.max() >= verts.shape[0]:
+            if not self._has_valid_face_indices(faces, verts.shape[0]):
                 print(f"[visualize_sample] Warning: sample {i} has out-of-bound face indices "
-                      f"(max face idx={faces.max().item()}, num verts={verts.shape[0]}), skipping")
+                      f"(min={faces.min().item()}, max={faces.max().item()}, "
+                      f"num verts={verts.shape[0]}), skipping")
                 multiview_images.append(image)
                 continue
             if torch.isnan(verts).any() or torch.isinf(verts).any():
