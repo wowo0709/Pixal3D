@@ -2,13 +2,18 @@ from typing import *
 import warnings
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 from .base import Pipeline
 from . import samplers, rembg
 from ..modules.sparse import SparseTensor
 from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
+from ..trainers.flow_matching.mixins.image_conditioned_proj import (
+    compute_multiview_projection_matrices,
+)
 
 
 def normalize_calibrated_views(image, camera_params):
@@ -252,6 +257,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         distance: float = 2.0,
         mesh_scale: float = 1.0,
         transform_matrix=None,
+        projection_matrix=None,
     ) -> dict:
         """
         Get proj conditioning for sparse structure stage.
@@ -262,6 +268,9 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             distance: Camera distance.
             mesh_scale: Mesh scale.
             transform_matrix: Optional per-view camera transforms [1, K, 4, 4].
+            projection_matrix: Optional precomputed shared-anchor projection
+                [1, 4, 4] for one view. Used by CameraAGW so separating views
+                does not re-anchor every camera to identity.
 
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': ...}
@@ -281,21 +290,47 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         mesh_scale = torch.as_tensor(
             mesh_scale, dtype=torch.float32, device=device
         ).reshape(1)
+        if transform_matrix is not None and projection_matrix is not None:
+            raise ValueError("provide transform_matrix or projection_matrix, not both")
         if transform_matrix is not None:
             transform_matrix = torch.as_tensor(
                 transform_matrix, dtype=torch.float32, device=device
             ).reshape(1, num_views, 4, 4)
-        if num_views == 1 and transform_matrix is None:
+        if projection_matrix is not None:
+            if num_views != 1:
+                raise ValueError("projection_matrix is only valid for one separated view")
+            projection_matrix = torch.as_tensor(
+                projection_matrix, dtype=torch.float32, device=device
+            ).reshape(1, 4, 4)
             image_tensor = image_tensor[:, 0]
             camera_angle_x = camera_angle_x[:, 0]
             distance = distance[:, 0]
-        z_global, z_proj = image_cond_model(
-            image_tensor,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
-        )
+            z_global, z_proj = image_cond_model._forward_single_view(
+                image_tensor,
+                camera_angle_x,
+                distance,
+                mesh_scale,
+                projection_matrix,
+            )
+        elif num_views == 1 and transform_matrix is None:
+            image_tensor = image_tensor[:, 0]
+            camera_angle_x = camera_angle_x[:, 0]
+            distance = distance[:, 0]
+            z_global, z_proj = image_cond_model(
+                image_tensor,
+                camera_angle_x=camera_angle_x,
+                distance=distance,
+                mesh_scale=mesh_scale,
+                transform_matrix=transform_matrix,
+            )
+        else:
+            z_global, z_proj = image_cond_model(
+                image_tensor,
+                camera_angle_x=camera_angle_x,
+                distance=distance,
+                mesh_scale=mesh_scale,
+                transform_matrix=transform_matrix,
+            )
         if self.low_vram:
             image_cond_model.cpu()
         return {
@@ -314,6 +349,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         mesh_scale: float = 1.0,
         grid_resolution_override: int = None,
         transform_matrix=None,
+        projection_matrix=None,
     ) -> dict:
         """
         Get proj conditioning for shape/texture stages (sparse-token aligned).
@@ -327,6 +363,8 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale: Mesh scale.
             grid_resolution_override: Override the grid resolution if not None.
             transform_matrix: Optional per-view camera transforms [1, K, 4, 4].
+            projection_matrix: Optional precomputed shared-anchor projection
+                [1, 4, 4] for one separated CameraAGW view.
 
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': SparseTensor}
@@ -355,21 +393,47 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         mesh_scale = torch.as_tensor(
             mesh_scale, dtype=torch.float32, device=device
         ).reshape(1)
+        if transform_matrix is not None and projection_matrix is not None:
+            raise ValueError("provide transform_matrix or projection_matrix, not both")
         if transform_matrix is not None:
             transform_matrix = torch.as_tensor(
                 transform_matrix, dtype=torch.float32, device=device
             ).reshape(1, num_views, 4, 4)
-        if num_views == 1 and transform_matrix is None:
+        if projection_matrix is not None:
+            if num_views != 1:
+                raise ValueError("projection_matrix is only valid for one separated view")
+            projection_matrix = torch.as_tensor(
+                projection_matrix, dtype=torch.float32, device=device
+            ).reshape(1, 4, 4)
             image_tensor = image_tensor[:, 0]
             camera_angle_x = camera_angle_x[:, 0]
             distance = distance[:, 0]
-        z_global, z_proj = image_cond_model(
-            image_tensor,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
-        )
+            z_global, z_proj = image_cond_model._forward_single_view(
+                image_tensor,
+                camera_angle_x,
+                distance,
+                mesh_scale,
+                projection_matrix,
+            )
+        elif num_views == 1 and transform_matrix is None:
+            image_tensor = image_tensor[:, 0]
+            camera_angle_x = camera_angle_x[:, 0]
+            distance = distance[:, 0]
+            z_global, z_proj = image_cond_model(
+                image_tensor,
+                camera_angle_x=camera_angle_x,
+                distance=distance,
+                mesh_scale=mesh_scale,
+                transform_matrix=transform_matrix,
+            )
+        else:
+            z_global, z_proj = image_cond_model(
+                image_tensor,
+                camera_angle_x=camera_angle_x,
+                distance=distance,
+                mesh_scale=mesh_scale,
+                transform_matrix=transform_matrix,
+            )
         grid_res = image_cond_model.grid_resolution
         z_proj_grid = z_proj.reshape(B, grid_res, grid_res, grid_res, -1)
         batch_indices = coords[:, 0].long()
@@ -393,13 +457,145 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             'neg_cond': {'global': torch.zeros_like(z_global), 'proj': SparseTensor(feats=torch.zeros_like(z_proj_sparse), coords=coords)},
         }
 
+    def _per_view_camera_kwargs(self, images, cameras, image_cond_model):
+        """Yield separated views projected in one shared anchor coordinate frame."""
+        transforms = cameras["transform_matrix"]
+        if transforms is None:
+            raise ValueError("separated multi-view conditioning requires transforms")
+        projection, _ = compute_multiview_projection_matrices(
+            transforms,
+            cameras["distance"],
+            image_cond_model.fixed_projection_transform,
+        )
+        for view_index, image in enumerate(images):
+            yield [image], {
+                "camera_angle_x": cameras["camera_angle_x"][:, view_index:view_index + 1],
+                "distance": cameras["distance"][:, view_index:view_index + 1],
+                "mesh_scale": cameras["mesh_scale"],
+                "projection_matrix": projection[:, view_index],
+            }
+
+    @staticmethod
+    def _camera_aware_agw_sample(
+        sampler,
+        model,
+        noise,
+        conds,
+        base_params,
+        override_params,
+        *,
+        verbose=True,
+        tqdm_desc="Sampling with camera-aware AGW",
+        **extra_kwargs,
+    ):
+        """Fuse per-view flow velocities with token-wise adaptive guidance.
+
+        Camera alignment is performed while constructing ``conds``.  This
+        sampler deliberately keeps those conditions separate, evaluates the
+        frozen single-view flow once per view, and only then fuses velocities.
+        """
+        if not conds:
+            raise ValueError("camera-aware AGW requires at least one condition")
+        if len(conds) == 1:
+            return sampler.sample(
+                model,
+                noise,
+                **conds[0],
+                **{**base_params, **override_params},
+                verbose=verbose,
+                tqdm_desc=tqdm_desc,
+                **extra_kwargs,
+            ).samples
+
+        params = {**base_params, **override_params}
+        steps = params.pop("steps", 50)
+        rescale_t = params.pop("rescale_t", 1.0)
+        guidance_strength = params.pop("guidance_strength", 3.0)
+        guidance_rescale = params.pop("guidance_rescale", 0.0)
+        guidance_interval = params.pop("guidance_interval", (0.0, 1.0))
+        neg_cond = conds[0]["neg_cond"]
+
+        t_seq = np.linspace(1, 0, steps + 1)
+        t_seq = rescale_t * t_seq / (1 + (rescale_t - 1) * t_seq)
+        sample = noise
+        for step_index in tqdm(
+            range(steps), desc=tqdm_desc, disable=not verbose
+        ):
+            t = float(t_seq[step_index])
+            t_prev = float(t_seq[step_index + 1])
+            v_neg = samplers.FlowEulerSampler._inference_model(
+                sampler, model, sample, t, neg_cond, **params, **extra_kwargs
+            )
+            v_pos = [
+                samplers.FlowEulerSampler._inference_model(
+                    sampler, model, sample, t, item["cond"],
+                    **params, **extra_kwargs,
+                )
+                for item in conds
+            ]
+
+            is_sparse = isinstance(v_pos[0], SparseTensor)
+            if is_sparse:
+                stacked = torch.stack([value.feats for value in v_pos], dim=0)
+                magnitude = (stacked - v_neg.feats[None]).norm(dim=2)
+                weights = F.softmax(magnitude / (t + 1e-3), dim=0)
+                fused = v_pos[0].replace((weights[..., None] * stacked).sum(0))
+            else:
+                stacked = torch.stack(v_pos, dim=0)
+                magnitude = (stacked - v_neg[None]).pow(2).sum(dim=2).sqrt()
+                weights = F.softmax(magnitude / (t + 1e-3), dim=0)
+                fused = (weights.unsqueeze(2) * stacked).sum(0)
+
+            strength = (
+                guidance_strength
+                if guidance_interval[0] <= t <= guidance_interval[1]
+                else 1.0
+            )
+            if strength == 1:
+                velocity = fused
+            elif strength == 0:
+                velocity = v_neg
+            elif is_sparse:
+                velocity = fused.replace(
+                    strength * fused.feats + (1.0 - strength) * v_neg.feats
+                )
+            else:
+                velocity = strength * fused + (1.0 - strength) * v_neg
+
+            if guidance_rescale > 0 and strength not in (0, 1):
+                x0_pos = sampler._pred_to_xstart(sample, t, fused)
+                x0_cfg = sampler._pred_to_xstart(sample, t, velocity)
+                if is_sparse:
+                    std_pos = x0_pos.feats.std().clamp(min=1e-8)
+                    std_cfg = x0_cfg.feats.std().clamp(min=1e-8)
+                    x0_rescaled = x0_cfg.replace(
+                        x0_cfg.feats * (std_pos / std_cfg)
+                    )
+                    x0 = x0_cfg.replace(
+                        guidance_rescale * x0_rescaled.feats
+                        + (1.0 - guidance_rescale) * x0_cfg.feats
+                    )
+                else:
+                    dims = list(range(1, x0_pos.ndim))
+                    std_pos = x0_pos.std(dim=dims, keepdim=True).clamp(min=1e-8)
+                    std_cfg = x0_cfg.std(dim=dims, keepdim=True).clamp(min=1e-8)
+                    x0_rescaled = x0_cfg * (std_pos / std_cfg)
+                    x0 = (
+                        guidance_rescale * x0_rescaled
+                        + (1.0 - guidance_rescale) * x0_cfg
+                    )
+                velocity = sampler._xstart_to_pred(sample, t, x0)
+
+            sample = sample - (t - t_prev) * velocity
+        return sample
+
     # =========================================================================
     # Sampling methods (consistent with Trellis2)
     # =========================================================================
 
     def sample_sparse_structure(
         self,
-        cond: dict,
+        cond: Union[dict, List[dict]],
         resolution: int,
         num_samples: int = 1,
         sampler_params: dict = {},
@@ -421,14 +617,26 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
-        z_s = self.sparse_structure_sampler.sample(
-            flow_model,
-            noise,
-            **cond,
-            **sampler_params,
-            verbose=True,
-            tqdm_desc="Sampling sparse structure (proj)",
-        ).samples
+        if isinstance(cond, list):
+            z_s = self._camera_aware_agw_sample(
+                self.sparse_structure_sampler,
+                flow_model,
+                noise,
+                cond,
+                self.sparse_structure_sampler_params,
+                sampler_params,
+                verbose=True,
+                tqdm_desc="Sampling sparse structure (camera-aware AGW)",
+            )
+        else:
+            z_s = self.sparse_structure_sampler.sample(
+                flow_model,
+                noise,
+                **cond,
+                **sampler_params,
+                verbose=True,
+                tqdm_desc="Sampling sparse structure (proj)",
+            ).samples
         if self.low_vram:
             flow_model.cpu()
         
@@ -448,7 +656,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
 
     def sample_shape_slat(
         self,
-        cond: dict,
+        cond: Union[dict, List[dict]],
         flow_model,
         coords: torch.Tensor,
         sampler_params: dict = {},
@@ -469,14 +677,26 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
-        slat = self.shape_slat_sampler.sample(
-            flow_model,
-            noise,
-            **cond,
-            **sampler_params,
-            verbose=True,
-            tqdm_desc="Sampling shape SLat (proj)",
-        ).samples
+        if isinstance(cond, list):
+            slat = self._camera_aware_agw_sample(
+                self.shape_slat_sampler,
+                flow_model,
+                noise,
+                cond,
+                self.shape_slat_sampler_params,
+                sampler_params,
+                verbose=True,
+                tqdm_desc="Sampling shape SLat (camera-aware AGW)",
+            )
+        else:
+            slat = self.shape_slat_sampler.sample(
+                flow_model,
+                noise,
+                **cond,
+                **sampler_params,
+                verbose=True,
+                tqdm_desc="Sampling shape SLat (proj)",
+            ).samples
         if self.low_vram:
             flow_model.cpu()
 
@@ -608,7 +828,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
     
     def sample_tex_slat(
         self,
-        cond: dict,
+        cond: Union[dict, List[dict]],
         flow_model,
         shape_slat: SparseTensor,
         sampler_params: dict = {},
@@ -631,15 +851,28 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         sampler_params = {**self.tex_slat_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
-        slat = self.tex_slat_sampler.sample(
-            flow_model,
-            noise,
-            concat_cond=shape_slat,
-            **cond,
-            **sampler_params,
-            verbose=True,
-            tqdm_desc="Sampling texture SLat (proj)",
-        ).samples
+        if isinstance(cond, list):
+            slat = self._camera_aware_agw_sample(
+                self.tex_slat_sampler,
+                flow_model,
+                noise,
+                cond,
+                self.tex_slat_sampler_params,
+                sampler_params,
+                concat_cond=shape_slat,
+                verbose=True,
+                tqdm_desc="Sampling texture SLat (camera-aware AGW)",
+            )
+        else:
+            slat = self.tex_slat_sampler.sample(
+                flow_model,
+                noise,
+                concat_cond=shape_slat,
+                **cond,
+                **sampler_params,
+                verbose=True,
+                tqdm_desc="Sampling texture SLat (proj)",
+            ).samples
         if self.low_vram:
             flow_model.cpu()
 
@@ -718,6 +951,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         return_latent: bool = False,
         pipeline_type: Optional[str] = None,
         max_num_tokens: int = 49152,
+        fusion_strategy: str = "feature_mean",
     ) -> List[MeshWithVoxel]:
         """
         Run the Pixal3D pipeline (proj mode, cascade).
@@ -740,7 +974,16 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             return_latent (bool): Whether to return the latent codes.
             pipeline_type (str): The type of the pipeline. Options: '1024_cascade', '1536_cascade'.
             max_num_tokens (int): The maximum number of tokens to use.
+            fusion_strategy (str): ``feature_mean`` uses the learned/current
+                conditioner path. ``camera_aware_agw`` keeps camera-aligned
+                per-view conditions separate and fuses flow velocities without
+                changing any pretrained model weights.
         """
+        if fusion_strategy not in {"feature_mean", "camera_aware_agw"}:
+            raise ValueError(
+                "fusion_strategy must be 'feature_mean' or 'camera_aware_agw'"
+            )
+
         # Check pipeline type
         pipeline_type = pipeline_type or self.default_pipeline_type
         if pipeline_type == '1024_cascade':
@@ -772,14 +1015,54 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         transform_matrix = cameras["transform_matrix"]
         torch.manual_seed(seed)
 
+        # A single view uses the ordinary conditioner and sampler rather than
+        # the AGW sampler.  Its calibrated camera is still honored; AGW is
+        # only a multi-view inference rule and has nothing to fuse for K=1.
+        use_agw = fusion_strategy == "camera_aware_agw" and len(images) > 1
+
+        def ss_conditions():
+            if not use_agw:
+                return self.get_proj_cond_ss(
+                    images,
+                    camera_angle_x=camera_angle_x,
+                    distance=distance,
+                    mesh_scale=mesh_scale,
+                    transform_matrix=transform_matrix,
+                )
+            return [
+                self.get_proj_cond_ss(view_images, **view_camera)
+                for view_images, view_camera in self._per_view_camera_kwargs(
+                    images, cameras, self.image_cond_model_ss
+                )
+            ]
+
+        def shape_conditions(image_cond_model, coords, grid_resolution_override=None):
+            if not use_agw:
+                return self.get_proj_cond_shape(
+                    image_cond_model,
+                    images,
+                    coords,
+                    camera_angle_x=camera_angle_x,
+                    distance=distance,
+                    mesh_scale=mesh_scale,
+                    transform_matrix=transform_matrix,
+                    grid_resolution_override=grid_resolution_override,
+                )
+            return [
+                self.get_proj_cond_shape(
+                    image_cond_model,
+                    view_images,
+                    coords,
+                    grid_resolution_override=grid_resolution_override,
+                    **view_camera,
+                )
+                for view_images, view_camera in self._per_view_camera_kwargs(
+                    images, cameras, image_cond_model
+                )
+            ]
+
         # ---- Stage 1: Sparse Structure (proj) ----
-        cond_ss = self.get_proj_cond_ss(
-            images,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
-        )
+        cond_ss = ss_conditions()
         ss_res = 32
         coords = self.sample_sparse_structure(
             cond_ss, ss_res,
@@ -789,12 +1072,8 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         torch.cuda.empty_cache()
 
         # ---- Stage 2: Shape LR 512 (proj) ----
-        cond_shape_lr = self.get_proj_cond_shape(
-            self.image_cond_model_shape_512, images, coords,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
+        cond_shape_lr = shape_conditions(
+            self.image_cond_model_shape_512, coords
         )
         lr_slat = self.sample_shape_slat(
             cond_shape_lr, self.models['shape_slat_flow_model_512'],
@@ -831,12 +1110,9 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         torch.cuda.empty_cache()
 
         # ---- Stage 3b: Shape HR (proj) ----
-        cond_shape_hr = self.get_proj_cond_shape(
-            self.image_cond_model_shape_1024, images, hr_coords_unique,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
+        cond_shape_hr = shape_conditions(
+            self.image_cond_model_shape_1024,
+            hr_coords_unique,
             grid_resolution_override=actual_grid_res,
         )
         noise_hr = SparseTensor(
@@ -847,14 +1123,29 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         flow_model_hr = self.models['shape_slat_flow_model_1024']
         if self.low_vram:
             flow_model_hr.to(self.device)
-        hr_slat = self.shape_slat_sampler.sample(
-            flow_model_hr,
-            noise_hr,
-            **cond_shape_hr,
-            **sampler_params_hr,
-            verbose=True,
-            tqdm_desc=f"Sampling HR shape SLat (proj, {actual_hr_resolution})",
-        ).samples
+        if isinstance(cond_shape_hr, list):
+            hr_slat = self._camera_aware_agw_sample(
+                self.shape_slat_sampler,
+                flow_model_hr,
+                noise_hr,
+                cond_shape_hr,
+                self.shape_slat_sampler_params,
+                shape_slat_sampler_params,
+                verbose=True,
+                tqdm_desc=(
+                    "Sampling HR shape SLat (camera-aware AGW, "
+                    f"{actual_hr_resolution})"
+                ),
+            )
+        else:
+            hr_slat = self.shape_slat_sampler.sample(
+                flow_model_hr,
+                noise_hr,
+                **cond_shape_hr,
+                **sampler_params_hr,
+                verbose=True,
+                tqdm_desc=f"Sampling HR shape SLat (proj, {actual_hr_resolution})",
+            ).samples
         if self.low_vram:
             flow_model_hr.cpu()
         std = torch.tensor(self.shape_slat_normalization['std'])[None].to(hr_slat.device)
@@ -865,12 +1156,9 @@ class Pixal3DImageTo3DPipeline(Pipeline):
 
         # ---- Stage 4: Texture (proj) ----
         tex_grid_res = actual_hr_resolution // 16
-        cond_tex = self.get_proj_cond_shape(
-            self.image_cond_model_tex_1024, images, shape_slat.coords,
-            camera_angle_x=camera_angle_x,
-            distance=distance,
-            mesh_scale=mesh_scale,
-            transform_matrix=transform_matrix,
+        cond_tex = shape_conditions(
+            self.image_cond_model_tex_1024,
+            shape_slat.coords,
             grid_resolution_override=tex_grid_res,
         )
         tex_slat = self.sample_tex_slat(

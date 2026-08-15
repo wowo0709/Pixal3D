@@ -315,10 +315,13 @@ def run_inference(
     resolution: int = -1,
     transforms_path: Optional[str] = None,
     flow_checkpoints: Optional[dict] = None,
+    pipeline=None,
+    fusion_strategy: str = "feature_mean",
 ):
     # Load models
-    pipeline = init_pipeline(model_path, low_vram=low_vram)
-    load_flow_overrides(pipeline, flow_checkpoints or {})
+    if pipeline is None:
+        pipeline = init_pipeline(model_path, low_vram=low_vram)
+        load_flow_overrides(pipeline, flow_checkpoints or {})
 
     if transforms_path is not None:
         print(f"[Inference] Loading calibrated views: {transforms_path}")
@@ -426,6 +429,7 @@ def run_inference(
         return_latent=True,
         pipeline_type=pipeline_type,
         max_num_tokens=max_num_tokens,
+        fusion_strategy=fusion_strategy,
     )
 
     mesh = mesh_list[0]
@@ -433,7 +437,9 @@ def run_inference(
     # Extract GLB
     print("[Inference] Extracting GLB...")
     glb = o_voxel.postprocess.to_glb(
-        vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs,
+        # o_voxel's UV-atlas buffer is fp16; align the sampled attribute volume
+        # to avoid a mixed fp16/fp32 indexed assignment during GLB export.
+        vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs.to(torch.float16),
         coords=mesh.coords, attr_layout=pipeline.pbr_attr_layout,
         grid_size=res, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
         decimation_target=1000000, texture_size=4096,
@@ -483,6 +489,11 @@ def build_parser():
     parser.add_argument("--shape1024_ckpt")
     parser.add_argument("--pbr1024_ckpt")
     parser.add_argument("--mesh_scale", type=float)
+    parser.add_argument(
+        "--fusion_strategy",
+        choices=("feature_mean", "camera_aware_agw"),
+        default="feature_mean",
+    )
     return parser
 
 
@@ -513,6 +524,7 @@ def main(argv=None):
         resolution=args.resolution,
         flow_checkpoints=flow_checkpoints,
         mesh_scale=args.mesh_scale,
+        fusion_strategy=args.fusion_strategy,
     )
 
 
