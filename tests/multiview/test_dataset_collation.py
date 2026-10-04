@@ -54,7 +54,7 @@ def test_slice_is_batchwide_and_does_not_mutate_sources():
     assert sliced[0]["mesh_scale"].ndim == 0
 
 
-@pytest.mark.parametrize("num_views", [2, 6])
+@pytest.mark.parametrize("num_views", [1, 2, 6])
 def test_dense_shape_and_pbr_collators_keep_one_endpoint_k(monkeypatch, num_views):
     monkeypatch.setattr(np.random, "randint", lambda low, high: num_views)
     dense = condition_sample(0)
@@ -84,6 +84,16 @@ def test_dense_shape_and_pbr_collators_keep_one_endpoint_k(monkeypatch, num_view
     assert pbr_pack["cond"].shape[:2] == (2, num_views)
     assert shape_pack["x_0"].shape[0] == 2
     assert pbr_pack["concat_cond"].shape[0] == 2
+
+
+def test_single_view_lower_bound_is_accepted(monkeypatch):
+    from pixal3d.datasets.components import StandardDatasetBase
+
+    monkeypatch.setattr(StandardDatasetBase, "__init__", lambda self, *a, **kw: None)
+    dataset = MultiViewImageConditionedSparseStructureLatentView(
+        "{}", min_condition_views=1, max_condition_views=6
+    )
+    assert dataset.min_condition_views == 1
 
 
 def test_all_multiview_dataset_names_are_registered():

@@ -395,8 +395,8 @@ class MultiViewImageConditionedMixin:
     ):
         if condition_num_views != 8:
             raise ValueError("development training requires condition_num_views=8")
-        if not 2 <= min_condition_views <= max_condition_views <= 6:
-            raise ValueError("training view bounds must satisfy 2 <= min <= max <= 6")
+        if not 1 <= min_condition_views <= max_condition_views <= 6:
+            raise ValueError("training view bounds must satisfy 1 <= min <= max <= 6")
         self.image_size = image_size
         self.condition_num_views = condition_num_views
         self.min_condition_views = min_condition_views
