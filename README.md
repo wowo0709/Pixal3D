@@ -53,6 +53,29 @@ You can try Pixal3D directly in your browser without any installation via our Hu
 
 ## 🚀 Getting Started
 
+### Multi-view fine-tuning and saved results
+
+This branch extends the multi-view code from `feature/multiview-model-extension`
+(revision `3ff6fca`) with mixed-source fine-tuning tools and saved-result visualization.
+The four stages are SS64, Shape512, Shape1024 and PBR1024, initialized from the
+matching official single-view checkpoints. See
+[the fine-tuning guide](experiments/multiview_finetune/README.md) for data preparation,
+recipes, validation and sampling, and [the result viewer guide](result_viewer/README.md)
+for interactive GLB comparisons.
+
+Run commands from the checkout root in the prepared PyTorch environment.
+Dataset, converted weights and frozen feature-extractor/decoder dependencies are
+external inputs; `data/pixal3d/` may point to local storage. `results/` may point
+to a mounted file server and holds resolved configs, checkpoints, samples, logs
+and actual viewer catalogs. These directories and disposable `temp/` artifacts
+are ignored by Git. Keep official initialization weights separate from run
+checkpoints, and preserve each run's native model, EMA and optimizer files for resume.
+
+Choose only GPUs assigned for the job and set `CUDA_VISIBLE_DEVICES` explicitly.
+Single-GPU tools use logical `cuda:0`; the physical device is chosen by the caller.
+The fine-tuning recipe and its validation tools are local experiments, not an
+official multi-view pretrained release or a claim of reproduced paper metrics.
+
 ### Installation
 
 #### Step 1: Follow TRELLIS.2 Installation

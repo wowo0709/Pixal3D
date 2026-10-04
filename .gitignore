@@ -25,3 +25,11 @@ env/
 Thumbs.db
 
 tmp
+
+# External data, weights, run artifacts, and disposable verification files.
+/data
+/results
+/temp/
+/wandb
+.pytest_cache/
+/.superpowers/
