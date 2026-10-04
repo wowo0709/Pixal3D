@@ -1,0 +1,9 @@
+{
+  "_comment": "Mixed-source SV-to-MV fine-tune recipe for shape512; matching official SV denoiser, frozen DINO/NAF/decoder dependencies. PBR1024 additionally requires aligned Shape1024 latents. Resolve through configure.py; this is not a native train.py config.",
+  "source_config": "slat_flow_img2shape_dit_1_3B_256_bf16_proj_multiview_ft512.json",
+  "epochs": 5,
+  "effective_batch_size": 96,
+  "microbatch_assets": 2,
+  "lr_scale": 0.5,
+  "warmup_fraction": 0.05
+}
