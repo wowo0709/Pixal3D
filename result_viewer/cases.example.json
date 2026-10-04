@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "example-asset",
+      "title": "Replace with a completed same-asset comparison",
+      "results": [
+        {
+          "id": "pretrained-sv",
+          "label": "Official weights, single view",
+          "directory": "comparisons/example-asset/pretrained-sv",
+          "glb": "model.glb",
+          "training_steps": 0
+        },
+        {
+          "id": "pretrained-mv",
+          "label": "Official weights, multiple views",
+          "directory": "comparisons/example-asset/pretrained-mv",
+          "glb": "model.glb",
+          "training_steps": 0
+        },
+        {
+          "id": "finetuned-mv",
+          "label": "Fine-tuned weights, multiple views",
+          "directory": "comparisons/example-asset/finetuned-mv",
+          "glb": "model.glb",
+          "training_steps": 10
+        }
+      ]
+    }
+  ]
+}
