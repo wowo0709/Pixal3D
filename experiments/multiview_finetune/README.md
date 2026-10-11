@@ -122,6 +122,43 @@ snapshot (sampling can override the saved DINO path when relocating a run).
 
 ### Prepared dataset
 
+#### Extending an existing split
+
+An expanded corpus reuses the original extracted batch directories and fixed
+validation split. It is a dataset extension for the same SV-to-MV recipes,
+not a new conditioning protocol. Keep its selection and summaries in a separate
+external profile directory so historical selections and resolved runs remain
+inspectable. `--train-batches` specifies final counts, including existing bundles;
+the source proportions may change when adding higher-quality Sketchfab data.
+
+```bash
+"$PYTHON" experiments/multiview_finetune/prepare.py select \
+  --source /path/to/prepared/archive_root --destination "$DATA_ROOT" \
+  --base-selection "$DATA_ROOT/selection.json" \
+  --selection "$PROFILE_ROOT/selection.json" \
+  --train-batches ObjaverseXL_sketchfab=455 ABO=10 3D-FUTURE=5 HSSD=5
+"$PYTHON" experiments/multiview_finetune/prepare.py extract \
+  --selection "$PROFILE_ROOT/selection.json" --workers 4 --reserve-gib 100
+"$PYTHON" experiments/multiview_finetune/prepare.py metadata \
+  --selection "$PROFILE_ROOT/selection.json" --workers 4
+```
+
+This example adds 375 Sketchfab train bundles to the original 100-bundle train
+corpus. Asset counts are measured after the common eligibility audit, not assumed
+from bundle counts. Existing rows retain their split and manifest identities;
+new bundles must be disjoint from all existing train and validation asset SHAs.
+Tar files are streamed from NFS without local archive copies. Extraction skips
+completed matching bundles and checks pending payload plus the requested free-space
+reserve before writing new ones. Interrupted `.staging` directories require
+inspection; they are not silently reused or overwritten.
+
+After metadata completes, resolve the appropriate recipe with
+`configure.py --data-root "$DATA_ROOT" --selection "$PROFILE_ROOT/selection.json"`
+and the explicit weight/DINO/result paths described above. Use a new
+`--output-config-dir`; the actual common-eligible count determines epoch/update
+budgets. The four stage roots share the same batch files; data is not duplicated
+per model.
+
 The staging input is the prepared multi-source archive collection, not raw
 images or meshes. Required families are `common`, `ss/64`, `shape/512`,
 `shape/1024`, and `pbr/1024`; selection also requires the original `shape/256`,

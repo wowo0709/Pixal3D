@@ -11,6 +11,76 @@ import pytest
 SCRIPT = Path("experiments/multiview_finetune/prepare.py")
 
 
+def test_extension_preserves_split_and_excludes_existing_asset_shas(tmp_path):
+    from experiments.multiview_finetune.prepare import FAMILIES, select
+
+    source, destination = tmp_path / "nfs", tmp_path / "ssd"
+    for batch, assets in [("batch001", ["a"]), ("batch002", ["b"]),
+                          ("batch003", ["c"]), ("batch004", ["a", "d"])]:
+        for family in FAMILIES:
+            pack = source / family / "ABO/ABO-00000" / (batch + ".tar")
+            pack.parent.mkdir(parents=True, exist_ok=True)
+            pack.touch()
+            Path(str(pack) + ".manifest.json").write_text(json.dumps({
+                "included_asset_sha256s": assets, "members": []}))
+    base = select(source, destination, 5, counts={"ABO": 1})
+    assert [row["batch"] for row in base["batches"]] == ["batch001", "batch002"]
+    original = json.loads(json.dumps(base))
+    expanded = select(source, destination, 5, counts={"ABO": 2}, base_selection=base)
+    assert base == original
+    assert expanded["batches"][:2] == original["batches"]
+    assert len(expanded["batches"]) == 3
+    assert [r["split"] for r in expanded["batches"]] == ["train", "validation", "train"]
+    shas = []
+    for row in expanded["batches"]:
+        manifest = source / "common" / row["source"] / row["shard"] / (row["batch"] + ".tar.manifest.json")
+        shas.extend(json.loads(manifest.read_text())["included_asset_sha256s"])
+    assert len(shas) == len(set(shas))
+    assert expanded["batches"][-1]["batch"] == "batch003"
+    assert select(source, destination, 5, counts={"ABO": 2}, base_selection=base) == expanded
+    with pytest.raises(ValueError, match="smaller"):
+        select(source, destination, 42, counts={"ABO": 0}, base_selection=base)
+
+
+def test_configure_reads_external_selection_without_replacing_old_split(tmp_path):
+    root = tmp_path / "data"
+    batch = root / "ABO/ABO-00000/batch001"
+    batch.mkdir(parents=True)
+    (batch / "metadata_report.json").write_text(json.dumps({"eligible_assets": ["a", "b"]}))
+    old = root / "selection.json"
+    old.write_text('{"historical": true}')
+    profile = tmp_path / "profile/selection.json"
+    profile.parent.mkdir()
+    profile.write_text(json.dumps({"destination_root": str(root), "batches": [
+        {"source": "ABO", "shard": "ABO-00000", "batch": "batch001", "split": "train"}]}))
+    config_root = tmp_path / "configs"
+    result = subprocess.run([sys.executable, "experiments/multiview_finetune/configure.py",
+        "--data-root", str(root), "--selection", str(profile), "--method", "lora",
+        "--output-root", str(tmp_path / "results"), "--output-config-dir", str(config_root)],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(old.read_text()) == {"historical": True}
+    for stage in ["ss64", "shape512", "shape1024", "pbr1024"]:
+        mappings = json.loads((config_root / f"train_{stage}_roots.json").read_text())
+        assert mappings["ABO:ABO-00000:batch001"]["render_cond"] == str(batch / "renders_cond")
+    summary = json.loads((config_root / "dataset_summary.json").read_text())
+    assert summary["training_assets"] == 2
+
+
+def test_extract_reserves_requested_free_space_before_creating_bundles(tmp_path):
+    source, destination = tmp_path / "nfs", tmp_path / "ssd"
+    selection = tmp_path / "selection.json"
+    selection.write_text(json.dumps({"source_root": str(source),
+        "destination_root": str(destination), "families": ["common"],
+        "batches": [{"source": "ABO", "shard": "ABO-00000", "batch": "batch001",
+                     "split": "train", "payload_bytes": 1}]}))
+    result = subprocess.run([sys.executable, str(SCRIPT), "extract", "--selection",
+        str(selection), "--reserve-gib", "1000000000"], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "Insufficient SSD space" in result.stderr
+    assert not (destination / "ABO").exists()
+
+
 def test_extraction_checks_members_and_does_not_copy_tar(tmp_path):
     source, destination = tmp_path / "nfs", tmp_path / "ssd"
     family = source / "common/ABO/ABO-00000"

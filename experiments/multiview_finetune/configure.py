@@ -66,6 +66,7 @@ def roots_for_stage(root, stage):
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--data-root", "--data", dest="data", type=Path, default=DATA)
+    parser.add_argument("--selection", type=Path, help="External selection profile; default: DATA_ROOT/selection.json")
     parser.add_argument("--weights-root", type=Path, default=PRETRAINED,
                         help="Directory containing converted official denoiser .pt files")
     parser.add_argument("--dino", default=DINO, help="Hugging Face identifier or local DINO snapshot")
@@ -80,7 +81,9 @@ def main():
     args.output_root = args.output_root.resolve()
     if args.microbatches is None:
         args.microbatches = [json.loads((REPO / "configs/gen/multiview_finetune" / f"{stage}.json").read_text())["microbatch_assets"] for stage in STAGES]
-    selection = json.loads((args.data / "selection.json").read_text())
+    selection = json.loads((args.selection or args.data / "selection.json").read_text())
+    if args.selection and Path(selection["destination_root"]).resolve() != args.data:
+        raise ValueError("Selection destination must match --data-root")
     counts = {"train": {}, "validation": {}}
     mappings = {split: {stage: {} for stage in STAGES} for split in counts}
     assets = {"train": set(), "validation": set()}

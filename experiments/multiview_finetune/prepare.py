@@ -21,15 +21,44 @@ LATENTS = {
 }
 
 
-def select(source, destination, seed):
+def select(source, destination, seed, counts=None, base_selection=None):
+    """Select final train counts, preserving every row of an optional prior split."""
+    counts = COUNTS if counts is None else counts
     rng = random.Random(seed)
     rows, seen = [], set()
-    for name, count in COUNTS.items():
+    existing = set()
+    if base_selection is not None:
+        if (Path(base_selection["source_root"]).resolve() != source.resolve()
+                or Path(base_selection["destination_root"]).resolve() != destination.resolve()
+                or base_selection["families"] != FAMILIES):
+            raise ValueError("Extension must retain the original source, destination and families")
+        rows = [dict(row) for row in base_selection["batches"]]
+        for row in rows:
+            path = source / "common" / row["source"] / row["shard"] / (row["batch"] + ".tar.manifest.json")
+            content = path.read_bytes()
+            if hashlib.sha256(content).hexdigest() != row["manifest_sha256"]["common"]:
+                raise ValueError(f"Manifest changed after selection: {path}")
+            common = set(json.loads(content)["included_asset_sha256s"])
+            if common & seen:
+                raise ValueError("Repeated asset in the base selection")
+            seen.update(common)
+            existing.add((row["source"], row["shard"], row["batch"]))
+        if {row["source"] for row in rows} - counts.keys():
+            raise ValueError("Train counts must include every existing source")
+    for name, count in counts.items():
+        accepted = sum(row["source"] == name and row["split"] == "train" for row in rows)
+        if count < accepted or count < 0:
+            raise ValueError(f"Requested train count is smaller than existing selection: {name}")
+        target = count + (base_selection is None)
+        if accepted == target:
+            continue
         candidates = sorted((source / "common" / name).glob("*/*.tar.manifest.json"))
         rng.shuffle(candidates)
-        accepted = 0
         for path in candidates:
             relative = path.relative_to(source / "common")
+            batch = path.name.removesuffix(".tar.manifest.json")
+            if (name, relative.parts[1], batch) in existing:
+                continue
             manifests = [source / family / relative for family in FAMILIES]
             if not all(p.exists() and Path(str(p).removesuffix(".manifest.json")).exists()
                        for p in manifests):
@@ -41,7 +70,7 @@ def select(source, destination, seed):
                 continue
             seen.update(common)
             rows.append({"source": name, "shard": relative.parts[1],
-                         "batch": path.name.removesuffix(".tar.manifest.json"),
+                         "batch": batch,
                          "split": "train" if accepted < count else "validation",
                          "manifest_assets": len(common),
                          "manifest_common_assets": len(included),
@@ -49,9 +78,9 @@ def select(source, destination, seed):
                          "manifest_sha256": {f: hashlib.sha256(p.read_bytes()).hexdigest()
                                              for f, p in zip(FAMILIES, manifests)}})
             accepted += 1
-            if accepted == count + 1:
+            if accepted == target:
                 break
-        if accepted != count + 1:
+        if accepted != target:
             raise ValueError(f"Insufficient nonempty, disjoint batches for {name}: {accepted}")
     return {"source_root": str(source), "destination_root": str(destination),
             "seed": seed, "families": FAMILIES, "batches": rows}
@@ -189,9 +218,17 @@ def main():
     parser.add_argument("--selection", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--reserve-gib", type=float, default=0,
+                        help="Keep this much SSD space free after full-bundle extraction")
+    parser.add_argument("--base-selection", type=Path, help="Preserve this selection and add train bundles")
+    parser.add_argument("--train-batches", nargs="+", metavar="SOURCE=COUNT",
+                        help="Final training bundle counts per source")
     args = parser.parse_args()
     if args.operation == "select":
-        selection = select(args.source, args.destination, args.seed)
+        counts = dict((name, int(count)) for name, count in
+                      (item.split("=", 1) for item in args.train_batches)) if args.train_batches else None
+        base = json.loads(args.base_selection.read_text()) if args.base_selection else None
+        selection = select(args.source, args.destination, args.seed, counts=counts, base_selection=base)
         args.selection.parent.mkdir(parents=True, exist_ok=True)
         with args.selection.open("x") as output:
             json.dump(selection, output, indent=2)
@@ -202,7 +239,8 @@ def main():
         destination = Path(selection["destination_root"])
         destination.mkdir(parents=True, exist_ok=True)
         pending = [r for r in selection["batches"] if not (destination / r["source"] / r["shard"] / r["batch"]).exists()]
-        if sum(r.get("payload_bytes", 0) for r in pending) > shutil.disk_usage(destination).free:
+        required = sum(r.get("payload_bytes", 0) for r in pending)
+        if required + args.reserve_gib * 2**30 > shutil.disk_usage(destination).free:
             raise ValueError("Insufficient SSD space for selected full bundles")
         worker = extract_batch
     else:
