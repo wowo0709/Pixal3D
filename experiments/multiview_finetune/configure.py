@@ -21,9 +21,10 @@ STAGES = {
 
 
 def stage_config(stage, training_assets, microbatch=1, *, weights_root=PRETRAINED, dino=DINO, output_root=OUTPUT,
-                 output_config_dir=None):
+                 output_config_dir=None, method='full'):
     ebs, filename, stem = STAGES[stage]
-    recipe = json.loads((REPO / "configs/gen/multiview_finetune" / f"{stage}.json").read_text())
+    recipe_dir = {'full': 'multiview_finetune', 'lora': 'multiview_lora'}[method]
+    recipe = json.loads((REPO / 'configs/gen' / recipe_dir / f"{stage}.json").read_text())
     config = json.loads((REPO / "configs/gen" / recipe["source_config"]).read_text())
     output_config_dir = Path(output_config_dir) if output_config_dir else Path(output_root) / "configs"
     ebs = recipe["effective_batch_size"]
@@ -38,7 +39,16 @@ def stage_config(stage, training_assets, microbatch=1, *, weights_root=PRETRAINE
     args.update(max_steps=total, batch_size_per_gpu=ebs, batch_split=ebs // microbatch,
                 num_workers=2, prefetch_data=False, snapshot_dataset_on_start=False,
                 i_save=updates_per_epoch, i_sample=-1, max_checkpoints=5)
-    args["optimizer"]["args"]["lr"] *= recipe["lr_scale"]
+    if method == 'lora':
+        config['_comment'] = (f'LoRA SV-to-MV adaptation of {stage}; paired with the full fine-tune '
+            f'recipe derived from {filename}. Official SV base, frozen DINO/NAF/decoders; '
+            'all self/global cross-attention and proj_linear adapters. K=1..6, fixed checkpointing, '
+            'BF16 torso, FP32 adapters, no EMA; CPU accumulation packs transferred one at a time.')
+        args.update(i_save=500, lora=recipe['lora'], microbatch_to_device=True, ema_rate=[], elastic=None)
+        config['models']['denoiser']['args']['use_checkpoint'] = True
+        args['optimizer']['args']['lr'] = recipe['learning_rate']
+    else:
+        args["optimizer"]["args"]["lr"] *= recipe["lr_scale"]
     args["lr_scheduler"] = {"name": "LinearWarmupLRScheduler",
                             "args": {"warmup_steps": math.ceil(recipe["warmup_fraction"] * total)}}
     args["finetune_ckpt"] = {"denoiser": str(Path(weights_root) / (stem + ".pt"))}
@@ -47,10 +57,10 @@ def stage_config(stage, training_assets, microbatch=1, *, weights_root=PRETRAINE
     config["validation"] = {"dataset_name": config["dataset"]["name"],
                             "dataset_args": config["dataset"]["args"].copy(),
                             "roots_file": str(output_config_dir / f"validation_{stage}_roots.json"),
-                            "assets_per_source": None}
+                            "assets_per_source": None, "every_steps": updates_per_epoch}
     config["experiment"] = {"epochs": recipe["epochs"], "training_assets": training_assets,
                             "updates_per_epoch": updates_per_epoch, "effective_batch_size": ebs,
-                            "scope": "recipe only; main training has not been launched"}
+                            "scope": "recipe only; main training has not been launched", 'method': method}
     return {"_comment": config["_comment"], **config}
 
 
@@ -73,6 +83,7 @@ def main():
     parser.add_argument("--output-root", type=Path, default=OUTPUT)
     parser.add_argument("--output-config-dir", type=Path,
                         help="Resolved JSON/mappings directory; default: OUTPUT_ROOT/configs")
+    parser.add_argument('--method', choices=['full', 'lora'], default='full')
     parser.add_argument("--microbatches", type=int, nargs=4, default=None,
                         metavar="B", help="Nominal assets per pack: SS64 Shape512 Shape1024 PBR1024")
     args = parser.parse_args()
@@ -80,7 +91,8 @@ def main():
     args.weights_root = args.weights_root.resolve()
     args.output_root = args.output_root.resolve()
     if args.microbatches is None:
-        args.microbatches = [json.loads((REPO / "configs/gen/multiview_finetune" / f"{stage}.json").read_text())["microbatch_assets"] for stage in STAGES]
+        recipe_dir = 'multiview_lora' if args.method == 'lora' else 'multiview_finetune'
+        args.microbatches = [json.loads((REPO / 'configs/gen' / recipe_dir / f"{stage}.json").read_text())["microbatch_assets"] for stage in STAGES]
     selection = json.loads((args.selection or args.data / "selection.json").read_text())
     if args.selection and Path(selection["destination_root"]).resolve() != args.data:
         raise ValueError("Selection destination must match --data-root")
@@ -100,13 +112,13 @@ def main():
         for stage in STAGES:
             mappings[split][stage][key] = roots_for_stage(root, stage)
     config_root = (args.output_config_dir or args.output_root / "configs").resolve()
-    if config_root == (REPO / "configs/gen/multiview_finetune").resolve():
+    if config_root in {(REPO / 'configs/gen' / name).resolve() for name in ['multiview_finetune', 'multiview_lora']}:
         raise ValueError("Resolved output-config-dir must not overwrite source recipe templates")
     config_root.mkdir(parents=True, exist_ok=True)
     for stage, microbatch in zip(STAGES, args.microbatches):
         config = stage_config(stage, len(assets["train"]), microbatch=microbatch,
                               weights_root=args.weights_root, dino=args.dino,
-                              output_root=args.output_root, output_config_dir=config_root)
+                              output_root=args.output_root, output_config_dir=config_root, method=args.method)
         config["data_dir"] = json.dumps(mappings["train"][stage])
         config["validation"]["roots_file"] = str(config_root / f"validation_{stage}_roots.json")
         (config_root / (stage + ".json")).write_text(json.dumps(config, indent=2) + "\n")

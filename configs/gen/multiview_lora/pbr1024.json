@@ -1,0 +1,10 @@
+{
+  "_comment": "PBR1024 attention/projection LoRA counterpart to multiview_finetune/pbr1024.json; matching official SV base, aligned Shape1024/PBR1024 targets, and frozen DINO/NAF/decoders. Resolve with configure.py --method lora. Microbatch 1 targets 24GB training; no EMA, fixed activation checkpointing.",
+  "source_config": "slat_flow_imgshape2tex_dit_1_3B_512_bf16_proj_multiview_ft1024.json",
+  "epochs": 5,
+  "effective_batch_size": 24,
+  "microbatch_assets": 1,
+  "learning_rate": 0.0001,
+  "warmup_fraction": 0.05,
+  "lora": {"rank": 16, "alpha": 16, "dropout": 0.0}
+}

@@ -48,6 +48,7 @@ def _online_mean_tensor_groups(
         else value
         for value in first_values
     )
+    del first_values
     count = 1
     for values in iterator:
         if len(values) != len(totals):
@@ -62,6 +63,9 @@ def _online_mean_tensor_groups(
             for total, value in zip(totals, values)
         )
         count += 1
+        # Frozen projected grids are large. Release the previous view before
+        # the iterator computes the next DINO/NAF view, retaining only totals.
+        del values
     return tuple(
         (total / count).to(output_dtype)
         if output_dtype in (torch.float16, torch.bfloat16)
@@ -1208,6 +1212,9 @@ class ImageConditionedProjMixin:
         1. Old checkpoints that don't have image_cond_step*.pt
         2. Partial image_cond checkpoints (only proj_linear + proj_grid, no DINOv3 backbone)
         """
+        if getattr(self, 'lora_config', None) is not None:
+            # LoRA resume is exact; do not use the legacy optimizer-state fallback.
+            return super().load(load_dir, step)
         import os as _os
 
         if self.is_master:

@@ -1,6 +1,30 @@
+import weakref
+
+import pytest
 import torch
 
 from pixal3d.trainers.flow_matching.mixins import image_conditioned_proj
+
+
+@pytest.mark.parametrize('dtype', [torch.bfloat16, torch.float32])
+def test_frozen_view_features_are_released_before_extracting_later_views(dtype):
+    references = []
+
+    def feature_group(index):
+        value = torch.full((2, 3), float(index), dtype=dtype)
+        references.append(weakref.ref(value))
+        return (value,)
+
+    def groups():
+        for index in range(6):
+            # The first FP32 group initially doubles as the accumulator. Once
+            # replaced, raw view outputs must not survive the next extraction.
+            if index >= 2 or (index == 1 and dtype == torch.bfloat16):
+                assert all(reference() is None for reference in references)
+            yield feature_group(index)
+
+    (actual,) = image_conditioned_proj._online_mean_tensor_groups(groups())
+    torch.testing.assert_close(actual, torch.full((2, 3), 2.5, dtype=dtype))
 
 
 def test_online_group_mean_matches_stack_mean_values_and_gradients():

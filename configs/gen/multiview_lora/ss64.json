@@ -1,0 +1,10 @@
+{
+  "_comment": "SS64 attention/projection LoRA counterpart to multiview_finetune/ss64.json; matching official SV base and frozen DINO/decoder. Resolve with configure.py --method lora. Microbatch 1 targets 24GB training; no EMA, fixed activation checkpointing.",
+  "source_config": "ss_flow_img_dit_1_3B_32_bf16_proj_multiview_ft64.json",
+  "epochs": 5,
+  "effective_batch_size": 96,
+  "microbatch_assets": 1,
+  "learning_rate": 0.0001,
+  "warmup_fraction": 0.05,
+  "lora": {"rank": 16, "alpha": 16, "dropout": 0.0}
+}

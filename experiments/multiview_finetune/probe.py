@@ -68,13 +68,15 @@ report = {'stage': args.stage, 'gpu': gpu, 'ebs': ebs, 'K': 6, 'stress':args.str
 # Keep the full EBS input-image allocation resident, as BasicTrainer.load_data does.
 # The tested pack is a repeated high-token real asset, with its real camera/latent data.
 image_size = config['dataset']['args']['image_size']
-resident_inputs = torch.empty((ebs, 6, 3, image_size, image_size), device='cuda', dtype=torch.float32)
+resident_inputs = None if config['trainer']['args'].get('microbatch_to_device') else torch.empty(
+    (ebs, 6, 3, image_size, image_size), device='cuda', dtype=torch.float32)
 for size in map(int, args.sizes.split(',')):
     torch.cuda.empty_cache()
     row = {'microbatch_assets': size}
     batch = dataset.collate_fn([item] * size)
     pack = batch if isinstance(batch, dict) else batch[0]
-    pack = recursive_to_device(pack, torch.device('cuda:0'))
+    if not config['trainer']['args'].get('microbatch_to_device'):
+        pack = recursive_to_device(pack, torch.device('cuda:0'))
     if args.stage != 'ss64':
         row['tokens'] = int(pack['x_0'].feats.shape[0])
     torch.cuda.synchronize()

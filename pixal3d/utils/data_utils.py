@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from torch.utils.data import Sampler, Dataset, DataLoader, DistributedSampler
 import torch.distributed as dist
+from ..modules.sparse.basic import SparseTensor
 
 
 def recursive_to_device(
@@ -14,7 +15,13 @@ def recursive_to_device(
     """
     Recursively move all tensors in a data structure to a device.
     """
-    if hasattr(data, "to"):
+    if isinstance(data, SparseTensor):
+        moved = data.to(device, non_blocking=non_blocking)
+        # SparseTensor.to/replace share caches. Isolate device-local caches so
+        # later GPU attention cannot retain them through the CPU accumulation pack.
+        moved._spatial_cache = recursive_to_device(data._spatial_cache, device, non_blocking)
+        return moved
+    elif hasattr(data, "to"):
         return data.to(device, non_blocking=non_blocking)
     elif isinstance(data, (list, tuple)):
         return type(data)(recursive_to_device(d, device, non_blocking) for d in data)

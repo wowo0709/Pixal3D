@@ -31,6 +31,40 @@ count is evidence from that dataset, not a constant used to resolve new configs.
 
 ## External setup
 
+### LoRA counterpart
+
+`configs/gen/multiview_lora/{ss64,shape512,shape1024,pbr1024}.json` is the LoRA
+counterpart of the four full-finetune recipes above. It uses the same prepared
+mixed-source split, official single-view stage weights, anchor/camera conditions,
+flow objective and frozen encoder/decoder dependencies. PBR1024 retains its
+aligned Shape1024 latent dependency. This is a local SV-to-MV adaptation;
+functional debug samples are not model-quality or paper results.
+
+Resolve it with `configure.py --method lora` and the same explicit external path
+arguments below. Rank/alpha are 16/16, dropout is zero, AdamW LR is `1e-4`, and
+five epochs use 5% linear warmup followed by constant LR. All stages default to
+one asset per forward; EBS is 96/96/24/24. Every block adapts self-attention
+QKV/output, global cross-attention Q/KV/output, and `proj_linear`; MLP, norms,
+timestep and input/output projections are frozen. There is no conditioning-only
+variant. Official base weights load before BF16 torso conversion and FP32 adapter
+insertion. Only adapters enter the optimizer; EMA and elastic memory control are
+disabled. Activation checkpointing is fixed on for every block, and Flash
+Attention keeps its native execution path.
+
+`microbatch_to_device=true` retains the collated accumulation packs on CPU and
+moves only the current pack to CUDA for its forward/backward. All packs still
+share one K, and gradient normalization is the native mean over packs. Optimizer,
+scheduler, save and resume clocks count complete accumulation updates.
+
+Native denoiser checkpoints include frozen base weights and adapters;
+`misc_step*.pt` includes adapter optimizer state, scheduler/sampler state, LoRA
+settings and the base checkpoint path. Resume requires matching LoRA settings.
+`sample.py` reconstructs the denoiser/adapter using the saved native stage config.
+Adapter-only export and merged-weight export are not implemented. Results belong
+in separate NFS run directories from full fine-tuning. The 24GB target requires
+actual hardware verification; an allocator-capped larger GPU is only a debug
+check, and decoder/sampling memory is a separate measurement from training.
+
 Run from this checkout, using a Python environment installed according to the
 [root environment instructions](../../README.md). Training and sampling require
 CUDA PyTorch, the native attention/sparse kernels, `flex_gemm`, `o_voxel`, the
@@ -211,8 +245,10 @@ Loader checks use resolved training mappings; conditioner checks use the paired
 validation mapping and saved DINO configuration. `--roots-dir` overrides their
 mappings if needed. The probe reads the matching resolved stage config and
 runs two native optimizer updates per candidate with real high-token data, K=6,
-initialized Adam state, and resident full-EBS input images. `--stress` locks
-initial Elastic activation retention at its upper bound; the second update
+and initialized Adam state. Full-finetune probes retain full-EBS input images;
+LoRA probes move only the current CPU pack. `--stress` locks Elastic activation
+retention at its upper bound when enabled; LoRA keeps all blocks checkpointed.
+The second update
 records Flash Attention profiler events. The optional `--headroom-gib` is a
 caller-chosen margin (default 0), not a machine capacity assumption. Reassess
 packs on the assigned device before choosing a different nominal microbatch.

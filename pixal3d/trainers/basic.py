@@ -116,6 +116,8 @@ class BasicTrainer:
         max_checkpoints=None,
         i_ddpcheck=10000,
         wandb_run=None,  # wandb run object
+        lora=None,
+        microbatch_to_device=False,
         **kwargs
     ):
         assert batch_size is not None or batch_size_per_gpu is not None, 'Either batch_size or batch_size_per_gpu must be specified.'
@@ -127,6 +129,9 @@ class BasicTrainer:
             raise ValueError('max_checkpoints must be a positive integer or None.')
 
         self.models = models
+        self.lora_config = lora
+        self.lora_base_ckpt = finetune_ckpt
+        self.microbatch_to_device = microbatch_to_device
         self.dataset = dataset
         self.batch_split = batch_split if batch_split is not None else 1
         self.max_steps = max_steps
@@ -181,6 +186,14 @@ class BasicTrainer:
         assert self.batch_size % self.world_size == 0, 'Batch size must be divisible by the number of GPUs.'
         assert self.batch_size_per_gpu % self.batch_split == 0, 'Batch size per GPU must be divisible by batch split.'
 
+        if self.lora_config is not None:
+            from ..modules.lora import inject_lora
+            if not (load_dir is not None and step is not None):
+                self._load_finetune_model_weights(finetune_ckpt)
+            for model in self.models.values():
+                model.convert_to(torch.bfloat16)
+                inject_lora(model, **self.lora_config)
+
         self.init_models_and_more(**kwargs)
         self.prepare_dataloader(**kwargs)
         
@@ -188,7 +201,7 @@ class BasicTrainer:
         self.step = 0
         if load_dir is not None and step is not None:
             self.load(load_dir, step)
-        elif finetune_ckpt is not None:
+        elif finetune_ckpt is not None and self.lora_config is None:
             self.finetune_from(finetune_ckpt)
         
         if self.is_master:
@@ -393,6 +406,8 @@ class BasicTrainer:
                 del ema_ckpts
         
         misc_ckpt = torch.load(read_file_dist(os.path.join(load_dir, 'ckpts', f'misc_step{step:07d}.pt')), map_location=torch.device('cpu'), weights_only=False)
+        if self.lora_config is not None and misc_ckpt['lora'] != self.lora_config:
+            raise ValueError('Resume LoRA settings differ from the saved checkpoint')
         self.optimizer.load_state_dict(misc_ckpt['optimizer'])
         self.step = misc_ckpt['step']
         self.data_sampler.load_state_dict(misc_ckpt['data_sampler'])
@@ -466,6 +481,9 @@ class BasicTrainer:
                 'step': self.step,
                 'data_sampler': self.data_sampler.state_dict(),
             }
+            if getattr(self, 'lora_config', None) is not None:
+                misc_ckpt['lora'] = self.lora_config
+                misc_ckpt['lora_base_ckpt'] = self.lora_base_ckpt
             if self.mix_precision_mode == 'amp' and self.mix_precision_dtype == torch.float16:
                 misc_ckpt['scaler'] = self.scaler.state_dict()
             elif self.mix_precision_mode == 'inflat_all' and self.mix_precision_dtype == torch.float16:
@@ -568,7 +586,7 @@ class BasicTrainer:
         
         return remapped_ckpt
 
-    def finetune_from(self, finetune_ckpt):
+    def _load_finetune_model_weights(self, finetune_ckpt):
         """
         Finetune from a checkpoint.
         Should be called by all processes.
@@ -585,7 +603,7 @@ class BasicTrainer:
         for name, model in self.models.items():
             model_state_dict = model.state_dict()
             if name in finetune_ckpt:
-                model_ckpt = torch.load(read_file_dist(finetune_ckpt[name]), map_location=self.device, weights_only=True)
+                model_ckpt = torch.load(read_file_dist(finetune_ckpt[name]), map_location='cpu', weights_only=True)
                 
                 # Remap checkpoint keys to handle structural changes (e.g., ProjectAttention wrapper)
                 model_ckpt = self._remap_checkpoint_keys(model_ckpt, model_state_dict)
@@ -621,6 +639,10 @@ class BasicTrainer:
                 if self.is_master:
                     print(f'Warning: {name} not found in finetune_ckpt, skipped.')
                 model_ckpts[name] = model_state_dict
+        return model_ckpts
+
+    def finetune_from(self, finetune_ckpt):
+        model_ckpts = self._load_finetune_model_weights(finetune_ckpt)
         self._state_dicts_to_master_params(self.master_params, model_ckpts)
         if self.is_master:
             for i, ema_rate in enumerate(self.ema_rate):
@@ -1048,7 +1070,9 @@ class BasicTrainer:
         """
         Load data.
         """
-        if self.prefetch_data:
+        if getattr(self, 'microbatch_to_device', False):
+            data = next(self.data_iterator)
+        elif self.prefetch_data:
             if self._data_prefetched is None:
                 self._data_prefetched = recursive_to_device(next(self.data_iterator), self.device, non_blocking=True)
             data = self._data_prefetched
@@ -1088,6 +1112,8 @@ class BasicTrainer:
         elastic_controller_logs = []
         zero_grad(self.model_params)
         for i, mb_data in enumerate(data_list):
+            if getattr(self, 'microbatch_to_device', False):
+                mb_data = recursive_to_device(mb_data, self.device, non_blocking=True)
             ## sync at the end of each batch split
             sync_contexts = [self.training_models[name].no_sync for name in self.training_models] if i != len(data_list) - 1 and self.world_size > 1 else [nullcontext]
             with nested_contexts(*sync_contexts), elastic_controller_context():
@@ -1112,6 +1138,7 @@ class BasicTrainer:
             statuses.append(dict_foreach(status, lambda x: x.item() if isinstance(x, torch.Tensor) else x))
             if self.elastic_controller_config is not None:
                 elastic_controller_logs.append(self.elastic_controller.log())
+            del mb_data, loss, status, l
         
         # ============================================================
         # DEBUG: Verify DDP gradient synchronization
