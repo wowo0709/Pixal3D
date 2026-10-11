@@ -111,6 +111,38 @@ def test_lora_recipe_resolves_microbatch_one_without_changing_full_finetune():
         assert 'lora' not in full['trainer']['args']
 
 
+def test_inference_reconstructs_saved_adapter_and_dtype(tmp_path, monkeypatch):
+    from pixal3d import models
+    from importlib.util import find_spec
+    assert find_spec('experiments.multiview_finetune.model_loading') is not None
+    from experiments.multiview_finetune.model_loading import load_run_denoiser
+    base_path = tmp_path / 'official.pt'
+    torch.save(TinyFlow().state_dict(), base_path)
+    trainer = make_trainer(tmp_path / 'run', base_path)
+    trainer.run_step(trainer.load_data())
+    trainer.step = 1
+    trainer.save()
+    monkeypatch.setattr(models, 'TinyFlow', TinyFlow, raising=False)
+    config = {'models': {'denoiser': {'name': 'TinyFlow', 'args': {}}},
+              'trainer': {'args': {'lora': {'rank': 2, 'alpha': 2, 'dropout': 0.0}}}}
+    loaded = load_run_denoiser(config, tmp_path / 'run/ckpts/denoiser_step0000001.pt')
+    x = torch.ones(2, 4)
+    torch.testing.assert_close(loaded(x), trainer.models['denoiser'](x), rtol=0, atol=0)
+    assert loaded.dtype == torch.bfloat16 and not loaded.training
+
+
+def test_full_finetune_inference_retains_native_half_precision_torso(tmp_path, monkeypatch):
+    from pixal3d import models
+    from experiments.multiview_finetune.model_loading import load_run_denoiser
+    monkeypatch.setattr(models, 'TinyFlow', TinyFlow, raising=False)
+    base = TinyFlow()
+    checkpoint = tmp_path / 'full.pt'
+    torch.save(base.state_dict(), checkpoint)
+    config = {'models': {'denoiser': {'name': 'TinyFlow', 'args': {}}}, 'trainer': {'args': {}}}
+    loaded = load_run_denoiser(config, checkpoint)
+    assert loaded.dtype == torch.float16
+
+
 def test_microbatch_transfer_accumulates_mean_gradient_and_steps_scheduler_once():
     trainer = object.__new__(BasicTrainer)
     model = nn.Linear(1, 1, bias=False)
@@ -131,3 +163,32 @@ def test_microbatch_transfer_accumulates_mean_gradient_and_steps_scheduler_once(
     trainer.run_step(packs)
     torch.testing.assert_close(model.weight, torch.tensor([[.5]]))
     assert trainer.optimizer.param_groups[0]['lr'] == .05
+
+
+@pytest.mark.parametrize('mutate_base', [False, True])
+def test_checkpoint_verifier_checks_adapters_against_the_cast_frozen_base(tmp_path, mutate_base):
+    root = tmp_path / 'ss64'
+    (root / 'ckpts').mkdir(parents=True)
+    official = tmp_path / 'official.pt'
+    torch.save({'weight': torch.tensor([1.2345])}, official)
+    raw = {'weight': torch.tensor([1.5 if mutate_base else 1.2345]).bfloat16(),
+           'block.lora_A': torch.ones(2, 1), 'block.lora_B': torch.ones(1, 2)}
+    torch.save(raw, root / 'ckpts/denoiser_step0000002.pt')
+    config = {'trainer': {'args': {'ema_rate': [], 'finetune_ckpt': {'denoiser': str(official)},
+              'lora': {'rank': 2, 'alpha': 2, 'dropout': 0.0}, 'batch_size_per_gpu': 24,
+              'optimizer': {'args': {'lr': .1}}, 'lr_scheduler': {'args': {'warmup_steps': 10}}}},
+              'experiment': {'updates_per_epoch': 100}}
+    (root / 'config.json').write_text(json.dumps(config))
+    misc = {'step': 2, 'lr_scheduler': {'last_epoch': 2}, 'data_sampler': {'epoch': 0, 'idx': 48},
+            'optimizer': {'param_groups': [{'lr': .03}], 'state': {0: {'exp_avg': torch.ones(1)}}}}
+    torch.save(misc, root / 'ckpts/misc_step0000002.pt')
+    result = subprocess.run([sys.executable, 'experiments/multiview_finetune/verify_checkpoints.py',
+                             '--result', str(tmp_path), '--stage', 'ss64', '--step', '2'],
+                            text=True, capture_output=True)
+    if mutate_base:
+        assert result.returncode != 0, 'Verifier accepted a changed frozen base'
+    else:
+        assert result.returncode == 0, result.stderr
+        report = json.loads((root / 'checkpoint_integrity.json').read_text())
+        assert report['lora']['frozen_base_unchanged'] is True
+        assert report['lora']['adapter_tensors'] == 2

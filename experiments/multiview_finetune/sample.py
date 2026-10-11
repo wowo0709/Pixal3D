@@ -34,6 +34,7 @@ import numpy as np
 import torch
 from PIL import Image
 from pixal3d import models
+from experiments.multiview_finetune.model_loading import load_run_denoiser
 from pixal3d.pipelines import Pixal3DImageTo3DPipeline
 from pixal3d.pipelines import samplers
 from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
@@ -58,12 +59,10 @@ loaded_models = {}
 checkpoint_paths = {}
 for stage, key in stage_keys.items():
     stem = STAGES[stage][2]
-    config = json.loads((official / 'ckpts' / (stem + '.json')).read_text())
-    model = getattr(models, config['name'])(**config['args'])
+    config_path = args.configs_dir / f'{stage}.json' if args.configs_dir else root / stage / 'config.json'
+    config = json.loads(config_path.read_text())
     checkpoint = checkpoint_path(root / stage, stage_steps[stage], args.ema)
-    incompatible = model.load_state_dict(torch.load(checkpoint, map_location='cpu', weights_only=True), strict=False)
-    assert set(incompatible.missing_keys) <= {'rope_phases'} and not incompatible.unexpected_keys
-    model.eval()
+    model = load_run_denoiser(config, checkpoint)
     loaded_models[key] = model
     checkpoint_paths[stage] = str(checkpoint)
     print('LOADED_FINETUNED', stage, checkpoint, flush=True)

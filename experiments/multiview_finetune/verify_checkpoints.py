@@ -42,7 +42,18 @@ def main():
         names = [key for key in raw if key in pretrained and raw[key].is_floating_point()]
         selected = names[:10] + names[-10:]
         changed = {key: float((raw[key] - pretrained[key]).abs().max()) for key in selected}
-        assert any(value > 0 for value in changed.values())
+        lora_report = None
+        if config.get('lora') is not None:
+            # Compare after the intentional BF16 cast, not against FP32 rounding.
+            for key in names:
+                assert torch.equal(raw[key], pretrained[key].to(raw[key].dtype)), f'Frozen base changed: {key}'
+            adapters = [key for key in raw if key.endswith(('.lora_A', '.lora_B'))]
+            assert adapters and any(bool(raw[key].abs().sum() > 0) for key in adapters if key.endswith('.lora_B'))
+            lora_report = {'frozen_base_unchanged': True, 'adapter_tensors': len(adapters),
+                           'adapter_parameters': sum(raw[key].numel() for key in adapters),
+                           'maximum_adapter_B': max(float(raw[key].abs().max()) for key in adapters if key.endswith('.lora_B'))}
+        else:
+            assert any(value > 0 for value in changed.values())
         misc = load_state(root / 'ckpts' / f'misc_step{args.step:07d}.pt', weights_only=False)
         assert misc['step'] == misc['lr_scheduler']['last_epoch'] == args.step
         epoch_updates = stage_config['experiment']['updates_per_epoch']
@@ -60,9 +71,11 @@ def main():
                   'changed_from_official_pretrained': changed, 'sampler': misc['data_sampler'],
                   'scheduler_last_epoch': args.step, 'lr_next_update': actual_lr,
                   'optimizer_state': 'finite FP32', 'cuda_initialized': torch.cuda.is_initialized()}
+        if lora_report is not None:
+            report['lora'] = lora_report
         assert not report['cuda_initialized']
         (root / 'checkpoint_integrity.json').write_text(json.dumps(report, indent=2) + '\n')
-        print(stage, 'finite raw/EMA/FP32 optimizer; pretrained weights updated; resume state passed', flush=True)
+        print(stage, 'finite weights/FP32 optimizer; adapter/base or full-finetune checks and resume state passed', flush=True)
 
 
 if __name__ == '__main__':

@@ -67,7 +67,9 @@ TencentARC revision in the Hugging Face cache (`HF_HUB_CACHE`, legacy
 or download missing weights.
 
 `--finetuned-root` contains `ss64/`, `shape512/`, `shape1024/`, and `pbr1024/`,
-each with `ckpts/denoiser_stepNNNNNNN.pt`. `--checkpoint-step` selects the native
+each with the saved native `config.json` and `ckpts/denoiser_stepNNNNNNN.pt`.
+The saved config reconstructs the denoiser and any LoRA adapters; checkpoints
+contain both the frozen base and adapters. `--checkpoint-step` selects the native
 checkpoint number and records that number in output provenance; its default 10
 supports earlier ten-update comparisons. Use the actual selected checkpoint
 step when registering `training_steps` in the catalog.

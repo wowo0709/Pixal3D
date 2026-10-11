@@ -102,6 +102,7 @@ def main():
     from PIL import Image
     from safetensors.torch import load_file
     from pixal3d import models
+    from experiments.multiview_finetune.model_loading import load_run_denoiser
     from pixal3d.pipelines import Pixal3DImageTo3DPipeline, samplers
     from pixal3d.renderers import EnvMap
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
@@ -239,12 +240,8 @@ def main():
     checkpoints = {}
     for stage, key in stage_keys.items():
         checkpoint = args.finetuned_root / stage / 'ckpts' / f'denoiser_step{args.checkpoint_step:07d}.pt'
-        # The first sampling pass lazily creates inference-tensor RoPE buffers.
-        # Their in-place replacement must remain inside inference mode.
-        with torch.inference_mode():
-            incompatible = pipeline.models[key].cpu().load_state_dict(
-                torch.load(checkpoint, map_location='cpu', weights_only=True), strict=False)
-        assert set(incompatible.missing_keys) <= {'rope_phases'} and not incompatible.unexpected_keys
+        config = json.loads((args.finetuned_root / stage / 'config.json').read_text())
+        pipeline.models[key] = load_run_denoiser(config, checkpoint)
         checkpoints[stage] = {'path': str(checkpoint), 'sha256': fingerprint(checkpoint)}
         print('LOADED_FINETUNED', stage, flush=True)
     for case in cases:
