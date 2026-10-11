@@ -87,6 +87,10 @@ def resolve_output_dirs(config, cli_output_dir=None, cli_load_dir=""):
 
 
 def main(local_rank, cfg):
+    if cfg.multiview_runtime:
+        from experiments.multiview_finetune.runtime import install_hooks
+        install_hooks()
+
     # Set up distributed training
     rank = cfg.node_rank * cfg.num_gpus + local_rank
     world_size = cfg.num_nodes * cfg.num_gpus
@@ -178,6 +182,9 @@ def main(local_rank, cfg):
         else:
             trainer.run()
     
+    if world_size > 1:
+        torch.distributed.destroy_process_group()
+
     # Close wandb
     if wandb_run is not None:
         wandb_run.finish()
@@ -212,6 +219,7 @@ if __name__ == '__main__':
     ## multi-node and multi-gpu
     parser.add_argument('--num_nodes', type=int, default=1, help='Number of nodes')
     parser.add_argument('--node_rank', type=int, default=0, help='Node rank')
+    parser.add_argument('--multiview_runtime', action='store_true', help='Install fine-tuning runtime hooks in each worker')
     parser.add_argument('--num_gpus', type=int, default=-1, help='Number of GPUs per node, default to all')
     parser.add_argument('--master_addr', type=str, default='localhost', help='Master address for distributed training')
     parser.add_argument('--master_port', type=str, default='12666', help='Port for distributed training')
@@ -267,6 +275,11 @@ if __name__ == '__main__':
             print(' '.join(['python'] + sys.argv), file=fp)
         with open(os.path.join(cfg.output_dir, 'config.json'), 'w') as fp:
             json.dump(config, fp, indent=4)
+
+    # Parent and spawned workers cooperate on stop requests via the run's STOP file.
+    if cfg.multiview_runtime:
+        from experiments.multiview_finetune.runtime import install_stop_handlers
+        install_stop_handlers(cfg.output_dir)
 
     # Run
     if cfg.auto_retry == 0:

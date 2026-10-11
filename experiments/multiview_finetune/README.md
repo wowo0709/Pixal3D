@@ -316,3 +316,25 @@ allocator budget and free-memory preflight; they default to unset.
 CUDA_VISIBLE_DEVICES='' PYTHONPATH=. "$PYTHON" -m pytest \
   tests/multiview/test_mixed_finetune_*.py
 ```
+
+## LoRA single-node DDP runtime
+
+The LoRA recipe retains EBS96/96/24/24 and the five-epoch SV-to-MV comparison
+budget. `train.py` is still the native Pixal3D runtime, not Kitsu StepTrainer.
+The wrapper requires an explicit `CUDA_VISIBLE_DEVICES` assignment and matches
+`--num_gpus` to that count. Each spawned worker installs the same runtime hooks.
+For DDP, set `trainer.args.batch_size_per_gpu = EBS / world_size` and choose a
+divisor for `batch_split`; the nominal forward batch is their quotient.
+
+LoRA checkpoints are saved every 500 optimizer updates, plus epoch boundaries
+(to retain validation weights), completion and requested graceful stop.
+`validation.every_steps` owns the independent epoch validation interval.
+All ranks wait while rank 0 validates the unwrapped model; RNG and model mode
+are restored. `progress.json` is atomically updated by rank 0; other ranks write
+`runtime_batch.rankN.jsonl` instead of sharing the master JSONL.
+
+SIGTERM/SIGINT or a run-local `STOP` file requests a checkpoint after the current
+optimizer update, followed by a coordinated exit. Allow checkpoint writing to
+finish; SIGKILL cannot preserve unsaved optimizer/model state. The main launch
+uses fresh official SV weights, frozen encoders and LoRA adapters; old stopped
+runs and their logs remain separate from a fresh restart.

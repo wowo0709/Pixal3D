@@ -36,7 +36,7 @@
 
 ## Fine-tuning and Verification
 
-- The published recipe keeps native AdamW, mean-over-microbatches loss, BF16 AMP
+- The full-finetune recipe keeps native AdamW, mean-over-microbatches loss, BF16 AMP
   with FP32 parameters/optimizer, adaptive clipping and EMA 0.9999. Frozen image
   encoders/VAEs are dependencies; all four flow denoisers are fine-tuned.
 - `batch_size_per_gpu` is the full loader batch, not a forward microbatch.
@@ -45,9 +45,16 @@
 - Five-epoch recipe budgets use optimizer updates from `floor(assets / EBS)`,
   with 5% linear warmup then constant LR. The generated resolved config owns
   paths and actual asset counts; portable Git recipes do not encode one machine.
-- Native `run()` saves only on `i_save` boundaries, with no unconditional final
-  save. Debug phase caps and production final updates must land on a save boundary.
-- The experiment wrapper records EBS/K/pack sizes/VRAM and held-out raw-weight
-  flow losses after saves. Evaluation restores RNG/model mode and must not change
-  optimizer, EMA or training sampler state. Debug K forcing requires workers=0;
+- Native `run()` saves only on `i_save` boundaries. The multiview runtime hooks
+  additionally save at epoch boundaries, completion and graceful stop; LoRA
+  periodic saves occur every 500 optimizer updates, independently of validation.
+- LoRA freezes the BF16 base and optimizes FP32 adapters in self-attention,
+  global cross-attention and `proj_linear`, with fixed activation checkpointing
+  and no EMA. Resume reconstructs adapters before restoring the full checkpoint.
+- `microbatch_to_device` retains accumulation packs on CPU, transferring only
+  the active pack. Sparse device caches must not be shared back into CPU packs.
+- The experiment wrapper installs runtime hooks in every spawned worker and
+  records EBS/K/pack sizes/VRAM. Rank 0 evaluates held-out raw-weight flow losses
+  at the configured validation interval using unwrapped models. Evaluation restores RNG/model mode
+  and must not change optimizer, EMA or training sampler state. Debug K forcing requires workers=0;
   persistent workers do not observe later mutations of the parent dataset.

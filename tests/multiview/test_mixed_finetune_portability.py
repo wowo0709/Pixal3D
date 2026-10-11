@@ -126,11 +126,11 @@ def test_checkpoint_verifier_accepts_later_step_and_completed_warmup(tmp_path):
 
 
 @pytest.mark.parametrize(('visible', 'gpu_args', 'message'), [
-    (None, [], 'exactly one'),
-    ('', [], 'exactly one'),
-    ('0,1', [], 'exactly one'),
-    ('GPU-assigned', ['--num_gpus', '2'], 'invalid choice'),
-    ('GPU-assigned', ['--num_gpus=-1'], 'invalid choice'),
+    (None, [], 'visible'),
+    ('', [], 'visible'),
+    ('0,1', ['--num_gpus', '1'], 'visible'),
+    ('GPU-assigned', ['--num_gpus', '2'], 'visible'),
+    ('GPU-assigned', ['--num_gpus=-1'], 'visible'),
 ])
 def test_training_rejects_assignment_before_runtime_import(tmp_path, visible, gpu_args, message):
     import os
@@ -148,17 +148,19 @@ def test_training_rejects_assignment_before_runtime_import(tmp_path, visible, gp
     assert 'RUNTIME_IMPORT_REACHED' not in result.stderr
 
 
-def test_training_defaults_to_one_worker_before_runtime_import(tmp_path):
+@pytest.mark.parametrize(('visible','count'), [('GPU-assigned',1), ('2,3,4',3)])
+def test_training_defaults_to_assigned_workers_before_runtime_import(tmp_path,visible,count):
     import os
     (tmp_path / 'torch.py').write_text(
         "import json, sys\nprint(json.dumps(sys.argv), flush=True)\n"
         "raise RuntimeError('RUNTIME_IMPORT_REACHED')\n")
-    env = dict(os.environ, PYTHONPATH=str(tmp_path), CUDA_VISIBLE_DEVICES='GPU-assigned')
+    env = dict(os.environ, PYTHONPATH=str(tmp_path), CUDA_VISIBLE_DEVICES=visible)
     result = subprocess.run([sys.executable, 'experiments/multiview_finetune/train.py',
         '--config', 'unused.json'], env=env, text=True, capture_output=True)
     assert 'RUNTIME_IMPORT_REACHED' in result.stderr
     native_argv = json.loads(result.stdout)
-    assert native_argv[native_argv.index('--num_gpus') + 1] == '1'
+    assert native_argv[native_argv.index('--num_gpus') + 1] == str(count)
+    assert '--multiview_runtime' in native_argv
 
 
 def test_training_help_works_without_device_assignment():

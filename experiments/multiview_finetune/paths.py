@@ -22,3 +22,11 @@ def official_snapshot(snapshot, download_report):
     report = json.loads(Path(download_report).read_text())
     path = report['files']['ss_flow_img_dit_1_3B_64_bf16']['safetensors']
     return Path(path).parent.parent
+
+
+def assigned_gpu_count(requested=None):
+    visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
+    devices = [value.strip() for value in visible.split(',') if value.strip()]
+    if not devices or (requested is not None and requested != len(devices)):
+        raise ValueError('num_gpus must match the explicitly assigned visible GPUs')
+    return len(devices)
