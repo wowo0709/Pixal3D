@@ -235,8 +235,8 @@ class DeformationAwareConditioner(nn.Module):
     def forward(
         self,
         *,
-        target_keys: torch.Tensor,
-        source_keys: torch.Tensor,
+        target_keys: Optional[torch.Tensor] = None,
+        source_keys: Optional[torch.Tensor] = None,
         source_values: torch.Tensor,
         source_valid: torch.Tensor,
         spatial_indices: Optional[torch.Tensor] = None,
@@ -246,6 +246,25 @@ class DeformationAwareConditioner(nn.Module):
     ) -> DeformationCondition:
         if control not in self.CONTROLS:
             raise ValueError(f"unknown causal control: {control}")
+        if self.arm == "v1":
+            if source_values.ndim != 4 or source_values.shape[-1] != self.value_dim:
+                raise ValueError("source_values must have shape [B,V,S,value_dim]")
+            if source_valid.shape != source_values.shape[:3] or source_valid.dtype != torch.bool:
+                raise ValueError("source_valid must be bool [B,V,S]")
+            batch, views, sites, _ = source_values.shape
+            if spatial_indices is None or spatial_indices.ndim != 3:
+                raise ValueError("v1 requires spatial_indices [B,V,Q]")
+            if spatial_indices.shape[:2] != (batch, views):
+                raise ValueError("v1 spatial indices have an invalid batch/view shape")
+            queries = spatial_indices.shape[2]
+            if control == "source-off":
+                zero = source_values.new_zeros(batch, queries, self.value_dim)
+                return DeformationCondition(zero, None, None, None, None, None)
+            if control == "wrong-corr":
+                source_values = torch.roll(source_values, shifts=1, dims=2)
+            return self._spatial(source_values, source_valid, spatial_indices, queries)
+        if target_keys is None or source_keys is None:
+            raise ValueError(f"{self.arm} requires target_keys and source_keys")
         batch, queries, views, sites = self._validate(
             target_keys, source_keys, source_values, source_valid
         )
@@ -254,8 +273,6 @@ class DeformationAwareConditioner(nn.Module):
             return DeformationCondition(zero, None, None, None, None, None)
         if control == "wrong-corr":
             source_values = torch.roll(source_values, shifts=1, dims=2)
-        if self.arm == "v1":
-            return self._spatial(source_values, source_valid, spatial_indices, queries)
 
         flat_keys = source_keys.reshape(batch, views * sites, self.key_dim)
         flat_values = source_values.reshape(batch, views * sites, self.value_dim)

@@ -75,6 +75,19 @@ def test_ss_loader_preserves_target_then_three_source_roles(tmp_path):
     assert batch["transport_target_keys"].shape == (2, 4, 2)
 
 
+def test_v1_loader_reads_only_spatial_transport_fields(tmp_path):
+    manifest, _ = _fixture(tmp_path)
+    dataset = DeformNeXtSS64(
+        str(manifest), image_size=8, expected_split="train", transport_arm="v1"
+    )
+    item = dataset[0]
+    assert "transport_source_values" in item
+    assert "transport_spatial_indices" in item
+    assert "transport_target_keys" not in item
+    assert "transport_source_keys" not in item
+    assert "transport_target_query" not in item
+
+
 def test_textured_target_render_is_rejected(tmp_path):
     manifest, row = _fixture(tmp_path)
     render = tmp_path / "render_cond"

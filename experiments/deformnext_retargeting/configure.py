@@ -56,7 +56,9 @@ def build(stage: str, arm: str, args) -> dict:
         "full_pbr",
     ):
         dataset_args.pop(key, None)
-    dataset_args.update(expected_split="train", verify_files=True)
+    dataset_args.update(
+        expected_split="train", verify_files=True, transport_arm=arm
+    )
     if args.file4_mirror_root is not None:
         dataset_args["path_map"] = {"/file4": str(args.file4_mirror_root)}
     config["dataset"] = {"name": spec["dataset"], "args": dataset_args}

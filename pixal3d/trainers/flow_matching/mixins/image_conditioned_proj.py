@@ -1087,7 +1087,12 @@ class ImageConditionedProjMixin:
             value = kwargs.pop(f'transport_{key}', None)
             if value is not None:
                 output[key] = value
-        required = {'target_keys', 'source_keys', 'source_values', 'source_valid'}
+        arm = self.deform_conditioner_config.get('arm')
+        required = {'source_values', 'source_valid'}
+        if arm != 'v1':
+            required.update(('target_keys', 'source_keys'))
+        if arm in {'c1', 'c2'}:
+            required.add('target_query')
         missing = required - set(output)
         if missing:
             raise ValueError(f'missing deformation transport tensors: {sorted(missing)}')

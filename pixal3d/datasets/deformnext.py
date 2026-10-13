@@ -36,6 +36,15 @@ TRANSPORT_KEYS = (
     "patch_ids",
 )
 
+TRANSPORT_KEYS_BY_ARM = {
+    "v1": ("source_values", "source_valid", "spatial_indices", "patch_grid", "patch_ids"),
+    "b1": ("target_keys", "source_keys", "source_values", "source_valid", "patch_grid", "patch_ids"),
+    "b2": ("target_keys", "source_keys", "source_values", "source_valid", "patch_grid", "patch_ids"),
+    "b3": ("target_keys", "source_keys", "source_values", "source_valid", "patch_grid", "patch_ids"),
+    "c1": ("target_keys", "source_keys", "source_values", "source_valid", "target_query", "patch_grid", "patch_ids"),
+    "c2": ("target_keys", "source_keys", "source_values", "source_valid", "target_query", "deformation", "patch_grid", "patch_ids"),
+}
+
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows = []
@@ -111,12 +120,19 @@ class _DeformNeXtBase(Dataset):
         expected_split: Optional[str],
         verify_files: bool,
         path_map: Optional[dict[str, str]],
+        transport_arm: Optional[str],
     ) -> None:
         self.manifest_path = Path(manifest).resolve()
         self.manifest_dir = self.manifest_path.parent
         self.rows = _read_jsonl(self.manifest_path)
         self.image_size = int(image_size)
         self.path_map = tuple((str(source), str(target)) for source, target in (path_map or {}).items())
+        if transport_arm is not None and transport_arm not in TRANSPORT_KEYS_BY_ARM:
+            raise ValueError(f"unknown transport arm: {transport_arm}")
+        self.transport_arm = transport_arm
+        self.transport_keys = (
+            TRANSPORT_KEYS if transport_arm is None else TRANSPORT_KEYS_BY_ARM[transport_arm]
+        )
         self.value_range = (0, 1)
         self.instances = []
         for row in self.rows:
@@ -182,7 +198,7 @@ class _DeformNeXtBase(Dataset):
         cache_fields = getattr(self, "transport_fields", ("transport_cache",))
         for cache_field in cache_fields:
             with np.load(self._resolve(row[cache_field])) as cache:
-                for key in TRANSPORT_KEYS:
+                for key in self.transport_keys:
                     if key in cache:
                         value = np.asarray(cache[key])
                         tensor = torch.from_numpy(value)
@@ -190,10 +206,12 @@ class _DeformNeXtBase(Dataset):
                             tensor = tensor.bool()
                         elif key in {"spatial_indices", "patch_grid", "patch_ids"}:
                             tensor = tensor.long()
-                        else:
-                            tensor = tensor.float()
                         pack[f"transport_{key}"] = tensor
-        mandatory = {"target_keys", "source_keys", "source_values", "source_valid"}
+        mandatory = {"source_values", "source_valid"}
+        if self.transport_arm != "v1":
+            mandatory.update(("target_keys", "source_keys"))
+        if self.transport_arm in {"c1", "c2"}:
+            mandatory.add("target_query")
         absent = sorted(f"transport_{key}" for key in mandatory if f"transport_{key}" not in pack)
         if absent:
             raise ValueError(f"transport cache for {row['sample_id']} missing {absent}")
@@ -212,6 +230,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         expected_split: Optional[str] = None,
         verify_files: bool = True,
         path_map: Optional[dict[str, str]] = None,
+        transport_arm: Optional[str] = None,
         pretrained_ss_dec: str = "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16",
         **_: Any,
     ) -> None:
@@ -227,7 +246,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
             self.std = torch.tensor(normalization["std"]).reshape(-1, 1, 1, 1)
         self._init_manifest(
             manifest, image_size=image_size, expected_split=expected_split,
-            verify_files=verify_files, path_map=path_map,
+            verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
         )
 
     def __getitem__(self, index: int) -> dict[str, Any]:
@@ -261,6 +280,7 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
         expected_split: Optional[str] = None,
         verify_files: bool = True,
         path_map: Optional[dict[str, str]] = None,
+        transport_arm: Optional[str] = None,
         attrs: Iterable[str] = ("base_color", "metallic", "roughness", "alpha"),
         **_: Any,
     ) -> None:
@@ -291,7 +311,7 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
             start += channels[attr]
         self._init_manifest(
             manifest, image_size=image_size, expected_split=expected_split,
-            verify_files=verify_files, path_map=path_map,
+            verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
         )
         self.loads = [int(row.get("pbr_tokens", max_tokens)) for row in self.rows]
 

@@ -30,6 +30,16 @@ def test_v1_uses_only_supplied_spatial_correspondence():
     assert out.matching_logits is None
 
 
+def test_v1_does_not_require_semantic_key_tensors():
+    data = inputs()
+    out = make("v1")(
+        source_values=data["source_values"],
+        source_valid=data["source_valid"],
+        spatial_indices=torch.zeros(2, 3, 5, dtype=torch.long),
+    )
+    assert out.evidence.shape == (2, 5, 6)
+
+
 def test_b1_is_raw_cosine_top1_and_b2_exposes_no_score_consumer_weights():
     data = inputs()
     b1 = make("b1")(**data)
@@ -96,7 +106,10 @@ def test_c2_derives_inference_safe_state_difference_when_not_cached():
 @pytest.mark.parametrize("arm", ["v1", "b1", "b2", "b3", "c1", "c2"])
 def test_source_off_is_exact_zero_for_every_arm(arm):
     model = make(arm, **({"deformation_dim": 7} if arm == "c2" else {}))
-    out = model(**inputs(), control="source-off")
+    data = inputs()
+    if arm == "v1":
+        data["spatial_indices"] = torch.zeros(2, 3, 5, dtype=torch.long)
+    out = model(**data, control="source-off")
     assert torch.count_nonzero(out.evidence) == 0
 
 
