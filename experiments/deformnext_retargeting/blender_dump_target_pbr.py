@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 import pickle
 import sys
-import tempfile
 from types import SimpleNamespace
 
 import bpy
@@ -76,24 +75,24 @@ def dump_one(row: dict, output: Path, mappings: list[tuple[str, str]]) -> None:
     canonical = remap(row["source_geometry"], mappings).parent
     target = remap(row["target_vertices"], mappings)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="deformnext-pbr-") as directory:
-        glb = Path(directory) / "target.glb"
-        temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
-        error_path = Path(f"{temporary}_error.txt")
-        try:
-            rebuild_target(canonical, target)
-            bpy.ops.export_scene.gltf(
-                filepath=str(glb), export_format="GLB", export_materials="EXPORT"
-            )
-            dump_pbr.main(SimpleNamespace(object=str(glb), output_path=str(temporary)))
-            with temporary.open("rb") as stream:
-                value = pickle.load(stream)
-            if not value.get("objects") or not value.get("materials"):
-                raise ValueError("target PBR dump is empty")
-            os.replace(temporary, output)
-        finally:
-            temporary.unlink(missing_ok=True)
-            error_path.unlink(missing_ok=True)
+    temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+    error_path = Path(f"{temporary}_error.txt")
+    try:
+        rebuild_target(canonical, target)
+        # dump_pbr treats a .blend input as an already-loaded scene.  Using
+        # that path preserves the exact parser/normalization while avoiding a
+        # redundant target GLB export and immediate re-import for every row.
+        dump_pbr.main(SimpleNamespace(
+            object="deformnext-current-scene.blend", output_path=str(temporary)
+        ))
+        with temporary.open("rb") as stream:
+            value = pickle.load(stream)
+        if not value.get("objects") or not value.get("materials"):
+            raise ValueError("target PBR dump is empty")
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+        error_path.unlink(missing_ok=True)
 
 
 def main() -> None:
