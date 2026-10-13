@@ -41,7 +41,7 @@ def loss_for_cache(
     cosine, indices = similarity.topk(topk, dim=-1)
     candidates = flat[indices]
     logits = model._q2c_logits(
-        target[None], candidates[None], cosine[None]
+        target[None], candidates[None], cosine.nan_to_num(-1.0)[None]
     ).squeeze(0)
     valid = torch.isfinite(cosine)
     logits = logits.masked_fill(~valid, -torch.inf)
