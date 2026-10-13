@@ -205,8 +205,23 @@ def evaluate(self):
         for model, training in zip(self.training_models.values(), training_state):
             model.train(training)
         self.training_models = distributed_models
+    validation_row = {
+        "step": self.step,
+        "weights": "raw",
+        "scope": "full validation" if limit is None else "bounded debug panel",
+        "sources": output_rows,
+    }
     with (Path(self.output_dir) / "validation.jsonl").open("a") as output:
-        output.write(json.dumps({"step": self.step, "weights": "raw",
-                                "scope": "full validation" if limit is None else "bounded debug panel",
-                                "sources": output_rows}) + "\n")
+        output.write(json.dumps(validation_row) + "\n")
+    if self.wandb_run is not None:
+        total_assets = sum(row["assets"] for row in output_rows)
+        wandb_validation = {
+            f"validation/{row['source']}/K4_loss": row["K4_loss"]
+            for row in output_rows
+        }
+        if total_assets:
+            wandb_validation["validation/K4_loss"] = sum(
+                row["K4_loss"] * row["assets"] for row in output_rows
+            ) / total_assets
+        self.wandb_run.log(wandb_validation, step=self.step)
     print("VALIDATION_PANEL", json.dumps(output_rows), flush=True)

@@ -107,6 +107,13 @@ def build(stage: str, arm: str, args) -> dict:
         "q2c_checkpoint": args.q2c_checkpoint,
     }
     config["num_gpus"] = spec["world_size"]
+    if args.wandb_project:
+        config.update(
+            use_wandb=True,
+            wandb_project=args.wandb_project,
+            wandb_entity=args.wandb_entity,
+            wandb_name=f"deformnext-{stage}-{arm}",
+        )
     return config
 
 
@@ -127,6 +134,8 @@ def main() -> None:
     parser.add_argument("--file4-mirror-root", type=Path)
     parser.add_argument("--ss-checkpoint", default=STAGES["ss64"]["checkpoint"])
     parser.add_argument("--pbr-checkpoint", default=STAGES["pbr1024"]["checkpoint"])
+    parser.add_argument("--wandb-project")
+    parser.add_argument("--wandb-entity", default="")
     args = parser.parse_args()
     if any(arm in {"b2", "b3", "c1", "c2"} for arm in args.arms):
         if not args.q2c_checkpoint and not args.allow_untrained_q2c:

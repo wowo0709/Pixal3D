@@ -124,6 +124,7 @@ def main(local_rank, cfg):
         wandb_dir = os.environ.get('WANDB_DIR', cfg.output_dir)
         os.makedirs(wandb_dir, exist_ok=True)
         wandb_run = wandb.init(
+            entity=cfg.wandb_entity if cfg.wandb_entity else None,
             project=cfg.wandb_project,
             name=cfg.wandb_name if cfg.wandb_name else os.path.basename(cfg.output_dir),
             config=cfg.__dict__,
@@ -248,6 +249,7 @@ if __name__ == '__main__':
     ## wandb
     parser.add_argument('--use_wandb', action='store_true', help='Enable wandb logging')
     parser.add_argument('--wandb_project', type=str, default='pixal3d-training', help='Wandb project name')
+    parser.add_argument('--wandb_entity', type=str, default='', help='Wandb account or team entity')
     parser.add_argument('--wandb_name', type=str, default='', help='Wandb run name, default to output_dir basename')
     parser.add_argument('--wandb_id', type=str, default='', help='Wandb run id for resuming')
     opt = parser.parse_args()
