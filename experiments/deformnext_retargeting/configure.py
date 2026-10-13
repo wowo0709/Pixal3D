@@ -59,6 +59,8 @@ def build(stage: str, arm: str, args) -> dict:
     dataset_args.update(
         expected_split="train", verify_files=True, transport_arm=arm
     )
+    if arm != "v1":
+        dataset_args["match_root"] = str(args.data_root / "matches")
     if args.file4_mirror_root is not None:
         dataset_args["path_map"] = {"/file4": str(args.file4_mirror_root)}
     config["dataset"] = {"name": spec["dataset"], "args": dataset_args}

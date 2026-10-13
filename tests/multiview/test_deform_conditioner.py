@@ -59,6 +59,20 @@ def test_b3_matching_scores_control_candidate_and_view_aggregation():
     assert torch.isfinite(out.evidence).all()
 
 
+def test_cached_semantic_matches_reproduce_online_b3_conditioning():
+    data = inputs()
+    model = make("b3")
+    online = model(**data)
+    cached = model(
+        source_values=data["source_values"], source_valid=data["source_valid"],
+        semantic_indices=online.candidate_indices,
+        matching_logits=online.matching_logits,
+        candidate_valid=torch.isfinite(online.matching_logits),
+    )
+    torch.testing.assert_close(cached.evidence, online.evidence)
+    torch.testing.assert_close(cached.view_weights, online.view_weights)
+
+
 def test_q2c_factorized_first_layer_matches_concatenated_mlp():
     torch.manual_seed(14)
     model = make("b2")

@@ -242,6 +242,9 @@ class DeformationAwareConditioner(nn.Module):
         spatial_indices: Optional[torch.Tensor] = None,
         target_query: Optional[torch.Tensor] = None,
         deformation: Optional[torch.Tensor] = None,
+        semantic_indices: Optional[torch.Tensor] = None,
+        matching_logits: Optional[torch.Tensor] = None,
+        candidate_valid: Optional[torch.Tensor] = None,
         control: Control = "normal",
     ) -> DeformationCondition:
         if control not in self.CONTROLS:
@@ -263,28 +266,59 @@ class DeformationAwareConditioner(nn.Module):
             if control == "wrong-corr":
                 source_values = torch.roll(source_values, shifts=1, dims=2)
             return self._spatial(source_values, source_valid, spatial_indices, queries)
-        if target_keys is None or source_keys is None:
-            raise ValueError(f"{self.arm} requires target_keys and source_keys")
-        batch, queries, views, sites = self._validate(
-            target_keys, source_keys, source_values, source_valid
-        )
+        if source_values.ndim != 4 or source_values.shape[-1] != self.value_dim:
+            raise ValueError("source_values must have shape [B,V,S,value_dim]")
+        if source_valid.shape != source_values.shape[:3] or source_valid.dtype != torch.bool:
+            raise ValueError("source_valid must be bool [B,V,S]")
+        source_values = source_values.float()
+        batch, views, sites, _ = source_values.shape
+        candidate_keys = None
+        if semantic_indices is None:
+            if target_keys is None or source_keys is None:
+                raise ValueError(
+                    f"{self.arm} requires semantic_indices or target/source keys"
+                )
+            batch, queries, views, sites = self._validate(
+                target_keys, source_keys, source_values, source_valid
+            )
+        else:
+            if semantic_indices.ndim != 3 or semantic_indices.shape[0] != batch:
+                raise ValueError("semantic_indices must have shape [B,Q,K]")
+            queries = semantic_indices.shape[1]
         if control == "source-off":
             zero = source_values.new_zeros(batch, queries, self.value_dim)
             return DeformationCondition(zero, None, None, None, None, None)
         if control == "wrong-corr":
             source_values = torch.roll(source_values, shifts=1, dims=2)
 
-        flat_keys = source_keys.reshape(batch, views * sites, self.key_dim)
         flat_values = source_values.reshape(batch, views * sites, self.value_dim)
         flat_valid = source_valid.reshape(batch, views * sites)
-        similarity = torch.einsum(
-            "bqd,bnd->bqn", F.normalize(target_keys, dim=-1), F.normalize(flat_keys, dim=-1)
-        ).masked_fill(~flat_valid[:, None], -torch.inf)
-        # Raw cosine Top-1 has no use for the remaining K-1 candidates.  This
-        # keeps B1's memory footprint aligned with its actual ablation.
-        candidates = 1 if self.arm == "b1" else self.topk
-        cosine, indices = similarity.topk(candidates, dim=-1)
-        valid = torch.isfinite(cosine)
+        if semantic_indices is None:
+            flat_keys = source_keys.reshape(batch, views * sites, self.key_dim)
+            similarity = torch.einsum(
+                "bqd,bnd->bqn",
+                F.normalize(target_keys, dim=-1), F.normalize(flat_keys, dim=-1),
+            ).masked_fill(~flat_valid[:, None], -torch.inf)
+            # Raw cosine Top-1 has no use for the remaining K-1 candidates.
+            candidates = 1 if self.arm == "b1" else self.topk
+            cosine, indices = similarity.topk(candidates, dim=-1)
+            valid = torch.isfinite(cosine)
+        else:
+            indices = semantic_indices.long()
+            if self.arm == "b1":
+                indices = indices[:, :, :1]
+            elif indices.shape[2] != self.topk:
+                raise ValueError("semantic match cache has the wrong topk")
+            if torch.any((indices < 0) | (indices >= views * sites)):
+                raise ValueError("semantic match index is out of range")
+            valid = torch.gather(
+                flat_valid[:, None].expand(-1, queries, -1), 2, indices
+            )
+            if candidate_valid is not None:
+                cached_valid = candidate_valid[:, :, :indices.shape[2]].bool()
+                if cached_valid.shape != indices.shape:
+                    raise ValueError("candidate_valid shape differs from semantic indices")
+                valid = valid & cached_valid
         candidate_values = self._gather(flat_values, indices)
         view_index = torch.div(indices, sites, rounding_mode="floor")
 
@@ -292,9 +326,16 @@ class DeformationAwareConditioner(nn.Module):
             evidence = candidate_values[:, :, 0]
             return DeformationCondition(evidence, indices[:, :, :1], None, None, None, None)
 
-        candidate_keys = self._gather(flat_keys, indices)
-        logits = self._q2c_logits(target_keys, candidate_keys, cosine.nan_to_num(-1.0))
-        logits = logits.masked_fill(~valid, -torch.inf)
+        if matching_logits is None:
+            candidate_keys = self._gather(flat_keys, indices)
+            logits = self._q2c_logits(
+                target_keys, candidate_keys, cosine.nan_to_num(-1.0)
+            )
+        else:
+            logits = matching_logits
+            if logits.shape != indices.shape:
+                raise ValueError("matching_logits shape differs from semantic indices")
+        logits = logits.to(candidate_values.dtype).masked_fill(~valid, -torch.inf)
         if self.arm == "b2":
             selected = logits.argmax(dim=-1, keepdim=True)
             evidence = torch.gather(
@@ -318,6 +359,10 @@ class DeformationAwareConditioner(nn.Module):
                     if expected != self.key_dim:
                         raise ValueError(
                             "inference-derived deformation requires deformation_dim=key_dim"
+                        )
+                    if candidate_keys is None or target_keys is None:
+                        raise ValueError(
+                            "cached c2 matching requires cached deformation"
                         )
                     combined = candidate_weights * torch.gather(
                         view_weights, 2, view_index

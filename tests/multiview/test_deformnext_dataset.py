@@ -88,6 +88,26 @@ def test_v1_loader_reads_only_spatial_transport_fields(tmp_path):
     assert "transport_target_query" not in item
 
 
+def test_match_cache_avoids_loading_full_omega_keys(tmp_path):
+    manifest, _ = _fixture(tmp_path)
+    matches = tmp_path / "matches"
+    matches.mkdir()
+    np.savez(
+        matches / "sample-a.npz",
+        semantic_indices=np.zeros((4, 2), np.uint16),
+        matching_logits=np.zeros((4, 2), np.float32),
+        candidate_valid=np.ones((4, 2), bool),
+    )
+    dataset = DeformNeXtSS64(
+        str(manifest), image_size=8, expected_split="train",
+        transport_arm="b3", match_root=str(matches),
+    )
+    item = dataset[0]
+    assert item["transport_semantic_indices"].shape == (4, 2)
+    assert "transport_target_keys" not in item
+    assert "transport_source_keys" not in item
+
+
 def test_textured_target_render_is_rejected(tmp_path):
     manifest, row = _fixture(tmp_path)
     render = tmp_path / "render_cond"

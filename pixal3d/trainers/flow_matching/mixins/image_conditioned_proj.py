@@ -1077,6 +1077,7 @@ class ImageConditionedProjMixin:
     _DEFORM_TRANSPORT_KEYS = (
         'target_keys', 'source_keys', 'source_values', 'source_valid',
         'spatial_indices', 'target_query', 'deformation', 'patch_grid', 'patch_ids',
+        'semantic_indices', 'matching_logits', 'candidate_valid',
     )
 
     def _pop_deform_transport(self, kwargs):
@@ -1089,8 +1090,6 @@ class ImageConditionedProjMixin:
                 output[key] = value
         arm = self.deform_conditioner_config.get('arm')
         required = {'source_values', 'source_valid'}
-        if arm != 'v1':
-            required.update(('target_keys', 'source_keys'))
         if arm in {'c1', 'c2'}:
             required.add('target_query')
         missing = required - set(output)
