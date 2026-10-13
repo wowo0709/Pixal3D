@@ -69,6 +69,33 @@ def _materialize_vertex_color_fallback(
             socket.default_value = value
 
 
+def _materialize_non_principled_fallback(materials: list) -> None:
+    """Convert emission/custom surface graphs to the dump format's schema."""
+    for material in materials:
+        if not material.use_nodes:
+            material.use_nodes = True
+        tree = material.node_tree
+        if tree.nodes.get("Principled BSDF") is not None:
+            continue
+        principled = tree.nodes.new("ShaderNodeBsdfPrincipled")
+        principled.name = "Principled BSDF"
+        texture = next(
+            (node for node in tree.nodes if node.type == "TEX_IMAGE" and node.image),
+            None,
+        )
+        if texture is not None:
+            tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+            if "Alpha" in texture.outputs:
+                tree.links.new(texture.outputs["Alpha"], principled.inputs["Alpha"])
+        output = next((node for node in tree.nodes if node.type == "OUTPUT_MATERIAL"), None)
+        if output is None:
+            output = tree.nodes.new("ShaderNodeOutputMaterial")
+        surface = output.inputs["Surface"]
+        for link in tuple(surface.links):
+            tree.links.remove(link)
+        tree.links.new(principled.outputs["BSDF"], surface)
+
+
 def rebuild_target(canonical: Path, target_geometry: Path) -> None:
     from data_toolkit.blender_script import dump_pbr
 
@@ -112,6 +139,7 @@ def rebuild_target(canonical: Path, target_geometry: Path) -> None:
             name="COLOR_0", type="FLOAT_COLOR", domain="CORNER"
         )
         colors.data.foreach_set("color", corner_color.reshape(-1))
+    _materialize_non_principled_fallback(materials)
     _materialize_vertex_color_fallback(materials, material_ids, corner_color)
     obj = bpy.data.objects.new("deformed_canonical", mesh)
     bpy.context.collection.objects.link(obj)
