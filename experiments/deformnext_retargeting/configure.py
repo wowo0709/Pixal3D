@@ -77,7 +77,8 @@ def build(stage: str, arm: str, args) -> dict:
         deform_conditioner=arm_conditioner(arm, spec["value_dim"], args.q2c_checkpoint),
         num_workers=args.num_workers, prefetch_data=False,
         snapshot_dataset_on_start=False, i_sample=-1,
-        i_save=updates_per_epoch, max_checkpoints=args.epochs,
+        i_save=updates_per_epoch if stage == "ss64" else min(64, updates_per_epoch),
+        max_checkpoints=args.epochs,
     )
     trainer["optimizer"]["args"]["lr"] = spec["lora_lr"]
     if arm in {"b2", "b3", "c1", "c2"} and not args.q2c_checkpoint:
@@ -95,7 +96,16 @@ def build(stage: str, arm: str, args) -> dict:
         "dataset_name": spec["dataset"],
         "dataset_args": {**dataset_args, "expected_split": "validation"},
         "roots_file": str(args.data_root / "manifests/validation.jsonl"),
-        "assets_per_source": None, "every_steps": updates_per_epoch,
+        "assets_per_source": None,
+        "max_assets": 32 if stage == "ss64" else 16,
+        "every_steps": updates_per_epoch,
+        "quick_metrics": {
+            "enabled": True,
+            "panel_size": 4 if stage == "ss64" else 2,
+            "sampling_steps": 12,
+            "seed": 42,
+            **({"render_resolution": 256} if stage == "pbr1024" else {}),
+        },
     }
     config["experiment"] = {
         "dataset": "DeformNeXt-10k", "arm": arm, "epochs": args.epochs,

@@ -70,6 +70,10 @@ def validation_metrics(row: dict[str, Any]) -> dict[str, Any]:
             payload["validation/K1_loss"] = sum(
                 source["K1_loss"] * source["assets"] for source in k1_sources
             ) / k1_assets
+    payload.update({
+        f"validation/{key}": value
+        for key, value in row.get("quick_metrics", {}).items()
+    })
     return payload
 
 

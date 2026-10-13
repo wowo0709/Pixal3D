@@ -152,6 +152,7 @@ def evaluate(self):
     numpy_state = np.random.get_state()
     cpu_state, gpu_state = torch.get_rng_state(), torch.cuda.get_rng_state()
     output_rows = []
+    quick_metrics, quick_panel, quick_ids = {}, None, []
     try:
         self.p_uncond = 0.0
         np.random.seed(42)
@@ -171,9 +172,20 @@ def evaluate(self):
                 if is_deformnext else name.split(":")[0]
             )
             source_indices.setdefault(source, []).append(index)
-        # Debug uses an explicitly bounded panel; the main recipe evaluates all
-        # held-out assets. Paired K=1/4 losses share latent, frame, noise and t.
-        limit = evaluation["assets_per_source"]
+        max_assets = evaluation.get("max_assets")
+        if max_assets is not None:
+            from experiments.deformnext_retargeting.quick_metrics import stratified_indices
+            retained = set(stratified_indices(dataset, int(max_assets)))
+            source_indices = {
+                source: [index for index in indices if index in retained]
+                for source, indices in source_indices.items()
+            }
+            source_indices = {
+                source: indices for source, indices in source_indices.items() if indices
+            }
+        # The production quick check uses a stable bounded panel. Legacy recipes
+        # can still bound each source independently with assets_per_source.
+        limit = evaluation.get("assets_per_source")
         for source, indices in source_indices.items():
             losses = {4: []} if is_deformnext else {1: [], 4: []}
             selected = indices if limit is None else indices[:limit]
@@ -197,6 +209,9 @@ def evaluate(self):
                 "K1_loss": None if is_deformnext else float(np.mean(losses[1])),
                 "K4_loss": float(np.mean(losses[4])),
             })
+        if is_deformnext:
+            from experiments.deformnext_retargeting.quick_metrics import evaluate_quick
+            quick_metrics, quick_panel, quick_ids = evaluate_quick(self, dataset, evaluation)
     finally:
         self.p_uncond = p_uncond
         np.random.set_state(numpy_state)
@@ -208,8 +223,14 @@ def evaluate(self):
     validation_row = {
         "step": self.step,
         "weights": "raw",
-        "scope": "full validation" if limit is None else "bounded debug panel",
+        "scope": (
+            f"bounded panel ({evaluation['max_assets']} assets)"
+            if evaluation.get("max_assets") is not None else
+            "full validation" if limit is None else "bounded debug panel"
+        ),
         "sources": output_rows,
+        "quick_metrics": quick_metrics,
+        "quick_panel_ids": quick_ids,
     }
     with (Path(self.output_dir) / "validation.jsonl").open("a") as output:
         output.write(json.dumps(validation_row) + "\n")
@@ -223,5 +244,14 @@ def evaluate(self):
             wandb_validation["validation/K4_loss"] = sum(
                 row["K4_loss"] * row["assets"] for row in output_rows
             ) / total_assets
+        wandb_validation.update({
+            f"validation/{key}": value for key, value in quick_metrics.items()
+        })
+        if quick_panel is not None:
+            import wandb
+            wandb_validation["validation/quick_panel"] = wandb.Image(
+                quick_panel,
+                caption="GT | prediction | absolute difference\n" + " | ".join(quick_ids),
+            )
         self.wandb_run.log(wandb_validation, step=self.step)
     print("VALIDATION_PANEL", json.dumps(output_rows), flush=True)
