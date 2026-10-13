@@ -22,7 +22,9 @@ def remap(path: str, mappings: list[tuple[str, str]]) -> Path:
     return Path(path)
 
 
-def loss_for_cache(model, path: Path, topk: int) -> tuple[torch.Tensor, int, int]:
+def loss_for_cache(
+    model, path: Path, topk: int
+) -> tuple[torch.Tensor, int, int, int, int]:
     with np.load(path) as cache:
         target = torch.from_numpy(np.asarray(cache["target_keys"]).copy()).cuda().float()
         source = torch.from_numpy(np.asarray(cache["source_keys"]).copy()).cuda().float()
@@ -40,15 +42,20 @@ def loss_for_cache(model, path: Path, topk: int) -> tuple[torch.Tensor, int, int
     positive_flat = positives.T + torch.arange(views, device="cuda")[None] * sites
     mask = (indices[..., None] == positive_flat[:, None]).any(dim=-1)
     eligible = mask.any(dim=-1)
+    total = int(mask.shape[0])
+    raw_correct = int(mask[:, 0].sum())
     if not bool(eligible.any()):
-        return logits.sum() * 0.0, 0, 0
+        return logits.sum() * 0.0, 0, 0, raw_correct, total
     selected = logits[eligible]
     selected_mask = mask[eligible]
     numerator = torch.logsumexp(selected.masked_fill(~selected_mask, -torch.inf), dim=-1)
     denominator = torch.logsumexp(selected, dim=-1)
     prediction = selected.argmax(dim=-1, keepdim=True)
     correct = int(selected_mask.gather(1, prediction).sum())
-    return (denominator - numerator).mean(), int(eligible.sum()), correct
+    return (
+        (denominator - numerator).mean(), int(eligible.sum()), correct,
+        raw_correct, total,
+    )
 
 
 @torch.no_grad()
@@ -57,17 +64,26 @@ def validate(model, rows, mappings, topk: int) -> dict[str, float | int]:
     loss_sum = 0.0
     eligible_sum = 0
     correct_sum = 0
+    raw_correct_sum = 0
+    total_sum = 0
     for row in rows:
         cache = remap(row["transport_cache"], mappings)
-        loss, queries, correct = loss_for_cache(model, cache, topk)
+        loss, queries, correct, raw_correct, total = loss_for_cache(
+            model, cache, topk
+        )
         loss_sum += float(loss) * queries
         eligible_sum += queries
         correct_sum += correct
+        raw_correct_sum += raw_correct
+        total_sum += total
     model.train()
     return {
         "loss": loss_sum / max(eligible_sum, 1),
-        "top1_accuracy": correct_sum / max(eligible_sum, 1),
+        "q2c_top1_accuracy": correct_sum / max(total_sum, 1),
+        "raw_cosine_top1_accuracy": raw_correct_sum / max(total_sum, 1),
+        "topk_recall": eligible_sum / max(total_sum, 1),
         "eligible_queries": eligible_sum,
+        "total_queries": total_sum,
         "samples": len(rows),
     }
 
@@ -103,10 +119,18 @@ def main() -> None:
     best_epoch = 0
     best_state = None
     history = []
+    if validation_rows:
+        initial = {"epoch": 0, "validation": validate(
+            model, validation_rows, mappings, args.topk
+        )}
+        history.append(initial)
+        with events.open("a") as output:
+            output.write(json.dumps(initial) + "\n")
+        print(json.dumps(initial), flush=True)
     for epoch in range(args.epochs):
         for index in generator.permutation(len(rows)):
             cache = remap(rows[int(index)]["transport_cache"], mappings)
-            loss, queries, correct = loss_for_cache(model, cache, args.topk)
+            loss, queries, correct, _, _ = loss_for_cache(model, cache, args.topk)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.q2c.parameters(), 1.0)
@@ -121,8 +145,9 @@ def main() -> None:
                     }) + "\n")
                 print(step, float(loss.detach()), queries, flush=True)
         metrics = validate(model, validation_rows, mappings, args.topk) if validation_rows else {
-            "loss": float("nan"), "top1_accuracy": float("nan"),
-            "eligible_queries": 0, "samples": 0,
+            "loss": float("nan"), "q2c_top1_accuracy": float("nan"),
+            "raw_cosine_top1_accuracy": float("nan"), "topk_recall": float("nan"),
+            "eligible_queries": 0, "total_queries": 0, "samples": 0,
         }
         record = {"epoch": epoch + 1, "validation": metrics}
         history.append(record)
