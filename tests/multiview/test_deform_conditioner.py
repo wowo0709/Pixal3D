@@ -49,6 +49,20 @@ def test_b3_matching_scores_control_candidate_and_view_aggregation():
     assert torch.isfinite(out.evidence).all()
 
 
+def test_q2c_factorized_first_layer_matches_concatenated_mlp():
+    torch.manual_seed(14)
+    model = make("b2")
+    target = torch.randn(2, 5, 8)
+    candidates = torch.randn(2, 5, 7, 8)
+    cosine = torch.randn(2, 5, 7)
+    expanded = target[:, :, None].expand_as(candidates)
+    expected = model.q2c(
+        torch.cat((expanded, candidates, cosine[..., None]), dim=-1)
+    ).squeeze(-1)
+    actual = model._q2c_logits(target, candidates, cosine)
+    torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
+
+
 def test_c1_has_no_deformation_channel_and_rejects_one():
     model = make("c1")
     assert model.retargeter.input_dim == 6 + 4

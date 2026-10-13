@@ -183,8 +183,21 @@ class DeformationAwareConditioner(nn.Module):
         candidate_keys: torch.Tensor,
         cosine: torch.Tensor,
     ) -> torch.Tensor:
-        target = target_keys[:, :, None].expand_as(candidate_keys)
-        return self.q2c(torch.cat([target, candidate_keys, cosine[..., None]], dim=-1)).squeeze(-1)
+        # Decompose the first linear layer instead of materializing
+        # [target, candidate, cosine].  At PBR resolution that concatenation
+        # is more than 10 GiB per 10k-query sample for K=64, even though the
+        # first hidden layer is only 256-D.
+        first, activation, second = self.q2c
+        split = self.key_dim
+        target = F.linear(target_keys, first.weight[:, :split], bias=None)[:, :, None]
+        candidate = F.linear(
+            candidate_keys, first.weight[:, split:2 * split], bias=None
+        )
+        score = cosine[..., None] * first.weight[:, 2 * split].reshape(1, 1, 1, -1)
+        hidden = target + candidate + score
+        if first.bias is not None:
+            hidden = hidden + first.bias
+        return second(activation(hidden)).squeeze(-1)
 
     def _attention(
         self,
@@ -250,9 +263,11 @@ class DeformationAwareConditioner(nn.Module):
         similarity = torch.einsum(
             "bqd,bnd->bqn", F.normalize(target_keys, dim=-1), F.normalize(flat_keys, dim=-1)
         ).masked_fill(~flat_valid[:, None], -torch.inf)
-        cosine, indices = similarity.topk(self.topk, dim=-1)
+        # Raw cosine Top-1 has no use for the remaining K-1 candidates.  This
+        # keeps B1's memory footprint aligned with its actual ablation.
+        candidates = 1 if self.arm == "b1" else self.topk
+        cosine, indices = similarity.topk(candidates, dim=-1)
         valid = torch.isfinite(cosine)
-        candidate_keys = self._gather(flat_keys, indices)
         candidate_values = self._gather(flat_values, indices)
         view_index = torch.div(indices, sites, rounding_mode="floor")
 
@@ -260,6 +275,7 @@ class DeformationAwareConditioner(nn.Module):
             evidence = candidate_values[:, :, 0]
             return DeformationCondition(evidence, indices[:, :, :1], None, None, None, None)
 
+        candidate_keys = self._gather(flat_keys, indices)
         logits = self._q2c_logits(target_keys, candidate_keys, cosine.nan_to_num(-1.0))
         logits = logits.masked_fill(~valid, -torch.inf)
         if self.arm == "b2":
