@@ -87,7 +87,9 @@ def dump_one(row: dict, output: Path, mappings: list[tuple[str, str]]) -> None:
         ))
         with temporary.open("rb") as stream:
             value = pickle.load(stream)
-        if not value.get("objects") or not value.get("materials"):
+        # Material-free/vertex-color assets are valid: prepare_pbr_dump adds
+        # the same neutral fallback used by the production voxelizer.
+        if not value.get("objects"):
             raise ValueError("target PBR dump is empty")
         os.replace(temporary, output)
     finally:
