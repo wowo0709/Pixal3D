@@ -23,6 +23,8 @@ __attributes = {
     'SLatPbrView': 'structured_latent_svpbr',
     'ViewImageConditionedSLatPbrView': 'structured_latent_svpbr',
     'MultiViewImageConditionedSLatPbrView': 'structured_latent_svpbr',
+    'DeformNeXtSS64': 'deformnext',
+    'DeformNeXtPBR1024': 'deformnext',
 }
 
 __submodules = []
@@ -52,3 +54,4 @@ if __name__ == '__main__':
     from .structured_latent import SLat, ImageConditionedSLat
     from .structured_latent_shape import SLatShape, ImageConditionedSLatShape
     from .structured_latent_svpbr import SLatPbr, ImageConditionedSLatPbr
+    from .deformnext import DeformNeXtSS64, DeformNeXtPBR1024

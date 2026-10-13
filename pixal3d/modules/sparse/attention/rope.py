@@ -17,7 +17,12 @@ class SparseRotaryPositionEmbedder(nn.Module):
         self.dim = dim
         self.rope_freq = rope_freq
         self.freq_dim = head_dim // 2 // dim
-        self.freqs = torch.arange(self.freq_dim, dtype=torch.float32) / self.freq_dim
+        # Keep this tiny, non-checkpointed lookup table materialized even when
+        # the surrounding billion-parameter model is constructed on ``meta``
+        # for exact continuation loading.
+        self.freqs = torch.arange(
+            self.freq_dim, dtype=torch.float32, device="cpu"
+        ) / self.freq_dim
         self.freqs = rope_freq[0] / (rope_freq[1] ** (self.freqs))
         
     def _get_phases(self, indices: torch.Tensor) -> torch.Tensor:

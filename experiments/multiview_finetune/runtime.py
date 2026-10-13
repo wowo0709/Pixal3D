@@ -155,24 +155,34 @@ def evaluate(self):
     try:
         self.p_uncond = 0.0
         np.random.seed(42)
+        is_deformnext = evaluation["dataset_name"].startswith("DeformNeXt")
+        dataset_input = (
+            evaluation["roots_file"] if is_deformnext
+            else Path(evaluation["roots_file"]).read_text()
+        )
         dataset = getattr(datasets, evaluation["dataset_name"])(
-            Path(evaluation["roots_file"]).read_text(), **evaluation["dataset_args"])
+            dataset_input, **evaluation["dataset_args"])
         for model in self.training_models.values():
             model.eval()
         source_indices = {}
         for index, (_, _, name) in enumerate(dataset.instances):
-            source_indices.setdefault(name.split(":")[0], []).append(index)
+            source = (
+                dataset.rows[index].get("category", "DeformNeXt")
+                if is_deformnext else name.split(":")[0]
+            )
+            source_indices.setdefault(source, []).append(index)
         # Debug uses an explicitly bounded panel; the main recipe evaluates all
         # held-out assets. Paired K=1/4 losses share latent, frame, noise and t.
         limit = evaluation["assets_per_source"]
         for source, indices in source_indices.items():
-            losses = {1: [], 4: []}
+            losses = {4: []} if is_deformnext else {1: [], 4: []}
             selected = indices if limit is None else indices[:limit]
             for index in selected:
                 np.random.seed(42 + index)
                 item = dataset[index]
                 for k in losses:
-                    dataset.min_condition_views = dataset.max_condition_views = k
+                    if not is_deformnext:
+                        dataset.min_condition_views = dataset.max_condition_views = k
                     pack = dataset.collate_fn([item])
                     pack = pack if isinstance(pack, dict) else pack[0]
                     pack = recursive_to_device(pack, self.device)
@@ -182,9 +192,11 @@ def evaluate(self):
                         loss, _ = self.training_losses(**pack)
                     losses[k].append(float(loss["loss"]))
                     del pack
-            output_rows.append({"source": source, "assets": len(losses[1]),
-                                "K1_loss": float(np.mean(losses[1])),
-                                "K4_loss": float(np.mean(losses[4]))})
+            output_rows.append({
+                "source": source, "assets": len(losses[4]),
+                "K1_loss": None if is_deformnext else float(np.mean(losses[1])),
+                "K4_loss": float(np.mean(losses[4])),
+            })
     finally:
         self.p_uncond = p_uncond
         np.random.set_state(numpy_state)

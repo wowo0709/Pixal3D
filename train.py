@@ -65,13 +65,23 @@ def apply_smoke_overrides(cfg, smoke_steps):
     if smoke_steps not in (1, 10):
         raise ValueError("smoke_steps must be 1 or 10")
     cfg.trainer.args.max_steps = smoke_steps
+    # Smoke manifests are intentionally tiny (often one row).  Keeping the
+    # production batch can make a drop-last sampler spin forever without ever
+    # yielding a batch.
+    cfg.trainer.args.batch_size_per_gpu = 1
+    cfg.trainer.args.batch_split = 1
     cfg.trainer.args.i_log = 1
-    cfg.trainer.args.i_sample = 1 if smoke_steps == 1 else 5
+    # A smoke run validates the training path itself.  Sampling loads decoder
+    # stacks unrelated to the optimizer step and can mask the real failure
+    # (or require optional rendering packages such as flash_attn).
+    cfg.trainer.args.i_sample = -1
     cfg.trainer.args.i_save = smoke_steps
     cfg.trainer.args.snapshot_batch_size = 1
     cfg.trainer.args.snapshot_num_samples = 1
     cfg.trainer.args.num_workers = 0
     cfg.trainer.args.prefetch_data = False
+    if cfg.get('validation') is not None:
+        cfg.validation.every_steps = smoke_steps + 1
     return cfg
 
 
@@ -151,11 +161,23 @@ def main(local_rank, cfg):
     if rank == 0:
         print(f'\nDataset: {cfg.dataset.name}, Number of samples: {len(dataset):,}\n')
 
-    # Build model
-    model_dict = {
-        name: getattr(models, model.name)(**model.args).cuda()
-        for name, model in cfg.models.items()
-    }
+    # A complete continuation checkpoint overwrites every base and LoRA tensor.
+    # Constructing a billion-parameter denoiser normally spends several minutes
+    # random-initializing values that are immediately discarded.  Meta
+    # construction skips that work; BasicTrainer materializes the exact
+    # checkpoint after it has injected the matching LoRA module structure.
+    continuation_ckpt = cfg.trainer.args.get('continuation_ckpt')
+    if continuation_ckpt is not None and cfg.load_ckpt is None:
+        with torch.device('meta'):
+            model_dict = {
+                name: getattr(models, model.name)(**model.args)
+                for name, model in cfg.models.items()
+            }
+    else:
+        model_dict = {
+            name: getattr(models, model.name)(**model.args).cuda()
+            for name, model in cfg.models.items()
+        }
 
     # Model summary
     if rank == 0:
@@ -255,6 +277,10 @@ if __name__ == '__main__':
     cfg = edict()
     cfg.update(opt.__dict__)
     cfg.update(config)
+    # GPU count is an execution-time resource assignment.  The explicit CLI
+    # value from the launcher must override a config generated for a different
+    # allocation (for example a one-GPU smoke run of a three-GPU PBR config).
+    cfg.num_gpus = opt.num_gpus
     cfg.data_dir = resolved_data_dir
     cfg.output_dir = resolved_output_dir
     cfg.load_dir = resolved_load_dir
@@ -274,7 +300,9 @@ if __name__ == '__main__':
         with open(os.path.join(cfg.output_dir, 'command.txt'), 'w') as fp:
             print(' '.join(['python'] + sys.argv), file=fp)
         with open(os.path.join(cfg.output_dir, 'config.json'), 'w') as fp:
-            json.dump(config, fp, indent=4)
+            # Runtime validation and resume metadata must see command-line and
+            # smoke overrides, not the unresolved source JSON.
+            json.dump(cfg.__dict__, fp, indent=4, default=str)
 
     # Parent and spawned workers cooperate on stop requests via the run's STOP file.
     if cfg.multiview_runtime:

@@ -19,6 +19,7 @@
 - Trainers inherit `BasicTrainer`; model entries are keyed by configured names (flow trainers use `denoiser`). Keep objective-specific behavior in the matching trainer subclass.
 - Resume via `load_dir` and `step` restores model and EMA weights plus `misc_stepNNNNNNN.pt` state: optimizer, sampler, and configured scaler, LR scheduler, elastic controller, and gradient clip state.
 - `finetune_ckpt` loads per-model weights into the current initialization; it does not restore optimizer/sampler training progress. Shape mismatches are retained from the current model, and missing-key policy is handled in `finetune_from()`.
+- `continuation_ckpt` is the fresh-run path for a complete base+LoRA state dict. LoRA is injected first, the checkpoint is loaded strictly, and optimizer/sampler/step state starts from zero. Once the run has its own full checkpoint, normal `load_dir`/`step` resume takes precedence over the configured continuation source.
 - Checkpoint files are under `ckpts/`: `{name}_step{step:07d}.pt`, optional `{name}_ema{rate}_step{step:07d}.pt`, and `misc_step{step:07d}.pt`. Preserve names expected by `load()`.
 - Mixed precision supports full-precision master parameters (`inflat_all`) and AMP; dtype is configured separately. EMA is maintained over master parameters.
 - Base training uses distributed training support and DDP wrapping. Dataset batches flow through `load_data()` and then `training_losses(**mb_data)`; retain the mapping-shaped batch contract.

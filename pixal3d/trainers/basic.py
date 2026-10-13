@@ -92,6 +92,7 @@ class BasicTrainer:
         batch_size_per_gpu=None,
         batch_split=None,
         optimizer={},
+        model_learning_rates=None,
         lr_scheduler=None,
         elastic=None,
         grad_clip=None,
@@ -102,6 +103,7 @@ class BasicTrainer:
         fp16_scale_growth=1e-3,
         parallel_mode='ddp',
         finetune_ckpt=None,
+        continuation_ckpt=None,
         log_param_stats=False,
         prefetch_data=True,
         snapshot_batch_size=4,
@@ -131,12 +133,14 @@ class BasicTrainer:
         self.models = models
         self.lora_config = lora
         self.lora_base_ckpt = finetune_ckpt
+        self.continuation_ckpt = continuation_ckpt
         self.microbatch_to_device = microbatch_to_device
         self.dataset = dataset
         self.batch_split = batch_split if batch_split is not None else 1
         self.max_steps = max_steps
         self.debug = debug
         self.optimizer_config = optimizer
+        self.model_learning_rates = dict(model_learning_rates or {})
         self.lr_scheduler_config = lr_scheduler
         self.elastic_controller_config = elastic
         self.grad_clip = grad_clip
@@ -186,13 +190,18 @@ class BasicTrainer:
         assert self.batch_size % self.world_size == 0, 'Batch size must be divisible by the number of GPUs.'
         assert self.batch_size_per_gpu % self.batch_split == 0, 'Batch size per GPU must be divisible by batch split.'
 
+        if continuation_ckpt is not None and self.lora_config is None:
+            raise ValueError('continuation_ckpt requires a LoRA configuration')
+
         if self.lora_config is not None:
             from ..modules.lora import inject_lora
-            if not (load_dir is not None and step is not None):
+            if continuation_ckpt is None and not (load_dir is not None and step is not None):
                 self._load_finetune_model_weights(finetune_ckpt)
             for model in self.models.values():
                 model.convert_to(torch.bfloat16)
                 inject_lora(model, **self.lora_config)
+            if continuation_ckpt is not None and not (load_dir is not None and step is not None):
+                self._load_continuation_model_weights(continuation_ckpt)
 
         self.init_models_and_more(**kwargs)
         self.prepare_dataloader(**kwargs)
@@ -281,6 +290,11 @@ class BasicTrainer:
         self.model_params = sum(
             [[p for p in model.parameters() if p.requires_grad] for model in self.models.values()]
         , [])
+        unknown_lr_models = set(self.model_learning_rates) - set(self.models)
+        if unknown_lr_models:
+            raise ValueError(
+                f'model_learning_rates contains unknown models: {sorted(unknown_lr_models)}'
+            )
         if self.mix_precision_mode == 'amp':
             self.master_params = self.model_params
             if self.mix_precision_dtype == torch.float16:
@@ -298,11 +312,35 @@ class BasicTrainer:
         if self.is_master:
             self.ema_params = [copy.deepcopy(self.master_params) for _ in self.ema_rate]
 
-        # Initialize optimizer
+        # Initialize optimizer. Model-specific groups let a fresh conditioner
+        # learn faster than continued LoRA weights without a second optimizer.
+        optimizer_params = self.master_params
+        if self.model_learning_rates:
+            if self.mix_precision_mode == 'inflat_all':
+                raise ValueError('model_learning_rates is not supported with inflat_all')
+            optimizer_params = []
+            default_params = []
+            for model_name, model in self.models.items():
+                params = [p for p in model.parameters() if p.requires_grad]
+                if not params:
+                    continue
+                if model_name in self.model_learning_rates:
+                    optimizer_params.append({
+                        'params': params,
+                        'lr': float(self.model_learning_rates[model_name]),
+                        'model_name': model_name,
+                    })
+                else:
+                    default_params.extend(params)
+            if default_params:
+                optimizer_params.insert(0, {
+                    'params': default_params,
+                    'model_name': 'default',
+                })
         if hasattr(torch.optim, self.optimizer_config['name']):
-            self.optimizer = getattr(torch.optim, self.optimizer_config['name'])(self.master_params, **self.optimizer_config['args'])
+            self.optimizer = getattr(torch.optim, self.optimizer_config['name'])(optimizer_params, **self.optimizer_config['args'])
         else:
-            self.optimizer = globals()[self.optimizer_config['name']](self.master_params, **self.optimizer_config['args'])
+            self.optimizer = globals()[self.optimizer_config['name']](optimizer_params, **self.optimizer_config['args'])
         
         # Initalize learning rate scheduler
         if self.lr_scheduler_config is not None:
@@ -484,6 +522,8 @@ class BasicTrainer:
             if getattr(self, 'lora_config', None) is not None:
                 misc_ckpt['lora'] = self.lora_config
                 misc_ckpt['lora_base_ckpt'] = self.lora_base_ckpt
+                if self.continuation_ckpt is not None:
+                    misc_ckpt['continuation_ckpt'] = self.continuation_ckpt
             if self.mix_precision_mode == 'amp' and self.mix_precision_dtype == torch.float16:
                 misc_ckpt['scaler'] = self.scaler.state_dict()
             elif self.mix_precision_mode == 'inflat_all' and self.mix_precision_dtype == torch.float16:
@@ -640,6 +680,46 @@ class BasicTrainer:
                     print(f'Warning: {name} not found in finetune_ckpt, skipped.')
                 model_ckpts[name] = model_state_dict
         return model_ckpts
+
+    def _load_continuation_model_weights(self, continuation_ckpt):
+        """Load a complete base+LoRA checkpoint with fresh training state.
+
+        Unlike ``finetune_ckpt``, this path is evaluated after LoRA injection and
+        requires an exact state-dict match.  Optimizer, scheduler, sampler and
+        step state are intentionally not restored.
+        """
+        if not isinstance(continuation_ckpt, dict):
+            raise TypeError('continuation_ckpt must map model names to checkpoint paths')
+        missing_models = set(self.models) - set(continuation_ckpt)
+        extra_models = set(continuation_ckpt) - set(self.models)
+        if missing_models or extra_models:
+            raise ValueError(
+                'continuation_ckpt model mismatch: '
+                f'missing={sorted(missing_models)}, extra={sorted(extra_models)}'
+            )
+
+        if self.is_master:
+            print('\nContinuing model weights with fresh optimizer state from:')
+        loaded = {}
+        for name, model in self.models.items():
+            path = continuation_ckpt[name]
+            if self.is_master:
+                print(f'  - {name}: {path}')
+            is_meta = any(parameter.is_meta for parameter in model.parameters())
+            map_location = torch.device('cuda', self.local_rank) if is_meta else 'cpu'
+            # Continuation checkpoints are node-local in this workflow.  Load
+            # the file directly instead of first copying the entire multi-GB
+            # archive into a BytesIO buffer.
+            state = torch.load(path, map_location=map_location, weights_only=True)
+            try:
+                model.load_state_dict(state, strict=True, assign=is_meta)
+            except RuntimeError as error:
+                raise RuntimeError(
+                    f'continuation checkpoint for {name} is not an exact '
+                    'base+LoRA state dict'
+                ) from error
+            loaded[name] = state
+        return loaded
 
     def finetune_from(self, finetune_ckpt):
         model_ckpts = self._load_finetune_model_weights(finetune_ckpt)

@@ -40,6 +40,18 @@ def make_trainer(path, base_path, *, resume=None):
         finetune_ckpt={'denoiser': str(base_path)})
 
 
+def make_continuation_trainer(path, checkpoint):
+    return TinyTrainer({'denoiser': TinyFlow()}, Samples(),
+        output_dir=str(path), load_dir=None, step=None,
+        batch_size_per_gpu=4, batch_split=4, max_steps=3,
+        optimizer={'name': 'AdamW', 'args': {'lr': .01}},
+        lr_scheduler={'name': 'StepLR', 'args': {'step_size': 1, 'gamma': .9}},
+        grad_clip=None, ema_rate=[], num_workers=0,
+        mix_precision_mode=None, mix_precision_dtype='bfloat16',
+        lora={'rank': 2, 'alpha': 2, 'dropout': 0.0}, microbatch_to_device=True,
+        continuation_ckpt={'denoiser': str(checkpoint)})
+
+
 def test_load_data_retains_cpu_packs_until_forward():
     trainer = object.__new__(BasicTrainer)
     trainer.models = {'denoiser': nn.Linear(1, 1, device='meta')}
@@ -92,6 +104,30 @@ def test_official_initialization_and_full_checkpoint_resume_preserve_frozen_base
     for name, p in resumed.models['denoiser'].named_parameters():
         if not name.endswith(('lora_A', 'lora_B')):
             torch.testing.assert_close(p, base.state_dict()[name].bfloat16(), rtol=0, atol=0)
+
+
+def test_lora_continuation_strict_loads_combined_weights_with_fresh_state(tmp_path):
+    base_path = tmp_path / 'official.pt'
+    torch.save(TinyFlow().state_dict(), base_path)
+    first = make_trainer(tmp_path / 'first', base_path)
+    first.run_step(first.load_data())
+    expected = {key: value.detach().clone() for key, value in first.models['denoiser'].state_dict().items()}
+    checkpoint = tmp_path / 'combined.pt'
+    torch.save(expected, checkpoint)
+
+    continued = make_continuation_trainer(tmp_path / 'continued', checkpoint)
+    assert continued.step == 0
+    assert continued.optimizer.state == {}
+    assert continued.data_sampler.state_dict()['idx'] == 0
+    for key, value in continued.models['denoiser'].state_dict().items():
+        torch.testing.assert_close(value, expected[key], rtol=0, atol=0)
+
+
+def test_lora_continuation_rejects_incomplete_adapter_state(tmp_path):
+    checkpoint = tmp_path / 'base-only.pt'
+    torch.save(TinyFlow().state_dict(), checkpoint)
+    with pytest.raises(RuntimeError, match='exact base\\+LoRA state dict'):
+        make_continuation_trainer(tmp_path / 'bad', checkpoint)
 
 
 def test_lora_recipe_resolves_microbatch_one_without_changing_full_finetune():
@@ -163,6 +199,19 @@ def test_microbatch_transfer_accumulates_mean_gradient_and_steps_scheduler_once(
     trainer.run_step(packs)
     torch.testing.assert_close(model.weight, torch.tensor([[.5]]))
     assert trainer.optimizer.param_groups[0]['lr'] == .05
+
+
+def test_model_specific_learning_rate_builds_distinct_optimizer_group(tmp_path):
+    trainer = TinyTrainer(
+        {"denoiser": nn.Linear(4, 4), "deform_conditioner": nn.Linear(4, 4)},
+        Samples(), output_dir=str(tmp_path), load_dir=None, step=None,
+        batch_size_per_gpu=2, max_steps=1,
+        optimizer={"name": "AdamW", "args": {"lr": 1e-5}},
+        model_learning_rates={"deform_conditioner": 1e-4},
+        ema_rate=[], num_workers=0, mix_precision_mode=None,
+    )
+    groups = {group["model_name"]: group["lr"] for group in trainer.optimizer.param_groups}
+    assert groups == {"default": 1e-5, "deform_conditioner": 1e-4}
 
 
 @pytest.mark.parametrize('mutate_base', [False, True])

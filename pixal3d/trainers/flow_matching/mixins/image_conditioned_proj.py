@@ -999,12 +999,16 @@ class ImageConditionedProjMixin:
         *args,
         image_cond_model: dict,
         multiview_stage: Optional[str] = None,
+        deform_conditioner: Optional[dict] = None,
         **kwargs,
     ):
         # Store config before super().__init__ which calls init_models_and_more
         self.image_cond_model_config = image_cond_model
         self.image_cond_model = None  # Will be initialized in init_models_and_more
         self.multiview_stage = multiview_stage
+        self.deform_conditioner_config = deform_conditioner
+        self.deform_conditioner = None
+        self._last_deform_condition = None
         self.image_attn_mode = image_cond_model.get('image_attn_mode', 
                                 image_cond_model.get('args', {}).get('image_attn_mode', 'cross'))
         super().__init__(*args, **kwargs)
@@ -1047,6 +1051,13 @@ class ImageConditionedProjMixin:
         # Initialize image_cond_model first
         if self.image_cond_model is None:
             self._init_image_cond_model()
+
+        if self.deform_conditioner_config is not None and self.deform_conditioner is None:
+            from ....modules.deform_conditioner import DeformationAwareConditioner
+            config = dict(self.deform_conditioner_config)
+            self.deform_conditioner = DeformationAwareConditioner(**config).cuda()
+            if any(parameter.requires_grad for parameter in self.deform_conditioner.parameters()):
+                self.models['deform_conditioner'] = self.deform_conditioner
         
         # Keep a reference to the unwrapped module for attribute access
         self._image_cond_module = self.image_cond_model  # for .grid_resolution etc.
@@ -1062,6 +1073,99 @@ class ImageConditionedProjMixin:
         
         # Call base class to set up DDP, optimizer, EMA, etc. (without image_cond)
         super().init_models_and_more(**kwargs)
+
+    _DEFORM_TRANSPORT_KEYS = (
+        'target_keys', 'source_keys', 'source_values', 'source_valid',
+        'spatial_indices', 'target_query', 'deformation', 'patch_grid', 'patch_ids',
+    )
+
+    def _pop_deform_transport(self, kwargs):
+        if self.deform_conditioner_config is None:
+            return None
+        output = {}
+        for key in self._DEFORM_TRANSPORT_KEYS:
+            value = kwargs.pop(f'transport_{key}', None)
+            if value is not None:
+                output[key] = value
+        required = {'target_keys', 'source_keys', 'source_values', 'source_valid'}
+        missing = required - set(output)
+        if missing:
+            raise ValueError(f'missing deformation transport tensors: {sorted(missing)}')
+        if 'patch_grid' not in output and 'patch_ids' not in output:
+            raise ValueError('deformation transport requires patch_grid or patch_ids')
+        return output
+
+    @staticmethod
+    def _anchor_camera_info(camera_info):
+        if camera_info is None:
+            return None
+        result = dict(camera_info)
+        for key in ('camera_angle_x', 'distance'):
+            value = result.get(key)
+            if isinstance(value, torch.Tensor) and value.ndim == 2:
+                result[key] = value[:, 0]
+        transform = result.get('transform_matrix')
+        if isinstance(transform, torch.Tensor) and transform.ndim == 4:
+            result['transform_matrix'] = transform[:, 0]
+        return result
+
+    def _inject_deform_transport(self, condition, transport, coords, *, control='normal'):
+        module = (
+            self.training_models.get('deform_conditioner', self.deform_conditioner)
+            if hasattr(self, 'training_models') else self.deform_conditioner
+        )
+        call = {
+            key: value for key, value in transport.items()
+            if key not in {'patch_grid', 'patch_ids'}
+        }
+        output = module(**call, control=control)
+        evidence = output.evidence
+        patch_grid = transport.get('patch_grid')
+        patch_ids = transport.get('patch_ids')
+
+        if coords is None:
+            if patch_grid is None:
+                raise ValueError('dense projection requires transport_patch_grid')
+            patch_grid = patch_grid.long()
+            if patch_grid.ndim != 4 or patch_grid.shape[0] != evidence.shape[0]:
+                raise ValueError('transport_patch_grid must have shape [B,R,R,R]')
+            if torch.any((patch_grid < 0) | (patch_grid >= evidence.shape[1])):
+                raise ValueError('transport_patch_grid contains an invalid target patch index')
+            patch_index = patch_grid.flatten(1)
+            projected = torch.gather(
+                evidence, 1,
+                patch_index[..., None].expand(-1, -1, evidence.shape[-1]),
+            )
+        else:
+            if coords.ndim != 2 or coords.shape[1] != 4:
+                raise ValueError('sparse coords must have shape [N,4]')
+            batch = coords[:, 0].long()
+            if patch_ids is not None:
+                patch_index = patch_ids.long()
+                if patch_index.ndim != 1 or len(patch_index) != len(coords):
+                    raise ValueError('transport_patch_ids must align with sparse coords')
+            else:
+                patch_grid = patch_grid.long()
+                if patch_grid.ndim != 4 or patch_grid.shape[0] != evidence.shape[0]:
+                    raise ValueError('transport_patch_grid must have shape [B,R,R,R]')
+                xyz = coords[:, 1:].long()
+                resolution = patch_grid.shape[1]
+                if torch.any((xyz < 0) | (xyz >= resolution)):
+                    raise ValueError('sparse coordinate is outside transport_patch_grid')
+                patch_index = patch_grid[batch, xyz[:, 0], xyz[:, 1], xyz[:, 2]]
+            if torch.any((patch_index < 0) | (patch_index >= evidence.shape[1])):
+                raise ValueError('transport patch index is invalid')
+            projected = evidence[batch, patch_index]
+
+        key = 'proj_semantic' if 'proj_semantic' in condition else 'proj'
+        if condition[key].shape != projected.shape:
+            raise ValueError(
+                f'deformation evidence shape {tuple(projected.shape)} does not match '
+                f'{key} context {tuple(condition[key].shape)}'
+            )
+        condition[key] = condition[key] + projected.to(condition[key].dtype)
+        self._last_deform_condition = output
+        return condition
 
     # ------------------------------------------------------------------
     # Checkpoint save/load overrides: skip DINOv3 backbone weights
@@ -1586,11 +1690,18 @@ class ImageConditionedProjMixin:
         """Get the conditioning data."""
         kwargs.pop('view_idx', None)
         kwargs.pop('view_indices', None)
+        transport = self._pop_deform_transport(kwargs)
+        transport_control = kwargs.pop('transport_control', 'normal')
         
         if self.image_attn_mode in ('proj', 'gated_proj'):
             # Handle projection mode (both standard proj and gated_proj)
             camera_info = self._extract_camera_info(kwargs)
             if camera_info is not None:
+                if transport is not None:
+                    if cond.ndim != 5 or cond.shape[1] < 2:
+                        raise ValueError('deformation conditioning requires target + source views')
+                    cond = cond[:, 0]
+                    camera_info = self._anchor_camera_info(camera_info)
                 coords = camera_info.get('coords')
                 cond, neg_cond = self.encode_image_proj(
                     cond,
@@ -1600,6 +1711,10 @@ class ImageConditionedProjMixin:
                     transform_matrix=camera_info.get('transform_matrix'),
                     coords=coords,
                 )
+                if transport is not None:
+                    cond = self._inject_deform_transport(
+                        cond, transport, coords, control=transport_control
+                    )
                 
                 # For sparse mode (coords provided), handle CFG dropout ourselves
                 if coords is not None and hasattr(self, 'p_uncond') and self.p_uncond > 0:
@@ -1640,10 +1755,17 @@ class ImageConditionedProjMixin:
         """Get the conditioning data for inference."""
         kwargs.pop('view_idx', None)
         kwargs.pop('view_indices', None)
+        transport = self._pop_deform_transport(kwargs)
+        transport_control = kwargs.pop('transport_control', 'normal')
         
         if self.image_attn_mode in ('proj', 'gated_proj'):
             camera_info = self._extract_camera_info(kwargs)
             if camera_info is not None:
+                if transport is not None:
+                    if cond.ndim != 5 or cond.shape[1] < 2:
+                        raise ValueError('deformation conditioning requires target + source views')
+                    cond = cond[:, 0]
+                    camera_info = self._anchor_camera_info(camera_info)
                 cond, neg_cond = self.encode_image_proj(
                     cond,
                     camera_angle_x=camera_info.get('camera_angle_x'),
@@ -1652,6 +1774,10 @@ class ImageConditionedProjMixin:
                     transform_matrix=camera_info.get('transform_matrix'),
                     coords=camera_info.get('coords'),
                 )
+                if transport is not None:
+                    cond = self._inject_deform_transport(
+                        cond, transport, camera_info.get('coords'), control=transport_control
+                    )
                 kwargs['neg_cond'] = neg_cond
             else:
                 cond = self.encode_image(cond)
