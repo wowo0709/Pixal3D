@@ -132,3 +132,18 @@ def test_pbr_loader_and_sparse_collation(tmp_path):
     assert len(batches) == 1
     assert batches[0]["x_0"].coords.shape == (4, 4)
     assert batches[0]["x_0"].feats.shape == (4, 32)
+
+
+def test_pbr_loader_filters_assets_above_token_limit(tmp_path):
+    manifest, row = _fixture(tmp_path)
+    oversized = dict(row, sample_id="sample-oversized", pbr_tokens=9)
+    manifest.write_text(json.dumps(row) + "\n" + json.dumps(oversized) + "\n")
+
+    dataset = DeformNeXtPBR1024(
+        str(manifest), image_size=8, expected_split="train", max_tokens=8
+    )
+
+    assert len(dataset) == 1
+    assert dataset.rows[0]["sample_id"] == "sample-a"
+    assert dataset.filtered_over_max_tokens == 1
+    assert dataset.loads == [2]

@@ -356,7 +356,23 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
             match_root=match_root,
         )
-        self.loads = [int(row.get("pbr_tokens", max_tokens)) for row in self.rows]
+        # Match the production PBR dataset contract: assets above max_tokens are
+        # excluded before sampling.  DeformNeXt manifests created before the PBR
+        # latent pass do not contain token counts, so materialize the count from
+        # the NPZ header once and retain it on the in-memory row.
+        retained = []
+        for row, instance in zip(self.rows, self.instances):
+            tokens = row.get("pbr_tokens")
+            if tokens is None:
+                with np.load(self._resolve(row["pbr_latent"])) as archive:
+                    tokens = len(archive["coords"])
+                row["pbr_tokens"] = int(tokens)
+            if int(tokens) <= self.max_tokens:
+                retained.append((row, instance))
+        self.filtered_over_max_tokens = len(self.rows) - len(retained)
+        self.rows = [row for row, _ in retained]
+        self.instances = [instance for _, instance in retained]
+        self.loads = [int(row["pbr_tokens"]) for row in self.rows]
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         row = self.rows[index]
