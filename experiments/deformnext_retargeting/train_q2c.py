@@ -43,8 +43,10 @@ def loss_for_cache(
     logits = model._q2c_logits(
         target[None], candidates[None], cosine[None]
     ).squeeze(0)
+    valid = torch.isfinite(cosine)
+    logits = logits.masked_fill(~valid, -torch.inf)
     positive_flat = positives.T + torch.arange(views, device="cuda")[None] * sites
-    mask = (indices[..., None] == positive_flat[:, None]).any(dim=-1)
+    mask = (indices[..., None] == positive_flat[:, None]).any(dim=-1) & valid
     eligible = mask.any(dim=-1)
     total = int(mask.shape[0])
     raw_correct = int(mask[:, 0].sum())
