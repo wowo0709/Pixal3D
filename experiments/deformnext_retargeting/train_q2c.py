@@ -34,8 +34,9 @@ def loss_for_cache(model, path: Path, topk: int) -> tuple[torch.Tensor, int]:
     similarity = similarity.masked_fill(~valid.reshape(-1)[None], -torch.inf)
     cosine, indices = similarity.topk(topk, dim=-1)
     candidates = flat[indices]
-    query = target[:, None].expand_as(candidates)
-    logits = model.q2c(torch.cat((query, candidates, cosine[..., None]), dim=-1)).squeeze(-1)
+    logits = model._q2c_logits(
+        target[None], candidates[None], cosine[None]
+    ).squeeze(0)
     positive_flat = positives.T + torch.arange(views, device="cuda")[None] * sites
     mask = (indices[..., None] == positive_flat[:, None]).any(dim=-1)
     eligible = mask.any(dim=-1)
