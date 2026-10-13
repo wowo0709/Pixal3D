@@ -22,6 +22,53 @@ def remap(path: str, mappings: list[tuple[str, str]]) -> Path:
     return Path(path)
 
 
+def _depends_on_vertex_color(socket, seen=None) -> bool:
+    """Return whether a shader input is driven by a vertex-color node."""
+    seen = set() if seen is None else seen
+    for link in socket.links:
+        node = link.from_node
+        identity = node.as_pointer()
+        if identity in seen:
+            continue
+        seen.add(identity)
+        if node.type == "VERTEX_COLOR":
+            return True
+        if any(_depends_on_vertex_color(value, seen) for value in node.inputs):
+            return True
+    return False
+
+
+def _materialize_vertex_color_fallback(
+    materials: list, material_ids: np.ndarray, corner_color: np.ndarray
+) -> None:
+    """Collapse unsupported vertex-color shaders to their material-wise mean.
+
+    TRELLIS.2's PBR dump format has no per-corner color channel.  Canonical
+    ingest still preserves those colors in ``geometry.npz``.  For the small
+    set of assets whose GLB shader reads COLOR_0, use the mean color of the
+    corresponding material instead of rejecting the otherwise valid sample.
+    Textured and constant Principled materials remain untouched.
+    """
+    for index, material in enumerate(materials):
+        if not material.use_nodes:
+            continue
+        principled = material.node_tree.nodes.get("Principled BSDF")
+        if principled is None:
+            continue
+        selected = corner_color[material_ids == index]
+        if selected.size == 0:
+            rgba = np.ones(4, dtype=np.float32)
+        else:
+            rgba = np.clip(selected.reshape(-1, 4).mean(axis=0), 0.0, 1.0)
+        for name, value in (("Base Color", rgba), ("Alpha", float(rgba[3]))):
+            socket = principled.inputs.get(name)
+            if socket is None or not socket.is_linked or not _depends_on_vertex_color(socket):
+                continue
+            for link in tuple(socket.links):
+                material.node_tree.links.remove(link)
+            socket.default_value = value
+
+
 def rebuild_target(canonical: Path, target_geometry: Path) -> None:
     from data_toolkit.blender_script import dump_pbr
 
@@ -65,6 +112,7 @@ def rebuild_target(canonical: Path, target_geometry: Path) -> None:
             name="COLOR_0", type="FLOAT_COLOR", domain="CORNER"
         )
         colors.data.foreach_set("color", corner_color.reshape(-1))
+    _materialize_vertex_color_fallback(materials, material_ids, corner_color)
     obj = bpy.data.objects.new("deformed_canonical", mesh)
     bpy.context.collection.objects.link(obj)
 
