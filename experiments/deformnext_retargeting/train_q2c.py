@@ -7,10 +7,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 
 import numpy as np
 import torch
 from torch.nn import functional as F
+
+REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO))
 
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
 
