@@ -1099,21 +1099,7 @@ class ImageConditionedProjMixin:
             raise ValueError('deformation transport requires patch_grid or patch_ids')
         return output
 
-    @staticmethod
-    def _anchor_camera_info(camera_info):
-        if camera_info is None:
-            return None
-        result = dict(camera_info)
-        for key in ('camera_angle_x', 'distance'):
-            value = result.get(key)
-            if isinstance(value, torch.Tensor) and value.ndim == 2:
-                result[key] = value[:, 0]
-        transform = result.get('transform_matrix')
-        if isinstance(transform, torch.Tensor) and transform.ndim == 4:
-            result['transform_matrix'] = transform[:, 0]
-        return result
-
-    def _inject_deform_transport(self, condition, transport, coords, *, control='normal'):
+    def _inject_deform_transport(self, condition, transport, coords, *, source_views=3, control='normal'):
         module = (
             self.training_models.get('deform_conditioner', self.deform_conditioner)
             if hasattr(self, 'training_models') else self.deform_conditioner
@@ -1167,9 +1153,45 @@ class ImageConditionedProjMixin:
                 f'deformation evidence shape {tuple(projected.shape)} does not match '
                 f'{key} context {tuple(condition[key].shape)}'
             )
-        condition[key] = condition[key] + projected.to(condition[key].dtype)
+        if source_views < 1:
+            raise ValueError('semantic transport requires at least one source view')
+        # Replace the source contribution, retaining the native 1/K anchor
+        # weight instead of adding an unscaled residual to its projection.
+        condition[key] = (condition[key] + source_views * projected.to(condition[key].dtype)) / (source_views + 1)
         self._last_deform_condition = output
         return condition
+
+    def _encode_deform_views(self, images, camera_info, transport, *, control='normal'):
+        """Keep native MV global features and canonical anchor coordinates."""
+        coords = camera_info.get('coords')
+        condition, negative = self.encode_image_proj(
+            images, camera_angle_x=camera_info.get('camera_angle_x'),
+            distance=camera_info.get('distance'),
+            mesh_scale=camera_info.get('mesh_scale'),
+            transform_matrix=camera_info.get('transform_matrix'), coords=coords,
+        )
+        if transport is None:
+            return condition, negative
+        if images.ndim != 5 or images.shape[1] < 2:
+            raise ValueError('deformation conditioning requires target + source views')
+        module = getattr(self, '_image_cond_module', self.image_cond_model)
+        projection, _ = compute_multiview_projection_matrices(
+            camera_info['transform_matrix'], camera_info['distance'],
+            module.fixed_projection_transform,
+        )
+        anchor, _ = self.encode_image_proj(
+            images[:, 0], camera_angle_x=camera_info['camera_angle_x'][:, 0],
+            distance=camera_info['distance'][:, 0],
+            mesh_scale=camera_info['mesh_scale'],
+            transform_matrix=projection[:, 0], coords=coords,
+        )
+        key = 'proj_semantic' if 'proj_semantic' in condition else 'proj'
+        condition[key] = anchor[key]
+        condition = self._inject_deform_transport(
+            condition, transport, coords, source_views=images.shape[1] - 1,
+            control=control,
+        )
+        return condition, negative
 
     # ------------------------------------------------------------------
     # Checkpoint save/load overrides: skip DINOv3 backbone weights
@@ -1701,24 +1723,10 @@ class ImageConditionedProjMixin:
             # Handle projection mode (both standard proj and gated_proj)
             camera_info = self._extract_camera_info(kwargs)
             if camera_info is not None:
-                if transport is not None:
-                    if cond.ndim != 5 or cond.shape[1] < 2:
-                        raise ValueError('deformation conditioning requires target + source views')
-                    cond = cond[:, 0]
-                    camera_info = self._anchor_camera_info(camera_info)
                 coords = camera_info.get('coords')
-                cond, neg_cond = self.encode_image_proj(
-                    cond,
-                    camera_angle_x=camera_info.get('camera_angle_x'),
-                    distance=camera_info.get('distance'),
-                    mesh_scale=camera_info.get('mesh_scale'),
-                    transform_matrix=camera_info.get('transform_matrix'),
-                    coords=coords,
+                cond, neg_cond = self._encode_deform_views(
+                    cond, camera_info, transport, control=transport_control
                 )
-                if transport is not None:
-                    cond = self._inject_deform_transport(
-                        cond, transport, coords, control=transport_control
-                    )
                 
                 # For sparse mode (coords provided), handle CFG dropout ourselves
                 if coords is not None and hasattr(self, 'p_uncond') and self.p_uncond > 0:
@@ -1765,23 +1773,9 @@ class ImageConditionedProjMixin:
         if self.image_attn_mode in ('proj', 'gated_proj'):
             camera_info = self._extract_camera_info(kwargs)
             if camera_info is not None:
-                if transport is not None:
-                    if cond.ndim != 5 or cond.shape[1] < 2:
-                        raise ValueError('deformation conditioning requires target + source views')
-                    cond = cond[:, 0]
-                    camera_info = self._anchor_camera_info(camera_info)
-                cond, neg_cond = self.encode_image_proj(
-                    cond,
-                    camera_angle_x=camera_info.get('camera_angle_x'),
-                    distance=camera_info.get('distance'),
-                    mesh_scale=camera_info.get('mesh_scale'),
-                    transform_matrix=camera_info.get('transform_matrix'),
-                    coords=camera_info.get('coords'),
+                cond, neg_cond = self._encode_deform_views(
+                    cond, camera_info, transport, control=transport_control
                 )
-                if transport is not None:
-                    cond = self._inject_deform_transport(
-                        cond, transport, camera_info.get('coords'), control=transport_control
-                    )
                 kwargs['neg_cond'] = neg_cond
             else:
                 cond = self.encode_image(cond)

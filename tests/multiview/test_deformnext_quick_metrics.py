@@ -70,7 +70,7 @@ def test_pbr_decode_and_render_disable_training_autocast(monkeypatch):
 
     def render(*args):
         assert active[0] is False
-        return {key: torch.ones(2, 3, 16, 16)
+        return {key: torch.ones(2, 1 if key == 'alpha' else 3, 16, 16)
                 for key in ('shaded', 'base_color', 'alpha')}
 
     monkeypatch.setattr(qm, '_render_pbr_anchor', render)
@@ -83,6 +83,6 @@ def test_pbr_decode_and_render_disable_training_autocast(monkeypatch):
     metrics, panel = qm._pbr_metrics(
         None, SimpleNamespace(decode_latent=decode), [0], {'sampling_steps': 12}
     )
-    assert metrics['alpha_iou'] == pytest.approx(1.0)
+    assert metrics['gt_shape_conditioned_alpha_iou'] == pytest.approx(1.0)
     assert panel.shape == (16, 48, 3)
     assert active[0] is True

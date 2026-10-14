@@ -75,17 +75,15 @@ def test_ss_loader_preserves_target_then_three_source_roles(tmp_path):
     assert batch["transport_target_keys"].shape == (2, 4, 2)
 
 
-def test_v1_loader_reads_only_spatial_transport_fields(tmp_path):
+def test_v1_loader_does_not_read_transport(tmp_path):
     manifest, _ = _fixture(tmp_path)
+    (tmp_path / 'transport.npz').unlink()
     dataset = DeformNeXtSS64(
-        str(manifest), image_size=8, expected_split="train", transport_arm="v1"
+        str(manifest), image_size=8, expected_split='train', transport_arm='v1'
     )
     item = dataset[0]
-    assert "transport_source_values" in item
-    assert "transport_spatial_indices" in item
-    assert "transport_target_keys" not in item
-    assert "transport_source_keys" not in item
-    assert "transport_target_query" not in item
+    assert item['cond'].shape[0] == 4
+    assert not any(key.startswith('transport_') for key in item)
 
 
 def test_match_cache_avoids_loading_full_omega_keys(tmp_path):

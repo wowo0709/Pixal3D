@@ -140,6 +140,7 @@ class _ConditioningSink:
 
 class ProjectionConditioningHarness(ImageConditionedProjMixin, _ConditioningSink):
     image_attn_mode = "proj"
+    deform_conditioner_config = None
 
     def __init__(self):
         pass

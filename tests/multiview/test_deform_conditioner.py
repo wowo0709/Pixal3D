@@ -21,23 +21,9 @@ def make(arm, **kwargs):
     )
 
 
-def test_v1_uses_only_supplied_spatial_correspondence():
-    data = inputs()
-    index = torch.zeros(2, 3, 5, dtype=torch.long)
-    out = make("v1")(**data, spatial_indices=index)
-    expected = data["source_values"][:, :, 0].mean(dim=1)[:, None].expand(-1, 5, -1)
-    torch.testing.assert_close(out.evidence, expected)
-    assert out.matching_logits is None
-
-
-def test_v1_does_not_require_semantic_key_tensors():
-    data = inputs()
-    out = make("v1")(
-        source_values=data["source_values"],
-        source_valid=data["source_valid"],
-        spatial_indices=torch.zeros(2, 3, 5, dtype=torch.long),
-    )
-    assert out.evidence.shape == (2, 5, 6)
+def test_v1_cannot_accidentally_enter_transport_conditioner():
+    with pytest.raises(ValueError, match='native multi-view conditioning'):
+        make('v1')
 
 
 def test_b1_is_raw_cosine_top1_and_b2_exposes_no_score_consumer_weights():
@@ -117,12 +103,10 @@ def test_c2_derives_inference_safe_state_difference_when_not_cached():
     assert out.retarget_residual.shape == (2, 5, 6)
 
 
-@pytest.mark.parametrize("arm", ["v1", "b1", "b2", "b3", "c1", "c2"])
+@pytest.mark.parametrize("arm", ["b1", "b2", "b3", "c1", "c2"])
 def test_source_off_is_exact_zero_for_every_arm(arm):
     model = make(arm, **({"deformation_dim": 7} if arm == "c2" else {}))
     data = inputs()
-    if arm == "v1":
-        data["spatial_indices"] = torch.zeros(2, 3, 5, dtype=torch.long)
     out = model(**data, control="source-off")
     assert torch.count_nonzero(out.evidence) == 0
 
@@ -144,7 +128,7 @@ def test_trainer_bridge_maps_patch_evidence_to_dense_projection_grid():
     actual = bridge._inject_deform_transport(condition, transport, coords=None)["proj"]
     expected = torch.tensor([[[1., 2., 3.], [4., 5., 6.], [4., 5., 6.], [1., 2., 3.],
                               [4., 5., 6.], [1., 2., 3.], [1., 2., 3.], [4., 5., 6.]]])
-    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(actual, expected * 0.75)
 
 
 def test_trainer_bridge_maps_patch_evidence_to_sparse_coordinates():
@@ -163,7 +147,7 @@ def test_trainer_bridge_maps_patch_evidence_to_sparse_coordinates():
     coords = torch.tensor([[0, 0, 0, 0], [0, 1, 1, 1]])
     condition = {"global": torch.zeros(1, 1, 2), "proj": torch.zeros(2, 3)}
     actual = bridge._inject_deform_transport(condition, transport, coords=coords)["proj"]
-    torch.testing.assert_close(actual, torch.tensor([[1., 2., 3.], [4., 5., 6.]]))
+    torch.testing.assert_close(actual, torch.tensor([[1., 2., 3.], [4., 5., 6.]]) * 0.75)
 
 
 def test_shared_q2c_checkpoint_loads_strictly_and_freezes(tmp_path):
@@ -208,4 +192,23 @@ def test_sparse_transport_accepts_compact_patch_ids():
     coords = torch.tensor([[0, 0, 0, 0], [0, 63, 63, 63]])
     condition = {"global": torch.zeros(1, 1, 2), "proj": torch.zeros(2, 3)}
     actual = bridge._inject_deform_transport(condition, transport, coords=coords)["proj"]
-    torch.testing.assert_close(actual, torch.tensor([[4., 5., 6.], [1., 2., 3.]]))
+    torch.testing.assert_close(actual, torch.tensor([[4., 5., 6.], [1., 2., 3.]]) * 0.75)
+
+
+@pytest.mark.parametrize('arm', ['c1', 'c2'])
+def test_zero_initialized_retargeter_has_nonzero_learning_gradient(arm):
+    data = inputs()
+    model = make(arm, **({'deformation_dim': 8} if arm == 'c2' else {}))
+    out = model(**data, target_query=torch.randn(2, 5, 4))
+    torch.testing.assert_close(out.retarget_residual, torch.zeros_like(out.retarget_residual))
+    out.evidence.square().sum().backward()
+    last = model.retargeter.net[-1]
+    assert last.weight.grad is not None
+    assert last.weight.grad.abs().sum() > 0
+
+
+def test_b1_invalid_source_candidate_is_zero_evidence():
+    data = inputs()
+    data['source_valid'].zero_()
+    out = make('b1')(**data)
+    assert torch.count_nonzero(out.evidence) == 0

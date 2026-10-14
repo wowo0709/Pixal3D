@@ -17,7 +17,7 @@ from torch import nn
 from torch.nn import functional as F
 
 
-Arm = Literal["v1", "b1", "b2", "b3", "c1", "c2"]
+Arm = Literal["b1", "b2", "b3", "c1", "c2"]
 Control = Literal["normal", "source-off", "wrong-corr", "shuffled-deform"]
 
 
@@ -42,7 +42,7 @@ class _Retargeter(nn.Module):
         )
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
-        self.gate_logit = nn.Parameter(torch.zeros(()))
+        self.gate_logit = nn.Parameter(torch.ones(()))
 
     def forward(self, inputs: torch.Tensor, g_max: float) -> torch.Tensor:
         return g_max * torch.tanh(self.gate_logit) * torch.tanh(self.net(inputs))
@@ -55,12 +55,11 @@ class DeformationAwareConditioner(nn.Module):
       target_keys: ``[B,Q,Dk]``
       source_keys/source_values: ``[B,V,S,Dk|Dv]``
       source_valid: ``[B,V,S]``
-      spatial_indices (V1): ``[B,V,Q]``
       target_query (C1/C2): ``[B,Q,Dq]``
       deformation (C2 only): ``[B,Q,Ddef]``
     """
 
-    ARMS = {"v1", "b1", "b2", "b3", "c1", "c2"}
+    ARMS = {"b1", "b2", "b3", "c1", "c2"}
     CONTROLS = {"normal", "source-off", "wrong-corr", "shuffled-deform"}
 
     def __init__(
@@ -78,6 +77,8 @@ class DeformationAwareConditioner(nn.Module):
         freeze_q2c: bool = False,
     ) -> None:
         super().__init__()
+        if arm == "v1":
+            raise ValueError("V1 must use native multi-view conditioning without a transport module")
         if arm not in self.ARMS:
             raise ValueError(f"unknown deformation conditioner arm: {arm}")
         if topk <= 0:
@@ -142,7 +143,7 @@ class DeformationAwareConditioner(nn.Module):
         batch, views, sites, _ = source_keys.shape
         if target_keys.shape[0] != batch:
             raise ValueError("target/source batch differs")
-        if views * sites < self.topk and self.arm != "v1":
+        if views * sites < (1 if self.arm == "b1" else self.topk):
             raise ValueError("source candidate count is smaller than topk")
         return batch, target_keys.shape[1], views, sites
 
@@ -154,28 +155,6 @@ class DeformationAwareConditioner(nn.Module):
             2,
             indices[..., None].expand(-1, -1, -1, width),
         )
-
-    def _spatial(
-        self,
-        source_values: torch.Tensor,
-        source_valid: torch.Tensor,
-        spatial_indices: Optional[torch.Tensor],
-        queries: int,
-    ) -> DeformationCondition:
-        batch, views, sites, channels = source_values.shape
-        if spatial_indices is None or spatial_indices.shape != (batch, views, queries):
-            raise ValueError("v1 requires spatial_indices [B,V,Q]")
-        if torch.any((spatial_indices < 0) | (spatial_indices >= sites)):
-            raise ValueError("spatial index is out of range")
-        by_view = torch.gather(
-            source_values,
-            2,
-            spatial_indices[..., None].expand(-1, -1, -1, channels),
-        )
-        valid = torch.gather(source_valid, 2, spatial_indices).to(by_view.dtype)
-        denominator = valid.sum(dim=1).clamp_min(1.0)
-        evidence = (by_view * valid[..., None]).sum(dim=1) / denominator[..., None]
-        return DeformationCondition(evidence, None, None, None, None, None)
 
     def _q2c_logits(
         self,
@@ -239,7 +218,6 @@ class DeformationAwareConditioner(nn.Module):
         source_keys: Optional[torch.Tensor] = None,
         source_values: torch.Tensor,
         source_valid: torch.Tensor,
-        spatial_indices: Optional[torch.Tensor] = None,
         target_query: Optional[torch.Tensor] = None,
         deformation: Optional[torch.Tensor] = None,
         semantic_indices: Optional[torch.Tensor] = None,
@@ -249,23 +227,6 @@ class DeformationAwareConditioner(nn.Module):
     ) -> DeformationCondition:
         if control not in self.CONTROLS:
             raise ValueError(f"unknown causal control: {control}")
-        if self.arm == "v1":
-            if source_values.ndim != 4 or source_values.shape[-1] != self.value_dim:
-                raise ValueError("source_values must have shape [B,V,S,value_dim]")
-            if source_valid.shape != source_values.shape[:3] or source_valid.dtype != torch.bool:
-                raise ValueError("source_valid must be bool [B,V,S]")
-            batch, views, sites, _ = source_values.shape
-            if spatial_indices is None or spatial_indices.ndim != 3:
-                raise ValueError("v1 requires spatial_indices [B,V,Q]")
-            if spatial_indices.shape[:2] != (batch, views):
-                raise ValueError("v1 spatial indices have an invalid batch/view shape")
-            queries = spatial_indices.shape[2]
-            if control == "source-off":
-                zero = source_values.new_zeros(batch, queries, self.value_dim)
-                return DeformationCondition(zero, None, None, None, None, None)
-            if control == "wrong-corr":
-                source_values = torch.roll(source_values, shifts=1, dims=2)
-            return self._spatial(source_values, source_valid, spatial_indices, queries)
         if source_values.ndim != 4 or source_values.shape[-1] != self.value_dim:
             raise ValueError("source_values must have shape [B,V,S,value_dim]")
         if source_valid.shape != source_values.shape[:3] or source_valid.dtype != torch.bool:
@@ -323,7 +284,7 @@ class DeformationAwareConditioner(nn.Module):
         view_index = torch.div(indices, sites, rounding_mode="floor")
 
         if self.arm == "b1":
-            evidence = candidate_values[:, :, 0]
+            evidence = candidate_values[:, :, 0] * valid[:, :, 0, None]
             return DeformationCondition(evidence, indices[:, :, :1], None, None, None, None)
 
         if matching_logits is None:
@@ -342,6 +303,7 @@ class DeformationAwareConditioner(nn.Module):
                 candidate_values, 2,
                 selected[..., None].expand(-1, -1, -1, self.value_dim),
             ).squeeze(2)
+            evidence = evidence * valid.any(dim=-1, keepdim=True)
             chosen = torch.gather(indices, 2, selected)
             return DeformationCondition(evidence, chosen, logits, None, None, None)
 

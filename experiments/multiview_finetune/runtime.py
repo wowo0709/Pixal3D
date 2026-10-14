@@ -120,6 +120,13 @@ def run(self):
     self._runtime_last_row = None
     install_stop_handlers(self.output_dir)
     write_progress(self, 'running')
+    if config.get('experiment', {}).get('validate_at_start') and self.step == 0:
+        if self.is_master:
+            write_progress(self, 'validating')
+            evaluate(self)
+        if self.world_size > 1:
+            dist.barrier()
+        write_progress(self, 'running')
     return _native_run(self)
 
 

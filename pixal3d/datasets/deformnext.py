@@ -37,7 +37,7 @@ TRANSPORT_KEYS = (
 )
 
 TRANSPORT_KEYS_BY_ARM = {
-    "v1": ("source_values", "source_valid", "spatial_indices", "patch_grid", "patch_ids"),
+    "v1": (),
     "b1": ("target_keys", "source_keys", "source_values", "source_valid", "patch_grid", "patch_ids"),
     "b2": ("target_keys", "source_keys", "source_values", "source_valid", "patch_grid", "patch_ids"),
     "b3": ("target_keys", "source_keys", "source_values", "source_valid", "patch_grid", "patch_ids"),
@@ -141,6 +141,7 @@ class _DeformNeXtBase(Dataset):
         path_map: Optional[dict[str, str]],
         transport_arm: Optional[str],
         match_root: Optional[str],
+        projection_root: Optional[str],
     ) -> None:
         self.manifest_path = Path(manifest).resolve()
         self.manifest_dir = self.manifest_path.parent
@@ -151,6 +152,7 @@ class _DeformNeXtBase(Dataset):
             raise ValueError(f"unknown transport arm: {transport_arm}")
         self.transport_arm = transport_arm
         self.match_root = None if match_root is None else self._resolve(str(match_root))
+        self.projection_root = None if projection_root is None else self._resolve(str(projection_root))
         self.transport_keys = (
             TRANSPORT_KEYS if transport_arm is None else (
                 CACHED_TRANSPORT_KEYS_BY_ARM[transport_arm]
@@ -160,7 +162,7 @@ class _DeformNeXtBase(Dataset):
         self.value_range = (0, 1)
         self.instances = []
         for row in self.rows:
-            cache_fields = getattr(self, "transport_fields", ("transport_cache",))
+            cache_fields = () if transport_arm == "v1" else getattr(self, "transport_fields", ("transport_cache",))
             required = {
                 "sample_id", "split", "target_anchor", "target_anchor_kind",
                 "source_images", "camera_angle_x", "transform_matrix",
@@ -186,6 +188,8 @@ class _DeformNeXtBase(Dataset):
                 checks = [anchor, *(self._resolve(row[field]) for field in cache_fields)]
                 if self.match_root is not None and transport_arm != "v1":
                     checks.append(self.match_root / f"{row['sample_id']}.npz")
+                if self.projection_root is not None and transport_arm != "v1":
+                    checks.append(self.projection_root / f"{row['sample_id']}.npz")
                 checks += [self._resolve(p) for p in row["source_images"]]
                 missing_files = [str(p) for p in checks if not p.is_file()]
                 if missing_files:
@@ -221,6 +225,8 @@ class _DeformNeXtBase(Dataset):
             "_dataset_name": "DeformNeXt",
             "_sha256": row["sample_id"],
         }
+        if self.transport_arm == "v1":
+            return pack
         cache_fields = getattr(self, "transport_fields", ("transport_cache",))
         for cache_field in cache_fields:
             with np.load(self._resolve(row[cache_field])) as cache:
@@ -246,6 +252,12 @@ class _DeformNeXtBase(Dataset):
                     elif key == "candidate_valid":
                         tensor = tensor.bool()
                     pack[f"transport_{key}"] = tensor
+        if self.projection_root is not None:
+            with np.load(self.projection_root / f"{row['sample_id']}.npz") as cache:
+                if str(cache['schema']) != 'deformnext-anchor-projection-v2':
+                    raise ValueError('projection cache has incompatible coordinate schema')
+                key = 'patch_ids' if 'transport_cache_pbr' in self.transport_fields else 'patch_grid'
+                pack[f'transport_{key}'] = torch.from_numpy(np.asarray(cache[key])).long()
         mandatory = {"source_values", "source_valid"}
         if self.transport_arm != "v1" and self.match_root is None:
             mandatory.update(("target_keys", "source_keys"))
@@ -271,6 +283,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         path_map: Optional[dict[str, str]] = None,
         transport_arm: Optional[str] = None,
         match_root: Optional[str] = None,
+        projection_root: Optional[str] = None,
         pretrained_ss_dec: str = "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16",
         **_: Any,
     ) -> None:
@@ -287,13 +300,13 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         self._init_manifest(
             manifest, image_size=image_size, expected_split=expected_split,
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
-            match_root=match_root,
+            match_root=match_root, projection_root=projection_root,
         )
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         row = self.rows[index]
         pack = self._common(row)
-        if "transport_patch_grid" not in pack:
+        if self.transport_arm != "v1" and "transport_patch_grid" not in pack:
             raise ValueError("SS64 transport requires patch_grid")
         z = _load_array(self._resolve(row["ss_latent"]), "z")
         if self.normalization is not None:
@@ -323,6 +336,7 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
         path_map: Optional[dict[str, str]] = None,
         transport_arm: Optional[str] = None,
         match_root: Optional[str] = None,
+        projection_root: Optional[str] = None,
         attrs: Iterable[str] = ("base_color", "metallic", "roughness", "alpha"),
         **_: Any,
     ) -> None:
@@ -354,7 +368,7 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
         self._init_manifest(
             manifest, image_size=image_size, expected_split=expected_split,
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
-            match_root=match_root,
+            match_root=match_root, projection_root=projection_root,
         )
         # Match the production PBR dataset contract: assets above max_tokens are
         # excluded before sampling.  DeformNeXt manifests created before the PBR
@@ -388,9 +402,9 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
         if self.shape_slat_normalization is not None:
             shape = (shape - self.shape_slat_mean) / self.shape_slat_std
         pack.update(coords=coords, pbr_feats=pbr, shape_feats=shape)
-        if "transport_patch_ids" not in pack:
+        if self.transport_arm != "v1" and "transport_patch_ids" not in pack:
             raise ValueError("PBR1024 transport requires patch_ids")
-        if len(pack["transport_patch_ids"]) != len(coords):
+        if self.transport_arm != "v1" and len(pack["transport_patch_ids"]) != len(coords):
             raise ValueError(f"PBR patch mapping/support mismatch for {row['sample_id']}")
         return pack
 

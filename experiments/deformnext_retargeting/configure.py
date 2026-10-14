@@ -42,11 +42,12 @@ def arm_conditioner(arm: str, value_dim: int, q2c: str | None) -> dict:
 
 def build(stage: str, arm: str, args) -> dict:
     spec = STAGES[stage]
+    training_assets = (getattr(args, "pbr_training_assets", None) or args.training_assets) if stage == "pbr1024" else args.training_assets
     config = json.loads((args.base_config_root / f"{stage}.json").read_text())
     config["_comment"] = (
         f"DeformNeXt-10k retargeting arm {arm}; exact production LoRA continuation, "
         "geometry-only M1 anchor plus three textured M0 sources; Omega epoch-7 L12 "
-        "addresses and native Pixal values; five epochs on frozen 9,149 train split."
+        f"addresses and native Pixal values; five epochs on {training_assets:,} retained train assets."
     )
     config["default_output_dir"] = str(args.output_root / stage / arm)
     dataset_args = copy.deepcopy(config["dataset"]["args"])
@@ -61,12 +62,13 @@ def build(stage: str, arm: str, args) -> dict:
     )
     if arm != "v1":
         dataset_args["match_root"] = str(args.data_root / "matches")
+        dataset_args["projection_root"] = str(args.data_root / "projection_maps_v2")
     if args.file4_mirror_root is not None:
         dataset_args["path_map"] = {"/file4": str(args.file4_mirror_root)}
     config["dataset"] = {"name": spec["dataset"], "args": dataset_args}
     config["data_dir"] = str(args.data_root / "manifests/train.jsonl")
     trainer = config["trainer"]["args"]
-    updates_per_epoch = math.ceil(args.training_assets / spec["global_batch"])
+    updates_per_epoch = math.ceil(training_assets / spec["global_batch"])
     trainer.update(
         max_steps=updates_per_epoch * args.epochs,
         batch_size_per_gpu=spec["per_gpu"], batch_split=spec["batch_split"],
@@ -74,7 +76,7 @@ def build(stage: str, arm: str, args) -> dict:
             args.ss_checkpoint if stage == "ss64" else args.pbr_checkpoint
         )},
         finetune_ckpt=None, ema_rate=[], elastic=None,
-        deform_conditioner=arm_conditioner(arm, spec["value_dim"], args.q2c_checkpoint),
+        deform_conditioner=(None if arm == "v1" else arm_conditioner(arm, spec["value_dim"], args.q2c_checkpoint)),
         num_workers=args.num_workers, prefetch_data=False,
         snapshot_dataset_on_start=False, i_sample=-1,
         i_save=updates_per_epoch if stage == "ss64" else min(64, updates_per_epoch),
@@ -109,7 +111,9 @@ def build(stage: str, arm: str, args) -> dict:
     }
     config["experiment"] = {
         "dataset": "DeformNeXt-10k", "arm": arm, "epochs": args.epochs,
-        "training_assets": args.training_assets,
+        "conditioning_schema": "native-mv-anchor-frame-v2",
+        "validate_at_start": True,
+        "training_assets": training_assets,
         "updates_per_epoch": updates_per_epoch,
         "global_batch": spec["global_batch"], "world_size": spec["world_size"],
         "microbatch_per_gpu": spec["per_gpu"] // spec["batch_split"],
@@ -139,6 +143,7 @@ def main() -> None:
     parser.add_argument("--omega-checkpoint", default="/file4/youngwoo/pixal3d/omega-mixed385-20261012/runs/extension/checkpoints/step-023597.pt")
     parser.add_argument("--dino", default="/root/.cache/huggingface/hub/models--camenduru--dinov3-vitl16-pretrain-lvd1689m/snapshots/3c276edd87d6f6e569ff0c4400e086807d0f3881")
     parser.add_argument("--training-assets", type=int, default=9149)
+    parser.add_argument("--pbr-training-assets", type=int, help="PBR assets retained after max_tokens filtering")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--file4-mirror-root", type=Path)

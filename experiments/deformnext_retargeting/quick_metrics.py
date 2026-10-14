@@ -181,13 +181,37 @@ def _pbr_metrics(self, dataset, indices: list[int], config: dict[str, Any]):
         pred, gt = renders["shaded"][:count], renders["shaded"][count:]
         pred_base, gt_base = renders["base_color"][:count], renders["base_color"][count:]
         pred_alpha, gt_alpha = renders["alpha"][:count], renders["alpha"][count:]
+        foreground = (pred_alpha > 0.5) | (gt_alpha > 0.5)
+        foreground = foreground.reshape(count, 1, pred.shape[-2], pred.shape[-1])
+        foreground_rgb = foreground.expand_as(pred)
+        masked_mse = (pred - gt).square()[foreground_rgb].mean()
+        masked_base_mse = (pred_base - gt_base).square()[foreground_rgb].mean()
+        crops_pred, crops_gt = [], []
+        for index in range(count):
+            positions = foreground[index, 0].nonzero()
+            if not len(positions):
+                continue
+            top, left = positions.amin(0).tolist()
+            bottom, right = (positions.amax(0) + 1).tolist()
+            for image, crops in ((pred, crops_pred), (gt, crops_gt)):
+                crop = image[index:index+1, :, top:bottom, left:right]
+                crops.append(torch.nn.functional.interpolate(
+                    crop, (256, 256), mode='bilinear', align_corners=False))
+        if not crops_pred:
+            raise ValueError('PBR validation panel has no foreground')
+        crop_pred, crop_gt = torch.cat(crops_pred), torch.cat(crops_gt)
         metrics = {
+            "foreground_fraction": float(foreground.float().mean()),
+            "foreground_psnr": float(-10 * masked_mse.clamp_min(1e-12).log10()),
+            "foreground_base_color_psnr": float(-10 * masked_base_mse.clamp_min(1e-12).log10()),
+            "crop_ssim": float(ssim(crop_pred, crop_gt)),
+            "crop_lpips": float(lpips(crop_pred, crop_gt)),
             "render_psnr": float(psnr(pred, gt)),
             "render_ssim": float(ssim(pred, gt)),
             "render_lpips": float(lpips(pred, gt)),
             "base_color_psnr": float(psnr(pred_base, gt_base)),
             "base_color_ssim": float(ssim(pred_base, gt_base)),
-            "alpha_iou": binary_metrics(pred_alpha > 0.5, gt_alpha > 0.5)["voxel_iou"],
+            "gt_shape_conditioned_alpha_iou": binary_metrics(pred_alpha > 0.5, gt_alpha > 0.5)["voxel_iou"],
         }
         return metrics, _panel_image(pred, gt)
 
