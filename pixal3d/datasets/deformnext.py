@@ -112,8 +112,13 @@ def _load_array(path: Path, preferred: str, expected_schema: Optional[str] = Non
     return torch.from_numpy(np.asarray(array)).float()
 
 
-def _latent_arrays(path: Path) -> tuple[torch.Tensor, torch.Tensor]:
+def _latent_arrays(path: Path, expected_schema: Optional[str] = None, expected_scale: Optional[float] = None) -> tuple[torch.Tensor, torch.Tensor]:
     with np.load(path) as archive:
+        if expected_schema is not None:
+            if 'schema' not in archive or str(archive['schema']) != expected_schema:
+                raise ValueError(f'sparse latent schema mismatch: {path}')
+            if 'mesh_scale' not in archive or not np.isclose(float(archive['mesh_scale']), expected_scale, rtol=1e-5, atol=1e-6):
+                raise ValueError(f'sparse latent scale mismatch: {path}')
         coords = torch.from_numpy(np.asarray(archive["coords"])).int()
         feats = torch.from_numpy(np.asarray(archive["feats"])).float()
     if coords.ndim != 2 or coords.shape[1] not in (3, 4):
@@ -401,8 +406,9 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
     def __getitem__(self, index: int) -> dict[str, Any]:
         row = self.rows[index]
         pack = self._common(row)
-        coords, pbr = _latent_arrays(self._resolve(row["pbr_latent"]))
-        shape_coords, shape = _latent_arrays(self._resolve(row["shape_latent"]))
+        schema = row.get('latent_geometry_schema')
+        coords, pbr = _latent_arrays(self._resolve(row["pbr_latent"]), schema, row['mesh_scale'])
+        shape_coords, shape = _latent_arrays(self._resolve(row["shape_latent"]), schema, row['mesh_scale'])
         if not torch.equal(coords, shape_coords):
             raise ValueError(f"PBR/shape sparse support differs for {row['sample_id']}")
         if len(coords) > self.max_tokens:

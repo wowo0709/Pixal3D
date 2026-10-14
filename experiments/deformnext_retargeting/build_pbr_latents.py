@@ -23,6 +23,7 @@ from data_toolkit.utils import sphere_normalize_torch
 from data_toolkit.voxelize_pbr_view import prepare_pbr_dump, transform_pbr_dump
 from pixal3d import models
 from pixal3d.modules import sparse as sp
+from experiments.deformnext_retargeting.target_frame import SCHEMA, restore_dump_world
 
 
 def remap(path: str, mappings: list[tuple[str, str]]) -> Path:
@@ -32,10 +33,10 @@ def remap(path: str, mappings: list[tuple[str, str]]) -> Path:
     return Path(path)
 
 
-def atomic_latent(path: Path, feats: np.ndarray, coords: np.ndarray) -> None:
+def atomic_latent(path: Path, feats: np.ndarray, coords: np.ndarray, **metadata) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp.npz")
-    np.savez(temporary, feats=feats, coords=coords)
+    np.savez(temporary, feats=feats, coords=coords, **metadata)
     with np.load(temporary) as check:
         if check["coords"].shape[0] != check["feats"].shape[0]:
             raise ValueError("temporary PBR latent has mismatched arrays")
@@ -78,6 +79,10 @@ def encode_one(shape_encoder, pbr_encoder, row: dict, dump_root: Path, mappings)
     dump_path = dump_root / "pbr_dumps" / f"{row['sample_id']}.pickle"
     with dump_path.open("rb") as stream:
         raw_dump = pickle.load(stream)
+    metadata = {}
+    if row.get('latent_geometry_schema') == SCHEMA:
+        raw_dump = restore_dump_world(raw_dump, row)
+        metadata = {'schema': np.asarray(SCHEMA), 'mesh_scale': np.asarray(row['mesh_scale'])}
     frame = {"transform_matrix": row["transform_matrix"][0]}
     shape_output = remap(row["shape_latent"], mappings)
     if shape_output.is_file():
@@ -94,9 +99,12 @@ def encode_one(shape_encoder, pbr_encoder, row: dict, dump_root: Path, mappings)
             shape_output,
             shape_latent.feats.cpu().numpy().astype(np.float16),
             shape_coords,
+            **metadata,
         )
     dump = prepare_pbr_dump(raw_dump)
-    transformed, _ = transform_pbr_dump(dump, frame)
+    transformed, total_scale = transform_pbr_dump(dump, frame)
+    if metadata and not np.isclose(total_scale, row['mesh_scale'], rtol=1e-5, atol=1e-6):
+        raise ValueError('manifest scale does not match restored target geometry')
     coords, attrs = o_voxel.convert.blender_dump_to_volumetric_attr(
         transformed,
         grid_size=1024,
@@ -125,6 +133,7 @@ def encode_one(shape_encoder, pbr_encoder, row: dict, dump_root: Path, mappings)
         output,
         latent.feats.cpu().numpy().astype(np.float16),
         latent_coords,
+        **metadata,
     )
     return len(latent_coords)
 
@@ -140,6 +149,7 @@ def main() -> None:
     parser.add_argument("--world-size", type=int, default=1)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
+    torch.set_num_threads(4)
     torch.set_grad_enabled(False)
     mappings = [tuple(value.split("=", 1)) for value in args.path_map]
     rows = [json.loads(line) for line in args.manifest.read_text().splitlines() if line]

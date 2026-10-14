@@ -136,11 +136,69 @@ SS with `--ss-manifest-root <manifests_anchor_v3>` and
 `--ss-latent-schema deformnext-ss64-m1-anchor-v3`. The loader rejects old
 manifest/NPZ labels when that schema is required. SS restarts from the
 original mixed385 checkpoint under `runs_ss_anchor_v3`; it does not resume
-the 24 updates trained against invalid SS targets. PBR's canonical M1
-Shape1024/PBR supervision and native-v2 training remain independent.
+the 24 updates trained against invalid SS targets. The subsequent world-frame
+audit below supersedes the earlier assumption that Shape1024/PBR was aligned.
 
 `diagnose_ss.py` produces controlled diagnostics only. Its RGB oracle cases
 use target texture to test the cause and must never enter training or the
 ablation table. `build_ss_anchor_latents.py` publishes versioned labels and
 manifests only after complete encoding. The sampled audit does not prove
 perfect dataset-wide silhouette reconstruction at SS64 resolution.
+
+## Render-world audit and v4 correction
+
+The whole-dataset audit checked 9,657 assets: Shape/PBR coordinates match
+exactly, SS hashes identify the corresponding Shape support, all latent
+features are finite, and train/validation have no overlap in sample, pair,
+source UID or source cluster. Those checks prove internal consistency; they
+do not prove agreement with the original M1 rendering frame.
+
+Independent GT decoding/rendering on 32 category-stratified validation
+assets found mean Shape mask IoU 0.73376 against the original depth anchor.
+The manifest incorrectly inherited constant scale 0.96 from legacy SS.
+Correcting only scale improved the mean to 0.84224, but left substantial
+errors, including Scissors at 0.30194.
+
+The actual cause is `dump_pbr.main()` calling `normalize_scene()`: each
+deformed target is independently centered and resized before serialization.
+The builder used that normalized dump with the original cameras without
+restoring its world frame. SS anchor-v3 inherits the same discrepancy from
+Shape1024. Equal sparse support cannot detect this shared error.
+
+Restore dump vertices using the original target bounding-box center and
+maximum extent before native camera transformation and encoding. With this
+inverse transform, raw-mesh mask IoU over the same 32 assets is mean
+0.9999965, minimum 0.9999235. This verifies world-frame restoration before
+VAE reconstruction; it does not certify decoded v4 latents or full-dataset
+registration. A subsequent real encode/decode audit of the same 32 assets
+gave mean Shape mask IoU 0.9974700, minimum 0.9765059. SS decoded occupancy
+matched its pre-encoder 64³ support exactly (voxel IoU 1.0 for all 32).
+SS mask IoU against the high-resolution anchor is mean 0.8064105, minimum
+0.5114658; coarse support loses thin details despite correct registration.
+Four guided PBR attribute reconstructions were finite. These are sampled
+checks; full-cache integrity and training preflight must finish before launch.
+
+`target_frame.py` preserves immutable original dumps and material data.
+`build_world_manifests.py` writes separate pending manifests, new Shape/PBR
+paths and per-asset scales. `build_pbr_latents.py` writes schema and scale
+metadata; the PBR loader rejects mismatched schemas/scales. SS must then be
+re-encoded from the new support and semantic projection maps rebuilt using
+the new scales. Retain the original split and never condition on target RGB.
+
+Both `runs_native_v2` and `runs_ss_anchor_v3` are invalid for final results;
+the launcher rejects `INVALIDATED_GT_ALIGNMENT.json` in a run's ancestors.
+The SS step-6 and PBR step-129 checkpoints were saved before stopping and
+are diagnostic artifacts only. New experiments must start from the original
+mixed385 checkpoints, after decoded-GT, six-arm and batch checks pass again.
+
+`audit_registration.py` records full integrity checks, independent mesh
+reprojection, GT VAE reconstruction, and fixed category panels. Report
+`assets_checked: 0` explicitly denotes a rerender-only audit.
+
+`rebuild_world_cache.py` rebuilds Shape/PBR on explicitly assigned GPUs,
+then SS and semantic projection maps, audits the complete split and 32 GT
+reconstructions, and synchronizes new artifacts to file4. It never starts
+training. Its final status is `CACHE_AUDIT_PASS_TRAINING_PREFLIGHT_PENDING`.
+Fresh six-arm GPU verification, full-batch checks, a step-zero baseline and
+recounting PBR's retained token-filtered assets remain required. Original
+Shape512 export labels are not used by the SS/PBR experiment.
