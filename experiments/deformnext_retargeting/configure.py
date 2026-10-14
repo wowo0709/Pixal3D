@@ -66,7 +66,11 @@ def build(stage: str, arm: str, args) -> dict:
     if args.file4_mirror_root is not None:
         dataset_args["path_map"] = {"/file4": str(args.file4_mirror_root)}
     config["dataset"] = {"name": spec["dataset"], "args": dataset_args}
-    config["data_dir"] = str(args.data_root / "manifests/train.jsonl")
+    manifest_root = (getattr(args, "ss_manifest_root", None) if stage == "ss64" else None) or args.data_root / "manifests"
+    if stage == "ss64" and getattr(args, "ss_latent_schema", None):
+        config["dataset"]["args"]["expected_ss_schema"] = args.ss_latent_schema
+        dataset_args["expected_ss_schema"] = args.ss_latent_schema
+    config["data_dir"] = str(manifest_root / "train.jsonl")
     trainer = config["trainer"]["args"]
     updates_per_epoch = math.ceil(training_assets / spec["global_batch"])
     trainer.update(
@@ -97,7 +101,7 @@ def build(stage: str, arm: str, args) -> dict:
     config["validation"] = {
         "dataset_name": spec["dataset"],
         "dataset_args": {**dataset_args, "expected_split": "validation"},
-        "roots_file": str(args.data_root / "manifests/validation.jsonl"),
+        "roots_file": str(manifest_root / "validation.jsonl"),
         "assets_per_source": None,
         "max_assets": 32 if stage == "ss64" else 16,
         "every_steps": updates_per_epoch,
@@ -137,6 +141,8 @@ def main() -> None:
     parser.add_argument("--data-root", type=Path, default=Path("/file4/youngwoo/deformation/experiments/retargeting-v1"))
     parser.add_argument("--output-root", type=Path, default=Path("/file4/youngwoo/deformation/experiments/retargeting-v1/runs"))
     parser.add_argument("--config-root", type=Path, default=HERE / "configs")
+    parser.add_argument("--ss-manifest-root", type=Path, help="Versioned manifest directory for corrected SS supervision")
+    parser.add_argument("--ss-latent-schema", help="Required schema for SS manifest and NPZ labels")
     parser.add_argument("--q2c-checkpoint")
     parser.add_argument("--arms", nargs="+", choices=ARMS, default=list(ARMS))
     parser.add_argument("--allow-untrained-q2c", action="store_true")

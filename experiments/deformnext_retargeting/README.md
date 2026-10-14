@@ -115,3 +115,32 @@ the queue; file-server sync errors are recorded for deferred retry and do
 not discard local checkpoints. Data and generated artifacts belong outside
 Git. Model construction and decoder dependencies require the verified
 Pixal3D environment and cached pretrained weights.
+
+## SS supervision audit (anchor-v3)
+
+A controlled four-asset diagnostic found that the legacy SS labels derived
+from the exported Shape512 artifacts do not agree with the M1 anchor frame.
+Reprojecting their decoded GT gave mask IoU 0.071–0.332. Increasing sampling
+steps or replacing the depth input with target RGB did not fix the low
+scores. Re-encoding SS from the canonical M1 Shape1024 support raised GT
+mask IoU to 0.563–0.848. With the checkpoint, input images, noise and sampler
+held fixed, mean per-asset prediction IoU rose from 0.02795 to 0.30474.
+This comparison isolates a supervision/evaluation alignment error; it is
+not a fine-tuning improvement.
+
+The encoder uses binary occupancy of the canonical 64³ M1 support and the
+original pretrained SS encoder, with deterministic posterior means. It
+writes a new schema, source-coordinate hash and versioned manifests without
+overwriting original labels. Train has 9,149 assets, validation 508. Configure
+SS with `--ss-manifest-root <manifests_anchor_v3>` and
+`--ss-latent-schema deformnext-ss64-m1-anchor-v3`. The loader rejects old
+manifest/NPZ labels when that schema is required. SS restarts from the
+original mixed385 checkpoint under `runs_ss_anchor_v3`; it does not resume
+the 24 updates trained against invalid SS targets. PBR's canonical M1
+Shape1024/PBR supervision and native-v2 training remain independent.
+
+`diagnose_ss.py` produces controlled diagnostics only. Its RGB oracle cases
+use target texture to test the cause and must never enter training or the
+ablation table. `build_ss_anchor_latents.py` publishes versioned labels and
+manifests only after complete encoding. The sampled audit does not prove
+perfect dataset-wide silhouette reconstruction at SS64 resolution.

@@ -19,11 +19,14 @@ def main():
     parser.add_argument('--verification-root', type=Path, required=True)
     parser.add_argument('--log-root', type=Path, required=True)
     parser.add_argument('--master-port', type=int, required=True)
+    parser.add_argument('--label', default='native-v2')
     parser.add_argument('--arms', nargs='+', choices=ARMS, default=ARMS)
     parser.add_argument('--remote', help='user@host:/absolute/results/root')
     parser.add_argument('--ssh-control')
     parser.add_argument('--ssh-port', type=int, default=22)
     args = parser.parse_args()
+    if not args.label or any(ch not in 'abcdefghijklmnopqrstuvwxyz0123456789-' for ch in args.label):
+        raise ValueError('campaign label must contain lowercase letters, digits or hyphens')
     verification = json.loads((args.verification_root / args.stage / 'verification.json').read_text())
     if verification['status'] != 'PASS' or verification['native_denoiser_max_abs_error'] != 0:
         raise ValueError('native checkpoint GPU verification has not passed')
@@ -56,7 +59,7 @@ def main():
             selected = None
             for split in (1, 2, 4, 8):
                 bench = copy.deepcopy(cfg)
-                bench_root = args.log_root / 'memory-bench-native-v2' / f'{arm}-split{split}'
+                bench_root = args.log_root / f'memory-bench-{args.label}' / f'{arm}-split{split}'
                 bench_root.mkdir(parents=True, exist_ok=True)
                 bench['default_output_dir'] = str(bench_root)
                 bench['use_wandb'] = False
@@ -93,7 +96,7 @@ def main():
                    '--num_gpus', str(len(gpus)), '--master_port', str(args.master_port),
                    '--multiview_runtime', '--auto_retry', '0']
         print(f'Starting {args.stage}/{arm}', flush=True)
-        with (args.log_root / f'train-native-v2-{args.stage}-{arm}.log').open('ab', buffering=0) as log:
+        with (args.log_root / f'train-{args.label}-{args.stage}-{arm}.log').open('ab', buffering=0) as log:
             subprocess.run(command, env=env, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True)
         progress = json.loads((output / 'progress.json').read_text())
         if progress['stage'] != 'completed' or progress['current'] != progress['total']:
@@ -108,15 +111,15 @@ def main():
             host, directory = destination.split(':', 1)
             try:
                 subprocess.run([*ssh, host, 'mkdir -p ' + shlex.quote(directory)], check=True, timeout=15)
-                with (args.log_root / f'sync-native-v2-{args.stage}-{arm}.log').open('ab') as log:
+                with (args.log_root / f'sync-{args.label}-{args.stage}-{arm}.log').open('ab') as log:
                     subprocess.run(['rsync', '-a', '--partial', '--timeout=30', '-e', shlex.join(ssh),
                                     str(output) + '/', destination], stdout=log, stderr=log,
                                    check=True, timeout=900)
             except (subprocess.SubprocessError, OSError) as error:
-                with (args.log_root / 'sync-native-v2-deferred.log').open('a') as log:
+                with (args.log_root / f'sync-{args.label}-deferred.log').open('a') as log:
                     log.write(f'{args.stage}/{arm}: {type(error).__name__}\n')
                 print(f'Deferred file-server sync for {args.stage}/{arm}; local checkpoints retained', flush=True)
-    (args.log_root / f'campaign-native-v2-{args.stage}.done').touch()
+    (args.log_root / f'campaign-{args.label}-{args.stage}.done').touch()
 
 
 if __name__ == '__main__':

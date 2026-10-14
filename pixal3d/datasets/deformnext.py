@@ -94,11 +94,15 @@ def _load_image(path: Path, image_size: int) -> torch.Tensor:
     return rgba[..., :3].permute(2, 0, 1) * rgba[..., 3].unsqueeze(0)
 
 
-def _load_array(path: Path, preferred: str) -> torch.Tensor:
+def _load_array(path: Path, preferred: str, expected_schema: Optional[str] = None) -> torch.Tensor:
     if path.suffix == ".npy":
+        if expected_schema is not None:
+            raise ValueError("versioned SS latent requires NPZ metadata")
         array = np.load(path)
     else:
         with np.load(path) as archive:
+            if expected_schema is not None and ("schema" not in archive or str(archive["schema"]) != expected_schema):
+                raise ValueError(f"SS latent schema mismatch: {path}")
             if preferred not in archive:
                 raise KeyError(f"{path} has no {preferred!r} array")
             array = archive[preferred]
@@ -284,12 +288,14 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         transport_arm: Optional[str] = None,
         match_root: Optional[str] = None,
         projection_root: Optional[str] = None,
+        expected_ss_schema: Optional[str] = None,
         pretrained_ss_dec: str = "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16",
         **_: Any,
     ) -> None:
         Dataset.__init__(self)
         self.transport_fields = ("transport_cache",)
         self.normalization = normalization
+        self.expected_ss_schema = expected_ss_schema
         self.pretrained_ss_dec = pretrained_ss_dec
         self.ss_dec_path = None
         self.ss_dec_ckpt = None
@@ -302,13 +308,17 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
             match_root=match_root, projection_root=projection_root,
         )
+        if self.expected_ss_schema is not None:
+            for row in self.rows:
+                if row.get('ss_latent_schema') != self.expected_ss_schema:
+                    raise ValueError('SS manifest does not identify the required canonical latent schema')
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         row = self.rows[index]
         pack = self._common(row)
         if self.transport_arm != "v1" and "transport_patch_grid" not in pack:
             raise ValueError("SS64 transport requires patch_grid")
-        z = _load_array(self._resolve(row["ss_latent"]), "z")
+        z = _load_array(self._resolve(row["ss_latent"]), "z", self.expected_ss_schema)
         if self.normalization is not None:
             z = (z - self.mean) / self.std
         pack["x_0"] = z

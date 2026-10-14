@@ -145,3 +145,17 @@ def test_pbr_loader_filters_assets_above_token_limit(tmp_path):
     assert dataset.rows[0]["sample_id"] == "sample-a"
     assert dataset.filtered_over_max_tokens == 1
     assert dataset.loads == [2]
+
+
+def test_ss_canonical_schema_is_required_in_manifest_and_latent(tmp_path):
+    manifest, row = _fixture(tmp_path)
+    schema = 'deformnext-ss64-m1-anchor-v3'
+    with pytest.raises(ValueError, match='canonical latent schema'):
+        DeformNeXtSS64(str(manifest), image_size=8, transport_arm='v1', expected_ss_schema=schema)
+    row['ss_latent_schema'] = schema
+    manifest.write_text(json.dumps(row) + '\n')
+    dataset = DeformNeXtSS64(str(manifest), image_size=8, transport_arm='v1', expected_ss_schema=schema)
+    with pytest.raises(ValueError, match='schema mismatch'):
+        dataset[0]
+    np.savez(tmp_path / 'ss.npz', z=np.ones((8, 2, 2, 2), np.float32), schema=np.asarray(schema))
+    assert dataset[0]['x_0'].shape == (8, 2, 2, 2)
