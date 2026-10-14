@@ -19,7 +19,6 @@ from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
 
 from ..modules.sparse import SparseTensor
-from ..utils.data_utils import load_balanced_group_indices
 from .sparse_structure_latent import SparseStructureLatentVisMixin
 from .structured_latent_svpbr import SLatPbrVisMixin
 
@@ -130,6 +129,21 @@ def _latent_arrays(path: Path, expected_schema: Optional[str] = None, expected_s
     if feats.ndim != 2 or feats.shape[0] != coords.shape[0]:
         raise ValueError(f"coordinate/feature mismatch in {path}")
     return coords, feats
+
+
+def _bounded_load_groups(load, num_groups):
+    """Balance sparse tokens without exceeding the dense image microbatch cap."""
+    if not 1 <= num_groups <= len(load):
+        raise ValueError('accumulation groups must not exceed the asset count')
+    capacity = (len(load) + num_groups - 1) // num_groups
+    groups = [[] for _ in range(num_groups)]
+    totals = [0] * num_groups
+    for index in sorted(range(len(load)), key=lambda i: load[i], reverse=True):
+        eligible = [group for group in range(num_groups) if len(groups[group]) < capacity]
+        group = min(eligible, key=lambda group: totals[group])
+        groups[group].append(index)
+        totals[group] += load[index]
+    return groups
 
 
 class _DeformNeXtBase(Dataset):
@@ -392,7 +406,9 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
         retained = []
         for row, instance in zip(self.rows, self.instances):
             tokens = row.get("pbr_tokens")
-            if tokens is None:
+            # Versioned geometry can change sparse support cardinality. Legacy
+            # manifest counts must not decide filtering after re-encoding.
+            if tokens is None or row.get('latent_geometry_schema') is not None:
                 with np.load(self._resolve(row["pbr_latent"])) as archive:
                     tokens = len(archive["coords"])
                 row["pbr_tokens"] = int(tokens)
@@ -427,7 +443,7 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
     @staticmethod
     def collate_fn(batch: list[dict[str, Any]], split_size=None):
         groups = ([list(range(len(batch)))] if split_size is None else
-                  load_balanced_group_indices([len(item["coords"]) for item in batch], split_size))
+                  _bounded_load_groups([len(item["coords"]) for item in batch], split_size))
         outputs = []
         for group in groups:
             items = [batch[index] for index in group]

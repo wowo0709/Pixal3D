@@ -223,3 +223,27 @@ checkpoint files. Failed sync/verification retains local files. Completed
 archived arms are skipped on relaunch; resuming or extending one requires
 retrieving its checkpoint first. This keeps the six-arm queue within local
 disk capacity while preserving every saved epoch on file4.
+
+## PBR image-pack cap correction
+
+The initial world-v4 PBR V1 attempt stopped after update 28: token-only
+balancing split the next rank-1 batch into 2/6 assets, although the configured
+average microbatch was 4. NAF's dense image attention attempted a 24 GiB
+allocation on the six-image pack. Sparse token balance cannot bound that
+image memory. The collator now limits each pack to `ceil(local_batch / splits)`
+assets while balancing token load within the capacity. Regression cases
+cover the pathological 1/7 token-balanced split and real image collation.
+
+Re-encoded geometry also changes token counts; the PBR loader reads actual
+versioned NPZ support even when a manifest contains older counts. World-v4
+train/validation manifests were refreshed and synchronized to file4 with
+previous counts retained for provenance. The current counts are 9,139
+retained PBR training assets and all 508 validation assets.
+
+A three-rank two-update/save stress test on the 24 largest retained assets
+(maximum 31,900 tokens per asset) passed with 4/4 image packs on every rank;
+peak allocated was 64.46 GiB. The old attempt has `FAILED_ATTEMPT.json` and
+failed progress status. PBR restarts from the original mixed385 checkpoint
+under local `v1-cap4`, with a separate W&B ID ending `v1-cap4`, global batch
+24 and two accumulation packs. The same bounded collator applies to all
+subsequent PBR ablation arms. SS continues its existing world-v4 run.

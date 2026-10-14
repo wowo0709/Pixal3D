@@ -33,6 +33,7 @@ def main():
             with np.load(path) as archive:
                 vertices = archive['V'].copy()
         row.update(frame_metadata(vertices))
+        row.pop('pbr_tokens', None)
         normalized, _, radius = sphere_normalize_torch(torch.from_numpy(vertices).float())
         transformed = transform_mesh(normalized, {'transform_matrix': row['transform_matrix'][0]})
         row['mesh_scale_previous'] = row['mesh_scale']

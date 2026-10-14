@@ -159,3 +159,36 @@ def test_ss_canonical_schema_is_required_in_manifest_and_latent(tmp_path):
         dataset[0]
     np.savez(tmp_path / 'ss.npz', z=np.ones((8, 2, 2, 2), np.float32), schema=np.asarray(schema))
     assert dataset[0]['x_0'].shape == (8, 2, 2, 2)
+
+
+@pytest.mark.parametrize('groups,cap', [(2, 4), (4, 2), (8, 1)])
+def test_pbr_token_balancing_enforces_dense_image_asset_cap(groups, cap):
+    from pixal3d.datasets.deformnext import _bounded_load_groups
+    # Unbounded balancing puts seven tiny assets together opposite one large
+    # asset; NAF memory depends on image count, not sparse token count.
+    result = _bounded_load_groups([32768, 1, 1, 1, 1, 1, 1, 1], groups)
+    assert max(map(len, result)) == cap
+    assert sorted(index for group in result for index in group) == list(range(8))
+
+
+def test_pbr_collation_caps_real_image_packs(tmp_path):
+    manifest, _ = _fixture(tmp_path)
+    dataset = DeformNeXtPBR1024(str(manifest), image_size=8, transport_arm='v1')
+    items = [dataset[0] for _ in range(8)]
+    items[0] = dict(items[0], coords=items[0]['coords'].repeat(8, 1),
+                    pbr_feats=items[0]['pbr_feats'].repeat(8, 1), shape_feats=items[0]['shape_feats'].repeat(8, 1))
+    packs = dataset.collate_fn(items, split_size=2)
+    assert [pack['cond'].shape[0] for pack in packs] == [4, 4]
+
+
+@pytest.mark.parametrize('stale_count', [1, 9])
+def test_versioned_pbr_filter_uses_actual_reencoded_support(tmp_path, stale_count):
+    manifest, row = _fixture(tmp_path)
+    row.update(latent_geometry_schema='deformnext-m1-render-world-v4', pbr_tokens=stale_count)
+    manifest.write_text(json.dumps(row) + '\n')
+    retained = DeformNeXtPBR1024(str(manifest), transport_arm='v1', max_tokens=4)
+    assert len(retained) == 1
+    assert retained.loads == [2]
+    excluded = DeformNeXtPBR1024(str(manifest), transport_arm='v1', max_tokens=1)
+    assert len(excluded) == 0
+    assert excluded.filtered_over_max_tokens == 1
