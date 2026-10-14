@@ -169,23 +169,27 @@ def _pbr_metrics(self, dataset, indices: list[int], config: dict[str, Any]):
     count = len(predictions)
     pbr = sp.sparse_cat(predictions + targets)
     shape = sp.sparse_cat(shapes + shapes)
-    representations = dataset.decode_latent(pbr, shape, batch_size=1)
-    renders = _render_pbr_anchor(
-        dataset, representations, cameras + cameras,
-        config.get("render_resolution", 256),
-    )
-    pred, gt = renders["shaded"][:count], renders["shaded"][count:]
-    pred_base, gt_base = renders["base_color"][:count], renders["base_color"][count:]
-    pred_alpha, gt_alpha = renders["alpha"][:count], renders["alpha"][count:]
-    metrics = {
-        "render_psnr": float(psnr(pred, gt)),
-        "render_ssim": float(ssim(pred, gt)),
-        "render_lpips": float(lpips(pred, gt)),
-        "base_color_psnr": float(psnr(pred_base, gt_base)),
-        "base_color_ssim": float(ssim(pred_base, gt_base)),
-        "alpha_iou": binary_metrics(pred_alpha > 0.5, gt_alpha > 0.5)["voxel_iou"],
-    }
-    return metrics, _panel_image(pred, gt)
+    # The pretrained sparse VAEs mix FP32 boundary layers and FP16 torso
+    # convolutions. Training BF16 autocast overrides their native casts and
+    # leaves flex_gemm with mismatched convolution operands.
+    with torch.autocast("cuda", enabled=False):
+        representations = dataset.decode_latent(pbr.float(), shape.float(), batch_size=1)
+        renders = _render_pbr_anchor(
+            dataset, representations, cameras + cameras,
+            config.get("render_resolution", 256),
+        )
+        pred, gt = renders["shaded"][:count], renders["shaded"][count:]
+        pred_base, gt_base = renders["base_color"][:count], renders["base_color"][count:]
+        pred_alpha, gt_alpha = renders["alpha"][:count], renders["alpha"][count:]
+        metrics = {
+            "render_psnr": float(psnr(pred, gt)),
+            "render_ssim": float(ssim(pred, gt)),
+            "render_lpips": float(lpips(pred, gt)),
+            "base_color_psnr": float(psnr(pred_base, gt_base)),
+            "base_color_ssim": float(ssim(pred_base, gt_base)),
+            "alpha_iou": binary_metrics(pred_alpha > 0.5, gt_alpha > 0.5)["voxel_iou"],
+        }
+        return metrics, _panel_image(pred, gt)
 
 
 @torch.no_grad()
