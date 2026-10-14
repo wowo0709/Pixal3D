@@ -24,7 +24,11 @@ def main():
     parser.add_argument('--remote', help='user@host:/absolute/results/root')
     parser.add_argument('--ssh-control')
     parser.add_argument('--ssh-port', type=int, default=22)
+    parser.add_argument('--archive-checkpoints', action='store_true',
+                        help='After each completed arm, verify remote checkpoint copies before evicting local cache files.')
     args = parser.parse_args()
+    if args.archive_checkpoints and not args.remote:
+        raise ValueError('checkpoint archival requires a remote destination')
     if not args.label or any(ch not in 'abcdefghijklmnopqrstuvwxyz0123456789-' for ch in args.label):
         raise ValueError('campaign label must contain lowercase letters, digits or hyphens')
     verification = json.loads((args.verification_root / args.stage / 'verification.json').read_text())
@@ -55,6 +59,13 @@ def main():
         output.mkdir(parents=True, exist_ok=True)
         if (output / 'STOP').exists():
             raise ValueError(f'explicit STOP present: {output}')
+        if (output / 'checkpoint_archive.json').exists():
+            progress = json.loads((output / 'progress.json').read_text())
+            if (progress['stage'] == 'completed' and progress['current'] == progress['total']
+                    and progress['total'] == cfg['trainer']['args']['max_steps']):
+                print(f'Already completed and archived {args.stage}/{arm}', flush=True)
+                continue
+            raise ValueError('archived checkpoint requires retrieval before changing or resuming this run')
         # Dense semantic/adapter arms can have a different peak from V1.
         # Select the largest tested microbatch instead of extrapolating V1 VRAM.
         if args.stage == 'ss64' and arm != 'v1':
@@ -118,6 +129,28 @@ def main():
                     subprocess.run(['rsync', '-a', '--partial', '--timeout=30', '-e', shlex.join(ssh),
                                     str(output) + '/', destination], stdout=log, stderr=log,
                                    check=True, timeout=900)
+                if args.archive_checkpoints:
+                    ckpts = output / 'ckpts'
+                    cache_root = Path('/root/dev/.cache/deformnext-file4').resolve()
+                    if not ckpts.resolve().is_relative_to(cache_root) or ckpts.is_symlink():
+                        raise ValueError('only local file4 cache checkpoints may be evicted')
+                    verified = subprocess.run([
+                        'rsync', '-rnc', '--timeout=30', '--out-format=%i %n', '-e', shlex.join(ssh),
+                        str(ckpts) + '/', destination + 'ckpts/'],
+                        capture_output=True, text=True, check=True, timeout=900)
+                    if verified.stdout.strip():
+                        raise RuntimeError('remote checkpoint checksum verification differs; local copies retained')
+                    files = [path for path in ckpts.glob('*.pt') if path.is_file() and not path.is_symlink()]
+                    receipt = output / 'checkpoint_archive.json'
+                    receipt.write_text(json.dumps({
+                        'remote': destination + 'ckpts/', 'verified_by': 'rsync checksum comparison',
+                        'files': {path.name: path.stat().st_size for path in files},
+                    }, indent=2) + '\n')
+                    subprocess.run(['rsync', '-a', '--timeout=30', '-e', shlex.join(ssh),
+                                    str(receipt), destination], check=True, timeout=60)
+                    for checkpoint in files:
+                        checkpoint.unlink()
+                    print(f'Archived verified {args.stage}/{arm} checkpoints on file4', flush=True)
             except (subprocess.SubprocessError, OSError) as error:
                 with (args.log_root / f'sync-{args.label}-deferred.log').open('a') as log:
                     log.write(f'{args.stage}/{arm}: {type(error).__name__}\n')

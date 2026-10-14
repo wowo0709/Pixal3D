@@ -202,3 +202,24 @@ training. Its final status is `CACHE_AUDIT_PASS_TRAINING_PREFLIGHT_PENDING`.
 Fresh six-arm GPU verification, full-batch checks, a step-zero baseline and
 recounting PBR's retained token-filtered assets remain required. Original
 Shape512 export labels are not used by the SS/PBR experiment.
+
+## World-v4 launch preflight
+
+All four versioned caches contain 9,657 assets and were synchronized to
+file4 after the complete integrity audit passed. Re-encoding changed PBR's
+token-filtered train count to 9,139 (10 exclusions); SS retains 9,149.
+Six-arm GPU parity and backward checks passed again for both stages.
+Production-batch ten-update/save tests passed for SS microbatch 96 on GPU 0
+and PBR global batch 24 on GPUs 1–3. A second PBR test passed with two
+balanced accumulation packs per rank (average microbatch 4), peak allocated
+79.53 GiB across ranks. SS peak allocated was 87.33 GiB.
+
+New campaigns use separate `runs_world_v4` outputs and W&B IDs, initialize
+from the original mixed385 weights, validate at step zero and every epoch,
+and queue V1/B1/B2/B3/C1/C2. `--archive-checkpoints` copies a completed
+arm to file4, verifies remote checkpoint contents using rsync checksums,
+stores an archive receipt on both sides, then evicts duplicate local cache
+checkpoint files. Failed sync/verification retains local files. Completed
+archived arms are skipped on relaunch; resuming or extending one requires
+retrieving its checkpoint first. This keeps the six-arm queue within local
+disk capacity while preserving every saved epoch on file4.
