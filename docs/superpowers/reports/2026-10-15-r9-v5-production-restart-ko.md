@@ -113,3 +113,13 @@ Head에서는 미사용 GLOBAL 채널을 CPU에서 제거한 뒤 contiguous FRAM
 현재 production head run ID는 `deformnext-r9-v5-d1-head-7ep-final`, 로그는 `d1-warmup-gpu7-final.log`다. 이전 `deformnext-r9-v5-d1-head-7ep`는 초기화/전송 진단 중 100-update까지만 진행한 partial run이며 비교 결과로 취급하지 않는다. Current head/controller PID와 process-local 옵션은 `head-7epoch-launch.json`에 기록한다. GPU7 한 개로 현재 처리 속도를 확보했으며, 2-GPU 학습의 speedup은 측정하지 않았다. GPU6은 초기화 timeout 때문에 계속 제외한다.
 
 이 시점 SS/PBR B1은 모두 epoch-one quality gate를 통과하고 5-epoch 목표로 계속 진행 중이다. Head 확장 때문에 V1/B1을 재학습하거나 기존 geometry/latent를 재구축하지 않는다.
+
+## 14:50 UTC: 최종 캐시 완료와 검증 자원 변경
+
+GPU7 head는 총 7 epochs를 완료했다. 동일한 validation 508개에서 Top-1은 epoch0–7 순서로 33.88 / 44.14 / 44.53 / 47.64 / 49.58 / 51.38 / 52.51 / 53.18%이며, validation loss도 매 epoch 감소했다. 최종 epoch7로 production cache 9,657개를 모두 생성했고 실패는 0건이다.
+
+캐시 완성 후 새 GPU7 cache/online verifier를 초기화할 때 공통 NVIDIA driver lock 대기가 재발했다. SS/PBR의 마지막 update가 각각 14:44:18 / 14:44:37에서 멈추고, PBR rank들의 kernel wait가 `os_acquire_rwlock_read`, SS autograd가 `os_acquire_rwlock_write`로 관찰됐다. GPU7 verifier만 SIGTERM으로 종료하자 PBR은 14:48:21에, SS는 14:48:38에 update를 재개했다. 기존 SS/PBR 학습 process/optimizer/sampler 및 완성된 cache는 보존했다. OOM으로 진단하지 않았으며 GPU reset이나 다른 작업 종료는 하지 않았다.
+
+Controller를 `--verify-cache-on-idle-ss`로 교체했다. 완성된 cache가 동일 checkpoint hash와 전체 schema 검사를 통과하면 CUDA context를 새로 만들지 않고 재사용한다. file4에 cache를 보관한 뒤 SS B1이 완료되어 GPU0이 비면 실제 bf16 cache/online parity 검증을 수행한다. 이 검증과 stage별 native-start 검증이 통과해야 B2–C2를 실행한다. GPU7에서 동일 CUDA 초기화를 반복하지 않으며 검증을 생략하지 않는다. 기존 SS/PBR은 각각 252/480, 570/1905까지 재진행을 확인했다. 원인은 GPU7의 새 context 초기화와 연관된 driver 대기로 좁혔으며 하드웨어 고장 여부는 확정하지 않았다.
+
+직접 CPU 회귀 검사 7개가 통과했다. 새 검사는 CUDA 초기화를 금지한 상태에서 실제 cache를 읽어 current head를 허용하고 old head 및 누락 파일을 거부한다. 실행 근거는 `cache-verification-stall.json`, `pipeline-rebind-cache-recovery.json`, `pipeline-recovery-cache.log`에 보관한다.

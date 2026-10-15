@@ -86,3 +86,26 @@ def test_matching_queue_uses_only_explicit_additional_gpu_assignment():
     for bad in ('0','1,6','6,6','','all'):
         with pytest.raises(ValueError,match='unique and disjoint'):
             matching_gpus(['0'],['1','2','3'],bad)
+
+
+def test_complete_cache_can_be_checked_without_cuda_and_rejects_old_head(tmp_path, monkeypatch):
+    import numpy as np
+    import torch
+    from experiments.deformnext_retargeting.precompute_matches import SCHEMA
+    from experiments.deformnext_retargeting.run_r9_pipeline import matching_cache_checks
+    from pixal3d.modules.r9_matching import MATCHER_CONTRACT, ATTENTION_CONTRACT
+    def forbidden(*args, **kwargs):
+        raise AssertionError('completed cache validation must not initialize CUDA')
+    monkeypatch.setattr(torch.cuda, '_lazy_init', forbidden)
+    def cache(name, digest):
+        np.savez(tmp_path / f'{name}.npz', schema=SCHEMA,
+                 matcher_contract=json.dumps(MATCHER_CONTRACT),
+                 aggregation='global-categorical-v1', attention_contract=json.dumps(ATTENTION_CONTRACT),
+                 proposal_policy='GLOBAL64_VALID_OR_NATIVE', q2c_sha256=digest, topk=64,
+                 semantic_indices=np.tile(np.arange(64, dtype=np.uint16), (1024, 1)),
+                 matching_logits=np.zeros((1024, 64), dtype=np.float32),
+                 candidate_valid=np.ones((1024, 64), dtype=bool),
+                 deformation=np.zeros((1024, 2048), dtype=np.float16))
+    cache('current', 'epoch7'); cache('old', 'epoch3')
+    rows=[{'sample_id':name} for name in ('current', 'old', 'missing')]
+    assert matching_cache_checks(rows, tmp_path, 'epoch7') == [True, False, False]

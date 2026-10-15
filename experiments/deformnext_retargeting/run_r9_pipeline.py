@@ -21,6 +21,14 @@ def matching_gpus(ss, pbr, assigned):
     return result
 
 
+def matching_cache_checks(rows, root, digest):
+    """Check completed caches before allocating another CUDA context."""
+    from concurrent.futures import ThreadPoolExecutor
+    from .precompute_matches import valid_cache
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return list(pool.map(lambda row: valid_cache(root / f"{row['sample_id']}.npz", digest, 64), rows))
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--work-root',type=Path,required=True)
@@ -30,6 +38,8 @@ def main():
     p.add_argument('--ss-gpus',required=True)
     p.add_argument('--pbr-gpus',required=True)
     p.add_argument('--matching-gpus',help='Explicit additional GPUs dedicated to frozen cache preparation')
+    p.add_argument('--verify-cache-on-idle-ss',action='store_true',
+                   help='Wait for SS B1 completion, then verify cache on its assigned GPU')
     p.add_argument('--attach-running-campaigns',action='store_true',
                    help='Attach to existing stage campaign PID files without restarting their training')
     p.add_argument('--remote',required=True)
@@ -165,8 +175,14 @@ def main():
             wait_pid('pbr-memory-profile.pid')
             if not (w/'pbr-memory-profile/profile.json').exists():raise RuntimeError('PBR per-rank profile failed')
             wait_pid('baseline-pbr.pid')
-            state('matching','building_frozen_cache')
-            for rank,gpu in enumerate(mg):
+            from .precompute_matches import sha256
+            digest=sha256(checkpoint)
+            rows=[json.loads(x) for x in (w/'population.jsonl').read_text().splitlines()]
+            cache_root=b/'matches_r9_v5'
+            complete=all((cache_root/f"{row['sample_id']}.npz").is_file() for row in rows)
+            complete=complete and all(matching_cache_checks(rows,cache_root,digest))
+            state('matching','reusing_verified_cache' if complete else 'building_frozen_cache')
+            for rank,gpu in enumerate([] if complete else mg):
                 log=(w/f'match-rank{rank}.log').open('ab',buffering=0)
                 cmd=[sys.executable,'-m','experiments.deformnext_retargeting.precompute_matches','--manifest',str(w/'population.jsonl'),
                     '--q2c-checkpoint',str(checkpoint),'--output-root',str(b/'matches_r9_v5'),'--path-map','/file4='+str(args.file4_mirror_root),
@@ -175,22 +191,24 @@ def main():
             for child,log in children:
                 code=child.wait();log.close()
                 if code:raise RuntimeError(f'match worker failed: {code}')
-            from .precompute_matches import sha256,valid_cache
-            digest=sha256(checkpoint)
-            rows=[json.loads(x) for x in (w/'population.jsonl').read_text().splitlines()]
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                checks=list(pool.map(lambda row:valid_cache(b/'matches_r9_v5'/f"{row['sample_id']}.npz",digest,64),rows))
-            if not all(checks):raise RuntimeError('full matching cache integrity failed')
+            if not complete and not all(matching_cache_checks(rows,cache_root,digest)):
+                raise RuntimeError('full matching cache integrity failed')
+            remote_copy(cache_root,'matches_r9_v5');remote_copy(b/'q2c_r9_v5','q2c_r9_v5')
             categories={}
             for row in rows:
                 if row['split']=='validation':categories.setdefault(row['category'],row)
             panel=w/'verification-cache-validation.jsonl'
             panel.write_text(''.join(json.dumps(categories[k])+'\n' for k in sorted(categories)[:8]))
+            verification_gpus=mg[:1]
+            if args.verify_cache_on_idle_ss:
+                state('matching','cache_archived_waiting_for_idle_ss_verification',assets=len(rows),q2c_sha256=digest)
+                wait_pid('campaign-ss64.pid')
+                confirm_complete('ss64','b1')
+                verification_gpus=ss
+            state('matching','verifying_cache',gpus=verification_gpus)
             run(['-m','experiments.deformnext_retargeting.verify_match_cache','--config-root',str(args.baseline_config_root),
                 '--manifest',str(panel),'--match-root',str(b/'matches_r9_v5'),'--q2c-checkpoint',str(checkpoint),
-                '--output',str(w/'production-cache-parity.json')],'verify-production-cache',mg[:1])
-            remote_copy(b/'matches_r9_v5','matches_r9_v5');remote_copy(b/'q2c_r9_v5','q2c_r9_v5')
+                '--output',str(w/'production-cache-parity.json')],'verify-production-cache',verification_gpus)
             (w/'matching-ready.json').write_text(json.dumps({'status':'PASS','assets':len(rows),'q2c_sha256':digest},indent=2)+'\n')
             state('matching','ready',assets=len(rows),q2c_sha256=digest);ready.set()
         except Exception:
