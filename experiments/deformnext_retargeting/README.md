@@ -72,6 +72,27 @@ provenance. **Topology listwise supervision is a new DeformNeXt objective;
 it is distinct from the original R9 controlled RGB task loss.** Exact scorer
 reproduction does not establish a new SS/PBR generation improvement.
 
+The initial three-epoch CPU candidate reached validation Top-1 0.481319
+(RAW 0.338762) and was preserved under `q2c_r9_v5/history`. It did not include
+optimizer state. The user subsequently requested five to seven epochs; the
+current production head therefore trains a fresh, fixed-seed **seven epochs**
+on its explicitly assigned GPU. B2–C2 wait for that fixed-final checkpoint.
+Epochs 3/5/7 are compared diagnostically, without selecting a best epoch.
+Every new epoch saves weights, AdamW state and Python/NumPy/Torch/CUDA RNG.
+`--resume-state` restores a complete epoch snapshot and rejects legacy
+weight-only files or changed populations/recipes/devices. Optional
+`--wandb-project/--wandb-entity/--wandb-id/--wandb-name` enable head logging.
+For GPU head jobs, set `CUDA_DEVICE_ORDER=PCI_BUS_ID`,
+`NUMPY_MADVISE_HUGEPAGE=0` and
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` before importing NumPy/Torch.
+The head transfers only FRAME keys through pinned asynchronous buffers;
+cache preparation also pins its full FRAME+GLOBAL context. This avoids the
+observed pageable-transfer and host huge-page compaction stalls while keeping
+feature values unchanged. The actual GPU7 run measured 0.026–0.028 s/update
+over its first 500 updates (roughly 35–45 minutes for seven epochs including
+validation; preliminary estimate). Its current W&B ID is
+`deformnext-r9-v5-d1-head-7ep-final`.
+
 `train_q2c --device cpu` supports the same FP32, fixed-seed, three-epoch recipe
 without sharing a fully occupied generation GPU. GPU sharing caused severe
 warm-up starvation despite ample free memory. A 12-asset CPU probe with four
@@ -102,6 +123,10 @@ same optimizer, sampler and RNG; failure preserves the checkpoint and writes
 `PILOT_HOLD.json`. This gate does not establish a module improvement. The
 durable `run_r9_pipeline` queue attaches to B1 and runs B2/B3/C1/C2 independently
 from the original mixed385 initialization, with a shared fixed-final D1 head.
+An explicit `--matching-gpus` assignment places cache workers and cache/online
+verification on additional devices, disjoint from generation. No extra GPUs
+are selected automatically. `--attach-running-campaigns` validates the existing
+stage campaign PID files and attaches to them without relaunching training.
 The old `runs_world_v4` semantic campaign remains under `SEMANTIC_AUDIT_HOLD`.
 Its native V1 remains a valid baseline. Original invalid-geometry runs remain
 historical diagnostics and must not be resumed.

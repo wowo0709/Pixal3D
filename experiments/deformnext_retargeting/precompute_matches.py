@@ -69,8 +69,8 @@ def valid_cache(path: Path, checkpoint_hash: str, topk: int) -> bool:
 @torch.inference_mode()
 def compute(model, transport: Path, topk: int) -> dict[str, np.ndarray]:
     with np.load(transport) as cache:
-        target_context = torch.from_numpy(np.asarray(cache["target_keys"])).cuda().float()
-        source_context = torch.from_numpy(np.asarray(cache["source_keys"])).cuda().float()
+        target_context = torch.from_numpy(np.asarray(cache["target_keys"])).pin_memory().cuda(non_blocking=True).float()
+        source_context = torch.from_numpy(np.asarray(cache["source_keys"])).pin_memory().cuda(non_blocking=True).float()
         target, source = frame_raw(target_context), frame_raw(source_context)
         source_valid = torch.from_numpy(np.asarray(cache["source_valid"])).cuda().bool()
     views, sites, dim = source.shape

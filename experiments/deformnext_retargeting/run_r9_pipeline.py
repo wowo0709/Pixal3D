@@ -11,6 +11,16 @@ from pathlib import Path
 REPO=Path(__file__).resolve().parents[2]
 
 
+def matching_gpus(ss, pbr, assigned):
+    """Use additional devices only when the caller explicitly assigns them."""
+    if assigned is None:return list(pbr)
+    result=assigned.split(',')
+    if (not result or any(not gpu.isdigit() for gpu in result)
+            or len(result)!=len(set(result)) or set(result)&set(ss+pbr)):
+        raise ValueError('dedicated matching GPUs must be unique and disjoint from generation GPUs')
+    return result
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--work-root',type=Path,required=True)
@@ -19,12 +29,24 @@ def main():
     p.add_argument('--file4-mirror-root',type=Path,required=True)
     p.add_argument('--ss-gpus',required=True)
     p.add_argument('--pbr-gpus',required=True)
+    p.add_argument('--matching-gpus',help='Explicit additional GPUs dedicated to frozen cache preparation')
+    p.add_argument('--attach-running-campaigns',action='store_true',
+                   help='Attach to existing stage campaign PID files without restarting their training')
     p.add_argument('--remote',required=True)
     p.add_argument('--ssh-control',required=True)
     p.add_argument('--ssh-port',type=int,required=True)
     args=p.parse_args();w=args.work_root;b=args.data_root
     ss=args.ss_gpus.split(',');pg=args.pbr_gpus.split(',')
     if len(ss)!=1 or len(pg)!=3 or len(set(ss+pg))!=4:raise ValueError('requires disjoint explicit 1/3 GPU assignment')
+    mg=matching_gpus(ss,pg,args.matching_gpus)
+    if args.attach_running_campaigns:
+        import psutil
+        for stage in ('ss64','pbr1024'):
+            process=psutil.Process(int((w/f'campaign-{stage}.pid').read_text()))
+            command=process.cmdline()
+            if ('experiments.deformnext_retargeting.run_campaign' not in command
+                    or command[command.index('--stage')+1]!=stage):
+                raise ValueError(f'campaign PID does not belong to {stage}')
     ssh=['ssh','-S',args.ssh_control,'-p',str(args.ssh_port),'-o','BatchMode=yes','-o','ConnectTimeout=8']
     host,remote_base=args.remote.split(':',1)
     ready=threading.Event();prep_failed=threading.Event();states={};lock=threading.Lock()
@@ -34,7 +56,9 @@ def main():
             tmp=w/'pipeline-state.tmp';tmp.write_text(json.dumps(states,indent=2)+'\n');os.replace(tmp,w/'pipeline-state.json')
         print(json.dumps({key:states[key]}),flush=True)
     def env(gpus):
-        e=dict(os.environ,CUDA_VISIBLE_DEVICES=','.join(gpus),PYTHONPATH=str(REPO),ATTN_BACKEND='sdpa',OMP_NUM_THREADS='8',PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True')
+        e=dict(os.environ,CUDA_VISIBLE_DEVICES=','.join(gpus),CUDA_DEVICE_ORDER='PCI_BUS_ID',
+               PYTHONPATH=str(REPO),ATTN_BACKEND='sdpa',OMP_NUM_THREADS='8',OPENBLAS_NUM_THREADS='1',
+               NUMPY_MADVISE_HUGEPAGE='0',PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True')
         e.pop('SSHPASS',None);return e
     def run(command,name,gpus):
         with (w/(name+'.log')).open('ab',buffering=0) as log:
@@ -142,11 +166,11 @@ def main():
             if not (w/'pbr-memory-profile/profile.json').exists():raise RuntimeError('PBR per-rank profile failed')
             wait_pid('baseline-pbr.pid')
             state('matching','building_frozen_cache')
-            for rank,gpu in enumerate(pg):
+            for rank,gpu in enumerate(mg):
                 log=(w/f'match-rank{rank}.log').open('ab',buffering=0)
                 cmd=[sys.executable,'-m','experiments.deformnext_retargeting.precompute_matches','--manifest',str(w/'population.jsonl'),
                     '--q2c-checkpoint',str(checkpoint),'--output-root',str(b/'matches_r9_v5'),'--path-map','/file4='+str(args.file4_mirror_root),
-                    '--rank',str(rank),'--world-size',str(len(pg))]
+                    '--rank',str(rank),'--world-size',str(len(mg))]
                 child=subprocess.Popen(cmd,cwd=REPO,env=env([gpu]),stdout=log,stderr=subprocess.STDOUT);children.append((child,log))
             for child,log in children:
                 code=child.wait();log.close()
@@ -165,7 +189,7 @@ def main():
             panel.write_text(''.join(json.dumps(categories[k])+'\n' for k in sorted(categories)[:8]))
             run(['-m','experiments.deformnext_retargeting.verify_match_cache','--config-root',str(args.baseline_config_root),
                 '--manifest',str(panel),'--match-root',str(b/'matches_r9_v5'),'--q2c-checkpoint',str(checkpoint),
-                '--output',str(w/'production-cache-parity.json')],'verify-production-cache',pg[:1])
+                '--output',str(w/'production-cache-parity.json')],'verify-production-cache',mg[:1])
             remote_copy(b/'matches_r9_v5','matches_r9_v5');remote_copy(b/'q2c_r9_v5','q2c_r9_v5')
             (w/'matching-ready.json').write_text(json.dumps({'status':'PASS','assets':len(rows),'q2c_sha256':digest},indent=2)+'\n')
             state('matching','ready',assets=len(rows),q2c_sha256=digest);ready.set()
@@ -205,10 +229,14 @@ def main():
                 if not (root/'checkpoint_archive.json').exists():remote_copy(root,'runs_r9_v5/ss64/b1',evict=True)
                 ready.wait()
             else:
-                state(stage,'validating_ddp_with_lightweight_matching_job')
-                wait_pid('pbr-memory-profile.pid')
-                pbr_stress(w/'configs/pbr1024-b1.json','b1')
-                state(stage,'b1_running');campaign(stage,'b1',gpus,w/'verification-b1');confirm_complete(stage,'b1')
+                if args.attach_running_campaigns:
+                    state(stage,'b1_running_attached');wait_pid('campaign-pbr1024.pid')
+                else:
+                    state(stage,'validating_ddp_with_lightweight_matching_job')
+                    wait_pid('pbr-memory-profile.pid')
+                    pbr_stress(w/'configs/pbr1024-b1.json','b1')
+                    state(stage,'b1_running');campaign(stage,'b1',gpus,w/'verification-b1')
+                confirm_complete(stage,'b1')
                 ready.wait()
             if prep_failed.is_set():raise RuntimeError('matching preparation failed')
             verification=proof(stage,gpus)

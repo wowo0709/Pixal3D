@@ -67,6 +67,55 @@ def test_query_only_warmup_pruning_preserves_loss_and_parameter_gradients():
             torch.testing.assert_close(p.grad, other.grad, atol=2e-6, rtol=2e-4)
 
 
+def test_head_epoch_checkpoint_resumes_optimizer_and_all_rng_exactly(tmp_path):
+    import random
+    import numpy as np
+    from types import SimpleNamespace
+    from experiments.deformnext_retargeting import train_q2c as training
+    torch.manual_seed(53);random.seed(53)
+    model=SimpleNamespace(q2c=r9.PromotedR9Matcher())
+    optimizer=torch.optim.AdamW(model.q2c.parameters(),lr=1e-4)
+    rng=np.random.default_rng(53)
+    provenance={'schema':r9.CHECKPOINT_SCHEMA,'matcher_contract':r9.MATCHER_CONTRACT,
+                'training_objective':'topology-visible-listwise-v1','compute_device':'cpu',
+                'teacher_inputs_sha256':'same-population','seed':53}
+    def update(model,optimizer,rng):
+        q,k,raw=torch.randn(2,1024),torch.randn(2,64,1024),torch.randn(2,64)
+        selected=int(rng.integers(64));scale=1.+random.random()
+        logits=model.q2c.score_candidates(q,k,raw)
+        loss=(torch.logsumexp(logits,-1)-logits[:,selected]).mean()*scale
+        optimizer.zero_grad(set_to_none=True);loss.backward();optimizer.step()
+    update(model,optimizer,rng)
+    state=training.training_checkpoint(model,optimizer,rng,provenance,1,1,[{'epoch':1}])
+    path=tmp_path/'state.pt';training.save_atomic(state,path)
+    update(model,optimizer,rng)
+    restored=SimpleNamespace(q2c=r9.PromotedR9Matcher())
+    resumed_optimizer=torch.optim.AdamW(restored.q2c.parameters(),lr=1e-4)
+    resumed_rng=np.random.default_rng(999)
+    state=torch.load(path,map_location='cpu',weights_only=False)
+    epoch,step,history=training.restore_training(state,restored,resumed_optimizer,resumed_rng,provenance)
+    assert (epoch,step,history)==(1,1,[{'epoch':1}])
+    update(restored,resumed_optimizer,resumed_rng)
+    for a,b in zip(model.q2c.parameters(),restored.q2c.parameters()):
+        torch.testing.assert_close(a,b,rtol=0,atol=0)
+    with pytest.raises(ValueError,match='dataset, recipe or compute device'):
+        training.restore_training(state,restored,resumed_optimizer,resumed_rng,
+            dict(provenance,teacher_inputs_sha256='changed-population'))
+    with pytest.raises(ValueError,match='optimizer and RNG'):
+        training.restore_training({'q2c':{}},restored,resumed_optimizer,resumed_rng,provenance)
+
+
+def test_frame_transfer_preserves_values_and_excludes_unused_global_channels():
+    import numpy as np
+    from experiments.deformnext_retargeting.train_q2c import matching_keys_on_device
+    array=np.random.default_rng(7).normal(size=(3,5,2048)).astype(np.float16)
+    array[...,1024:]=np.nan
+    out=matching_keys_on_device(array,torch.device('cpu'))
+    assert out.shape==(3,5,1024) and out.dtype==torch.float32 and out.is_contiguous()
+    assert torch.isfinite(out).all()
+    torch.testing.assert_close(out,torch.from_numpy(array).float()[...,:1024],rtol=0,atol=0)
+
+
 def make(arm, width=6):
     return DeformationAwareConditioner(arm=arm, key_dim=1024, value_dim=width,
         query_dim=4, topk=64, **({'deformation_dim': 2048} if arm == 'c2' else {}))

@@ -79,3 +79,37 @@ CPU/CUDA 부동소수점 rounding이 bitwise 동일하다고 주장하지 않는
 사용자 제안에 따라 CPU head 학습을 보존하면서 physical GPU 0에서도 작은 head 학습 probe를 실행했다. SS micro 96이 allocator 예약 메모리를 확장한 순간 probe의 20 MiB allocation이 실패했다. 당시 GPU free는 8.75 MiB였고 SS process는 약 94.11 GiB를 점유했다. Probe 자체 PyTorch allocated는 72.12 MiB, 전체 process 점유는 744 MiB였다. **OOM은 별도 probe에서 발생했으며, SS/PBR 본 학습에는 OOM이 없고 계속 진행했다.** 단순히 head parameter 크기만으로 GPU 0 공유 가능성을 판단할 수 없다.
 
 이 시점에 CPU head는 3번째 epoch 23,900 update로 전체 작업의 대부분을 마친 상태였다. SS micro-batch나 allocator 정책을 변경하고 head를 초기화부터 GPU에서 다시 실행하는 대신, 현재 CPU fixed-final 작업의 남은 분량을 완료하도록 유지했다. PyTorch intra-op threads는 기존 4개이고, 해당 process의 모든 기존 thread에 nice 10과 낮은 I/O 우선순위(BE 7)를 적용했다. 상세 증거는 `runtime_diagnostics_r9_v5/production/gpu0-head-sharing-profile.json`에 저장한다.
+
+## 사용자 추가 할당: node17 GPU 6/7
+
+사용자가 `n17.unist.info`의 physical GPU 6/7을 추가로 할당했다. SSH로 확인한 GPU UUID 전체와 kernel boot ID가 현재 compute environment와 정확히 일치했다. 즉 기존 SS/PBR도 이미 node17 GPU 0–3에서 실행 중이며, 다른 서버로 dataset/environment를 복제할 필요가 없다. GPU 6/7의 확인 당시 free memory는 각각 약 95/89 GiB였다. 기존 다른 process를 종료하지 않는다.
+
+진행 중인 SS/PBR campaign PID를 보존한 채 lightweight pipeline controller만 교체했다. 새 controller는 `--ss-gpus 0 --pbr-gpus 1,2,3 --matching-gpus 6,7 --attach-running-campaigns`로 실행한다. Frozen matching cache의 두 worker와 cache/online parity 검증을 6/7에 배정하며, 기존 0–3의 global batch/optimizer/sampler와 학습 process는 유지한다. 추가 장치는 명시적 할당이 있을 때만 사용하고 generation GPU와 중복되지 않도록 검증한다. GPU 4/5는 사용하지 않는다.
+
+이 시점의 CPU head는 fixed-final 3 epochs의 마지막 단계였으므로 진행된 학습을 버리지 않고 완료하도록 유지한다. 이후 cache 구축부터 dedicated GPU를 사용한다. GPU 할당 및 attach 관련 직접 CPU 검사 6개가 통과했다. 실제 rebind/UUID 확인과 PID 근거는 `runtime_diagnostics_r9_v5/production/pipeline-rebind.json`에 기록한다.
+
+## GPU 초기화 실측 및 7-epoch head 예산 확장
+
+추가 cache worker의 초기화 중 NVIDIA driver 대기가 발생해 기존 SS/PBR도 약 3분 정체됐다. 추가 worker만 종료하자 즉시 진행이 재개됐다. 한 장씩 분리한 CUDA probe에서 GPU 6은 15초 timeout이 재현됐고, GPU 7은 CUDA initialization 0.573초 / process 전체 2.275초로 정상 동작했다. 따라서 GPU 6을 제외하고 **GPU 7만 matching 전용**으로 사용한다. GPU reset, 다른 process 종료 또는 다른 장치 사용은 하지 않았다. 증거는 `dedicated-gpu-serial-init.json`, `gpu-init-delay.json`이다.
+
+CPU head는 fixed-final 3 epochs / 26,940 optimizer updates를 완료했다. 전체 508개 validation의 Top-1 추이는 RAW 0.338762 → epoch1 0.441016 → epoch2 0.457355 → epoch3 0.481319다. 매 epoch 개선 중이므로 3 epochs로 수렴했다고 주장하지 않는다. CPU 작업은 이미 종료됐다.
+
+사용자가 5–7 epochs 확장을 요청해 **총 7 epochs**를 새 production head 예산으로 정했다. 이전 3-epoch file은 weight만 포함하고 AdamW/RNG 상태가 없어 정확한 이어 학습이 불가능하다. 따라서 원래 seed 42017과 같은 objective/LR 1e-4/AdamW weight decay 0.01/Top-64/teacher population으로 GPU 7에서 처음부터 7 epochs를 실행했다. 기존 3-epoch checkpoint/history는 `q2c_r9_v5/history/d1-topology-3epoch-cpu.{pt,jsonl}`에 보존했다. GPU rounding 차이 때문에 새 epoch3 결과와 CPU epoch3 결과의 bitwise 일치를 요구하지 않는다.
+
+새 head는 매 epoch full checkpoint(`d1-topology-final.epoch-XXXX.pt`)와 latest training state를 저장한다. Weight/optimizer 및 Python/NumPy/Torch/CUDA RNG를 함께 복원하는 `--resume-state`를 구현했으며, 실제 AdamW 두 번째 update의 parameter equality를 통해 interrupted/uninterrupted CPU 실행이 정확히 같음을 검증했다. 잘못된 데이터 hash/device/recipe와 이전 weight-only file의 resume는 거부한다. 관련 CPU 회귀 검사 90개가 통과했다.
+
+Epoch3/5/7의 동일 508개 validation 경향을 비교하되, production weight는 사전에 정한 **epoch7 final**로 고정한다. 이 weight가 완성되고 hash/actual native-start/cache-online 검증이 통과한 뒤 B2–C2가 같은 head를 사용한다. SS/PBR B1은 head를 쓰지 않으므로 계속 학습한다. 기존 head3의 partial cache 24개는 새 weight hash와 다르므로 production으로 사용할 수 없으며 재구축한다.
+
+Head도 W&B `youngwoojeon-unist/pixal3d-deformnext-retargeting`, run `deformnext-r9-v5-d1-head-7ep`에 loss/속도/전체 validation을 기록하도록 설정했다. 학습 체크포인트를 file4에 2분 간격으로 동기화한다. 재실행/할당 근거는 `head-7epoch-launch.json`, `pipeline-rebind.json`, `head-storage-state.json`에 보관한다. GPU 한 개가 메모리에는 충분하지만 2-GPU throughput보다 빠르다는 검증은 하지 않았다. 현재 한 개를 쓰는 직접 이유는 GPU 6의 초기화 실패다.
+
+## GPU7 head 실제 학습 속도 및 최종 실행
+
+GPU7의 작은 CUDA probe만으로 실제 학습 성능을 보장할 수 없었다. 실제 descriptor transfer/NPZ 읽기에서 system CPU time이 크게 늘어 초기 validation과 head update가 느려졌다. 신호 기반 Python stack dump로 source-key 전송과 NumPy array 읽기 구간을 구분했고, 서버의 THP compaction stall 누적도 확인했다. Global kernel 설정이나 다른 process를 변경하지 않았다.
+
+Head에서는 미사용 GLOBAL 채널을 CPU에서 제거한 뒤 contiguous FRAME 값만 pinned asynchronous H2D로 전송한다. Frozen cache의 C2용 FRAME+GLOBAL 값은 그대로 유지하되 전송 버퍼를 pin한다. 같은 첫 두 실제 validation sample의 loss는 변경 전후 정확히 같았다(3.8141326904, 3.5824522972). 첫 12개 중 warm-up을 제외한 평가 평균은 약 0.021초였다. CPU 회귀 검사에는 FRAME 값 equality, GLOBAL NaN의 배제, optimizer/RNG exact resume를 포함했고 총 **91개가 통과**했다.
+
+또한 해당 process에만 `NUMPY_MADVISE_HUGEPAGE=0`을 설정해 큰 NumPy 임시 배열의 huge-page compaction 경로를 피했다. 장치 순서는 `CUDA_DEVICE_ORDER=PCI_BUS_ID`, allocator는 검증된 `expandable_segments:True`를 쓴다. NumPy 옵션 변경 전 첫 100-update 평균은 1.0922초였고, 변경 후 같은 seed의 첫 100-update loss가 정확히 같은 상태에서 평균 0.02837초였다. 이후 100-update 구간은 0.02583 / 0.02533 / 0.02780 / 0.02732초다. 즉 실제 backward/optimizer까지 포함해 **약 36–39 updates/s**를 확인했다. 최초 500 update 기준 total seven epochs는 평가/저장 포함 약 35–45분으로 추산한다. 아직 완료 시간이 측정된 것은 아니다.
+
+현재 production head run ID는 `deformnext-r9-v5-d1-head-7ep-final`, 로그는 `d1-warmup-gpu7-final.log`다. 이전 `deformnext-r9-v5-d1-head-7ep`는 초기화/전송 진단 중 100-update까지만 진행한 partial run이며 비교 결과로 취급하지 않는다. Current head/controller PID와 process-local 옵션은 `head-7epoch-launch.json`에 기록한다. GPU7 한 개로 현재 처리 속도를 확보했으며, 2-GPU 학습의 speedup은 측정하지 않았다. GPU6은 초기화 timeout 때문에 계속 제외한다.
+
+이 시점 SS/PBR B1은 모두 epoch-one quality gate를 통과하고 5-epoch 목표로 계속 진행 중이다. Head 확장 때문에 V1/B1을 재학습하거나 기존 geometry/latent를 재구축하지 않는다.

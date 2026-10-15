@@ -77,3 +77,12 @@ def test_raw_b1_bounded_pilot_does_not_require_teacher_or_frozen_head():
     cfg['trainer']['args']['max_steps']=480
     with pytest.raises(ValueError,match='bounded to one epoch'):
         run_campaign.require_semantic_release(cfg,proof)
+
+
+def test_matching_queue_uses_only_explicit_additional_gpu_assignment():
+    from experiments.deformnext_retargeting.run_r9_pipeline import matching_gpus
+    assert matching_gpus(['0'],['1','2','3'],None)==['1','2','3']
+    assert matching_gpus(['0'],['1','2','3'],'6,7')==['6','7']
+    for bad in ('0','1,6','6,6','','all'):
+        with pytest.raises(ValueError,match='unique and disjoint'):
+            matching_gpus(['0'],['1','2','3'],bad)

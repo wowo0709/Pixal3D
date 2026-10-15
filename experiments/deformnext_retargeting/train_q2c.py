@@ -6,9 +6,13 @@ controlled RGB training loss. No spatial pseudo-label fallback is permitted.
 """
 from __future__ import annotations
 import argparse
+import faulthandler
 import hashlib
 import json
 import os
+import random
+import signal
+import time
 from pathlib import Path
 import numpy as np
 import torch
@@ -16,6 +20,44 @@ from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
 from pixal3d.modules.r9_matching import CHECKPOINT_SCHEMA, MATCHER_CONTRACT, frame_raw, frame_topk
 from .precompute_matches import remap
 from .topology_labels import SCHEMA as LABEL_SCHEMA, fingerprint
+
+TRAINING_STATE_SCHEMA = 'deformnext-r9-d1-training-v1'
+
+
+def cpu_tree(value):
+    if isinstance(value,torch.Tensor):return value.detach().cpu().clone()
+    if isinstance(value,dict):return {key:cpu_tree(item) for key,item in value.items()}
+    if isinstance(value,list):return [cpu_tree(item) for item in value]
+    if isinstance(value,tuple):return tuple(cpu_tree(item) for item in value)
+    return value
+
+
+def training_checkpoint(model,optimizer,rng,provenance,epoch,step,history):
+    return {**provenance,'training_state_schema':TRAINING_STATE_SCHEMA,
+            'q2c':cpu_tree(model.q2c.state_dict()),'optimizer':cpu_tree(optimizer.state_dict()),
+            'epochs':epoch,'steps':step,'validation':history,
+            'numpy_rng_state':rng.bit_generator.state,'torch_rng_state':torch.get_rng_state(),
+            'python_rng_state':random.getstate(),
+            'cuda_rng_states':torch.cuda.get_rng_state_all() if provenance['compute_device']=='cuda' else None}
+
+
+def restore_training(checkpoint,model,optimizer,rng,provenance):
+    if checkpoint.get('training_state_schema')!=TRAINING_STATE_SCHEMA:
+        raise ValueError('exact resume requires optimizer and RNG state; legacy head weights cannot resume')
+    if any(checkpoint.get(key)!=value for key,value in provenance.items()):
+        raise ValueError('head resume dataset, recipe or compute device differs')
+    model.q2c.load_checkpoint(checkpoint)
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    rng.bit_generator.state=checkpoint['numpy_rng_state']
+    torch.set_rng_state(checkpoint['torch_rng_state'])
+    random.setstate(checkpoint['python_rng_state'])
+    if provenance['compute_device']=='cuda':torch.cuda.set_rng_state_all(checkpoint['cuda_rng_states'])
+    return checkpoint['epochs'],checkpoint['steps'],checkpoint['validation']
+
+
+def save_atomic(checkpoint,path):
+    tmp=path.with_name(f'.{path.name}.{os.getpid()}.tmp')
+    torch.save(checkpoint,tmp);os.replace(tmp,path)
 
 
 def topology_listwise_loss(logits, indices, candidate_valid, positives, visible):
@@ -38,11 +80,19 @@ def topology_listwise_loss(logits, indices, candidate_valid, positives, visible)
                   'proposal_misses': int((observable & ~eligible).sum()), 'null_queries': int((~observable).sum())}
 
 
+def matching_keys_on_device(array,device):
+    # GLOBAL channels are unused by this head. Slice before the transfer;
+    # explicitly pinned host storage avoids pageable-transfer staging stalls.
+    keys=frame_raw(torch.from_numpy(array)).contiguous()
+    if device.type=='cuda':keys=keys.pin_memory().to(device,non_blocking=True)
+    return keys.to(device=device,dtype=torch.float32)
+
+
 def loss_for_cache(model, path, label_path, *, sample_id, split, topk=64):
     device = next(model.parameters()).device
     with np.load(path) as cache:
-        target = frame_raw(torch.from_numpy(cache['target_keys'].copy()).to(device).float())
-        source = frame_raw(torch.from_numpy(cache['source_keys'].copy()).to(device).float())
+        target = matching_keys_on_device(cache['target_keys'],device)
+        source = matching_keys_on_device(cache['source_keys'],device)
         valid = torch.from_numpy(cache['source_valid'].copy()).to(device).bool()
     with np.load(label_path) as label:
         if (str(label['schema']) != LABEL_SCHEMA or str(label['sample_id']) != sample_id
@@ -100,8 +150,15 @@ def main():
     parser.add_argument('--seed', type=int, default=42017)
     parser.add_argument('--device', choices=['cuda','cpu'], default='cuda',
                         help='CPU avoids starvation when generation DDP occupies the GPU')
+    parser.add_argument('--resume-state',type=Path,help='Complete epoch checkpoint including optimizer and RNG')
+    parser.add_argument('--wandb-project')
+    parser.add_argument('--wandb-entity')
+    parser.add_argument('--wandb-id')
+    parser.add_argument('--wandb-name')
     args = parser.parse_args()
-    torch.set_num_threads(4); torch.manual_seed(args.seed)
+    faulthandler.register(signal.SIGUSR1,all_threads=True)
+    print(json.dumps({'phase':'input_provenance','device':args.device,'epochs':args.epochs}),flush=True)
+    torch.set_num_threads(4); torch.manual_seed(args.seed);random.seed(args.seed)
     mappings = [tuple(v.split('=', 1)) for v in args.path_map]
     resolve = lambda path: remap(path, mappings)
     rows = [json.loads(line) for line in args.manifest.read_text().splitlines() if line]
@@ -118,15 +175,36 @@ def main():
         with np.load(args.label_root / f"{row['sample_id']}.npz") as label:
             if str(label['input_sha256']) != digest: raise ValueError('stale topology teacher input hash')
         input_hashes.append(digest)
+    print(json.dumps({'phase':'model_to_device','device':args.device}),flush=True)
     model = DeformationAwareConditioner(arm='b2', key_dim=1024, value_dim=1024, query_dim=1024).to(args.device)
     optimizer = torch.optim.AdamW(model.q2c.parameters(), lr=args.lr, weight_decay=.01)
     rng = np.random.default_rng(args.seed)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     events = args.output.with_suffix('.jsonl')
-    history = [{'epoch': 0, 'validation': evaluate(model, validation, mappings, args.label_root)}]
-    print(json.dumps(history[0]), flush=True)
-    step = 0
-    for epoch in range(1, args.epochs+1):
+    provenance={'schema':CHECKPOINT_SCHEMA,'matcher_contract':MATCHER_CONTRACT,
+                'training_objective':'topology-visible-listwise-v1','teacher_schema':LABEL_SCHEMA,
+                'teacher_inputs_sha256':hashlib.sha256(''.join(input_hashes).encode()).hexdigest(),
+                'seed':args.seed,'compute_device':args.device,'torch_num_threads':torch.get_num_threads(),
+                'train_samples':len(rows),'validation_samples':len(validation),'learning_rate':args.lr}
+    start_epoch=step=0
+    if args.resume_state:
+        state=torch.load(args.resume_state,map_location='cpu',weights_only=False)
+        start_epoch,step,history=restore_training(state,model,optimizer,rng,provenance)
+        if start_epoch>args.epochs:raise ValueError('requested total epochs precedes resume checkpoint')
+        print(json.dumps({'resumed_from':str(args.resume_state),'completed_epochs':start_epoch,'step':step}),flush=True)
+    else:
+        print(json.dumps({'phase':'initial_validation','samples':len(validation)}),flush=True)
+        history=[{'epoch':0,'validation':evaluate(model,validation,mappings,args.label_root)}]
+        print(json.dumps(history[0]),flush=True)
+    run=None
+    if args.wandb_project:
+        import wandb
+        run=wandb.init(project=args.wandb_project,entity=args.wandb_entity,id=args.wandb_id,
+                       name=args.wandb_name,resume='allow',dir=str(args.output.parent),
+                       config={**provenance,'total_epochs':args.epochs,'topk':args.topk})
+        if not start_epoch:run.log({f'val/{k}':v for k,v in history[0]['validation'].items()},step=0)
+    last_log_time=time.monotonic();last_log_step=step
+    for epoch in range(start_epoch+1, args.epochs+1):
         for index in rng.permutation(len(rows)):
             row = rows[int(index)]
             loss, counts = loss_for_cache(model, resolve(row['transport_cache']),
@@ -137,21 +215,24 @@ def main():
             torch.nn.utils.clip_grad_norm_(model.q2c.parameters(), 1.)
             optimizer.step(); step += 1
             if step % 100 == 0:
-                print(json.dumps({'step':step,'epoch':epoch,'loss':float(loss.detach()),**counts}),flush=True)
+                elapsed=time.monotonic()-last_log_time
+                record={'step':step,'epoch':epoch,'loss':float(loss.detach()),**counts,
+                        'seconds_per_update':elapsed/(step-last_log_step)}
+                print(json.dumps(record),flush=True)
+                if run is not None:run.log({**{f'train/{k}':v for k,v in record.items() if k not in {'step','epoch'}},'epoch':epoch},step=step)
+                last_log_time=time.monotonic();last_log_step=step
         record = {'epoch': epoch, 'validation': evaluate(model, validation, mappings, args.label_root)}
         history.append(record); print(json.dumps(record), flush=True)
         events.write_text(''.join(json.dumps(x)+'\n' for x in history))
+        state=training_checkpoint(model,optimizer,rng,provenance,epoch,step,history)
+        save_atomic(state,args.output.with_name(f'{args.output.stem}.epoch-{epoch:04d}.pt'))
+        save_atomic(state,args.output.with_name(f'{args.output.stem}.training-state.pt'))
+        if run is not None:run.log({**{f'val/{k}':v for k,v in record['validation'].items()},'epoch':epoch},step=step)
+        last_log_time=time.monotonic();last_log_step=step
     # Fixed final update follows the original checkpoint selection rule. No
     # best-epoch selection on deformation validation metrics.
-    tmp = args.output.with_name(f'.{args.output.name}.{os.getpid()}.tmp')
-    torch.save({'schema': CHECKPOINT_SCHEMA, 'matcher_contract': MATCHER_CONTRACT,
-                'training_objective': 'topology-visible-listwise-v1',
-                'teacher_schema': LABEL_SCHEMA, 'teacher_inputs_sha256': hashlib.sha256(''.join(input_hashes).encode()).hexdigest(),
-                'q2c': {k: v.detach().cpu() for k, v in model.q2c.state_dict().items()},
-                'epochs': args.epochs, 'steps': step, 'seed': args.seed, 'validation': history,
-                'compute_device': args.device, 'torch_num_threads': torch.get_num_threads(),
-                'train_samples': len(rows), 'validation_samples': len(validation)}, tmp)
-    os.replace(tmp, args.output)
+    save_atomic(training_checkpoint(model,optimizer,rng,provenance,args.epochs,step,history),args.output)
+    if run is not None:run.finish()
 
 
 if __name__ == '__main__': main()
