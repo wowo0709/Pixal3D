@@ -56,6 +56,8 @@ def main():
         for root in (output, output.parent, output.parent.parent):
             if (root / 'INVALIDATED_GT_ALIGNMENT.json').exists():
                 raise ValueError(f'GT alignment invalidation blocks this run: {root}')
+            if arm != 'v1' and (root / 'SEMANTIC_AUDIT_HOLD.json').exists():
+                raise ValueError(f'semantic implementation audit hold blocks this run: {root}')
         output.mkdir(parents=True, exist_ok=True)
         if (output / 'STOP').exists():
             raise ValueError(f'explicit STOP present: {output}')
