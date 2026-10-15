@@ -72,6 +72,14 @@ provenance. **Topology listwise supervision is a new DeformNeXt objective;
 it is distinct from the original R9 controlled RGB task loss.** Exact scorer
 reproduction does not establish a new SS/PBR generation improvement.
 
+`train_q2c --device cpu` supports the same FP32, fixed-seed, three-epoch recipe
+without sharing a fully occupied generation GPU. GPU sharing caused severe
+warm-up starvation despite ample free memory. A 12-asset CPU probe with four
+threads averaged 0.127 s/update over its last ten updates. Checkpoints record
+the compute device; CPU and CUDA rounding need not be bit-identical. The
+production frozen weight still receives actual cache/online and native-start
+verification before B2–C2 run.
+
 Full construction certified 9,650 teachers: 9,142 train and all 508 validation.
 Seven train rows failed the unchanged raster-agreement criterion and are
 recorded explicitly; only head supervision excludes them. Main SS/PBR training

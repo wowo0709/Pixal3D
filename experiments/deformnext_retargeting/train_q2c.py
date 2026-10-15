@@ -98,6 +98,8 @@ def main():
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--topk', type=int, choices=[64], default=64)
     parser.add_argument('--seed', type=int, default=42017)
+    parser.add_argument('--device', choices=['cuda','cpu'], default='cuda',
+                        help='CPU avoids starvation when generation DDP occupies the GPU')
     args = parser.parse_args()
     torch.set_num_threads(4); torch.manual_seed(args.seed)
     mappings = [tuple(v.split('=', 1)) for v in args.path_map]
@@ -116,7 +118,7 @@ def main():
         with np.load(args.label_root / f"{row['sample_id']}.npz") as label:
             if str(label['input_sha256']) != digest: raise ValueError('stale topology teacher input hash')
         input_hashes.append(digest)
-    model = DeformationAwareConditioner(arm='b2', key_dim=1024, value_dim=1024, query_dim=1024).cuda()
+    model = DeformationAwareConditioner(arm='b2', key_dim=1024, value_dim=1024, query_dim=1024).to(args.device)
     optimizer = torch.optim.AdamW(model.q2c.parameters(), lr=args.lr, weight_decay=.01)
     rng = np.random.default_rng(args.seed)
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -147,6 +149,7 @@ def main():
                 'teacher_schema': LABEL_SCHEMA, 'teacher_inputs_sha256': hashlib.sha256(''.join(input_hashes).encode()).hexdigest(),
                 'q2c': {k: v.detach().cpu() for k, v in model.q2c.state_dict().items()},
                 'epochs': args.epochs, 'steps': step, 'seed': args.seed, 'validation': history,
+                'compute_device': args.device, 'torch_num_threads': torch.get_num_threads(),
                 'train_samples': len(rows), 'validation_samples': len(validation)}, tmp)
     os.replace(tmp, args.output)
 

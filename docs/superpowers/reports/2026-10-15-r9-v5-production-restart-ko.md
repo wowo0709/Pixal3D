@@ -65,3 +65,11 @@ SS B1의 실제 step-zero quick panel은 voxel IoU 0.4519056615로 native V1과 
 실제 compute는 기존 local file4 mirror를 사용한다. 파일서버로 2분 간격 동기화하며, 완성된 checkpoint의 remote checksum을 확인한 후에만 local cache를 비운다. 파일서버 sync 실패 시 local artifact를 유지한다. 학습용 원본 weight나 유일한 결과를 삭제하지 않는다.
 
 로컬 controller/evidence root는 `/root/dev/.cache/deformnext-retargeting/production-r9-v5`다. `pipeline-state.json`, `pipeline.log`, `storage-state.json`, `d1-warmup.log`, stage별 campaign log와 실제 run의 `progress.json`으로 상태를 확인한다.
+
+## 후속 실행 점검: matching head의 GPU 공유 병목
+
+본 학습은 SS 96 update(첫 epoch)와 PBR 150 update 이상까지 OOM/NaN 없이 진행했다. 한편 GPU 2의 PBR rank가 연산을 계속 점유하면서 D1 warm-up은 약 100 update에 수 분 이상 걸리는 수준으로 느려졌다. 메모리 여유만으로 공유 실행이 효율적이라고 판단한 것은 잘못이었다.
+
+같은 실제 teacher/cache 12개를 CPU 4 threads에서 profile한 결과, 마지막 10 update 평균은 0.12668초였다. 따라서 SS/PBR 프로세스와 global batch는 그대로 두고, D1만 CPU에서 동일 seed 42017 / fixed-final 3 epochs recipe로 다시 실행했다. 이전 GPU head process는 fallback으로 일시 정지했다. CPU 작업 성공 및 기본 checkpoint/accuracy 검증 후에만 final 경로에 atomic publish하고 이전 GPU process를 종료한다. CPU 실행 실패 시 기존 GPU process를 재개한다. 이 전환은 `head-device-transition.json`, `d1-warmup-cpu.log`에 기록한다.
+
+CPU/CUDA 부동소수점 rounding이 bitwise 동일하다고 주장하지 않는다. 최종 CPU head에 대해서도 기존 queue의 frozen-weight hash, cache/online parity 및 native-start 검증을 다시 통과해야 B2–C2가 실행된다. `train_q2c`의 device 선택 지원과 직접 관련된 R9 CPU 회귀 검사 28개가 통과했다.
