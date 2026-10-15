@@ -1,5 +1,6 @@
 """Stage-local runtime hooks installed in every native spawned worker."""
 import json
+import math
 import os
 from pathlib import Path
 import resource
@@ -61,6 +62,15 @@ def run_step(self, packs):
     start = controller._buffer_ptr if controller is not None else None
     result = _native_step(self, packs)
     torch.cuda.synchronize()
+    module=getattr(self,'deform_conditioner',None)
+    if module is not None and getattr(module,'implementation',None)=='r9-native-v5':
+        diagnostics={'fusion_gate':float(torch.tanh(module.fusion_gate.detach()))}
+        last=getattr(self,'_last_deform_condition',None)
+        if last is not None and last.query_valid is not None:
+            diagnostics['query_coverage_last_pack']=float(last.query_valid.float().mean())
+        if last is not None and last.retarget_residual is not None:
+            diagnostics['retarget_residual_rms_last_pack']=float(last.retarget_residual.detach().float().square().mean().sqrt())
+        result['conditioner']=diagnostics
     peak = torch.cuda.max_memory_allocated() / 2**30
     if controller is not None:
         peak = max(peak, *(float(controller._memory[(start + i) % controller.buffer_size])
@@ -72,6 +82,7 @@ def run_step(self, packs):
            'load_seconds': self._load_seconds, 'compute_seconds': time.monotonic() - began,
            'peak_allocated_gib': peak, 'reserved_gib': torch.cuda.memory_reserved() / 2**30,
            'lr_next_update': self.optimizer.param_groups[0]['lr'], 'loss': result['loss']}
+    if 'conditioner' in result:row['conditioner']=result['conditioner']
     name = 'runtime_batch.jsonl' if self.is_master else f'runtime_batch.rank{self.rank}.jsonl'
     with Path(self.output_dir, name).open('a') as output:
         output.write(json.dumps(row) + '\n')
@@ -107,6 +118,42 @@ def check_abort(self):
             evaluate(self)
         if self.world_size > 1:
             dist.barrier()
+    if final and not stop and getattr(self,'_runtime_config',{}).get('experiment',{}).get('auto_continue_after_pilot'):
+        config=self._runtime_config
+        extension=0
+        if self.is_master:
+            from experiments.deformnext_retargeting.pilot import review
+            records=[json.loads(line) for line in (Path(self.output_dir)/'validation.jsonl').read_text().splitlines()]
+            baseline_path=config['experiment'].get('pilot_baseline_file')
+            baseline=None
+            if baseline_path:
+                path=Path(baseline_path)
+                if path.suffix=='.jsonl':
+                    baseline=next(json.loads(x) for x in path.read_text().splitlines() if json.loads(x)['step']==self.step)
+                else:baseline=json.loads(path.read_text())
+            verdict=review(config,records,baseline)
+            gate=getattr(getattr(self,'deform_conditioner',None),'fusion_gate',None)
+            if gate is not None:
+                verdict['fusion_gate']=float(torch.tanh(gate.detach()))
+                verdict['passed']=verdict['passed'] and math.isfinite(verdict['fusion_gate']) and verdict['fusion_gate']!=0
+            (Path(self.output_dir)/'pilot_review.json').write_text(json.dumps(verdict,indent=2)+'\n')
+            if verdict['passed']:
+                extension=config['experiment']['planned_total_steps']
+                config['experiment'].update(release_status='pilot-validated',auto_continue_after_pilot=False)
+                config['trainer']['args']['max_steps']=extension
+                for target in (Path(self.output_dir)/'config.json',Path(config['experiment']['recipe_path'])):
+                    temporary=target.with_suffix('.pilot.tmp')
+                    temporary.write_text(json.dumps(config,indent=2)+'\n');os.replace(temporary,target)
+                if self.wandb_run is not None:
+                    self.wandb_run.config.update({'pilot_passed':True,'planned_total_steps':extension},allow_val_change=True)
+                print(f'PILOT PASSED: continuing to {extension} updates in the same process',flush=True)
+            else:
+                (Path(self.output_dir)/'PILOT_HOLD.json').write_text(json.dumps(verdict,indent=2)+'\n')
+        if self.world_size>1:
+            value=torch.tensor(extension,device=self.device,dtype=torch.long);dist.broadcast(value,src=0);extension=int(value)
+        if extension:
+            self.max_steps=self._runtime_total_steps=extension
+            final=False
     if stop:
         self.max_steps = self.step
     write_progress(self, 'stopped' if stop else 'completed' if final else 'running')
@@ -114,7 +161,16 @@ def check_abort(self):
 
 def run(self):
     config = json.loads(Path(self.output_dir, 'config.json').read_text())
+    policy_path=Path(self.output_dir)/'PILOT_POLICY.json'
+    if policy_path.exists():
+        policy=json.loads(policy_path.read_text())
+        if self.step<policy['pilot_steps']:
+            if (self.max_steps!=policy['pilot_steps']
+                    or policy['planned_total_steps']!=config['experiment']['planned_total_steps']):
+                raise ValueError('pilot continuation policy differs from the verified recipe')
+            config['experiment'].update(policy)
     self._runtime_total_steps = self.max_steps
+    self._runtime_config = config
     self._runtime_validation_every = config['validation'].get('every_steps', self.i_save)
     self._runtime_checkpoint_step = self.step if self.step else None
     self._runtime_last_row = None

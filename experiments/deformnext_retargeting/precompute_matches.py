@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
-from pixal3d.modules.r9_matching import MATCHER_CONTRACT, frame_raw, frame_topk
+from pixal3d.modules.r9_matching import MATCHER_CONTRACT, ATTENTION_CONTRACT, frame_raw, frame_topk, categorical_weights
 
 
 SCHEMA = "deformnext-match-r9-v5"
@@ -47,6 +47,7 @@ def valid_cache(path: Path, checkpoint_hash: str, topk: int) -> bool:
                 str(cache["schema"]) == SCHEMA
                 and json.loads(str(cache['matcher_contract'])) == MATCHER_CONTRACT
                 and str(cache['aggregation']) == 'global-categorical-v1'
+                and json.loads(str(cache['attention_contract'])) == ATTENTION_CONTRACT
                 and str(cache['proposal_policy']) == 'GLOBAL64_VALID_OR_NATIVE'
                 and str(cache["q2c_sha256"]) == checkpoint_hash
                 and int(cache["topk"]) == topk
@@ -79,12 +80,10 @@ def compute(model, transport: Path, topk: int) -> dict[str, np.ndarray]:
     valid = torch.isfinite(cosine)
     candidates = flat[indices]
     logits = model._q2c_logits(
-        target[None], candidates[None], cosine.nan_to_num(-1.0)[None]
+        target[None], candidates[None], cosine.nan_to_num(nan=-1.0,posinf=-1.0,neginf=-1.0)[None]
     ).squeeze(0).masked_fill(~valid, -torch.inf)
 
-    stable = logits - logits.amax(dim=-1, keepdim=True).clamp(min=-1e4)
-    exponent = torch.exp(stable).masked_fill(~valid, 0.0)
-    combined = exponent / exponent.sum(-1, keepdim=True).clamp_min(1e-8)
+    combined=categorical_weights(logits,valid)
     source_summary = (source_context.flatten(0, 1)[indices] * combined[..., None]).sum(dim=1)
     deformation = target_context - source_summary
     return {
@@ -129,6 +128,7 @@ def main() -> None:
                 temporary, schema=np.asarray(SCHEMA),
                 matcher_contract=np.asarray(json.dumps(MATCHER_CONTRACT, sort_keys=True)),
                 aggregation=np.asarray('global-categorical-v1'),
+                attention_contract=np.asarray(json.dumps(ATTENTION_CONTRACT,sort_keys=True)),
                 proposal_policy=np.asarray('GLOBAL64_VALID_OR_NATIVE'),
                 q2c_sha256=np.asarray(checkpoint_hash), topk=np.asarray(args.topk),
                 **arrays,

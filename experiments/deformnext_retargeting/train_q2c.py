@@ -53,8 +53,21 @@ def loss_for_cache(model, path, label_path, *, sample_id, split, topk=64):
     flat = source.flatten(0, 1)
     cosine, indices = frame_topk(target[None], source[None], valid[None], topk)
     cosine, indices = cosine[0], indices[0]
-    logits = model._q2c_logits(target[None], flat[indices][None], cosine.nan_to_num(-1.)[None])[0]
-    return topology_listwise_loss(logits, indices, cosine.isfinite(), positives, visible)
+    candidate_valid=cosine.isfinite()
+    positive=((indices[...,None]==positives[:,None]) & visible[:,None]).any(-1) & candidate_valid
+    eligible=positive.any(-1)
+    observable=visible.any(-1)
+    counts={'eligible_queries':int(eligible.sum()),'top1_correct':0,
+            'raw_top1_correct':int(positive[:,0].sum()),'visible_queries':int(observable.sum()),
+            'proposal_misses':int((observable & ~eligible).sum()),'null_queries':int((~observable).sum())}
+    if not eligible.any():return target.new_zeros(()),counts
+    # D1 has query-only attention: queries never communicate. Removing rows
+    # excluded by the loss preserves the objective and parameter gradients.
+    selected=indices[eligible]
+    logits=model._q2c_logits(target[eligible][None],flat[selected][None],cosine[eligible].nan_to_num(-1.)[None])[0]
+    loss,measured=topology_listwise_loss(logits,selected,candidate_valid[eligible],positives[eligible],visible[eligible])
+    counts['top1_correct']=measured['top1_correct']
+    return loss,counts
 
 
 def evaluate(model, rows, mappings, label_root):
@@ -121,6 +134,8 @@ def main():
             optimizer.zero_grad(set_to_none=True); loss.backward()
             torch.nn.utils.clip_grad_norm_(model.q2c.parameters(), 1.)
             optimizer.step(); step += 1
+            if step % 100 == 0:
+                print(json.dumps({'step':step,'epoch':epoch,'loss':float(loss.detach()),**counts}),flush=True)
         record = {'epoch': epoch, 'validation': evaluate(model, validation, mappings, args.label_root)}
         history.append(record); print(json.dumps(record), flush=True)
         events.write_text(''.join(json.dumps(x)+'\n' for x in history))

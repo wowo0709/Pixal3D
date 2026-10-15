@@ -78,11 +78,14 @@ class DeformationAwareConditioner(nn.Module):
         q2c_checkpoint: Optional[str] = None,
         freeze_q2c: bool = False,
         implementation: str = "r9-native-v5",
+        score_temperature: Optional[float] = None,
     ) -> None:
         super().__init__()
         if implementation not in {"legacy-v4", "r9-native-v5"}:
             raise ValueError("unknown conditioner implementation")
         self.implementation = implementation
+        self.score_temperature = (0.005 if implementation=='r9-native-v5' else 1.) if score_temperature is None else float(score_temperature)
+        if self.score_temperature<=0:raise ValueError('matching temperature must be positive')
         if implementation == "r9-native-v5" and (key_dim != 1024 or topk != 64):
             raise ValueError("r9-native-v5 requires FRAME 1024-D and Top-64")
         if arm == "v1":
@@ -208,18 +211,17 @@ class DeformationAwareConditioner(nn.Module):
         view_index: torch.Tensor,
         views: int,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch,queries,candidates,channels=values.shape
+        if self.implementation == "r9-native-v5":
+            from .r9_matching import categorical_weights
+            weights=categorical_weights(logits,valid,self.score_temperature)
+            view_weights=values.new_zeros(batch,queries,views)
+            view_weights.scatter_add_(2,view_index,weights)
+            return (weights[...,None]*values).sum(2),weights,view_weights
         masked = logits.masked_fill(~valid, -torch.inf)
         stable = masked - masked.amax(dim=-1, keepdim=True).clamp(min=-1e4)
         exponent = torch.exp(stable).masked_fill(~valid, 0.0)
         batch, queries, candidates, channels = values.shape
-        if self.implementation == "r9-native-v5":
-            # A single categorical distribution is invariant to query-wise
-            # rank-logit offsets. View mass is diagnostic, not an uncalibrated
-            # second confidence multiplier. Same formula as the cache writer.
-            weights = exponent / exponent.sum(-1, keepdim=True).clamp_min(1e-8)
-            view_weights = values.new_zeros(batch, queries, views)
-            view_weights.scatter_add_(2, view_index, weights)
-            return (weights[..., None] * values).sum(2), weights, view_weights
         by_view_den = values.new_zeros(batch, queries, views)
         by_view_den.scatter_add_(2, view_index, exponent)
         by_view_num = values.new_zeros(batch, queries, views, channels)
@@ -337,7 +339,7 @@ class DeformationAwareConditioner(nn.Module):
         if matching_logits is None:
             candidate_keys = self._gather(flat_keys, indices)
             logits = self._q2c_logits(
-                target_keys, candidate_keys, cosine.nan_to_num(-1.0)
+                target_keys, candidate_keys, cosine.nan_to_num(nan=-1.0,posinf=-1.0,neginf=-1.0)
             )
         else:
             logits = matching_logits

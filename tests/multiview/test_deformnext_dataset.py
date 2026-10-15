@@ -195,7 +195,7 @@ def test_versioned_pbr_filter_uses_actual_reencoded_support(tmp_path, stale_coun
 
 
 def test_r9_loader_keeps_raw_context_separate_and_refuses_legacy_matches(tmp_path):
-    from pixal3d.modules.r9_matching import MATCHER_CONTRACT
+    from pixal3d.modules.r9_matching import MATCHER_CONTRACT, ATTENTION_CONTRACT
     manifest, _ = _fixture(tmp_path)
     source = tmp_path / 'transport.npz'
     with np.load(source) as cache: arrays = {k: cache[k] for k in cache.files}
@@ -217,6 +217,22 @@ def test_r9_loader_keeps_raw_context_separate_and_refuses_legacy_matches(tmp_pat
     np.savez(matches / 'sample-a.npz', schema=np.asarray('deformnext-match-r9-v5'),
              matcher_contract=np.asarray(json.dumps(MATCHER_CONTRACT)), aggregation=np.asarray('global-categorical-v1'),
              proposal_policy=np.asarray('GLOBAL64_VALID_OR_NATIVE'),
+             attention_contract=np.asarray(json.dumps(ATTENTION_CONTRACT)),
              q2c_sha256=np.asarray('wrong'))
     with pytest.raises(ValueError, match='checkpoint hash'):
+        ds[0]
+
+
+def test_b1_raw_cache_needs_no_q2c_but_remains_bound_to_its_sample(tmp_path):
+    from pixal3d.modules.r9_matching import RAW_MATCH_SCHEMA, RAW_MATCH_CONTRACT
+    manifest,_=_fixture(tmp_path);root=tmp_path/'raw';root.mkdir()
+    arrays=dict(schema=np.asarray(RAW_MATCH_SCHEMA),raw_matching_contract=np.asarray(json.dumps(RAW_MATCH_CONTRACT)),
+        sample_id=np.asarray('sample-a'),split=np.asarray('train'),semantic_indices=np.zeros((1024,1),np.uint16))
+    np.savez(root/'sample-a.npz',**arrays)
+    ds=DeformNeXtSS64(str(manifest),transport_arm='b1',transport_implementation='r9-native-v5',match_root=str(root))
+    sample=ds[0]
+    assert sample['transport_semantic_indices'].shape==(1024,1)
+    assert 'transport_matching_logits' not in sample
+    arrays['sample_id']=np.asarray('wrong-sample');np.savez(root/'sample-a.npz',**arrays)
+    with pytest.raises(ValueError,match='RAW Top-1'):
         ds[0]

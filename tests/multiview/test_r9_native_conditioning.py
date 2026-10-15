@@ -36,6 +36,37 @@ def test_promoted_count_init_and_nonzero_learning_signal():
         assert p.grad is not None and p.grad.abs().sum() > 0
 
 
+def test_query_only_warmup_pruning_preserves_loss_and_parameter_gradients():
+    from experiments.deformnext_retargeting.train_q2c import topology_listwise_loss
+    import copy
+    torch.manual_seed(31)
+    full = r9.PromotedR9Matcher()
+    # Exercise the trained contextual path as well as its zero initialization.
+    with torch.no_grad():
+        full.decoder.blocks[0].attention_gate.fill_(.2)
+        full.decoder.blocks[0].ffn_gate.fill_(.1)
+        full.fusion_head.output.weight.normal_(0, .02)
+    pruned = copy.deepcopy(full)
+    q, k, raw = torch.randn(6, 1024), torch.randn(6, 64, 1024), torch.randn(6, 64)
+    indices = torch.arange(64).expand(6, -1)
+    valid = torch.ones(6, 64, dtype=torch.bool)
+    positives = torch.tensor([[3], [999], [5], [999], [7], [999]])
+    visible = torch.tensor([[True], [True], [True], [False], [True], [False]])
+    eligible = ((indices[..., None] == positives[:, None]) & visible[:, None]).any(-1).any(-1)
+    loss, counts = topology_listwise_loss(full.score_candidates(q, k, raw), indices, valid, positives, visible)
+    selected_loss, _ = topology_listwise_loss(pruned.score_candidates(q[eligible], k[eligible], raw[eligible]),
+        indices[eligible], valid[eligible], positives[eligible], visible[eligible])
+    torch.testing.assert_close(loss, selected_loss)
+    assert counts['visible_queries'] == 4 and counts['proposal_misses'] == 1 and counts['null_queries'] == 2
+    loss.backward(); selected_loss.backward()
+    for (name, p), (other_name, other) in zip(full.named_parameters(), pruned.named_parameters()):
+        assert name == other_name
+        if p.grad is None:
+            assert other.grad is None
+        else:
+            torch.testing.assert_close(p.grad, other.grad, atol=2e-6, rtol=2e-4)
+
+
 def make(arm, width=6):
     return DeformationAwareConditioner(arm=arm, key_dim=1024, value_dim=width,
         query_dim=4, topk=64, **({'deformation_dim': 2048} if arm == 'c2' else {}))
@@ -111,7 +142,10 @@ def test_score_aggregation_shift_invariance_and_empty_fallback():
         out = model._attention(logits + shift, values, valid, views, 3)
         for a, b in zip(out, expected):
             assert torch.isfinite(a).all()
-            torch.testing.assert_close(a, b, rtol=1e-4, atol=1e-5)
+            # Float32 addition at +/-100 loses ~1e-5 in the input; tau=.005
+            # amplifies that unavoidable quantization. This still rejects
+            # clamping logits before softmax (which destroys shift invariance).
+            torch.testing.assert_close(a, b, rtol=1e-3, atol=2e-4)
     assert expected[0][0, 0].count_nonzero() == 0
 
 
@@ -217,3 +251,12 @@ def test_insufficient_source_support_retains_native_after_gate_opens(arm):
     q = torch.randn(1, 3, 1024); source = torch.randn(1, 3, 24, 1024)
     scores, _ = r9.frame_topk(q, source, pack['source_valid'], topk=64)
     assert not scores.isfinite().any()
+
+
+def test_score_attention_inherits_r8_train_locked_temperature():
+    valid=torch.ones(1,2,dtype=torch.bool);logits=torch.tensor([[.5,.505]])
+    assert r9.MATCHING_TEMPERATURE==.005
+    weights=r9.categorical_weights(logits,valid)
+    torch.testing.assert_close(weights,torch.softmax((logits-logits.max())/.005,-1))
+    assert weights[0,1]>.7
+    assert r9.categorical_weights(logits,~valid).count_nonzero()==0

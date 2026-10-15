@@ -32,6 +32,7 @@ def arm_conditioner(arm: str, value_dim: int, q2c: str | None) -> dict:
     config = {
         "arm": arm, "key_dim": 1024, "value_dim": value_dim,
         "implementation": "r9-native-v5",
+        "score_temperature": 0.005,
         "query_dim": 1024, "hidden_dim": 256, "topk": 64, "g_max": 0.25,
     }
     if arm == "c2":
@@ -63,8 +64,8 @@ def build(stage: str, arm: str, args) -> dict:
     )
     if arm != "v1":
         dataset_args["transport_implementation"] = "r9-native-v5"
-        dataset_args["match_root"] = str(args.data_root / "matches_r9_v5")
-        if args.q2c_checkpoint and Path(args.q2c_checkpoint).is_file():
+        dataset_args["match_root"] = str(args.data_root / ("matches_raw_top1_v5" if arm == 'b1' else "matches_r9_v5"))
+        if arm != 'b1' and args.q2c_checkpoint and Path(args.q2c_checkpoint).is_file():
             import hashlib
             with Path(args.q2c_checkpoint).open('rb') as stream:
                 dataset_args["expected_q2c_sha256"] = hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -164,7 +165,7 @@ def main() -> None:
     parser.add_argument("--wandb-project")
     parser.add_argument("--wandb-entity", default="")
     args = parser.parse_args()
-    if any(arm != 'v1' for arm in args.arms):
+    if any(arm in {'b2','b3','c1','c2'} for arm in args.arms):
         if not args.q2c_checkpoint:
             parser.error("semantic recipes require the shared verified R9 --q2c-checkpoint")
         import torch

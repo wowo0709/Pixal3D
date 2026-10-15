@@ -69,3 +69,35 @@ def test_validation_restores_ddp_wrapper_on_failure(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError,match='fixture data failure'):
         runtime.evaluate(t)
     assert t.training_models is mapping and model.training and t.p_uncond==.1
+
+
+@pytest.mark.parametrize('healthy',[True,False])
+def test_pilot_evaluates_then_extends_without_resetting_optimizer_or_rng(tmp_path,monkeypatch,healthy):
+    import torch
+    t=trainer(tmp_path,step=96,total=96,validation_every=96);calls=[]
+    recipe=tmp_path/'recipe.json'
+    cfg={'dataset':{'name':'DeformNeXtSS64'},'trainer':{'args':{'max_steps':96}},
+         'experiment':{'updates_per_epoch':96,'planned_total_steps':480,'auto_continue_after_pilot':True,
+                       'recipe_path':str(recipe)}}
+    t._runtime_config=cfg;t.wandb_run=None
+    t.deform_conditioner=SimpleNamespace(fusion_gate=torch.tensor(.01))
+    t.save=lambda **kw:calls.append('save')
+    t.sampler=object();optimizer=t.optimizer;sampler=t.sampler
+    initial={'step':0,'quick_panel_ids':['a'],'quick_metrics':{'voxel_iou':.45}}
+    (tmp_path/'validation.jsonl').write_text(json.dumps(initial)+'\n')
+    def evaluate(self):
+        calls.append('eval')
+        row={'step':96,'quick_panel_ids':['a'],'quick_metrics':{'voxel_iou':.5 if healthy else .2}}
+        with (tmp_path/'validation.jsonl').open('a') as out:out.write(json.dumps(row)+'\n')
+    monkeypatch.setattr(runtime,'evaluate',evaluate)
+    monkeypatch.setattr(runtime,'_native_check_abort',lambda self:None)
+    rng=torch.get_rng_state().clone()
+    runtime.check_abort(t)
+    assert calls==['save','eval'] and t.optimizer is optimizer and t.sampler is sampler
+    assert torch.equal(torch.get_rng_state(),rng)
+    if healthy:
+        assert t.max_steps==t._runtime_total_steps==480
+        assert json.loads(recipe.read_text())['experiment']['release_status']=='pilot-validated'
+        assert json.loads((tmp_path/'progress.json').read_text())['stage']=='running'
+    else:
+        assert t.max_steps==96 and (tmp_path/'PILOT_HOLD.json').exists()

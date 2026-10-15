@@ -271,13 +271,22 @@ class _DeformNeXtBase(Dataset):
         if self.match_root is not None and self.transport_arm != "v1":
             with np.load(self.match_root / f"{row['sample_id']}.npz") as cache:
                 if self.transport_implementation == "r9-native-v5":
-                    from ..modules.r9_matching import MATCHER_CONTRACT
-                    if (str(cache['schema']) != 'deformnext-match-r9-v5'
+                    from ..modules.r9_matching import MATCHER_CONTRACT, ATTENTION_CONTRACT, RAW_MATCH_SCHEMA, RAW_MATCH_CONTRACT
+                    raw = self.transport_arm == 'b1' and str(cache['schema']) == RAW_MATCH_SCHEMA
+                    if raw:
+                        if (json.loads(str(cache['raw_matching_contract'])) != RAW_MATCH_CONTRACT
+                                or str(cache['sample_id']) != row['sample_id']
+                                or str(cache['split']) != row['split']
+                                or cache['semantic_indices'].shape != (1024, 1)):
+                            raise ValueError('incompatible RAW Top-1 match cache contract')
+                    elif (str(cache['schema']) != 'deformnext-match-r9-v5'
                             or json.loads(str(cache['matcher_contract'])) != MATCHER_CONTRACT
                             or str(cache['aggregation']) != 'global-categorical-v1'
+                            or 'attention_contract' not in cache
+                            or json.loads(str(cache['attention_contract'])) != ATTENTION_CONTRACT
                             or str(cache['proposal_policy']) != 'GLOBAL64_VALID_OR_NATIVE'):
                         raise ValueError('incompatible R9 match cache contract')
-                    if self.expected_q2c_sha256 is None or str(cache['q2c_sha256']) != self.expected_q2c_sha256:
+                    if not raw and (self.expected_q2c_sha256 is None or str(cache['q2c_sha256']) != self.expected_q2c_sha256):
                         raise ValueError('R9 match cache checkpoint hash mismatch')
                 for key in MATCH_KEYS_BY_ARM[self.transport_arm]:
                     if key not in cache:

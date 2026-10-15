@@ -64,3 +64,16 @@ def test_semantic_release_requires_same_frozen_head_and_exact_all_arm_identity()
         run_campaign.require_semantic_release(cfg, dict(proof, q2c_sha256='old-head'))
     with pytest.raises(ValueError, match='exact native-start'):
         run_campaign.require_semantic_release(cfg, dict(proof, native_condition_max_abs_error=.01))
+
+
+def test_raw_b1_bounded_pilot_does_not_require_teacher_or_frozen_head():
+    from pixal3d.modules.r9_matching import RAW_MATCH_CONTRACT
+    cfg={'experiment':{'release_status':'pilot-ready','updates_per_epoch':96},
+         'trainer':{'args':{'max_steps':96,'deform_conditioner':{'implementation':'r9-native-v5','arm':'b1'}}},
+         'dataset':{'args':{}}}
+    proof=dict(raw_matching_contract=RAW_MATCH_CONTRACT,conditioning_schema='r9-native-residual-v5',
+               native_condition_max_abs_error=0,native_denoiser_max_abs_error=0,native_sampling_max_abs_error=0)
+    run_campaign.require_semantic_release(cfg,proof)
+    cfg['trainer']['args']['max_steps']=480
+    with pytest.raises(ValueError,match='bounded to one epoch'):
+        run_campaign.require_semantic_release(cfg,proof)

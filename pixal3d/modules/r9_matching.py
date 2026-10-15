@@ -222,6 +222,29 @@ MATCHER_CONTRACT = {
     "authority_sha256": AUTHORITY_SHA256,
 }
 CHECKPOINT_SCHEMA = "deformnext-r9-d1-v5"
+RAW_MATCH_SCHEMA = "deformnext-raw-top1-v5"
+RAW_MATCH_CONTRACT = {
+    "descriptor": "OMEGA_L12_FRAME_RAW_1024",
+    "selection": "RAW_COSINE_TOP1",
+    "proposal_policy": "GLOBAL64_VALID_OR_NATIVE",
+    "omega_completed_updates": 23597,
+}
+MATCHING_TEMPERATURE = 0.005
+ATTENTION_CONTRACT = {
+    "aggregation": "global-categorical-v1",
+    "score_temperature": MATCHING_TEMPERATURE,
+    "authority": "R8_fold_TRAIN_only_fixed_tau_0.005_inherited_by_R9",
+}
+
+
+def categorical_weights(logits, valid, temperature=MATCHING_TEMPERATURE):
+    if not temperature > 0:
+        raise ValueError('matching temperature must be positive')
+    masked=logits.masked_fill(~valid,-torch.inf)
+    maximum=masked.amax(-1,keepdim=True)
+    maximum=torch.where(torch.isfinite(maximum),maximum,torch.zeros_like(maximum))
+    exponent=torch.exp((masked-maximum)/temperature).masked_fill(~valid,0.)
+    return exponent/exponent.sum(-1,keepdim=True).clamp_min(1e-8)
 
 
 def frame_raw(descriptors: torch.Tensor) -> torch.Tensor:

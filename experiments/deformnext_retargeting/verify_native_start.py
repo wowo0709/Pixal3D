@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import time
 import torch
+import numpy as np
 
 
 def feats(value):
@@ -22,6 +23,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--samples', type=int, required=True)
     parser.add_argument('--q2c-checkpoint', type=Path)
+    parser.add_argument('--raw-match-root', type=Path)
     args = parser.parse_args()
     from pixal3d import datasets, models, trainers
     from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
@@ -66,6 +68,9 @@ def main():
         from .precompute_matches import sha256
         report['q2c_sha256'] = sha256(args.q2c_checkpoint)
         report['matcher_state'] = 'strict frozen R9 checkpoint: ' + str(args.q2c_checkpoint)
+    if args.raw_match_root:
+        from pixal3d.modules.r9_matching import RAW_MATCH_CONTRACT
+        report['raw_matching_contract']=RAW_MATCH_CONTRACT
     started = time.monotonic()
     for offset, index in enumerate(indices):
         pack = recursive_to_device(ds.collate_fn([ds[index]]), 'cuda')
@@ -93,6 +98,19 @@ def main():
             keys = modules['b3']._gather(flat_keys, raw_indices)
             weights = routed.candidate_weights
             cached['deformation'] = (transport['target_context'].float() - (keys.float() * weights[..., None]).sum(2)).half()
+            raw_cached=None
+            if args.raw_match_root:
+                from .precompute_raw_matches import valid_cache
+                sample_id=ds.rows[index]['sample_id']
+                path=args.raw_match_root/f'{sample_id}.npz'
+                if not valid_cache(path,sample_id):raise ValueError('unverified B1 RAW cache')
+                raw_cached={k:v for k,v in cached.items() if k not in {'matching_logits','candidate_valid','deformation','target_query'}}
+                with np.load(path) as archive:
+                    raw_cached['semantic_indices']=torch.from_numpy(archive['semantic_indices'].astype(np.int64)).cuda()[None]
+                online=modules['b1'](**match_call)
+                offline=modules['b1'](**{k:v for k,v in raw_cached.items() if k not in {'patch_grid','patch_ids'}})
+                torch.testing.assert_close(online.evidence,offline.evidence,rtol=0,atol=0)
+                assert torch.equal(online.candidate_indices,offline.candidate_indices)
             torch.manual_seed(42 + offset); torch.cuda.manual_seed(42 + offset)
             noise = target.replace(torch.randn_like(target.feats)) if hasattr(target, 'feats') else torch.randn_like(target)
             t = torch.tensor([500.], device='cuda')
@@ -101,7 +119,7 @@ def main():
             conditions = {'v1': native['cond']}
             for arm, module in modules.items():
                 trainer.deform_conditioner = module
-                call = dict(cached)
+                call = dict(raw_cached if arm=='b1' and raw_cached is not None else cached)
                 if arm != 'c2': call.pop('deformation', None)
                 if arm not in {'c1', 'c2'}: call.pop('target_query', None)
                 condition = trainer._inject_deform_transport(dict(native['cond']), call, pack.get('coords'), anchor_condition=anchor)
@@ -151,7 +169,7 @@ def main():
                 trainer.deform_conditioner = module
                 trainer.deform_conditioner_config = {'arm': arm, 'implementation': 'r9-native-v5'}
                 train_pack = dict(pack)
-                for key, value in cached.items():
+                for key, value in (raw_cached if arm=='b1' and raw_cached is not None else cached).items():
                     if key == 'deformation' and arm != 'c2': continue
                     if key == 'target_query' and arm not in {'c1', 'c2'}: continue
                     train_pack['transport_' + key] = value

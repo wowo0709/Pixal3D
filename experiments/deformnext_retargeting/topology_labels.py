@@ -17,6 +17,10 @@ import torch.nn.functional as F
 SCHEMA = 'deformnext-topology-visible-v1'
 
 
+class RasterAgreementError(ValueError):
+    """An asset's independent raster cannot certify its topology teacher."""
+
+
 def mask_agreement(actual, expected, *, alpha_cutouts=False):
     iou = float((actual & expected).sum() / (actual | expected).sum().clamp_min(1))
     # Cycles can render transparent lenses/cutout materials, whereas the
@@ -25,7 +29,7 @@ def mask_agreement(actual, expected, *, alpha_cutouts=False):
     dilated = F.max_pool2d(actual[None, None].float(), 3, 1, 1)[0, 0].bool()
     containment = float((dilated & expected).sum() / expected.sum().clamp_min(1))
     if (alpha_cutouts and containment < .99) or (not alpha_cutouts and iou < .95):
-        raise ValueError(f'Topology raster disagrees with input image: IoU={iou}, containment={containment}')
+        raise RasterAgreementError(f'Topology raster disagrees with input image: IoU={iou}, containment={containment}')
     return iou, containment
 
 
@@ -114,6 +118,8 @@ def main():
     parser.add_argument('--limit', type=int)
     parser.add_argument('--rank', type=int, default=0)
     parser.add_argument('--world-size', type=int, default=1)
+    parser.add_argument('--continue-on-validation-error', action='store_true',
+                        help='Record uncertified teacher rows; never publish labels for them')
     args = parser.parse_args()
     from .precompute_matches import remap
     mappings = [tuple(x.split('=', 1)) for x in args.path_map]
@@ -123,6 +129,7 @@ def main():
     args.output_root.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(4)
     teacher = TopologyTeacher()
+    failures=[]
     for n, row in enumerate(rows):
         output = args.output_root / f"{row['sample_id']}.npz"
         digest = fingerprint(row, resolve)
@@ -133,7 +140,17 @@ def main():
                     continue
                 if str(old['input_sha256']) != digest:
                     raise ValueError(f'Existing teacher provenance differs: {output}')
-        arrays = teacher.compute(row, resolve)
+        try:
+            arrays = teacher.compute(row, resolve)
+        except RasterAgreementError as error:
+            if not args.continue_on_validation_error:
+                raise
+            failures.append({'sample_id': row['sample_id'], 'split': row['split'],
+                             'input_sha256': digest, 'reason': str(error)})
+            failure_path=args.output_root.parent/f'teacher-rejections-rank{args.rank:03d}.json'
+            failure_path.write_text(json.dumps(failures,indent=2)+'\n')
+            print(json.dumps({'rejected_teacher': failures[-1]}),flush=True)
+            continue
         tmp = output.with_name(f'.{output.name}.{os.getpid()}.tmp.npz')
         np.savez(tmp, schema=np.asarray(SCHEMA), sample_id=np.asarray(row['sample_id']),
                  split=np.asarray(row['split']), input_sha256=np.asarray(digest),
@@ -143,6 +160,8 @@ def main():
         print(json.dumps({'completed': n+1, 'assigned': len(rows), 'sample_id': row['sample_id'],
                           'visible_queries': int(arrays['positive_visible'].any(-1).sum()),
                           'minimum_mask_iou': float(arrays['input_mask_iou'].min())}), flush=True)
+    print(json.dumps({'status':'COMPLETED_WITH_REJECTIONS' if failures else 'PASS',
+                      'rank':args.rank,'assigned':len(rows),'rejected_teachers':len(failures)}),flush=True)
 
 
 if __name__ == '__main__': main()

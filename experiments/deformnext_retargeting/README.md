@@ -41,6 +41,10 @@ C1 has no deformation channels. C2 adds them physically. PBR semantic delta
 modifies DINO LR channels only; native NAF HR conditioning remains present.
 The retargeter can learn an HR residual from its initially zero output.
 
+Feature attention inherits R8's train-only fixed temperature **0.005**, also
+used by the promoted R9 recipe. This temperature is recorded in the cache
+contract and shared by online attention and C2 context construction. The new
+topology listwise head objective uses its own unscaled logits.
 Categorical attention is invariant to query-wise score offsets. Candidate
 weights are global probabilities; view weights report their marginal mass.
 Source validity and the geometry-only target alpha mask identify unavailable
@@ -68,15 +72,28 @@ provenance. **Topology listwise supervision is a new DeformNeXt objective;
 it is distinct from the original R9 controlled RGB task loss.** Exact scorer
 reproduction does not establish a new SS/PBR generation improvement.
 
-New matches use `deformnext-match-r9-v5`, exact matcher contract and weight
+Full construction certified 9,650 teachers: 9,142 train and all 508 validation.
+Seven train rows failed the unchanged raster-agreement criterion and are
+recorded explicitly; only head supervision excludes them. Main SS/PBR training
+populations remain unchanged. B1 has its own complete 9,657-row
+`deformnext-raw-top1-v5` cache, requiring no teacher or learned matching head.
+
+Learned matches use `deformnext-match-r9-v5`, exact matcher contract and weight
 hash, categorical aggregation and 2048-D C2 context. New dataset configs reject
 legacy caches and require world-v4 geometry/projection sidecars. Defaults point
 to `manifests_world_v4`, `projection_maps_world_v4`, `matches_r9_v5` and a
 separate `runs_r9_v5`; existing world-v4 latents need no reconstruction.
 
-All generated semantic recipes start with `release_status=audit-hold`.
-`run_campaign.py` requires the exact frozen matcher hash, all-arm native-start
-proof and a completed pilot gate before a production semantic launch.
+Portable semantic recipes start with `release_status=audit-hold`.
+`run_campaign.py` permits a bounded one-epoch `pilot-ready` run after exact
+native-start proof; B1 additionally requires its RAW cache contract, and B2–C2
+require the exact frozen matcher hash. An epoch-one execution/quality gate
+checks finite metrics, the identical panel and major regressions against both
+step zero and same-epoch native V1. Passing continues to five epochs with the
+same optimizer, sampler and RNG; failure preserves the checkpoint and writes
+`PILOT_HOLD.json`. This gate does not establish a module improvement. The
+durable `run_r9_pipeline` queue attaches to B1 and runs B2/B3/C1/C2 independently
+from the original mixed385 initialization, with a shared fixed-final D1 head.
 The old `runs_world_v4` semantic campaign remains under `SEMANTIC_AUDIT_HOLD`.
 Its native V1 remains a valid baseline. Original invalid-geometry runs remain
 historical diagnostics and must not be resumed.
@@ -102,9 +119,11 @@ alpha IoU is not generated-geometry quality. The PBR renderer uses common AO
 random rays for comparisons and preserves the surrounding training RNG.
 
 Target batch recipes remain SS global 96 on one GPU (split 1) and PBR global
-24 on three GPUs (per-rank 8, two packs capped at four assets). The new v5
-modules still require production-batch profiling before launch; historical
-v4 memory/timing measurements below do not certify the changed modules.
+24 on three GPUs (per-rank 8, two packs capped at four assets). Actual B1 v5
+profiling measured SS micro 96 at 90.14 GiB allocated peak, roughly 36 s/update;
+PBR micro 8 exhausted memory, while micro 4 used 64.50 GiB on the high-token
+stress panel. Each subsequent arm receives a fresh production-batch probe.
+These are separate from the historical v4 measurements below.
 
 ## Historical registration and runtime audits
 

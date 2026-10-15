@@ -13,14 +13,24 @@ REPO = Path(__file__).resolve().parents[2]
 
 def require_semantic_release(cfg, verification):
     """Step-zero identity alone does not promote a new semantic recipe."""
-    if cfg['experiment'].get('release_status') != 'pilot-validated':
+    status=cfg['experiment'].get('release_status')
+    if status == 'pilot-ready':
+        steps=cfg['experiment'].get('updates_per_epoch')
+        if not steps or cfg['trainer']['args']['max_steps'] != steps:
+            raise ValueError('an initial semantic pilot must be bounded to one epoch')
+    elif status != 'pilot-validated':
         raise ValueError('R9 semantic recipe remains on audit hold until teacher/cache and pilot validation pass')
     module = cfg['trainer']['args']['deform_conditioner']
     if module.get('implementation') != 'r9-native-v5':
         raise ValueError('semantic training requires the promoted R9 implementation')
-    expected = cfg['dataset']['args'].get('expected_q2c_sha256')
-    if not expected or verification.get('q2c_sha256') != expected:
-        raise ValueError('semantic verification must use the exact frozen matcher checkpoint')
+    if module.get('arm') == 'b1':
+        from pixal3d.modules.r9_matching import RAW_MATCH_CONTRACT
+        if verification.get('raw_matching_contract') != RAW_MATCH_CONTRACT:
+            raise ValueError('B1 requires verified RAW Top-1 cache without a learned matcher')
+    else:
+        expected = cfg['dataset']['args'].get('expected_q2c_sha256')
+        if not expected or verification.get('q2c_sha256') != expected:
+            raise ValueError('semantic verification must use the exact frozen matcher checkpoint')
     if verification.get('conditioning_schema') != 'r9-native-residual-v5':
         raise ValueError('semantic native-start verification schema differs')
     for key in ('native_condition_max_abs_error', 'native_denoiser_max_abs_error', 'native_sampling_max_abs_error'):
@@ -89,7 +99,7 @@ def main():
             raise ValueError('archived checkpoint requires retrieval before changing or resuming this run')
         # Dense semantic/adapter arms can have a different peak from V1.
         # Select the largest tested microbatch instead of extrapolating V1 VRAM.
-        if args.stage == 'ss64' and arm != 'v1':
+        if args.stage == 'ss64' and arm != 'v1' and not any((output/'ckpts').glob('misc_step*.pt')):
             import copy
             selected = None
             for split in (1, 2, 4, 8):
@@ -99,8 +109,9 @@ def main():
                 bench['default_output_dir'] = str(bench_root)
                 bench['use_wandb'] = False
                 bench['experiment']['validate_at_start'] = False
-                bench['trainer']['args'].update(max_steps=1, i_save=1, i_log=1, batch_split=split)
-                bench['validation']['every_steps'] = 2
+                bench['experiment']['auto_continue_after_pilot'] = False
+                bench['trainer']['args'].update(max_steps=2, i_save=2, i_log=1, batch_split=split)
+                bench['validation']['every_steps'] = 3
                 bench_path = bench_root / 'launch.json'
                 bench_path.write_text(json.dumps(bench, indent=2) + '\n')
                 bench_command = [sys.executable, str(REPO / 'train.py'), '--config', str(bench_path),
@@ -136,6 +147,8 @@ def main():
         progress = json.loads((output / 'progress.json').read_text())
         if progress['stage'] != 'completed' or progress['current'] != progress['total']:
             raise RuntimeError(f'arm exited without completing: {progress}')
+        if (output/'PILOT_HOLD.json').exists():
+            raise RuntimeError(f'pilot quality gate held this arm; checkpoint retained: {output}')
         if args.remote:
             ssh = ['ssh', '-p', str(args.ssh_port), '-o', 'ConnectTimeout=5',
                    '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=2']
