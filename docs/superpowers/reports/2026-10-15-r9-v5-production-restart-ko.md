@@ -73,3 +73,9 @@ SS B1의 실제 step-zero quick panel은 voxel IoU 0.4519056615로 native V1과 
 같은 실제 teacher/cache 12개를 CPU 4 threads에서 profile한 결과, 마지막 10 update 평균은 0.12668초였다. 따라서 SS/PBR 프로세스와 global batch는 그대로 두고, D1만 CPU에서 동일 seed 42017 / fixed-final 3 epochs recipe로 다시 실행했다. 이전 GPU head process는 fallback으로 일시 정지했다. CPU 작업 성공 및 기본 checkpoint/accuracy 검증 후에만 final 경로에 atomic publish하고 이전 GPU process를 종료한다. CPU 실행 실패 시 기존 GPU process를 재개한다. 이 전환은 `head-device-transition.json`, `d1-warmup-cpu.log`에 기록한다.
 
 CPU/CUDA 부동소수점 rounding이 bitwise 동일하다고 주장하지 않는다. 최종 CPU head에 대해서도 기존 queue의 frozen-weight hash, cache/online parity 및 native-start 검증을 다시 통과해야 B2–C2가 실행된다. `train_q2c`의 device 선택 지원과 직접 관련된 R9 CPU 회귀 검사 28개가 통과했다.
+
+## GPU 0 공유 추가 실측
+
+사용자 제안에 따라 CPU head 학습을 보존하면서 physical GPU 0에서도 작은 head 학습 probe를 실행했다. SS micro 96이 allocator 예약 메모리를 확장한 순간 probe의 20 MiB allocation이 실패했다. 당시 GPU free는 8.75 MiB였고 SS process는 약 94.11 GiB를 점유했다. Probe 자체 PyTorch allocated는 72.12 MiB, 전체 process 점유는 744 MiB였다. **OOM은 별도 probe에서 발생했으며, SS/PBR 본 학습에는 OOM이 없고 계속 진행했다.** 단순히 head parameter 크기만으로 GPU 0 공유 가능성을 판단할 수 없다.
+
+이 시점에 CPU head는 3번째 epoch 23,900 update로 전체 작업의 대부분을 마친 상태였다. SS micro-batch나 allocator 정책을 변경하고 head를 초기화부터 GPU에서 다시 실행하는 대신, 현재 CPU fixed-final 작업의 남은 분량을 완료하도록 유지했다. PyTorch intra-op threads는 기존 4개이고, 해당 process의 모든 기존 thread에 nice 10과 낮은 I/O 우선순위(BE 7)를 적용했다. 상세 증거는 `runtime_diagnostics_r9_v5/production/gpu0-head-sharing-profile.json`에 저장한다.
