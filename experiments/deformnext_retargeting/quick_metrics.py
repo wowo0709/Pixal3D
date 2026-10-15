@@ -101,7 +101,7 @@ def _ss_metrics(self, dataset, indices: list[int], config: dict[str, Any]):
     return metrics, _panel_image(pred_projection, target_projection)
 
 
-def _render_pbr_anchor(dataset, representations, cameras, resolution: int):
+def _render_pbr_anchor(dataset, representations, cameras, resolution: int, sampling_seed: int = 0):
     import cv2
     import utils3d
     from pixal3d.renderers import EnvMap, PbrMeshRenderer
@@ -142,7 +142,11 @@ def _render_pbr_anchor(dataset, representations, cameras, resolution: int):
         half_size = 0.5 / scale
         renderer.rendering_options.near = max(0.01, distance - half_size - 0.5)
         renderer.rendering_options.far = distance + half_size + 0.5
-        rendered = renderer.render(scaled, extrinsics, intrinsics, envmap=envmap)
+        # PbrMeshRenderer samples random ambient-occlusion rays. Compare
+        # models/GT with the same rays and leave training's RNG untouched.
+        with torch.cuda.device(device), torch.random.fork_rng(devices=[device]):
+            torch.cuda.manual_seed(sampling_seed)
+            rendered = renderer.render(scaled, extrinsics, intrinsics, envmap=envmap)
         for key in ("shaded", "base_color", "alpha", "mask"):
             outputs[key].append(rendered[key])
     return {key: torch.stack(values) for key, values in outputs.items()}

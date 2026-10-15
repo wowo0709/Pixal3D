@@ -192,3 +192,31 @@ def test_versioned_pbr_filter_uses_actual_reencoded_support(tmp_path, stale_coun
     excluded = DeformNeXtPBR1024(str(manifest), transport_arm='v1', max_tokens=1)
     assert len(excluded) == 0
     assert excluded.filtered_over_max_tokens == 1
+
+
+def test_r9_loader_keeps_raw_context_separate_and_refuses_legacy_matches(tmp_path):
+    from pixal3d.modules.r9_matching import MATCHER_CONTRACT
+    manifest, _ = _fixture(tmp_path)
+    source = tmp_path / 'transport.npz'
+    with np.load(source) as cache: arrays = {k: cache[k] for k in cache.files}
+    arrays['target_keys'] = np.zeros((1024, 2048), np.float32)
+    arrays['source_keys'] = np.ones((3, 5, 2048), np.float32)
+    np.savez(source, **arrays)
+    ds = DeformNeXtSS64(str(manifest), transport_arm='c2', transport_implementation='r9-native-v5')
+    item = ds[0]
+    assert item['transport_target_keys'].shape == (1024, 1024)
+    assert item['transport_target_context'].shape == (1024, 2048)
+    assert item['transport_target_valid'].shape == (1024,)
+    assert 'transport_deformation' not in item
+    matches = tmp_path / 'new-matches'; matches.mkdir()
+    np.savez(matches / 'sample-a.npz', schema=np.asarray('deformnext-match-v1'))
+    ds = DeformNeXtSS64(str(manifest), transport_arm='b3', transport_implementation='r9-native-v5',
+                       match_root=str(matches), expected_q2c_sha256='correct')
+    with pytest.raises(ValueError, match='incompatible R9'):
+        ds[0]
+    np.savez(matches / 'sample-a.npz', schema=np.asarray('deformnext-match-r9-v5'),
+             matcher_contract=np.asarray(json.dumps(MATCHER_CONTRACT)), aggregation=np.asarray('global-categorical-v1'),
+             proposal_policy=np.asarray('GLOBAL64_VALID_OR_NATIVE'),
+             q2c_sha256=np.asarray('wrong'))
+    with pytest.raises(ValueError, match='checkpoint hash'):
+        ds[0]

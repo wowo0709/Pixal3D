@@ -29,6 +29,8 @@ class DeformationCondition:
     candidate_weights: Optional[torch.Tensor]
     view_weights: Optional[torch.Tensor]
     retarget_residual: Optional[torch.Tensor]
+    query_valid: Optional[torch.Tensor] = None
+    fusion_scale: Optional[torch.Tensor] = None
 
 
 class _Retargeter(nn.Module):
@@ -75,8 +77,14 @@ class DeformationAwareConditioner(nn.Module):
         g_max: float = 0.25,
         q2c_checkpoint: Optional[str] = None,
         freeze_q2c: bool = False,
+        implementation: str = "r9-native-v5",
     ) -> None:
         super().__init__()
+        if implementation not in {"legacy-v4", "r9-native-v5"}:
+            raise ValueError("unknown conditioner implementation")
+        self.implementation = implementation
+        if implementation == "r9-native-v5" and (key_dim != 1024 or topk != 64):
+            raise ValueError("r9-native-v5 requires FRAME 1024-D and Top-64")
         if arm == "v1":
             raise ValueError("V1 must use native multi-view conditioning without a transport module")
         if arm not in self.ARMS:
@@ -97,23 +105,34 @@ class DeformationAwareConditioner(nn.Module):
         self.query_dim = int(query_dim)
         self.topk = int(topk)
         self.g_max = float(g_max)
+        if implementation == "r9-native-v5":
+            # A nonzero fixed semantic branch and a zero scalar gate retain a
+            # learning signal without changing the native condition at step 0.
+            self.fusion_gate = nn.Parameter(torch.zeros(()))
 
         self.q2c = None
         if arm in {"b2", "b3", "c1", "c2"}:
-            self.q2c = nn.Sequential(
-                nn.Linear(2 * key_dim + 1, hidden_dim),
-                nn.GELU(),
-                nn.Linear(hidden_dim, 1),
-            )
+            if implementation == "r9-native-v5":
+                from .r9_matching import PromotedR9Matcher
+                self.q2c = PromotedR9Matcher()
+            else:
+                self.q2c = nn.Sequential(
+                    nn.Linear(2 * key_dim + 1, hidden_dim),
+                    nn.GELU(),
+                    nn.Linear(hidden_dim, 1),
+                )
             if q2c_checkpoint is not None:
                 checkpoint = torch.load(
                     Path(q2c_checkpoint), map_location="cpu", weights_only=True
                 )
-                if isinstance(checkpoint, dict) and "q2c" in checkpoint:
+                if implementation == "r9-native-v5":
+                    self.q2c.load_checkpoint(checkpoint)
+                elif isinstance(checkpoint, dict) and "q2c" in checkpoint:
                     checkpoint = checkpoint["q2c"]
                 if not isinstance(checkpoint, dict):
                     raise TypeError("Q2C checkpoint must contain a state dict")
-                self.q2c.load_state_dict(checkpoint, strict=True)
+                if implementation == "legacy-v4":
+                    self.q2c.load_state_dict(checkpoint, strict=True)
             if freeze_q2c:
                 self.q2c.requires_grad_(False)
 
@@ -162,6 +181,9 @@ class DeformationAwareConditioner(nn.Module):
         candidate_keys: torch.Tensor,
         cosine: torch.Tensor,
     ) -> torch.Tensor:
+        if self.implementation == "r9-native-v5":
+            with torch.autocast(device_type=target_keys.device.type, enabled=False):
+                return self.q2c.score_candidates(target_keys.float(), candidate_keys.float(), cosine.float())
         # Decompose the first linear layer instead of materializing
         # [target, candidate, cosine].  At PBR resolution that concatenation
         # is more than 10 GiB per 10k-query sample for K=64, even though the
@@ -190,6 +212,14 @@ class DeformationAwareConditioner(nn.Module):
         stable = masked - masked.amax(dim=-1, keepdim=True).clamp(min=-1e4)
         exponent = torch.exp(stable).masked_fill(~valid, 0.0)
         batch, queries, candidates, channels = values.shape
+        if self.implementation == "r9-native-v5":
+            # A single categorical distribution is invariant to query-wise
+            # rank-logit offsets. View mass is diagnostic, not an uncalibrated
+            # second confidence multiplier. Same formula as the cache writer.
+            weights = exponent / exponent.sum(-1, keepdim=True).clamp_min(1e-8)
+            view_weights = values.new_zeros(batch, queries, views)
+            view_weights.scatter_add_(2, view_index, weights)
+            return (weights[..., None] * values).sum(2), weights, view_weights
         by_view_den = values.new_zeros(batch, queries, views)
         by_view_den.scatter_add_(2, view_index, exponent)
         by_view_num = values.new_zeros(batch, queries, views, channels)
@@ -223,10 +253,15 @@ class DeformationAwareConditioner(nn.Module):
         semantic_indices: Optional[torch.Tensor] = None,
         matching_logits: Optional[torch.Tensor] = None,
         candidate_valid: Optional[torch.Tensor] = None,
+        target_valid: Optional[torch.Tensor] = None,
+        target_context: Optional[torch.Tensor] = None,
+        source_context: Optional[torch.Tensor] = None,
         control: Control = "normal",
     ) -> DeformationCondition:
         if control not in self.CONTROLS:
             raise ValueError(f"unknown causal control: {control}")
+        if self.arm != 'c2' and (target_context is not None or source_context is not None):
+            raise ValueError('raw deformation context channels exist only in c2')
         if source_values.ndim != 4 or source_values.shape[-1] != self.value_dim:
             raise ValueError("source_values must have shape [B,V,S,value_dim]")
         if source_valid.shape != source_values.shape[:3] or source_valid.dtype != torch.bool:
@@ -246,9 +281,14 @@ class DeformationAwareConditioner(nn.Module):
             if semantic_indices.ndim != 3 or semantic_indices.shape[0] != batch:
                 raise ValueError("semantic_indices must have shape [B,Q,K]")
             queries = semantic_indices.shape[1]
+        if self.implementation == "r9-native-v5":
+            if target_valid is None or target_valid.shape != (batch, queries) or target_valid.dtype != torch.bool:
+                raise ValueError("r9-native-v5 requires inference-safe target_valid [B,Q]")
+        fusion_scale = torch.tanh(self.fusion_gate) if self.implementation == "r9-native-v5" else None
         if control == "source-off":
             zero = source_values.new_zeros(batch, queries, self.value_dim)
-            return DeformationCondition(zero, None, None, None, None, None)
+            return DeformationCondition(zero, None, None, None, None, None,
+                                        torch.zeros(batch, queries, dtype=torch.bool, device=zero.device), fusion_scale)
         if control == "wrong-corr":
             source_values = torch.roll(source_values, shifts=1, dims=2)
 
@@ -256,13 +296,16 @@ class DeformationAwareConditioner(nn.Module):
         flat_valid = source_valid.reshape(batch, views * sites)
         if semantic_indices is None:
             flat_keys = source_keys.reshape(batch, views * sites, self.key_dim)
-            similarity = torch.einsum(
-                "bqd,bnd->bqn",
-                F.normalize(target_keys, dim=-1), F.normalize(flat_keys, dim=-1),
-            ).masked_fill(~flat_valid[:, None], -torch.inf)
-            # Raw cosine Top-1 has no use for the remaining K-1 candidates.
-            candidates = 1 if self.arm == "b1" else self.topk
-            cosine, indices = similarity.topk(candidates, dim=-1)
+            if self.implementation == 'r9-native-v5':
+                from .r9_matching import frame_topk
+                target_keys, flat_keys = target_keys.float(), flat_keys.float()
+                cosine, indices = frame_topk(target_keys, source_keys, source_valid,
+                                             topk=1 if self.arm == 'b1' else self.topk)
+            else:
+                similarity = torch.einsum('bqd,bnd->bqn', F.normalize(target_keys, dim=-1), F.normalize(flat_keys, dim=-1))
+                similarity = similarity.masked_fill(~flat_valid[:, None], -torch.inf)
+                candidates = 1 if self.arm == "b1" else self.topk
+                cosine, indices = similarity.topk(candidates, dim=-1)
             valid = torch.isfinite(cosine)
         else:
             indices = semantic_indices.long()
@@ -280,12 +323,16 @@ class DeformationAwareConditioner(nn.Module):
                 if cached_valid.shape != indices.shape:
                     raise ValueError("candidate_valid shape differs from semantic indices")
                 valid = valid & cached_valid
+        if self.implementation == "r9-native-v5":
+            complete_support = source_valid.flatten(1).sum(-1) >= 64
+            valid = valid & target_valid[..., None] & complete_support[:, None, None]
+        query_valid = valid.any(-1)
         candidate_values = self._gather(flat_values, indices)
         view_index = torch.div(indices, sites, rounding_mode="floor")
 
         if self.arm == "b1":
             evidence = candidate_values[:, :, 0] * valid[:, :, 0, None]
-            return DeformationCondition(evidence, indices[:, :, :1], None, None, None, None)
+            return DeformationCondition(evidence, indices[:, :, :1], None, None, None, None, query_valid, fusion_scale)
 
         if matching_logits is None:
             candidate_keys = self._gather(flat_keys, indices)
@@ -305,7 +352,7 @@ class DeformationAwareConditioner(nn.Module):
             ).squeeze(2)
             evidence = evidence * valid.any(dim=-1, keepdim=True)
             chosen = torch.gather(indices, 2, selected)
-            return DeformationCondition(evidence, chosen, logits, None, None, None)
+            return DeformationCondition(evidence, chosen, logits, None, None, None, query_valid, fusion_scale)
 
         evidence, candidate_weights, view_weights = self._attention(
             logits, candidate_values, valid, view_index, views
@@ -318,21 +365,27 @@ class DeformationAwareConditioner(nn.Module):
             if self.arm == "c2":
                 if deformation is None:
                     expected = self.retargeter.input_dim - self.value_dim - self.query_dim
-                    if expected != self.key_dim:
+                    if target_context is not None and source_context is not None:
+                        if (target_context.shape != (batch, queries, expected)
+                                or source_context.shape != (batch, views, sites, expected)):
+                            raise ValueError('raw deformation context shape differs')
+                        context_keys = self._gather(source_context.reshape(batch, views*sites, expected).float(), indices)
+                        query_context = target_context.float()
+                    elif expected == self.key_dim and candidate_keys is not None and target_keys is not None:
+                        context_keys, query_context = candidate_keys, target_keys
+                    else:
                         raise ValueError(
-                            "inference-derived deformation requires deformation_dim=key_dim"
+                            "c2 requires cached deformation or aligned raw deformation context"
                         )
-                    if candidate_keys is None or target_keys is None:
-                        raise ValueError(
-                            "cached c2 matching requires cached deformation"
-                        )
-                    combined = candidate_weights * torch.gather(
-                        view_weights, 2, view_index
-                    )
-                    source_context = (
-                        candidate_keys * combined[..., None]
+                    combined = (candidate_weights if self.implementation == 'r9-native-v5'
+                                else candidate_weights * torch.gather(view_weights, 2, view_index))
+                    source_summary = (
+                        context_keys * combined[..., None]
                     ).sum(dim=2)
-                    deformation = target_keys - source_context
+                    deformation = query_context - source_summary
+                    if self.implementation == 'r9-native-v5':
+                        # The immutable C2 sidecar uses FP16 RAW context delta.
+                        deformation = deformation.half()
                 if control == "shuffled-deform":
                     deformation = torch.roll(deformation, shifts=1, dims=0)
                 expected = self.retargeter.input_dim - self.value_dim - self.query_dim
@@ -342,7 +395,8 @@ class DeformationAwareConditioner(nn.Module):
             elif deformation is not None:
                 raise ValueError("c1 has no deformation input channel")
             residual = self.retargeter(torch.cat(parts, dim=-1), self.g_max)
+            residual = residual * query_valid[..., None]
             evidence = evidence + residual
         return DeformationCondition(
-            evidence, indices, logits, candidate_weights, view_weights, residual
+            evidence, indices, logits, candidate_weights, view_weights, residual, query_valid, fusion_scale
         )

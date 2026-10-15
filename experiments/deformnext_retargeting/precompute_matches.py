@@ -12,15 +12,15 @@ import sys
 
 import numpy as np
 import torch
-from torch.nn import functional as F
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
+from pixal3d.modules.r9_matching import MATCHER_CONTRACT, frame_raw, frame_topk
 
 
-SCHEMA = "deformnext-match-v1"
+SCHEMA = "deformnext-match-r9-v5"
 
 
 def remap(path: str, mappings: list[tuple[str, str]]) -> Path:
@@ -45,12 +45,21 @@ def valid_cache(path: Path, checkpoint_hash: str, topk: int) -> bool:
         with np.load(path) as cache:
             return (
                 str(cache["schema"]) == SCHEMA
+                and json.loads(str(cache['matcher_contract'])) == MATCHER_CONTRACT
+                and str(cache['aggregation']) == 'global-categorical-v1'
+                and str(cache['proposal_policy']) == 'GLOBAL64_VALID_OR_NATIVE'
                 and str(cache["q2c_sha256"]) == checkpoint_hash
                 and int(cache["topk"]) == topk
                 and cache["semantic_indices"].shape == (1024, topk)
                 and cache["matching_logits"].shape == (1024, topk)
                 and cache["candidate_valid"].shape == (1024, topk)
                 and cache["deformation"].shape == (1024, 2048)
+                and np.isfinite(cache['deformation']).all()
+                and np.array_equal(np.isfinite(cache['matching_logits']), cache['candidate_valid'])
+                and not np.isnan(cache['matching_logits']).any()
+                and (cache['semantic_indices'] < 3072).all()
+                and (cache['semantic_indices'] >= 0).all()
+                and (np.diff(np.sort(cache['semantic_indices'].astype(np.int32), axis=-1), axis=-1) > 0).all()
             )
     except Exception:
         return False
@@ -59,15 +68,14 @@ def valid_cache(path: Path, checkpoint_hash: str, topk: int) -> bool:
 @torch.inference_mode()
 def compute(model, transport: Path, topk: int) -> dict[str, np.ndarray]:
     with np.load(transport) as cache:
-        target = torch.from_numpy(np.asarray(cache["target_keys"])).cuda().float()
-        source = torch.from_numpy(np.asarray(cache["source_keys"])).cuda().float()
+        target_context = torch.from_numpy(np.asarray(cache["target_keys"])).cuda().float()
+        source_context = torch.from_numpy(np.asarray(cache["source_keys"])).cuda().float()
+        target, source = frame_raw(target_context), frame_raw(source_context)
         source_valid = torch.from_numpy(np.asarray(cache["source_valid"])).cuda().bool()
     views, sites, dim = source.shape
     flat = source.reshape(views * sites, dim)
-    valid_flat = source_valid.reshape(-1)
-    similarity = F.normalize(target, dim=-1) @ F.normalize(flat, dim=-1).T
-    similarity = similarity.masked_fill(~valid_flat[None], -torch.inf)
-    cosine, indices = similarity.topk(topk, dim=-1)
+    cosine, indices = frame_topk(target[None], source[None], source_valid[None], topk)
+    cosine, indices = cosine[0], indices[0]
     valid = torch.isfinite(cosine)
     candidates = flat[indices]
     logits = model._q2c_logits(
@@ -76,20 +84,9 @@ def compute(model, transport: Path, topk: int) -> dict[str, np.ndarray]:
 
     stable = logits - logits.amax(dim=-1, keepdim=True).clamp(min=-1e4)
     exponent = torch.exp(stable).masked_fill(~valid, 0.0)
-    view_index = torch.div(indices, sites, rounding_mode="floor")
-    by_view_den = logits.new_zeros(len(target), views)
-    by_view_den.scatter_add_(1, view_index, exponent)
-    confidence = logits.new_zeros(len(target), views)
-    confidence.scatter_reduce_(
-        1, view_index, torch.sigmoid(logits).masked_fill(~valid, 0.0),
-        reduce="amax", include_self=True,
-    )
-    confidence = confidence.masked_fill(by_view_den == 0, 0.0)
-    view_weights = confidence / confidence.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-    candidate_weights = exponent / by_view_den.gather(1, view_index).clamp_min(1e-8)
-    combined = candidate_weights * view_weights.gather(1, view_index)
-    source_context = (candidates * combined[..., None]).sum(dim=1)
-    deformation = target - source_context
+    combined = exponent / exponent.sum(-1, keepdim=True).clamp_min(1e-8)
+    source_summary = (source_context.flatten(0, 1)[indices] * combined[..., None]).sum(dim=1)
+    deformation = target_context - source_summary
     return {
         "semantic_indices": indices.cpu().numpy().astype(np.uint16),
         "matching_logits": logits.cpu().numpy().astype(np.float32),
@@ -113,7 +110,7 @@ def main() -> None:
     rows = [row for index, row in enumerate(rows) if index % args.world_size == args.rank]
     checkpoint_hash = sha256(args.q2c_checkpoint)
     model = DeformationAwareConditioner(
-        arm="b2", key_dim=2048, value_dim=1024, query_dim=1024,
+        arm="b2", key_dim=1024, value_dim=1024, query_dim=1024,
         hidden_dim=256, topk=args.topk,
         q2c_checkpoint=str(args.q2c_checkpoint), freeze_q2c=True,
     ).eval().cuda()
@@ -130,6 +127,9 @@ def main() -> None:
             temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp.npz")
             np.savez(
                 temporary, schema=np.asarray(SCHEMA),
+                matcher_contract=np.asarray(json.dumps(MATCHER_CONTRACT, sort_keys=True)),
+                aggregation=np.asarray('global-categorical-v1'),
+                proposal_policy=np.asarray('GLOBAL64_VALID_OR_NATIVE'),
                 q2c_sha256=np.asarray(checkpoint_hash), topk=np.asarray(args.topk),
                 **arrays,
             )

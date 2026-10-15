@@ -11,6 +11,23 @@ ARMS = ('v1', 'b1', 'b2', 'b3', 'c1', 'c2')
 REPO = Path(__file__).resolve().parents[2]
 
 
+def require_semantic_release(cfg, verification):
+    """Step-zero identity alone does not promote a new semantic recipe."""
+    if cfg['experiment'].get('release_status') != 'pilot-validated':
+        raise ValueError('R9 semantic recipe remains on audit hold until teacher/cache and pilot validation pass')
+    module = cfg['trainer']['args']['deform_conditioner']
+    if module.get('implementation') != 'r9-native-v5':
+        raise ValueError('semantic training requires the promoted R9 implementation')
+    expected = cfg['dataset']['args'].get('expected_q2c_sha256')
+    if not expected or verification.get('q2c_sha256') != expected:
+        raise ValueError('semantic verification must use the exact frozen matcher checkpoint')
+    if verification.get('conditioning_schema') != 'r9-native-residual-v5':
+        raise ValueError('semantic native-start verification schema differs')
+    for key in ('native_condition_max_abs_error', 'native_denoiser_max_abs_error', 'native_sampling_max_abs_error'):
+        if verification.get(key) != 0:
+            raise ValueError('every semantic arm must pass exact native-start verification')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', choices=('ss64', 'pbr1024'), required=True)
@@ -46,7 +63,7 @@ def main():
     for arm in args.arms:
         path = args.config_root / f'{args.stage}-{arm}.json'
         cfg = json.loads(path.read_text())
-        if cfg['experiment']['conditioning_schema'] != 'native-mv-anchor-frame-v2':
+        if cfg['experiment']['conditioning_schema'] not in {'native-mv-anchor-frame-v2', 'r9-native-residual-v5'}:
             raise ValueError('legacy conditioning config is not allowed')
         if cfg['experiment']['world_size'] != len(gpus):
             raise ValueError('assigned GPU count and global batch recipe differ')
@@ -58,6 +75,8 @@ def main():
                 raise ValueError(f'GT alignment invalidation blocks this run: {root}')
             if arm != 'v1' and (root / 'SEMANTIC_AUDIT_HOLD.json').exists():
                 raise ValueError(f'semantic implementation audit hold blocks this run: {root}')
+        if arm != 'v1':
+            require_semantic_release(cfg, verification)
         output.mkdir(parents=True, exist_ok=True)
         if (output / 'STOP').exists():
             raise ValueError(f'explicit STOP present: {output}')

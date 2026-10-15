@@ -17,6 +17,7 @@ def inputs():
 
 def make(arm, **kwargs):
     return DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm=arm, key_dim=8, value_dim=6, query_dim=4, topk=64, **kwargs
     )
 
@@ -114,6 +115,7 @@ def test_source_off_is_exact_zero_for_every_arm(arm):
 def test_trainer_bridge_maps_patch_evidence_to_dense_projection_grid():
     bridge = object.__new__(ImageConditionedProjMixin)
     bridge.deform_conditioner = DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm="b1", key_dim=2, value_dim=3, query_dim=1, topk=2
     )
     bridge.training_models = {}
@@ -134,6 +136,7 @@ def test_trainer_bridge_maps_patch_evidence_to_dense_projection_grid():
 def test_trainer_bridge_maps_patch_evidence_to_sparse_coordinates():
     bridge = object.__new__(ImageConditionedProjMixin)
     bridge.deform_conditioner = DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm="b1", key_dim=2, value_dim=3, query_dim=1, topk=2
     )
     bridge.training_models = {}
@@ -152,6 +155,7 @@ def test_trainer_bridge_maps_patch_evidence_to_sparse_coordinates():
 
 def test_shared_q2c_checkpoint_loads_strictly_and_freezes(tmp_path):
     source = DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm="b2", key_dim=3, value_dim=4, query_dim=2, hidden_dim=5, topk=2
     )
     with torch.no_grad():
@@ -160,6 +164,7 @@ def test_shared_q2c_checkpoint_loads_strictly_and_freezes(tmp_path):
     path = tmp_path / "q2c.pt"
     torch.save({"q2c": source.q2c.state_dict()}, path)
     loaded = DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm="c1", key_dim=3, value_dim=4, query_dim=2, hidden_dim=5, topk=2,
         q2c_checkpoint=str(path), freeze_q2c=True,
     )
@@ -171,6 +176,7 @@ def test_shared_q2c_checkpoint_loads_strictly_and_freezes(tmp_path):
 def test_freezing_q2c_without_checkpoint_is_rejected():
     with pytest.raises(ValueError, match="requires q2c_checkpoint"):
         DeformationAwareConditioner(
+        implementation="legacy-v4",
             arm="b2", key_dim=3, value_dim=4, query_dim=2, topk=2,
             freeze_q2c=True,
         )
@@ -179,6 +185,7 @@ def test_freezing_q2c_without_checkpoint_is_rejected():
 def test_sparse_transport_accepts_compact_patch_ids():
     bridge = object.__new__(ImageConditionedProjMixin)
     bridge.deform_conditioner = DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm="b1", key_dim=2, value_dim=3, query_dim=1, topk=2
     )
     bridge.training_models = {}

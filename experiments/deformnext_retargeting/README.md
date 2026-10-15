@@ -1,120 +1,115 @@
-# DeformNeXt retargeting: native multi-view revision
+# DeformNeXt retargeting: R9 / native-preserving revision v5
 
-This implementation starts from `origin/dev-jaehyeok` commit `04f9883`.
-The SS64 step 4210 and PBR1024 step 16850 mixed385 checkpoints contain
-both frozen base weights and trained LoRA adapters. Continuation loads the
-complete state strictly and starts a fresh optimizer. DeformNeXt uses its
-own train/validation split; mixed385 is checkpoint lineage, not deformation
-training data.
+Code lineage is `origin/dev-jaehyeok` (`04f9883`). The SS step 4210 and PBR
+step 16850 mixed385 checkpoints include frozen base and trained LoRA weights.
+Continuation loads both strictly with a fresh optimizer. Training data is the
+DeformNeXt split: SS 9,149 train / 508 validation, PBR 9,139 train after the
+32,768-token filter. Mixed385's 80k assets are initialization lineage only.
 
-## Conditioning contract
+## Current contract
 
-| Arm | Source projection | Additional module |
+`pixal3d/modules/r9_matching.py` vendors the selected original R9 scorer
+**verbatim**, with source and AST checksums. The fixed promoted tuple is
+`L12 FRAME RAW 1024 -> GLOBAL64 -> P0-RAW -> M0-L12 -> D1-Q2C`.
+D1 is one query-only contextual attention layer (four heads of width 32),
+followed by the original bounded residual scalar head: 928,453 parameters.
+`verify_r9_authority.py` compares initialization, forward and parameter
+gradients to an explicit historical source, including nonzero learned gates.
+The old 2048-D pairwise MLP is available only as `implementation=legacy-v4`
+for historical diagnostics. Its checkpoints cannot load into the R9 path.
+
+Matching uses only FRAME 1024-D. Existing FRAME+GLOBAL 2048-D Omega caches
+remain immutable and supply the first branch directly. C2 separately retains
+RAW FRAME+GLOBAL 2048-D context; it is not a 2048-D matching key. FP32 proposal
+and D1 math are shared by offline, training and inference, including AMP runs.
+
+| Arm | Semantic selection | Added adaptation |
 | --- | --- | --- |
-| V1 | Original camera-aligned multi-view projection and mean | None |
-| B1 | Frozen Omega cosine Top-1 | None |
-| B2 | Shared frozen Q2C selects one Top-1 feature | None; no score averaging |
-| B3 | Q2C score weights candidates and source views | Matching-aware attention |
-| C1 | B3 | Retargeter with native target query; no deformation channel |
-| C2 | B3 | Retargeter additionally receives 2048-D deformation context |
+| V1 | Native spatial multi-view projection | Native LoRA continuation |
+| B1 | RAW FRAME cosine Top-1 | Common zero-start scalar fusion gate |
+| B2 | Frozen shared D1 Top-1 | Same gate; no score-weighted feature averaging |
+| B3 | Frozen D1 categorical score attention | Same gate |
+| C1 | B3 | Zero-output retargeter with native target query |
+| C2 | C1 | Additional RAW 2048-D deformation context channels |
 
-Every arm has one geometry-only M1 anchor and three textured M0 source
-views. Target RGB is used for supervision/auditing, never as conditioning.
-V1 has `deform_conditioner: null` and reads no transport cache. It uses the
-native `dev-jaehyeok` global and projection means without modification.
+All semantic arms preserve native global conditioning. Their projection is
+`C_native + tanh(g) * valid * delta + (3/4) * valid * R`, where
+`delta = (C_anchor + 3*E)/4 - C_native`, `g=0` initially and the retargeter's
+final output layer is zero. The retargeter is outside the zero semantic gate;
+its output layer and the gate both receive gradients on the first update.
+C1 has no deformation channels. C2 adds them physically. PBR semantic delta
+modifies DINO LR channels only; native NAF HR conditioning remains present.
+The retargeter can learn an HR residual from its initially zero output.
 
-Semantic arms preserve the native mean of all four global features. Their
-projection is `(anchor_projection + 3 * transported_source_evidence) / 4`.
-The anchor uses the canonical camera returned by the native multi-view
-relative-camera transform. Corrected compact projection maps convert
-latent anchor-frame positions into target patch addresses. The original
-large descriptor/value caches are immutable; the loader overrides only
-projection maps using the versioned sidecar schema.
+Categorical attention is invariant to query-wise score offsets. Candidate
+weights are global probabilities; view weights report their marginal mass.
+Source validity and the geometry-only target alpha mask identify unavailable
+queries, which retain native conditioning. A source pool with fewer than 64
+valid sites also uses native fallback in every semantic arm: invalid background
+tokens never become a useful padded D1 context. The complete scan found 130 such
+train assets and no validation assets. They still participate in native LoRA
+training. This is not a learned visibility or NULL classifier. `source-off` disables the semantic residual; the native
+multi-view source path remains present.
 
-C1/C2 have a zero-initialized final residual layer and a nonzero gate. A
-zero gate together with a zero output layer would prevent either from
-learning. C1 rejects deformation tensors entirely. Q2C is shared and
-frozen so B2-to-B3 measures feature consumption rather than different
-matching checkpoints.
+## Teacher, cache and checkpoint separation
 
-The original `runs/` experiment used a different, incorrectly labelled
-V1 transport path and noncanonical projections. Those checkpoints and
-metrics are historical diagnostic artifacts and **must not be used as
-valid vanilla/ablation results**. Corrected experiments use a separate
-`runs_native_v2/` root and separate W&B IDs, initialized from the original
-mixed385 checkpoints rather than the historical deformation checkpoints.
+`topology_labels.py` transfers M1 barycentrics into M0 vertex positions, then
+checks source projection, z-buffer depth (0.005) and input alpha. It records
+input content hashes, role/split and raster agreement. Transparent materials
+are checked by observed-alpha containment, allowing opaque raster overfill.
+Opaque z-buffer visibility is conservative around cutouts: it can discard a
+point visible through a transparent foreground surface. It is not a full
+material-aware ray tracer. These labels never enter inference conditioning.
 
-## Validation and acceptance checks
+`train_q2c.py` requires those teacher files; it cannot fall back to projecting
+X1 unchanged into M0 cameras. It distinguishes visible proposal misses and
+unobservable queries, uses a fixed final checkpoint and records objective
+provenance. **Topology listwise supervision is a new DeformNeXt objective;
+it is distinct from the original R9 controlled RGB task loss.** Exact scorer
+reproduction does not establish a new SS/PBR generation improvement.
 
-`verify_gpu.py` loads the real base+LoRA checkpoints and verifies:
+New matches use `deformnext-match-r9-v5`, exact matcher contract and weight
+hash, categorical aggregation and 2048-D C2 context. New dataset configs reject
+legacy caches and require world-v4 geometry/projection sidecars. Defaults point
+to `manifests_world_v4`, `projection_maps_world_v4`, `matches_r9_v5` and a
+separate `runs_r9_v5`; existing world-v4 latents need no reconstruction.
 
-- V1 conditioning and denoiser output are exactly equal to the native MV
-  reference on the same tensors.
-- Training and inference conditions match for all six arms. V1/Top-1
-  require zero error. Weighted CUDA scatter aggregation permits absolute
-  error at most 1e-5 due to floating-point atomic sum order.
-- Losses are finite and backward reaches LoRA in every arm, and reaches
-  both retargeting adapters.
+All generated semantic recipes start with `release_status=audit-hold`.
+`run_campaign.py` requires the exact frozen matcher hash, all-arm native-start
+proof and a completed pilot gate before a production semantic launch.
+The old `runs_world_v4` semantic campaign remains under `SEMANTIC_AUDIT_HOLD`.
+Its native V1 remains a valid baseline. Original invalid-geometry runs remain
+historical diagnostics and must not be resumed.
 
-CPU regressions independently verify canonical addresses against the
-native projector, source/anchor averaging, absence of V1 transport I/O,
-strict checkpoint continuation, and nonzero retargeter learning gradients.
-Production SS and three-rank PBR also run full-batch ten-update smoke
-checks with checkpoint save before launch. These checks establish correct
-execution, not sufficient generation quality.
+## Verification and evaluation
 
-Validation runs before the first update and at each epoch boundary with
-fixed samples, seeds, 12 Euler steps and CFG 3. SS reports voxel IoU,
-precision, recall and F1 on four generated assets, plus loss on 32 assets.
-PBR uses two generated assets, one 256px anchor render and 16 loss assets.
-It reports foreground PSNR/base-color PSNR, crop SSIM/LPIPS and legacy
-whole-image metrics. Whole-image metrics include background and must not
-be used alone. PBR generation is conditioned on GT shape/support, so
-`gt_shape_conditioned_alpha_iou` is a diagnostic, not a geometry score.
-Displayed GT is decoder reconstruction of GT latent, not the raw reference
-render. A four-asset depth-anchor/target-render audit gave mask IoU above
-0.996; this is a sampled audit, not a dataset-wide proof.
+Use the verified Pixal3D environment and explicitly assigned physical GPUs.
+Run modules from the repository root with `PYTHONPATH=.` and `ATTN_BACKEND=sdpa`.
 
-A generation baseline is recorded at step zero to distinguish checkpoint
-capability from fine-tuning changes. Loss reduction or nonzero gradients
-alone do not establish successful deformation generation.
+- `verify_r9_authority`: original/vendored scorer state, forward, backward parity.
+- `verify_native_start`: actual mixed385 SS/PBR checkpoint, all-arm condition,
+  denoiser and same-noise 12-step generation identity, plus native LoRA/gate/
+  adapter gradients. Use `--q2c-checkpoint` to verify the actual frozen matcher.
+- `verify_match_cache`: real offline/online routing under BF16 AMP with an
+  active nonzero C2 adapter.
+- `verify_conditioner_ddp`: two updates and exact parameter synchronization
+  on explicitly assigned ranks, including the fusion gate.
 
-## Launching
+Step-zero and epoch-end quick metrics remain SS voxel IoU/precision/recall/F1
+and PBR foreground/base-color PSNR plus cropped SSIM/LPIPS. Generation panels
+are small trend checks, not final population metrics. PBR uses GT shape/support;
+alpha IoU is not generated-geometry quality. The PBR renderer uses common AO
+random rays for comparisons and preserves the surrounding training RNG.
 
-Generate recipes with explicit retained PBR counts and versioned outputs:
+Target batch recipes remain SS global 96 on one GPU (split 1) and PBR global
+24 on three GPUs (per-rank 8, two packs capped at four assets). The new v5
+modules still require production-batch profiling before launch; historical
+v4 memory/timing measurements below do not certify the changed modules.
 
-```bash
-python experiments/deformnext_retargeting/configure.py \
-  --data-root /path/to/retargeting-data \
-  --output-root /path/to/runs_native_v2 \
-  --config-root /path/to/configs-native-v2 \
-  --training-assets 9149 --pbr-training-assets 9137 \
-  --ss-checkpoint /path/to/ss64-mixed385.pt \
-  --pbr-checkpoint /path/to/pbr1024-mixed385.pt \
-  --q2c-checkpoint /path/to/shared-q2c.pt
-python -m experiments.deformnext_retargeting.projection_maps \
-  --manifest /path/to/train.jsonl --output-root /path/to/projection_maps_v2
-CUDA_VISIBLE_DEVICES=<assigned-device> PYTHONPATH=. \
-  python -m experiments.deformnext_retargeting.verify_gpu \
-  --stage ss64 --config-root /path/to/configs-native-v2 \
-  --output-root /path/to/verification
-```
+## Historical registration and runtime audits
 
-Run the projection builder for validation too, and GPU verification for
-PBR before launching its campaign. Assign physical GPUs explicitly at
-launch. Current resolved allocation is SS on one GPU, global batch 96;
-PBR on three GPUs, global batch 24. SS V1 microbatch 96 passed ten updates
-with peak allocated about 87.3 GiB on a 95.6 GiB GPU. Semantic SS arms
-benchmark their own maximum microbatch before training; global batch
-stays 96. PBR uses four balanced accumulation packs per rank (average
-microbatch 2), because sparse token counts vary across assets.
-
-`run_campaign.py` requires passing GPU reports, checks native config
-schema and validates completion before proceeding. Training errors stop
-the queue; file-server sync errors are recorded for deferred retry and do
-not discard local checkpoints. Data and generated artifacts belong outside
-Git. Model construction and decoder dependencies require the verified
-Pixal3D environment and cached pretrained weights.
+The following records explain geometry corrections and earlier runs. Current
+semantic contracts and launch policy are the v5 definitions above.
 
 ## SS supervision audit (anchor-v3)
 

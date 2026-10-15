@@ -45,3 +45,22 @@ def test_semantic_hold_allows_unaffected_native_baseline(tmp_path, monkeypatch):
     run_campaign.main()
     assert len(commands)==1
     assert (tmp_path/'logs/campaign-native-v2-ss64.done').exists()
+
+
+def test_new_native_identity_does_not_release_semantic_recipe():
+    cfg = {'experiment': {'release_status': 'audit-hold'}}
+    with pytest.raises(ValueError, match='teacher/cache and pilot'):
+        run_campaign.require_semantic_release(cfg, {'status': 'PASS'})
+
+
+def test_semantic_release_requires_same_frozen_head_and_exact_all_arm_identity():
+    cfg = {'experiment': {'release_status': 'pilot-validated'},
+           'trainer': {'args': {'deform_conditioner': {'implementation': 'r9-native-v5'}}},
+           'dataset': {'args': {'expected_q2c_sha256': 'same-head'}}}
+    proof = dict(q2c_sha256='same-head', conditioning_schema='r9-native-residual-v5',
+                 native_condition_max_abs_error=0., native_denoiser_max_abs_error=0., native_sampling_max_abs_error=0.)
+    run_campaign.require_semantic_release(cfg, proof)
+    with pytest.raises(ValueError, match='exact frozen matcher'):
+        run_campaign.require_semantic_release(cfg, dict(proof, q2c_sha256='old-head'))
+    with pytest.raises(ValueError, match='exact native-start'):
+        run_campaign.require_semantic_release(cfg, dict(proof, native_condition_max_abs_error=.01))

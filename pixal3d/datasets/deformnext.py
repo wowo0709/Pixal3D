@@ -165,6 +165,8 @@ class _DeformNeXtBase(Dataset):
         transport_arm: Optional[str],
         match_root: Optional[str],
         projection_root: Optional[str],
+        transport_implementation: str = "legacy-v4",
+        expected_q2c_sha256: Optional[str] = None,
     ) -> None:
         self.manifest_path = Path(manifest).resolve()
         self.manifest_dir = self.manifest_path.parent
@@ -174,6 +176,10 @@ class _DeformNeXtBase(Dataset):
         if transport_arm is not None and transport_arm not in TRANSPORT_KEYS_BY_ARM:
             raise ValueError(f"unknown transport arm: {transport_arm}")
         self.transport_arm = transport_arm
+        if transport_implementation not in {"legacy-v4", "r9-native-v5"}:
+            raise ValueError("unknown transport implementation")
+        self.transport_implementation = transport_implementation
+        self.expected_q2c_sha256 = expected_q2c_sha256
         self.match_root = None if match_root is None else self._resolve(str(match_root))
         self.projection_root = None if projection_root is None else self._resolve(str(projection_root))
         self.transport_keys = (
@@ -264,6 +270,15 @@ class _DeformNeXtBase(Dataset):
                         pack[f"transport_{key}"] = tensor
         if self.match_root is not None and self.transport_arm != "v1":
             with np.load(self.match_root / f"{row['sample_id']}.npz") as cache:
+                if self.transport_implementation == "r9-native-v5":
+                    from ..modules.r9_matching import MATCHER_CONTRACT
+                    if (str(cache['schema']) != 'deformnext-match-r9-v5'
+                            or json.loads(str(cache['matcher_contract'])) != MATCHER_CONTRACT
+                            or str(cache['aggregation']) != 'global-categorical-v1'
+                            or str(cache['proposal_policy']) != 'GLOBAL64_VALID_OR_NATIVE'):
+                        raise ValueError('incompatible R9 match cache contract')
+                    if self.expected_q2c_sha256 is None or str(cache['q2c_sha256']) != self.expected_q2c_sha256:
+                        raise ValueError('R9 match cache checkpoint hash mismatch')
                 for key in MATCH_KEYS_BY_ARM[self.transport_arm]:
                     if key not in cache:
                         raise ValueError(
@@ -275,6 +290,22 @@ class _DeformNeXtBase(Dataset):
                     elif key == "candidate_valid":
                         tensor = tensor.bool()
                     pack[f"transport_{key}"] = tensor
+        if self.transport_implementation == "r9-native-v5":
+            from ..modules.r9_matching import frame_raw
+            for key in ('target_keys', 'source_keys'):
+                full = f'transport_{key}'
+                if full in pack:
+                    if self.transport_arm == 'c2' and self.match_root is None:
+                        pack['transport_' + key.replace('_keys', '_context')] = pack[full]
+                    pack[full] = frame_raw(pack[full])
+            # This mask is part of the input geometry-only anchor, not a GT
+            # target RGB, M0 topology label, or source visibility oracle.
+            with Image.open(self._resolve(row['target_anchor'])) as anchor:
+                alpha = np.asarray(anchor.convert('RGBA').resize((512, 512), Image.Resampling.NEAREST))[..., 3]
+                pack['transport_target_valid'] = torch.from_numpy((alpha[8::16, 8::16] > 127).copy()).flatten()
+            if self.match_root is None:
+                # Derive C2 context from the selected FRAME tokens online.
+                pack.pop('transport_deformation', None)
         if self.projection_root is not None:
             with np.load(self.projection_root / f"{row['sample_id']}.npz") as cache:
                 if str(cache['schema']) != 'deformnext-anchor-projection-v2':
@@ -308,6 +339,8 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         match_root: Optional[str] = None,
         projection_root: Optional[str] = None,
         expected_ss_schema: Optional[str] = None,
+        transport_implementation: str = "legacy-v4",
+        expected_q2c_sha256: Optional[str] = None,
         pretrained_ss_dec: str = "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16",
         **_: Any,
     ) -> None:
@@ -326,6 +359,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
             manifest, image_size=image_size, expected_split=expected_split,
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
             match_root=match_root, projection_root=projection_root,
+            transport_implementation=transport_implementation, expected_q2c_sha256=expected_q2c_sha256,
         )
         if self.expected_ss_schema is not None:
             for row in self.rows:
@@ -366,6 +400,8 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
         transport_arm: Optional[str] = None,
         match_root: Optional[str] = None,
         projection_root: Optional[str] = None,
+        transport_implementation: str = "legacy-v4",
+        expected_q2c_sha256: Optional[str] = None,
         attrs: Iterable[str] = ("base_color", "metallic", "roughness", "alpha"),
         **_: Any,
     ) -> None:
@@ -398,6 +434,7 @@ class DeformNeXtPBR1024(SLatPbrVisMixin, _DeformNeXtBase):
             manifest, image_size=image_size, expected_split=expected_split,
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
             match_root=match_root, projection_root=projection_root,
+            transport_implementation=transport_implementation, expected_q2c_sha256=expected_q2c_sha256,
         )
         # Match the production PBR dataset contract: assets above max_tokens are
         # excluded before sampling.  DeformNeXt manifests created before the PBR

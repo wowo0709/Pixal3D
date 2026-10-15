@@ -1,180 +1,139 @@
 #!/usr/bin/env python3
-"""Warm up the one-layer Q2C decoder from topology-exact patch labels."""
+"""Train the exact R9 D1 architecture with an explicit topology-visible teacher.
 
+This is a new DeformNeXt supervision objective, not reproduction of R9's
+controlled RGB training loss. No spatial pseudo-label fallback is permitted.
+"""
 from __future__ import annotations
-
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
-import sys
-
 import numpy as np
 import torch
-from torch.nn import functional as F
-
-REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO))
-
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
+from pixal3d.modules.r9_matching import CHECKPOINT_SCHEMA, MATCHER_CONTRACT, frame_raw, frame_topk
+from .precompute_matches import remap
+from .topology_labels import SCHEMA as LABEL_SCHEMA, fingerprint
 
 
-def remap(path: str, mappings: list[tuple[str, str]]) -> Path:
-    for source, target in mappings:
-        if path == source or path.startswith(source.rstrip("/") + "/"):
-            return Path(target + path[len(source):])
-    return Path(path)
+def topology_listwise_loss(logits, indices, candidate_valid, positives, visible):
+    """Visible-query denominator includes proposal misses; nulls are separate."""
+    if positives.shape != visible.shape or positives.shape[0] != logits.shape[0]:
+        raise ValueError('topology teacher shape mismatch')
+    positive = ((indices[..., None] == positives[:, None]) & visible[:, None]).any(-1) & candidate_valid
+    observable = visible.any(-1)
+    eligible = positive.any(-1)
+    masked = logits.masked_fill(~candidate_valid, -torch.inf)
+    if eligible.any():
+        selected, mask = masked[eligible], positive[eligible]
+        loss = (torch.logsumexp(selected, -1) - torch.logsumexp(selected.masked_fill(~mask, -torch.inf), -1)).mean()
+        correct = int(mask.gather(1, selected.argmax(-1, keepdim=True)).sum())
+    else:
+        loss = logits.masked_fill(~candidate_valid, 0).sum() * 0
+        correct = 0
+    return loss, {'eligible_queries': int(eligible.sum()), 'top1_correct': correct,
+                  'raw_top1_correct': int(positive[:, 0].sum()), 'visible_queries': int(observable.sum()),
+                  'proposal_misses': int((observable & ~eligible).sum()), 'null_queries': int((~observable).sum())}
 
 
-def loss_for_cache(
-    model, path: Path, topk: int
-) -> tuple[torch.Tensor, int, int, int, int]:
+def loss_for_cache(model, path, label_path, *, sample_id, split, topk=64):
+    device = next(model.parameters()).device
     with np.load(path) as cache:
-        target = torch.from_numpy(np.asarray(cache["target_keys"]).copy()).cuda().float()
-        source = torch.from_numpy(np.asarray(cache["source_keys"]).copy()).cuda().float()
-        valid = torch.from_numpy(np.asarray(cache["source_valid"]).copy()).cuda().bool()
-        positives = torch.from_numpy(np.asarray(cache["spatial_indices"]).copy()).cuda().long()
-    views, sites, dim = source.shape
-    flat = source.reshape(views * sites, dim)
-    similarity = F.normalize(target, dim=-1) @ F.normalize(flat, dim=-1).T
-    similarity = similarity.masked_fill(~valid.reshape(-1)[None], -torch.inf)
-    cosine, indices = similarity.topk(topk, dim=-1)
-    candidates = flat[indices]
-    logits = model._q2c_logits(
-        target[None], candidates[None], cosine.nan_to_num(-1.0)[None]
-    ).squeeze(0)
-    valid = torch.isfinite(cosine)
-    logits = logits.masked_fill(~valid, -torch.inf)
-    positive_flat = positives.T + torch.arange(views, device="cuda")[None] * sites
-    mask = (indices[..., None] == positive_flat[:, None]).any(dim=-1) & valid
-    eligible = mask.any(dim=-1)
-    total = int(mask.shape[0])
-    raw_correct = int(mask[:, 0].sum())
-    if not bool(eligible.any()):
-        return logits.sum() * 0.0, 0, 0, raw_correct, total
-    selected = logits[eligible]
-    selected_mask = mask[eligible]
-    numerator = torch.logsumexp(selected.masked_fill(~selected_mask, -torch.inf), dim=-1)
-    denominator = torch.logsumexp(selected, dim=-1)
-    prediction = selected.argmax(dim=-1, keepdim=True)
-    correct = int(selected_mask.gather(1, prediction).sum())
-    return (
-        (denominator - numerator).mean(), int(eligible.sum()), correct,
-        raw_correct, total,
-    )
+        target = frame_raw(torch.from_numpy(cache['target_keys'].copy()).to(device).float())
+        source = frame_raw(torch.from_numpy(cache['source_keys'].copy()).to(device).float())
+        valid = torch.from_numpy(cache['source_valid'].copy()).to(device).bool()
+    with np.load(label_path) as label:
+        if (str(label['schema']) != LABEL_SCHEMA or str(label['sample_id']) != sample_id
+                or str(label['split']) != split or float(label['visibility_depth_tolerance']) != .005):
+            raise ValueError('topology teacher provenance mismatch')
+        positives = torch.from_numpy(label['positive_indices'].copy()).to(device).long()
+        visible = torch.from_numpy(label['positive_visible'].copy()).to(device).bool()
+    flat = source.flatten(0, 1)
+    cosine, indices = frame_topk(target[None], source[None], valid[None], topk)
+    cosine, indices = cosine[0], indices[0]
+    logits = model._q2c_logits(target[None], flat[indices][None], cosine.nan_to_num(-1.)[None])[0]
+    return topology_listwise_loss(logits, indices, cosine.isfinite(), positives, visible)
 
 
-@torch.no_grad()
-def validate(model, rows, mappings, topk: int) -> dict[str, float | int]:
+def evaluate(model, rows, mappings, label_root):
     model.eval()
-    loss_sum = 0.0
-    eligible_sum = 0
-    correct_sum = 0
-    raw_correct_sum = 0
-    total_sum = 0
-    for row in rows:
-        cache = remap(row["transport_cache"], mappings)
-        loss, queries, correct, raw_correct, total = loss_for_cache(
-            model, cache, topk
-        )
-        loss_sum += float(loss) * queries
-        eligible_sum += queries
-        correct_sum += correct
-        raw_correct_sum += raw_correct
-        total_sum += total
+    counts = {k: 0 for k in ('eligible_queries', 'top1_correct', 'raw_top1_correct', 'visible_queries', 'proposal_misses', 'null_queries')}
+    loss_sum = 0.
+    with torch.no_grad():
+        for row in rows:
+            loss, metrics = loss_for_cache(model, remap(row['transport_cache'], mappings),
+                label_root / f"{row['sample_id']}.npz", sample_id=row['sample_id'], split=row['split'])
+            loss_sum += float(loss) * metrics['eligible_queries']
+            for key in counts: counts[key] += metrics[key]
     model.train()
-    return {
-        "loss": loss_sum / max(eligible_sum, 1),
-        "q2c_top1_accuracy": correct_sum / max(total_sum, 1),
-        "raw_cosine_top1_accuracy": raw_correct_sum / max(total_sum, 1),
-        "topk_recall": eligible_sum / max(total_sum, 1),
-        "eligible_queries": eligible_sum,
-        "total_queries": total_sum,
-        "samples": len(rows),
-    }
+    return {**counts, 'samples': len(rows), 'loss': loss_sum / max(counts['eligible_queries'], 1),
+            'q2c_top1_accuracy': counts['top1_correct'] / max(counts['visible_queries'], 1),
+            'raw_cosine_top1_accuracy': counts['raw_top1_correct'] / max(counts['visible_queries'], 1),
+            'topk_recall': counts['eligible_queries'] / max(counts['visible_queries'], 1)}
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--validation-manifest", type=Path)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--path-map", action="append", default=[], metavar="FROM=TO")
-    parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--topk", type=int, default=64)
-    parser.add_argument("--seed", type=int, default=20261012)
+    parser.add_argument('--manifest', type=Path, required=True)
+    parser.add_argument('--validation-manifest', type=Path, required=True)
+    parser.add_argument('--label-root', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--path-map', action='append', default=[])
+    parser.add_argument('--epochs', type=int, default=3)
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--topk', type=int, choices=[64], default=64)
+    parser.add_argument('--seed', type=int, default=42017)
     args = parser.parse_args()
-    torch.manual_seed(args.seed)
-    mappings = [tuple(value.split("=", 1)) for value in args.path_map]
+    torch.set_num_threads(4); torch.manual_seed(args.seed)
+    mappings = [tuple(v.split('=', 1)) for v in args.path_map]
+    resolve = lambda path: remap(path, mappings)
     rows = [json.loads(line) for line in args.manifest.read_text().splitlines() if line]
-    validation_rows = [] if args.validation_manifest is None else [
-        json.loads(line)
-        for line in args.validation_manifest.read_text().splitlines() if line
-    ]
-    model = DeformationAwareConditioner(
-        arm="b2", key_dim=2048, value_dim=1024, query_dim=1024,
-        hidden_dim=256, topk=args.topk,
-    ).cuda()
-    optimizer = torch.optim.AdamW(model.q2c.parameters(), lr=args.lr, weight_decay=0.01)
-    generator = np.random.default_rng(args.seed)
-    events = args.output.with_suffix(".jsonl")
+    validation = [json.loads(line) for line in args.validation_manifest.read_text().splitlines() if line]
+    if not rows or not validation: raise ValueError('train and validation populations must be nonempty')
+    if any(r['split'] != 'train' for r in rows) or any(r['split'] != 'validation' for r in validation):
+        raise ValueError('incorrect matcher train/validation split')
+    for key in ('sample_id', 'source_uid', 'source_cluster_id'):
+        a, b = {r[key] for r in rows if key in r}, {r[key] for r in validation if key in r}
+        if a & b: raise ValueError(f'matcher train/validation overlap: {key}')
+    input_hashes = []
+    for row in rows + validation:
+        digest = fingerprint(row, resolve)
+        with np.load(args.label_root / f"{row['sample_id']}.npz") as label:
+            if str(label['input_sha256']) != digest: raise ValueError('stale topology teacher input hash')
+        input_hashes.append(digest)
+    model = DeformationAwareConditioner(arm='b2', key_dim=1024, value_dim=1024, query_dim=1024).cuda()
+    optimizer = torch.optim.AdamW(model.q2c.parameters(), lr=args.lr, weight_decay=.01)
+    rng = np.random.default_rng(args.seed)
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    events = args.output.with_suffix('.jsonl')
+    history = [{'epoch': 0, 'validation': evaluate(model, validation, mappings, args.label_root)}]
+    print(json.dumps(history[0]), flush=True)
     step = 0
-    best_loss = float("inf")
-    best_epoch = 0
-    best_state = None
-    history = []
-    if validation_rows:
-        initial = {"epoch": 0, "validation": validate(
-            model, validation_rows, mappings, args.topk
-        )}
-        history.append(initial)
-        with events.open("a") as output:
-            output.write(json.dumps(initial) + "\n")
-        print(json.dumps(initial), flush=True)
-    for epoch in range(args.epochs):
-        for index in generator.permutation(len(rows)):
-            cache = remap(rows[int(index)]["transport_cache"], mappings)
-            loss, queries, correct, _, _ = loss_for_cache(model, cache, args.topk)
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.q2c.parameters(), 1.0)
-            optimizer.step()
-            step += 1
-            if step % 100 == 0:
-                with events.open("a") as output:
-                    output.write(json.dumps({
-                        "step": step, "epoch": epoch + 1,
-                        "loss": float(loss.detach()), "eligible_queries": queries,
-                        "top1_correct": correct,
-                    }) + "\n")
-                print(step, float(loss.detach()), queries, flush=True)
-        metrics = validate(model, validation_rows, mappings, args.topk) if validation_rows else {
-            "loss": float("nan"), "q2c_top1_accuracy": float("nan"),
-            "raw_cosine_top1_accuracy": float("nan"), "topk_recall": float("nan"),
-            "eligible_queries": 0, "total_queries": 0, "samples": 0,
-        }
-        record = {"epoch": epoch + 1, "validation": metrics}
-        history.append(record)
-        with events.open("a") as output:
-            output.write(json.dumps(record) + "\n")
-        print(json.dumps(record), flush=True)
-        if not validation_rows or metrics["loss"] < best_loss:
-            best_loss = metrics["loss"]
-            best_epoch = epoch + 1
-            best_state = {
-                key: value.detach().cpu().clone()
-                for key, value in model.q2c.state_dict().items()
-            }
-    temporary = args.output.with_name(f".{args.output.name}.{os.getpid()}.tmp")
-    torch.save({
-        "q2c": best_state, "epochs": args.epochs, "steps": step,
-        "topk": args.topk, "seed": args.seed, "best_epoch": best_epoch,
-        "validation": history,
-    }, temporary)
-    os.replace(temporary, args.output)
+    for epoch in range(1, args.epochs+1):
+        for index in rng.permutation(len(rows)):
+            row = rows[int(index)]
+            loss, counts = loss_for_cache(model, resolve(row['transport_cache']),
+                args.label_root / f"{row['sample_id']}.npz", sample_id=row['sample_id'], split='train')
+            if not counts['eligible_queries']: continue
+            if not torch.isfinite(loss): raise ValueError('nonfinite R9 loss')
+            optimizer.zero_grad(set_to_none=True); loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.q2c.parameters(), 1.)
+            optimizer.step(); step += 1
+        record = {'epoch': epoch, 'validation': evaluate(model, validation, mappings, args.label_root)}
+        history.append(record); print(json.dumps(record), flush=True)
+        events.write_text(''.join(json.dumps(x)+'\n' for x in history))
+    # Fixed final update follows the original checkpoint selection rule. No
+    # best-epoch selection on deformation validation metrics.
+    tmp = args.output.with_name(f'.{args.output.name}.{os.getpid()}.tmp')
+    torch.save({'schema': CHECKPOINT_SCHEMA, 'matcher_contract': MATCHER_CONTRACT,
+                'training_objective': 'topology-visible-listwise-v1',
+                'teacher_schema': LABEL_SCHEMA, 'teacher_inputs_sha256': hashlib.sha256(''.join(input_hashes).encode()).hexdigest(),
+                'q2c': {k: v.detach().cpu() for k, v in model.q2c.state_dict().items()},
+                'epochs': args.epochs, 'steps': step, 'seed': args.seed, 'validation': history,
+                'train_samples': len(rows), 'validation_samples': len(validation)}, tmp)
+    os.replace(tmp, args.output)
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__': main()

@@ -34,6 +34,7 @@ def main():
     modules={}
     for arm in ['b1','b2','b3']:
         spec=json.loads((args.config_root/f'{args.stage}-{arm}.json').read_text())['trainer']['args']['deform_conditioner']
+        spec['implementation']='legacy-v4'
         modules[arm]=DeformationAwareConditioner(**spec).eval().cuda()
     names=['native','cached_spatial','b1','b2','b3','b3_blend_0.1','b3_blend_0.25','b3_blend_0.5']
     predictions={name:[] for name in names};truth=[];squared={name:0. for name in names};base_squared={name:0. for name in names};pixels={name:0 for name in names}

@@ -54,6 +54,7 @@ def test_semantic_bridge_retains_native_global_and_canonical_anchor():
     bridge.encode_image_proj = encode
     from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
     bridge.deform_conditioner = DeformationAwareConditioner(
+        implementation="legacy-v4",
         arm='b1', key_dim=2, value_dim=6, query_dim=1, topk=1)
     bridge.training_models = {}
     data = {'source_values': torch.full((1, 3, 1, 6), 10.),
@@ -106,3 +107,22 @@ def test_generated_v1_has_no_transport_and_pbr_uses_retained_count(tmp_path):
     assert ss['trainer']['args']['max_steps'] == 480
     assert pbr['trainer']['args']['max_steps'] == 1905
     assert pbr['validation']['every_steps'] == 381
+
+
+def test_new_configs_select_verified_matching_world_v4_and_shared_gate_lr(tmp_path):
+    from experiments.deformnext_retargeting.configure import HERE, build
+    head = tmp_path / 'head.pt'; head.write_bytes(b'test hash only; build does not load weights')
+    args = SimpleNamespace(base_config_root=HERE / 'base_configs', output_root=tmp_path / 'new-runs',
+        data_root=tmp_path / 'data', file4_mirror_root=None, training_assets=9149,
+        pbr_training_assets=9139, epochs=5, ss_checkpoint='ss.pt', pbr_checkpoint='pbr.pt',
+        q2c_checkpoint=str(head), omega_checkpoint='omega.pt', num_workers=0, dino='dino', wandb_project=None)
+    for stage in ('ss64', 'pbr1024'):
+        cfg = build(stage, 'c2', args)
+        c = cfg['trainer']['args']['deform_conditioner']
+        assert (c['key_dim'], c['deformation_dim'], c['topk']) == (1024, 2048, 64)
+        assert c['implementation'] == 'r9-native-v5' and c['freeze_q2c'] is True
+        assert cfg['experiment']['release_status'] == 'audit-hold'
+        assert cfg['trainer']['args']['model_learning_rates']['deform_conditioner'] == 1e-4
+        assert len(cfg['dataset']['args']['expected_q2c_sha256']) == 64
+        assert cfg['data_dir'].endswith('manifests_world_v4/train.jsonl')
+        assert cfg['dataset']['args']['projection_root'].endswith('projection_maps_world_v4')

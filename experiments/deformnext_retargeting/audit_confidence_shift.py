@@ -20,7 +20,7 @@ def main():
     with torch.inference_mode():
         for stage in ['ss64','pbr1024']:
             cfg=json.loads((args.config_root/f'{stage}-b3.json').read_text())
-            model=DeformationAwareConditioner(**cfg['trainer']['args']['deform_conditioner']).cuda().eval()
+            model=DeformationAwareConditioner(**dict(cfg['trainer']['args']['deform_conditioner'], implementation='legacy-v4')).cuda().eval()
             for row in selected:
                 field='transport_cache' if stage=='ss64' else 'transport_cache_pbr'
                 with np.load('/root/dev/.cache/deformnext-file4'+row[field]) as z:

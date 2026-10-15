@@ -1077,6 +1077,8 @@ class ImageConditionedProjMixin:
     _DEFORM_TRANSPORT_KEYS = (
         'target_keys', 'source_keys', 'source_values', 'source_valid',
         'spatial_indices', 'target_query', 'deformation', 'patch_grid', 'patch_ids',
+        'target_valid',
+        'target_context', 'source_context',
         'semantic_indices', 'matching_logits', 'candidate_valid',
     )
 
@@ -1099,7 +1101,7 @@ class ImageConditionedProjMixin:
             raise ValueError('deformation transport requires patch_grid or patch_ids')
         return output
 
-    def _inject_deform_transport(self, condition, transport, coords, *, source_views=3, control='normal'):
+    def _inject_deform_transport(self, condition, transport, coords, *, source_views=3, control='normal', anchor_condition=None):
         module = (
             self.training_models.get('deform_conditioner', self.deform_conditioner)
             if hasattr(self, 'training_models') else self.deform_conditioner
@@ -1110,6 +1112,15 @@ class ImageConditionedProjMixin:
         }
         output = module(**call, control=control)
         evidence = output.evidence
+        corrected = self.deform_conditioner.implementation == 'r9-native-v5'
+        if corrected:
+            if anchor_condition is None:
+                raise ValueError('r9-native-v5 fusion requires both native MV and anchor conditions')
+            residual = output.retarget_residual
+            residual = torch.zeros_like(evidence) if residual is None else residual
+            # Project all three using exactly the same target-to-patch map.
+            evidence = torch.cat((evidence - residual, residual,
+                                  output.query_valid[..., None].to(evidence.dtype)), dim=-1)
         patch_grid = transport.get('patch_grid')
         patch_ids = transport.get('patch_ids')
 
@@ -1148,6 +1159,9 @@ class ImageConditionedProjMixin:
             projected = evidence[batch, patch_index]
 
         key = 'proj_semantic' if 'proj_semantic' in condition else 'proj'
+        if corrected:
+            width = self.deform_conditioner.value_dim
+            projected, residual, valid = projected.split((width, width, 1), dim=-1)
         if condition[key].shape != projected.shape:
             raise ValueError(
                 f'deformation evidence shape {tuple(projected.shape)} does not match '
@@ -1155,9 +1169,21 @@ class ImageConditionedProjMixin:
             )
         if source_views < 1:
             raise ValueError('semantic transport requires at least one source view')
-        # Replace the source contribution, retaining the native 1/K anchor
-        # weight instead of adding an unscaled residual to its projection.
-        condition[key] = (condition[key] + source_views * projected.to(condition[key].dtype)) / (source_views + 1)
+        if corrected:
+            native = condition[key]
+            semantic = (anchor_condition[key] + source_views * projected.to(native.dtype)) / (source_views + 1)
+            delta = semantic - native
+            if self.deform_conditioner.value_dim == 2048:
+                # PBR's native NAF high-resolution carrier is never replaced
+                # with the 32x32 pooled cache. Matching routes DINO LR only.
+                delta = torch.cat((delta[..., :1024], torch.zeros_like(delta[..., 1024:])), dim=-1)
+            gate = output.fusion_scale.to(native.dtype)
+            # Retargeter's zero output is outside the zero semantic gate:
+            # both the gate and retargeter final layer can learn on step one.
+            update = gate * delta + (source_views / (source_views + 1)) * residual.to(native.dtype)
+            condition[key] = native + torch.where(valid.bool(), update, torch.zeros_like(update))
+        else:
+            condition[key] = (condition[key] + source_views * projected.to(condition[key].dtype)) / (source_views + 1)
         self._last_deform_condition = output
         return condition
 
@@ -1186,10 +1212,11 @@ class ImageConditionedProjMixin:
             transform_matrix=projection[:, 0], coords=coords,
         )
         key = 'proj_semantic' if 'proj_semantic' in condition else 'proj'
-        condition[key] = anchor[key]
+        if self.deform_conditioner.implementation == 'legacy-v4':
+            condition[key] = anchor[key]
         condition = self._inject_deform_transport(
             condition, transport, coords, source_views=images.shape[1] - 1,
-            control=control,
+            control=control, anchor_condition=anchor,
         )
         return condition, negative
 

@@ -38,6 +38,7 @@ def main():
             modules = {}
             for arm in ['b1','b2','b3','c1','c2']:
                 spec = json.loads((args.config_root/f'{stage}-{arm}.json').read_text())['trainer']['args']['deform_conditioner']
+                spec['implementation'] = 'legacy-v4'
                 modules[arm] = DeformationAwareConditioner(**spec).eval().cuda()
             for row in selected:
                 paths = [row['target_anchor'], *row['source_images']]
