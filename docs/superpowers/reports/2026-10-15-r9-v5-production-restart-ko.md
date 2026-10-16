@@ -123,3 +123,11 @@ GPU7 head는 총 7 epochs를 완료했다. 동일한 validation 508개에서 Top
 Controller를 `--verify-cache-on-idle-ss`로 교체했다. 완성된 cache가 동일 checkpoint hash와 전체 schema 검사를 통과하면 CUDA context를 새로 만들지 않고 재사용한다. file4에 cache를 보관한 뒤 SS B1이 완료되어 GPU0이 비면 실제 bf16 cache/online parity 검증을 수행한다. 이 검증과 stage별 native-start 검증이 통과해야 B2–C2를 실행한다. GPU7에서 동일 CUDA 초기화를 반복하지 않으며 검증을 생략하지 않는다. 기존 SS/PBR은 각각 252/480, 570/1905까지 재진행을 확인했다. 원인은 GPU7의 새 context 초기화와 연관된 driver 대기로 좁혔으며 하드웨어 고장 여부는 확정하지 않았다.
 
 직접 CPU 회귀 검사 7개가 통과했다. 새 검사는 CUDA 초기화를 금지한 상태에서 실제 cache를 읽어 current head를 허용하고 old head 및 누락 파일을 거부한다. 실행 근거는 `cache-verification-stall.json`, `pipeline-rebind-cache-recovery.json`, `pipeline-recovery-cache.log`에 보관한다.
+
+## 2026-10-16 01:25 UTC: SS B2 완료 및 PBR DDP 완료 대기 복구
+
+전체 matching cache 9,657개는 file4 보관 및 실제 bf16 cache/online 검증을 통과했다. SS/PBR 각 8개 category panel의 evidence 최대 절대오차는 모두 0이었다. SS production native-start 검증도 condition/denoiser/sampling 오차 0으로 통과했다. SS B1과 B2는 각각 480 updates / 5 epochs를 완료했고 B3가 진행 중이다. Final quick-panel voxel IoU는 V1 0.490831, B1 0.490866, B2 0.491964로, B2의 차이는 작아 유의한 향상으로 주장하지 않는다.
+
+PBR B1은 10월 15일 21:06 UTC에 1,905 updates와 최종 validation/checkpoint 저장을 완료했지만 다음 arm으로 넘어가지 못했다. 원인은 pilot 연장 결정에서 rank0의 config만 `auto_continue_after_pilot=False`로 바뀌고 나머지 rank에는 extension 값만 broadcast한 것이었다. 마지막 step에서 rank0은 종료 barrier로 가지만 rank1/2는 pilot extension broadcast를 다시 호출해 collective 순서가 달라졌다. 모든 rank가 첫 결정 직후 flag를 소진하도록 수정했다. 3개 rank의 pilot/final collective 순서를 확인하는 회귀 검사와 기존 runtime/campaign 검사를 포함해 15개가 통과했다. 진행 중인 SS B3는 single GPU이므로 이 종료 문제의 영향을 받지 않는다.
+
+최종 denoiser/conditioner/misc 파일 3개의 CPU load와 local/file4 SHA-256 일치를 확인한 뒤 완료된 PBR B1 worker를 정리했다. 학습을 재시작하거나 checkpoint를 변경하지 않았다. W&B의 기존 동일 run을 resume해 final summary와 completion 상태를 반영하고 정상 종료했다. Controller는 이제 production head를 사용한 PBR native-start 검증을 수행하고, 통과 후 B2 DDP preflight와 학습을 실행한다. 실행 근거는 `pbr-b1-completion-recovery.json`, `pbr-b1-wandb-finalized.json`이다. PBR B1의 epoch2→5 foreground PSNR은 24.006→20.881 dB로 낮아지고 crop LPIPS는 0.11443→0.09579로 개선되어, 지표가 엇갈린다. 이를 일괄적인 성능 향상으로 해석하지 않는다.

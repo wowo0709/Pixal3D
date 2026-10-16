@@ -151,6 +151,10 @@ def check_abort(self):
                 (Path(self.output_dir)/'PILOT_HOLD.json').write_text(json.dumps(verdict,indent=2)+'\n')
         if self.world_size>1:
             value=torch.tensor(extension,device=self.device,dtype=torch.long);dist.broadcast(value,src=0);extension=int(value)
+        # Every rank must consume the pilot decision. Otherwise non-master
+        # ranks enter this broadcast again at the final step while rank zero
+        # (whose config was already updated) waits at the completion barrier.
+        config['experiment']['auto_continue_after_pilot']=False
         if extension:
             self.max_steps=self._runtime_total_steps=extension
             final=False

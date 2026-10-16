@@ -101,3 +101,42 @@ def test_pilot_evaluates_then_extends_without_resetting_optimizer_or_rng(tmp_pat
         assert json.loads((tmp_path/'progress.json').read_text())['stage']=='running'
     else:
         assert t.max_steps==96 and (tmp_path/'PILOT_HOLD.json').exists()
+
+
+def test_ddp_pilot_decision_is_consumed_on_every_rank_before_final_barrier(tmp_path, monkeypatch):
+    import copy
+    import torch
+    cfg={'dataset':{'name':'DeformNeXtSS64'},'trainer':{'args':{'max_steps':96}},
+         'experiment':{'updates_per_epoch':96,'planned_total_steps':480,
+                       'auto_continue_after_pilot':True,'recipe_path':str(tmp_path/'recipe.json')}}
+    records=[{'step':step,'quick_panel_ids':['a'],'quick_metrics':{'voxel_iou':iou}}
+             for step,iou in [(0,.45),(96,.50)]]
+    (tmp_path/'validation.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
+    active={'rank':0};decisions={};collectives={rank:[] for rank in range(3)}
+    def broadcast(value,src):
+        rank=active['rank'];collectives[rank].append('pilot_broadcast')
+        if rank==src:decisions['extension']=int(value)
+        else:value.fill_(decisions['extension'])
+    monkeypatch.setattr(runtime,'_native_check_abort',lambda self:None)
+    monkeypatch.setattr(runtime,'evaluate',lambda self:None)
+    monkeypatch.setattr(runtime.dist,'all_reduce',lambda *a,**kw:None)
+    monkeypatch.setattr(runtime.dist,'barrier',lambda:collectives[active['rank']].append('barrier'))
+    monkeypatch.setattr(runtime.dist,'broadcast',broadcast)
+    workers=[]
+    for rank in range(3):
+        active['rank']=rank
+        t=trainer(tmp_path,step=96,total=96,validation_every=96)
+        t.rank=rank;t.is_master=rank==0;t.world_size=3
+        t._runtime_config=copy.deepcopy(cfg);t.wandb_run=None;t.save=lambda **kw:None
+        runtime.check_abort(t)
+        assert t.max_steps==t._runtime_total_steps==480
+        assert t._runtime_config['experiment']['auto_continue_after_pilot'] is False
+        workers.append(t)
+    # Rank zero used to skip the pilot branch here while ranks 1/2 entered
+    # another broadcast, deadlocking against rank zero's completion barrier.
+    for rank,t in enumerate(workers):
+        active['rank']=rank;t.step=480
+        runtime.check_abort(t)
+    assert all(events.count('pilot_broadcast')==1 for events in collectives.values())
+    assert all(events==collectives[0] for events in collectives.values())
+    assert json.loads((tmp_path/'progress.json').read_text())['stage']=='completed'
