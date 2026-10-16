@@ -32,3 +32,9 @@
 `run_rgb_restart.py`는 paired four-view native zero-shot stage controls, fresh RGB V1, 이후 strict RGB cache/actual native-start 검증을 통과한 B1–C2 순서로 실행한다. SS는 GPU0, PBR DDP는 GPUs1/2/3이며 matching preparation은 명시적으로 할당된 GPU7에서 실행한다. 모든 fine-tuning arm은 independently 같은 original mixed385 initializer에서 시작한다. Native-zero 보존 검증과 one-epoch execution/quality gate는 유지하며 총 학습 목표는 5 epochs다.
 
 현재 zero-shot 도구의 SS는 voxel stage, PBR은 **GT target shape를 고정한 texture stage** 평가다. 이를 전체 cascade의 3D 복원 성능으로 표현하지 않는다. Quick PBR anchor metric도 입력 target camera의 진단값이며 novel-view 평가가 아니다. Main target-view 목록에서는 입력 M1 camera8을 제외하고 남은 M1 views를 사용해야 한다. 전체 dataset challenge와 fine-tuning 필요성의 주장은 향후 동일 입력의 전체 cascade 결과와 M0/M1 GT를 함께 비교해야 한다.
+
+## 05:46 UTC 실행 확인
+
+RGB manifest 감사는 train9,149 / validation508개 전체에서 통과했다. 두 조건 모두 카메라8/9/10/11의 네 슬롯이며 실제 입력 텐서 contact sheet를 각각 확인했다. Frozen SS32개 panel의 M1 GT IoU는 source-only0.396067 / edited-RGB0.415866이다. Frozen PBR16개 GT-shape-conditioned panel의 foreground PSNR은 각각17.740654 /17.901609 dB다. 이는 paired input 효과의 stage 진단값이며, 기존 depth-run 수치와 비교하지 않는다. 또한 학습 중 quick panel은 SS4/PBR2개이므로 larger zero-shot panel과 학습 곡선의 aggregate를 직접 빼서 fine-tuning 개선량으로 표현하지 않는다. 이후 공통 panel로 재평가해야 한다.
+
+새 SS RGB V1은 원래 initializer에서 실제 optimizer update를 진행했다. PBR은 최초 시작 시 resolved JSON의 integer master_port가 native distributed runtime의 문자열 요구와 달라 optimizer update 전에 종료됐다. Config 값을 문자열로 정정했고 SS process를 보존한 채 controller를 rebind했다. 새 `--attach-native-runs`와 PID 기록으로 진행 중 native 학습의 재시작을 피한다. 이후 PBR의 3-rank 초기화와 RGB validation 진행을 확인했다. 관련 artifact는 `rgb-launch.json`, `native-attach-recovery.json`, `rgb-pipeline-state.json`이다. 이미지·camera·RGB 캐시 fencing·기존 runtime 검사를 포함한 직접 CPU 테스트 82개가 통과했다.

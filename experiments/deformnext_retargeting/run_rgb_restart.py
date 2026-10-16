@@ -26,6 +26,7 @@ def main():
     p.add_argument('--ss-gpus',required=True);p.add_argument('--pbr-gpus',required=True)
     p.add_argument('--remote',required=True);p.add_argument('--ssh-control',required=True)
     p.add_argument('--ssh-port',type=int,required=True)
+    p.add_argument('--attach-native-runs',action='store_true',help='Preserve native training processes recorded in native-stage PID files')
     a=p.parse_args();w=a.work_root;b=a.data_root
     ss=a.ss_gpus.split(',');pg=a.pbr_gpus.split(',')
     if len(ss)!=1 or len(pg)!=3 or len(set(ss+pg))!=4:raise ValueError('explicit disjoint 1/3 GPU assignment required')
@@ -41,9 +42,13 @@ def main():
             PYTHONPATH=str(REPO),ATTN_BACKEND='sdpa',NUMPY_MADVISE_HUGEPAGE='0',
             OMP_NUM_THREADS='4',OPENBLAS_NUM_THREADS='1',WANDB__DISABLE_STATS='true',
             PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True');e.pop('SSHPASS',None);return e
-    def run(cmd,name,gpus):
+    def run(cmd,name,gpus,pid_file=None):
         with (w/(name+'.log')).open('ab',buffering=0) as log:
-            subprocess.run([sys.executable,'-u',*cmd],cwd=REPO,env=env(gpus),stdout=log,stderr=subprocess.STDOUT,check=True)
+            command=[sys.executable,'-u',*cmd]
+            child=subprocess.Popen(command,cwd=REPO,env=env(gpus),stdout=log,stderr=subprocess.STDOUT)
+            if pid_file is not None:pid_file.write_text(str(child.pid)+'\n')
+            code=child.wait()
+            if code:raise subprocess.CalledProcessError(code,command)
     def wait_pid(path):
         import psutil
         if not path.exists():return
@@ -110,10 +115,21 @@ def main():
                 # The initial paired SS control may temporarily use one of
                 # the three PBR devices; finish it before allocating DDP.
                 wait_pid(w/'zero-shot-ss64-source-only.pid')
-            state(stage,'rgb_v1_training')
-            run(['train.py','--config',str(cfgpath),'--num_gpus',str(len(gpus)),
-                '--master_port','29810' if stage=='ss64' else '29820','--multiview_runtime','--auto_retry','0'],
-                f'train-rgb-{stage}-v1',gpus)
+            native_pid=w/f'native-{stage}.pid';attached=False
+            if a.attach_native_runs and native_pid.exists():
+                import psutil
+                try:
+                    process=psutil.Process(int(native_pid.read_text()));command=process.cmdline()
+                    if process.status()!=psutil.STATUS_ZOMBIE:
+                        if '--config' not in command or command[command.index('--config')+1]!=str(cfgpath):
+                            raise ValueError('native attachment PID belongs to a different config')
+                        state(stage,'rgb_v1_training_attached');wait_pid(native_pid);attached=True
+                except psutil.NoSuchProcess:pass
+            if not attached:
+                state(stage,'rgb_v1_training')
+                run(['train.py','--config',str(cfgpath),'--num_gpus',str(len(gpus)),
+                    '--master_port','29810' if stage=='ss64' else '29820','--multiview_runtime','--auto_retry','0'],
+                    f'train-rgb-{stage}-v1',gpus,pid_file=native_pid)
             progress=json.loads((Path(cfg['default_output_dir'])/'progress.json').read_text())
             if progress['stage']!='completed' or progress['current']!=cfg['trainer']['args']['max_steps']:
                 raise RuntimeError('RGB V1 did not complete')
@@ -152,7 +168,7 @@ def main():
                 if stage=='pbr1024':
                     state(stage,arm+'_ddp_preflight')
                     probe=copy.deepcopy(c);root=w/'ddp-stress'/arm;root.mkdir(parents=True,exist_ok=True)
-                    probe.update(default_output_dir=str(root),use_wandb=False,master_port=29830)
+                    probe.update(default_output_dir=str(root),use_wandb=False,master_port='29830')
                     probe['trainer']['args'].update(max_steps=2,i_save=2,i_log=1,num_workers=0,max_checkpoints=1)
                     probe['experiment'].update(validate_at_start=False,auto_continue_after_pilot=False)
                     probe['validation']['every_steps']=3
