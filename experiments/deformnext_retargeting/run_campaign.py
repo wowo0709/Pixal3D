@@ -81,6 +81,8 @@ def main():
             raise ValueError('V1 must use the unmodified native MV conditioner')
         output = Path(cfg['default_output_dir'])
         for root in (output, output.parent, output.parent.parent):
+            if (root / 'TARGET_MODALITY_INVALIDATION.json').exists():
+                raise ValueError(f'target modality invalidation blocks this depth-conditioned experiment: {root}')
             if (root / 'INVALIDATED_GT_ALIGNMENT.json').exists():
                 raise ValueError(f'GT alignment invalidation blocks this run: {root}')
             if arm != 'v1' and (root / 'SEMANTIC_AUDIT_HOLD.json').exists():

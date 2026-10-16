@@ -47,6 +47,14 @@ def test_semantic_hold_allows_unaffected_native_baseline(tmp_path, monkeypatch):
     assert (tmp_path/'logs/campaign-native-v2-ss64.done').exists()
 
 
+def test_target_modality_invalidation_also_blocks_vanilla_resume(tmp_path, monkeypatch):
+    output=recipe(tmp_path,monkeypatch,'v1')
+    (output.parent.parent/'TARGET_MODALITY_INVALIDATION.json').write_text('{}')
+    monkeypatch.setattr(run_campaign.subprocess,'run',lambda *a,**kw:pytest.fail('invalid depth run must not launch'))
+    with pytest.raises(ValueError,match='target modality invalidation'):
+        run_campaign.main()
+
+
 def test_new_native_identity_does_not_release_semantic_recipe():
     cfg = {'experiment': {'release_status': 'audit-hold'}}
     with pytest.raises(ValueError, match='teacher/cache and pilot'):

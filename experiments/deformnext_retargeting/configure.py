@@ -48,7 +48,7 @@ def build(stage: str, arm: str, args) -> dict:
     config = json.loads((args.base_config_root / f"{stage}.json").read_text())
     config["_comment"] = (
         f"DeformNeXt-10k retargeting arm {arm}; exact production LoRA continuation, "
-        "geometry-only M1 anchor plus three textured M0 sources; Omega epoch-7 L12 "
+        "edited M1 RGB anchor plus three M0 RGB sources; Omega epoch-7 L12 "
         f"addresses and native Pixal values; five epochs on {training_assets:,} retained train assets."
     )
     config["default_output_dir"] = str(args.output_root / stage / arm)
@@ -121,6 +121,7 @@ def build(stage: str, arm: str, args) -> dict:
     }
     config["experiment"] = {
         "dataset": "DeformNeXt-10k", "arm": arm, "epochs": args.epochs,
+        "target_modality": "rgb",
         "conditioning_schema": "native-mv-anchor-frame-v2" if arm == 'v1' else "r9-native-residual-v5",
         "release_status": "native" if arm == 'v1' else "audit-hold",
         "validate_at_start": True,

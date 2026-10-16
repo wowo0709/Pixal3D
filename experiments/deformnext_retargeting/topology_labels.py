@@ -82,7 +82,7 @@ class TopologyTeacher:
                 return torch.from_numpy((np.asarray(image.convert('RGBA'))[..., 3] > 127).copy()).cuda()
         target = render(v1, 0, v0)
         actual, expected = target['mask'] > .5, mask(row['target_anchor'])
-        agreement = [mask_agreement(actual, expected)]
+        agreement = [mask_agreement(actual, expected,alpha_cutouts=row.get('target_anchor_kind')=='rgb')]
         centers = torch.arange(8, 512, 16, device='cuda')
         yy, xx = torch.meshgrid(centers, centers, indexing='ij')
         foreground = (actual & expected)[yy, xx].flatten()

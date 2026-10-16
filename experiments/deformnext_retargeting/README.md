@@ -8,6 +8,31 @@ DeformNeXt split: SS 9,149 train / 508 validation, PBR 9,139 train after the
 
 ## Current contract
 
+**2026-10-16 correction:** conditioning is edited **M1 RGB**, followed by three
+M0 RGB views from different cameras. For the current target-camera-8 split,
+the four cameras are `[8,9,10,11]`: edited input states are `[M1,M0,M0,M0]`,
+source-only states are `[M0,M0,M0,M0]`. Source-only uses the original M0 image
+at camera 8; it never removes a view or duplicates another camera. The old
+`geometry_depth + M0 cameras [8,9,10]` implementation was a mistake. Its V1,
+arm results, D1 head, and image-dependent caches are historical depth runs,
+not evidence for the intended RGB experiment. Dataset loaders reject them.
+
+`prepare_rgb_manifest.py` verifies the original render roles, four distinct
+cameras, anchor pose, RGBA files and per-input content fingerprint. It reuses
+audited world-v4 M1 geometry latents while versioning all image-dependent
+caches under a separate RGB namespace. Since Omega mixes views jointly,
+all four descriptor streams are recomputed. Native DINO/NAF values, topology
+visibility, RAW matches and the seven-epoch D1 head are also refreshed. Old
+local cache copies may be evicted only after a checksum-verified file4 mirror
+and an atomically completed RGB replacement. Original file4 artifacts remain.
+
+`run_rgb_restart.py` runs the paired four-view zero-shot stage controls, fresh
+RGB V1, then B1–C2 after `prepare_rgb_matching.py` publishes verified readiness.
+Each arm starts independently from mixed385 base+LoRA. W&B hardware monitoring
+is disabled; training metrics and images remain enabled. PBR stage controls
+still fix GT target shape and are explicitly labelled as such; they do not
+establish end-to-end geometry reconstruction performance.
+
 `pixal3d/modules/r9_matching.py` vendors the selected original R9 scorer
 **verbatim**, with source and AST checksums. The fixed promoted tuple is
 `L12 FRAME RAW 1024 -> GLOBAL64 -> P0-RAW -> M0-L12 -> D1-Q2C`.
@@ -47,10 +72,10 @@ contract and shared by online attention and C2 context construction. The new
 topology listwise head objective uses its own unscaled logits.
 Categorical attention is invariant to query-wise score offsets. Candidate
 weights are global probabilities; view weights report their marginal mass.
-Source validity and the geometry-only target alpha mask identify unavailable
+Source validity and the edited RGB input's alpha mask identify unavailable
 queries, which retain native conditioning. A source pool with fewer than 64
 valid sites also uses native fallback in every semantic arm: invalid background
-tokens never become a useful padded D1 context. The complete scan found 130 such
+tokens never become a useful padded D1 context. The historical depth-input scan found 130 such
 train assets and no validation assets. They still participate in native LoRA
 training. This is not a learned visibility or NULL classifier. `source-off` disables the semantic residual; the native
 multi-view source path remains present.

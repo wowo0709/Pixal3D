@@ -26,7 +26,7 @@ def matching_cache_checks(rows, root, digest):
     from concurrent.futures import ThreadPoolExecutor
     from .precompute_matches import valid_cache
     with ThreadPoolExecutor(max_workers=4) as pool:
-        return list(pool.map(lambda row: valid_cache(root / f"{row['sample_id']}.npz", digest, 64), rows))
+        return list(pool.map(lambda row: valid_cache(root / f"{row['sample_id']}.npz", digest, 64, row.get('conditioning_input_sha256')), rows))
 
 
 def main():

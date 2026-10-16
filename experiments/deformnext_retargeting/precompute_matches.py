@@ -38,13 +38,14 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def valid_cache(path: Path, checkpoint_hash: str, topk: int) -> bool:
+def valid_cache(path: Path, checkpoint_hash: str, topk: int, input_hash=None) -> bool:
     if not path.is_file():
         return False
     try:
         with np.load(path) as cache:
             return (
                 str(cache["schema"]) == SCHEMA
+                and (input_hash is None or ('conditioning_input_sha256' in cache and str(cache['conditioning_input_sha256'])==input_hash))
                 and json.loads(str(cache['matcher_contract'])) == MATCHER_CONTRACT
                 and str(cache['aggregation']) == 'global-categorical-v1'
                 and json.loads(str(cache['attention_contract'])) == ATTENTION_CONTRACT
@@ -118,10 +119,14 @@ def main() -> None:
     completed = skipped = failed = 0
     for row in rows:
         output = args.output_root / f"{row['sample_id']}.npz"
-        if valid_cache(output, checkpoint_hash, args.topk):
+        if valid_cache(output, checkpoint_hash, args.topk, row.get('conditioning_input_sha256')):
             skipped += 1
             continue
         try:
+            if row.get('conditioning_input_sha256') is not None:
+                with np.load(remap(row['transport_cache'], mappings)) as transport:
+                    if str(transport['conditioning_input_sha256']) != row['conditioning_input_sha256']:
+                        raise ValueError('matching transport RGB input hash differs')
             arrays = compute(model, remap(row["transport_cache"], mappings), args.topk)
             temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp.npz")
             np.savez(
@@ -131,6 +136,7 @@ def main() -> None:
                 attention_contract=np.asarray(json.dumps(ATTENTION_CONTRACT,sort_keys=True)),
                 proposal_policy=np.asarray('GLOBAL64_VALID_OR_NATIVE'),
                 q2c_sha256=np.asarray(checkpoint_hash), topk=np.asarray(args.topk),
+                conditioning_input_sha256=np.asarray(row.get('conditioning_input_sha256','')),
                 **arrays,
             )
             if not valid_cache(temporary, checkpoint_hash, args.topk):

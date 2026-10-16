@@ -153,6 +153,25 @@ def atomic_npz(path: Path, **arrays) -> None:
     os.replace(temporary, path)
 
 
+def evict_mirrored_legacy(row, cache_field, output, mappings, receipt):
+    """Evict an owned local depth-cache copy only after its mirror was verified."""
+    if receipt is None:return
+    legacy=remap(row['legacy_'+cache_field],mappings).resolve()
+    if not legacy.exists():return
+    if receipt.get('verified_by')!='rsync-rnc-no-differences':raise ValueError('unverified legacy mirror receipt')
+    if not any(legacy.is_relative_to(Path(root)) for root in receipt.get('owned_roots',[])):
+        raise ValueError('legacy cache is outside owned mirror roots')
+    metadata=receipt['files'].get(str(legacy))
+    if metadata is None or legacy==output.resolve():raise ValueError('legacy cache is outside the verified inventory')
+    stat=legacy.stat()
+    if stat.st_size!=metadata['size'] or stat.st_mtime_ns!=metadata['mtime_ns']:
+        raise ValueError('legacy cache changed after mirror verification')
+    with np.load(output) as fresh:
+        if str(fresh['conditioning_input_sha256'])!=row['conditioning_input_sha256']:
+            raise ValueError('replacement RGB cache is not ready')
+    legacy.unlink()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -165,8 +184,10 @@ def main() -> None:
     parser.add_argument("--world-size", type=int, default=1)
     parser.add_argument("--path-map", action="append", default=[], metavar="FROM=TO")
     parser.add_argument("--limit", type=int)
+    parser.add_argument('--legacy-mirror-receipt',type=Path)
     args = parser.parse_args()
     mappings = [tuple(value.split("=", 1)) for value in args.path_map]
+    receipt=json.loads(args.legacy_mirror_receipt.read_text()) if args.legacy_mirror_receipt else None
     if args.stage == "ss64":
         if args.base_checkpoint is None or args.epoch7_checkpoint is None:
             parser.error("ss64 requires --base-checkpoint and --epoch7-checkpoint")
@@ -190,10 +211,17 @@ def main() -> None:
         selected = selected[:args.limit]
     completed = skipped = 0
     for row in selected:
+        if row.get('target_anchor_kind') != 'rgb' or not row.get('conditioning_input_sha256'):
+            raise ValueError('transport preparation requires a verified RGB input manifest')
         output = remap(row[cache_field], mappings)
         if output.is_file():
-            skipped += 1
-            continue
+            with np.load(output) as old:
+                if ('conditioning_input_sha256' in old and
+                        str(old['conditioning_input_sha256']) == row['conditioning_input_sha256']):
+                    skipped += 1
+                    evict_mirrored_legacy(row,cache_field,output,mappings,receipt)
+                    continue
+            raise ValueError(f'existing transport cache has different input provenance: {output}')
         paths = [row["target_anchor"], *row["source_images"]]
         with torch.inference_mode():
             if args.stage == "ss64":
@@ -218,6 +246,7 @@ def main() -> None:
             atomic_npz(
                 output,
                 schema=np.array("DEFORMNEXT_OMEGA_L12_PIXAL_VALUES_SS64_V1"),
+                conditioning_input_sha256=np.asarray(row['conditioning_input_sha256']),
                 omega_completed_updates=np.int64(checkpoint["completed_updates"]),
                 target_keys=omega_tokens[0].cpu().half().numpy(),
                 source_keys=omega_tokens[1:].cpu().half().numpy(),
@@ -234,6 +263,7 @@ def main() -> None:
             atomic_npz(
                 output,
                 schema=np.array("DEFORMNEXT_PIXAL_VALUES_PBR1024_V1"),
+                conditioning_input_sha256=np.asarray(row['conditioning_input_sha256']),
                 source_values=source_values.cpu().half().numpy(),
                 target_query=target_query.cpu().half().numpy(),
                 patch_ids=pbr_patch_ids(
@@ -241,6 +271,7 @@ def main() -> None:
                 ).numpy(),
             )
         completed += 1
+        evict_mirrored_legacy(row,cache_field,output,mappings,receipt)
         if completed % 10 == 0:
             print(json.dumps({"rank": args.rank, "completed": completed, "skipped": skipped}), flush=True)
     print(json.dumps({"rank": args.rank, "completed": completed, "skipped": skipped, "assigned": len(selected)}))

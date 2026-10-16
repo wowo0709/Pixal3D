@@ -1,9 +1,8 @@
 """Strict manifest datasets for DeformNeXt retargeting experiments.
 
-Each item has one geometry-only M1 anchor followed by exactly three textured
-M0 source views.  Transport descriptors and native Pixal values are immutable
-cache inputs.  The loader refuses a textured target anchor so the target RGB
-used for supervision/evaluation cannot leak into conditioning.
+Each item has one edited M1 RGB anchor followed by exactly three M0 RGB
+source views. Depth is auxiliary geometry metadata, never image conditioning.
+Transport descriptors and native Pixal values are immutable cache inputs.
 """
 
 from __future__ import annotations
@@ -195,6 +194,7 @@ class _DeformNeXtBase(Dataset):
             required = {
                 "sample_id", "split", "target_anchor", "target_anchor_kind",
                 "source_images", "camera_angle_x", "transform_matrix",
+                "source_anchor_rgb", "conditioning_camera_ids",
                 "mesh_scale", *cache_fields,
             }
             missing = sorted(required - row.keys())
@@ -204,13 +204,15 @@ class _DeformNeXtBase(Dataset):
                 raise ValueError(
                     f"manifest contains {row['split']} row but expected {expected_split}"
                 )
-            if row["target_anchor_kind"] != "geometry_depth":
-                raise ValueError("target anchor must be a geometry_depth artifact")
+            if row["target_anchor_kind"] != "rgb":
+                raise ValueError("target conditioning must be RGB; depth-conditioned manifests are invalid")
             anchor = self._resolve(row["target_anchor"]).resolve()
-            if "render_cond" in anchor.parts:
-                raise ValueError("textured render_cond target is forbidden as target anchor")
+            if 'target_rgb_input' not in row or self._resolve(row['target_rgb_input']).resolve() != anchor:
+                raise ValueError('target anchor must equal the explicit target_rgb_input')
             if len(row["source_images"]) != 3:
                 raise ValueError("each item must have exactly three source images")
+            if len(row['conditioning_camera_ids'])!=4 or len(set(row['conditioning_camera_ids']))!=4:
+                raise ValueError('four distinct input cameras are required; target-camera source must not be duplicated')
             if len(row["camera_angle_x"]) != 4 or len(row["transform_matrix"]) != 4:
                 raise ValueError("camera arrays must follow [target,source1,source2,source3]")
             if verify_files:
@@ -220,6 +222,7 @@ class _DeformNeXtBase(Dataset):
                 if self.projection_root is not None and transport_arm != "v1":
                     checks.append(self.projection_root / f"{row['sample_id']}.npz")
                 checks += [self._resolve(p) for p in row["source_images"]]
+                checks.append(self._resolve(row['source_anchor_rgb']))
                 missing_files = [str(p) for p in checks if not p.is_file()]
                 if missing_files:
                     raise FileNotFoundError(missing_files[0])
@@ -259,6 +262,11 @@ class _DeformNeXtBase(Dataset):
         cache_fields = getattr(self, "transport_fields", ("transport_cache",))
         for cache_field in cache_fields:
             with np.load(self._resolve(row[cache_field])) as cache:
+                if row.get('conditioning_input_sha256') is not None and (
+                    'conditioning_input_sha256' not in cache
+                    or str(cache['conditioning_input_sha256']) != row['conditioning_input_sha256']
+                ):
+                    raise ValueError('transport cache does not match the edited RGB inputs')
                 for key in self.transport_keys:
                     if key in cache:
                         value = np.asarray(cache[key])
@@ -270,6 +278,11 @@ class _DeformNeXtBase(Dataset):
                         pack[f"transport_{key}"] = tensor
         if self.match_root is not None and self.transport_arm != "v1":
             with np.load(self.match_root / f"{row['sample_id']}.npz") as cache:
+                if row.get('conditioning_input_sha256') is not None and (
+                    'conditioning_input_sha256' not in cache
+                    or str(cache['conditioning_input_sha256']) != row['conditioning_input_sha256']
+                ):
+                    raise ValueError('matching cache does not match the edited RGB inputs')
                 if self.transport_implementation == "r9-native-v5":
                     from ..modules.r9_matching import MATCHER_CONTRACT, ATTENTION_CONTRACT, RAW_MATCH_SCHEMA, RAW_MATCH_CONTRACT
                     raw = self.transport_arm == 'b1' and str(cache['schema']) == RAW_MATCH_SCHEMA
@@ -307,8 +320,8 @@ class _DeformNeXtBase(Dataset):
                     if self.transport_arm == 'c2' and self.match_root is None:
                         pack['transport_' + key.replace('_keys', '_context')] = pack[full]
                     pack[full] = frame_raw(pack[full])
-            # This mask is part of the input geometry-only anchor, not a GT
-            # target RGB, M0 topology label, or source visibility oracle.
+            # Alpha belongs to the edited RGB input. No topology teacher or
+            # hidden target geometry is used as an inference visibility oracle.
             with Image.open(self._resolve(row['target_anchor'])) as anchor:
                 alpha = np.asarray(anchor.convert('RGBA').resize((512, 512), Image.Resampling.NEAREST))[..., 3]
                 pack['transport_target_valid'] = torch.from_numpy((alpha[8::16, 8::16] > 127).copy()).flatten()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve the frozen DeformNeXt split into leakage-safe training manifests."""
+"""Resolve DeformNeXt into edited-RGB plus original-RGB training manifests."""
 
 from __future__ import annotations
 
@@ -140,7 +140,7 @@ def resolve(split_row: dict, sample: dict, output_root: Path, create_anchor: boo
     frames = transforms["frames"]
     if len(frames) != 8 or frames[0].get("mesh_state") != "M1":
         raise ValueError(f"unexpected render role manifest: {transforms_path}")
-    if any(frames[index].get("mesh_state") != "M0" for index in (1, 2, 3)):
+    if any(frames[index].get("mesh_state") != "M0" for index in (1, 2, 3, 4)):
         raise ValueError(f"source roles are not M0: {transforms_path}")
     native = native_dir(sample)
     if native is None:
@@ -159,7 +159,7 @@ def resolve(split_row: dict, sample: dict, output_root: Path, create_anchor: boo
     ss_dir = storage / "train/ss_latent" / sample_id
     shape_dir = storage / "train/shape_latent" / sample_id
     scale = json.loads((ss_dir / "view00_scale.json").read_text())["total_scale"]
-    camera_frames = [frames[index] for index in (0, 1, 2, 3)]
+    camera_frames = [frames[index] for index in (0, 2, 3, 4)]
     rgb_result = None
     candidate_native = sample.get("native", {}).get("path") if isinstance(sample.get("native"), dict) else None
     if candidate_native:
@@ -170,18 +170,24 @@ def resolve(split_row: dict, sample: dict, output_root: Path, create_anchor: boo
     evaluation = []
     if rgb_result:
         evaluation = [entry["M1"]["path"] for entry in rgb_result.get("images", [])]
-    return {
+    result = {
         "sample_id": sample_id,
         "pair_id": split_row["pair_id"],
         "split": split_row["logical_split"],
         "source_uid": split_row["source_uid"],
         "source_cluster_id": split_row["source_cluster_id"],
         "category": split_row["category"],
-        "target_anchor": str(anchor),
-        "target_anchor_kind": "geometry_depth",
+        "target_anchor": str(render / frames[0]["file_path"]),
+        "target_anchor_kind": "rgb",
+        "target_rgb_input": str(render / frames[0]["file_path"]),
+        "target_depth_auxiliary": str(anchor),
         "target_anchor_source": str(native_arrays),
         "target_anchor_source_kind": anchor_source_kind,
-        "source_images": [str(render / frames[index]["file_path"]) for index in (1, 2, 3)],
+        "source_images": [str(render / frames[index]["file_path"]) for index in (2, 3, 4)],
+        "source_anchor_rgb": str(render / frames[1]["file_path"]),
+        "source_anchor_transform_matrix": frames[1]["transform_matrix"],
+        "source_anchor_camera_angle_x": frames[1]["camera_angle_x"],
+        "conditioning_camera_ids": [frame["camera_id"] for frame in camera_frames],
         "target_rgb_supervision": str(render / frames[0]["file_path"]),
         "evaluation_target_images": evaluation,
         "camera_angle_x": [float(frame["camera_angle_x"]) for frame in camera_frames],
@@ -199,6 +205,10 @@ def resolve(split_row: dict, sample: dict, output_root: Path, create_anchor: boo
         "topology_correspondence": True,
         "frame_extent": float(sample["frame_extent"]),
     }
+    from .prepare_rgb_manifest import SCHEMA, image_fingerprint
+    result['conditioning_input_schema']=SCHEMA
+    result['conditioning_input_sha256']=image_fingerprint(result,Path)
+    return result
 
 
 def main() -> None:

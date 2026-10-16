@@ -11,11 +11,12 @@ from pixal3d.modules.r9_matching import RAW_MATCH_SCHEMA, RAW_MATCH_CONTRACT, fr
 from .precompute_matches import remap
 
 
-def valid_cache(path, sample_id):
+def valid_cache(path, sample_id, input_hash=None):
     if not path.is_file(): return False
     try:
         with np.load(path) as cache:
             return (str(cache['schema']) == RAW_MATCH_SCHEMA
+                    and (input_hash is None or ('conditioning_input_sha256' in cache and str(cache['conditioning_input_sha256'])==input_hash))
                     and json.loads(str(cache['raw_matching_contract'])) == RAW_MATCH_CONTRACT
                     and str(cache['sample_id']) == sample_id
                     and cache['semantic_indices'].shape == (1024, 1)
@@ -42,8 +43,10 @@ def main():
     with torch.no_grad():
         for row in rows:
             output=args.output_root/f"{row['sample_id']}.npz"
-            if valid_cache(output,row['sample_id']):skipped+=1;continue
+            if valid_cache(output,row['sample_id'],row.get('conditioning_input_sha256')):skipped+=1;continue
             with np.load(remap(row['transport_cache'],maps)) as cache:
+                if row.get('conditioning_input_sha256') is not None and str(cache['conditioning_input_sha256'])!=row['conditioning_input_sha256']:
+                    raise ValueError('RAW matching transport input hash differs')
                 if int(cache['omega_completed_updates']) != RAW_MATCH_CONTRACT['omega_completed_updates']:
                     raise ValueError('RAW cache requires the approved epoch-7 Omega descriptor')
                 target=cache['target_keys'];source=cache['source_keys'];valid=cache['source_valid']
@@ -57,6 +60,7 @@ def main():
                 raw_matching_contract=np.asarray(json.dumps(RAW_MATCH_CONTRACT,sort_keys=True)),
                 sample_id=np.asarray(row['sample_id']),split=np.asarray(row['split']),
                 descriptor_input_sha256=np.asarray(digest.hexdigest()),
+                conditioning_input_sha256=np.asarray(row.get('conditioning_input_sha256','')),
                 semantic_indices=indices[0].cpu().numpy().astype(np.uint16))
             if not valid_cache(tmp,row['sample_id']):raise ValueError('invalid RAW Top-1 cache')
             os.replace(tmp,output);completed+=1
