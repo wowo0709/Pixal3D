@@ -71,6 +71,8 @@ def main():
     parser.add_argument('--generation-batch', type=int, default=4)
     parser.add_argument('--preflight-only', action='store_true')
     parser.add_argument('--wandb-id', help='Log generated metrics/images to the authorized youngwoojeon project')
+    parser.add_argument('--fallback', choices=['historical-target', 'native-spatial'], default='historical-target')
+    parser.add_argument('--source-weight', type=float, default=1.)
     args = parser.parse_args()
     cases = args.cases.split(',')
     if len(set(cases)) != len(cases) or not set(cases) <= set(MODES):
@@ -121,7 +123,8 @@ def main():
                          id=args.wandb_id, resume='allow', dir=str(args.output),
                          config={'protocol': 'historical-three-source-camera-slot-transport',
                                  'diagnostic_only': True, 'checkpoint': str(args.checkpoint),
-                                 'cases': cases, 'sample_ids': [dataset.rows[i]['sample_id'] for i in indices]})
+                                 'cases': cases, 'fallback': args.fallback, 'source_weight': args.source_weight,
+                                 'sample_ids': [dataset.rows[i]['sample_id'] for i in indices]})
     for case in cases:
         out = args.output / case
         if (out / 'evaluation.json').exists():
@@ -150,7 +153,8 @@ def main():
                 noises.append(torch.randn_like(target[offset:offset+1]))
             with torch.no_grad(), torch.autocast('cuda', dtype=trainer.mix_precision_dtype):
                 with native_slot_context(trainer, case, grid, valid,
-                                         [row['sample_id'] for row in rows], events):
+                                         [row['sample_id'] for row in rows], events,
+                                         fallback=args.fallback, source_weight=args.source_weight):
                     condition = trainer.get_inference_cond(**pack)
                 if not args.preflight_only:
                     predicted = trainer.get_sampler().sample(trainer.models['denoiser'],
@@ -182,6 +186,7 @@ def main():
             Image.fromarray(_panel_image(pred_panel, gt_panel)).save(out / 'panel.png')
             record = {'status': 'PASS', 'diagnostic_only': True, 'GT_addresses': case in ['gt-corr', 'wrong-corr'],
                       'case': case, 'checkpoint': str(args.checkpoint), 'sampling_steps': 12, 'guidance': 3.,
+                      'fallback': args.fallback, 'source_weight': args.source_weight,
                       'optimizer_updates_during_evaluation': 0, 'per_asset': per_asset,
                       'quick_metrics': binary_metrics(pred_occ, target_occ), 'events': events,
                       'quick_panel_ids': [dataset.rows[i]['sample_id'] for i in indices],

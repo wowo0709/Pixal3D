@@ -12,7 +12,8 @@ MODES = ('native', 'source-off', 'gt-corr', 'wrong-corr')
 
 
 @contextmanager
-def native_slot_context(trainer, mode, read_grid, write_valid, sample_ids, events):
+def native_slot_context(trainer, mode, read_grid, write_valid, sample_ids, events,
+                        *, fallback='historical-target', source_weight=1.):
     """Freeze native global/negative, and only reconstruct per-view proj maps.
 
     Read/write GT metadata is provided by a separate diagnostic runner. Nothing
@@ -20,6 +21,8 @@ def native_slot_context(trainer, mode, read_grid, write_valid, sample_ids, event
     """
     if mode not in MODES:
         raise ValueError('unknown native-slot reproduction case')
+    if fallback not in ['historical-target', 'native-spatial'] or not 0 <= source_weight <= 1:
+        raise ValueError('invalid explicit fallback/source weight')
     if read_grid.shape != (*write_valid.shape, 2) or write_valid.shape[1:] != (3, 32, 32):
         raise ValueError('expected three independent32x32 source-camera routes')
     if len(sample_ids) != len(read_grid):
@@ -55,7 +58,8 @@ def native_slot_context(trainer, mode, read_grid, write_valid, sample_ids, event
             raise ValueError('native four-view condition does not replay captured per-view features')
         event = {'mode': mode, 'sample_ids': list(sample_ids), 'native_joint_proj_max_abs': 0.,
                  'source_write_views': 3, 'write_valid_per_view': write_valid.sum((2, 3)).tolist(),
-                 'global_and_negative_preserved': True}
+                 'global_and_negative_preserved': True, 'fallback': fallback,
+                 'source_weight': source_weight}
         if mode == 'native':
             events.append(event)
             return native, negative
@@ -86,14 +90,24 @@ def native_slot_context(trainer, mode, read_grid, write_valid, sample_ids, event
         scales = source_args[0][3]
         if any(not torch.equal(arguments[3], scales) for arguments in source_args):
             raise ValueError('source views use different mesh scales')
+        # The historical reproduction keeps its original target fallback.
+        # This separately named bridge control instead changes only valid map
+        # entries relative to each native source map. GT metadata stays diagnostic.
+        maps = selected if fallback == 'historical-target' else selected - source.float() * write_valid[..., None]
         projected, mass = reference.project_static_source_maps(
-            extractor, selected,
+            extractor, maps,
             camera_angle_x=torch.stack([arguments[1] for arguments in source_args], 1),
             distance=torch.stack([arguments[2] for arguments in source_args], 1),
             mesh_scale=scales,
             projection_matrices=torch.stack([arguments[4] for arguments in source_args], 1),
             write_valid=write_valid, mask_camera_fov=True)
-        native['proj'] = reference.target_first_static_projection(target, projected, mass)
+        if fallback == 'historical-target':
+            native['proj'] = reference.target_first_static_projection(target, projected, mass,
+                                                                       source_weight=source_weight)
+        elif source_weight != 0:
+            native['proj'] = (native['proj'].float() + source_weight * projected.float().sum(1) / 4).to(native['proj'].dtype)
+        else:
+            event['zero_weight_native_projection_exact'] = True
         event['projected_support_mean'] = float(mass.float().mean())
         events.append(event)
         return native, negative

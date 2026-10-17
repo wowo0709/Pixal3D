@@ -158,6 +158,19 @@ def test_scoped_per_view_transport_keeps_global_negative_and_restores_hook():
         assert '_encode_deform_views' not in trainer.__dict__
         assert not trainer._image_cond_module.proj_grid._forward_hooks
         assert events[0]['native_joint_proj_max_abs'] == 0.
+    # The new bridge is explicitly separate from the historical fallback: no
+    # supported write must preserve the native source projection, not drop it.
+    for support, weight in [(torch.zeros_like(valid), 1.), (valid, 0.)]:
+        events = []
+        with native_slot_context(trainer, 'gt-corr', grid, support, ['asset'], events,
+                                 fallback='native-spatial', source_weight=weight):
+            cond, negative = trainer._encode_deform_views(images, {}, None)
+            assert torch.all(cond['proj'] == 2.5)
+            assert torch.all(cond['global'] == 9.)
+            assert not negative['proj'].any()
+        assert events[0]['fallback'] == 'native-spatial'
+        if weight == 0:
+            assert events[0]['zero_weight_native_projection_exact']
     with pytest.raises(RuntimeError, match='scoped failure'):
         with native_slot_context(trainer, 'gt-corr', grid, valid, ['asset'], []):
             raise RuntimeError('scoped failure')

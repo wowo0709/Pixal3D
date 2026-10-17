@@ -69,3 +69,7 @@ G2 archived checkpoint의 runtime을 열어 추가 차이를 확인했다. 당�
 `historical_geometry_runtime.py`에 native sampling/scoring·noise·condition10개 함수를 AST 그대로 옮겼다. `reproduce_geometry_content.py`는 실제 predicted O/D9채널·full SS regional masks·원래 frozen flow/decoder·훈련된 adapter를 file4 reproduction namespace로 고정한다. 두 reference arm(feature/content)만 실행한다. 각4-update 실제 gradient smoke와 기존3seed fixed-final checkpoint의 DEV8×3noise endpoint 재생을 수행해 수치 차이를 직접 기록한다. 이미 존재하는128-update checkpoint를 재생하므로 같은 학습을 처음부터 모두 반복하지 않는다.
 
 추가5개를 포함해 관련21개 CPU 검증과 CLI 검증이 통과했다. 이 reference의 historical zero-geometry control은 과거 수치 검증용이다. 향후 production의 No-query는 기존 사용자 정의대로 query 입력·encoder·채널을 물리적으로 제거한다. Reference 결과와 현재 데이터의 module 채택 결정을 혼합하지 않는다.
+
+## Native fallback의 별도 bridge control
+
+원래 reproduction의 `historical-target` 출력을 보존한다. 추가 `native-spatial` control은 각 source camera의 **valid write map에서만** `selected - native`를 투영해 원래 four-view projection에 더한다. GT/wrong의 support·source value multiset은 고정하며, 나머지 native source 정보와 global/negative를 보존한다. source-weight0은 실제 native projection을 그대로 반환한다. 이 control은 과거 성공 수식을 재현했다고 이름을 바꾸는 작업이 아니라, 현재 consumer로 옮길 때의 fallback 문제를 분리하는 새 진단이다. 고정 weight1 및0.25의 common32 비교를 별도 namespace에서 실행한다. GT 경로이므로 production 학습·추론 cache로 승격하지 않는다.
