@@ -1,0 +1,54 @@
+{
+  "schema": "historical-G2-region-authority-functions-v1",
+  "functions": [
+    {
+      "name": "_surface_support",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/scripts/run_exg_cage_ss_state_separability0.py",
+      "source_sha256": "7b942f9464ddcbf6299bbc3eaf1f3a528ce0cb6f1427d09305e20d09b75947ec",
+      "source_line": 32,
+      "AST_sha256": "2788c910bef774b1b2955f6a4e61ae5b0f0e631a7181dffc7e09cdcca48e446b"
+    },
+    {
+      "name": "_camera_clip",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/pixal3d/experiments/exg_compatible_target_obs0.py",
+      "source_sha256": "b01495ade7e3f4ec70a848f604137609e4699d1442cfc781c06565543f481e9c",
+      "source_line": 202,
+      "AST_sha256": "d15c43f910950ab8711b45fce6b6b02bd93b0d2b8f1cfeee4174f62f36a017d5"
+    },
+    {
+      "name": "target_anchor_to_world_points",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/pixal3d/experiments/exg_ss_ray_guidance64.py",
+      "source_sha256": "4483c602bf113bfb2103d7a89955fbc8d20d32f00eda4d0a431cf4c3f499bcec",
+      "source_line": 120,
+      "AST_sha256": "3e2dd54c7bc3fe0f2a12dce3e6c928b2fd2c81e2aebce6df6582f84cf164d903"
+    },
+    {
+      "name": "voxel_grid_center_corner_points",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/pixal3d/experiments/exg_ss_ray_guidance64.py",
+      "source_sha256": "4483c602bf113bfb2103d7a89955fbc8d20d32f00eda4d0a431cf4c3f499bcec",
+      "source_line": 153,
+      "AST_sha256": "46eb6aba299db0011146c72136fa110053a78b5b1ffb8ce0284e0a09bb66ed52"
+    },
+    {
+      "name": "classify_projected_voxel_cubes",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/pixal3d/experiments/exg_ss_ray_guidance64.py",
+      "source_sha256": "4483c602bf113bfb2103d7a89955fbc8d20d32f00eda4d0a431cf4c3f499bcec",
+      "source_line": 282,
+      "AST_sha256": "71d20da5ab0b2dd762e201b267e0d8ff35d9e448bd2cd7e3ad1726be7a9fb039"
+    },
+    {
+      "name": "pool_support",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/pixal3d/experiments/exg_ss_state_separability.py",
+      "source_sha256": "eae67826c4e9eb6192407683e06f577467aa9bf9daaf4517c31d5c3f3aec89b1",
+      "source_line": 14,
+      "AST_sha256": "a9461d6caba38b4d47a29b77260f0b5a61c642b3f5e9b4219fc78ffbd2a82dd9"
+    },
+    {
+      "name": "_coords",
+      "source_file": "/root/dev/Pixal3D/.worktrees/anchor-hybrid-prestudy/pixal3d/experiments/exg_ss_state_separability.py",
+      "source_sha256": "eae67826c4e9eb6192407683e06f577467aa9bf9daaf4517c31d5c3f3aec89b1",
+      "source_line": 7,
+      "AST_sha256": "c06244dd01fdb3ace276b1192f769e0df7e60fd4f3ed484d4ca71f9fa1a05258"
+    }
+  ]
+}
