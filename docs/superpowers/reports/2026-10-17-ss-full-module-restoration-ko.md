@@ -41,20 +41,26 @@ V1은 native spatial correspondence 기준이다. No-score 비교는 b2-top1-r �
 
 P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler/sampler까지 복원했다. Native checkpoint에는 rank별 RNG가 없어 bitwise uninterrupted replay라고 주장하지 않는다. 현재 설정의 steady-state는 약17.2초/update, 각 rank peak47.75GiB였다.
 
-### 첫 에폭의 Top1 / confidence 비교
+### 1~2에폭의 Top1 / confidence 비교
 
-2026-10-18 01:50 KST에 두 arm의step96 검증이 완료됐다. 같은32개·32 source cluster·한 sampling noise이며,32개 GT voxel hash가 모두 일치했다. 두 arm의 초기 IoU는 모두0.42671546671444294였다.
+2026-10-18 02:19 KST에 두 arm의step192 검증이 완료됐다. 같은32개·32 source cluster·한 sampling noise이며, 각 에폭의32개 GT voxel hash가 모두 일치했다. 두 arm의 초기 IoU는 모두0.42671546671444294였다.
 
-| Step96 | Voxel IoU | Precision | Recall | F1 |
-| --- | ---: | ---: | ---: | ---: |
-| b2-top1 | 0.435432 | 0.552400 | 0.672817 | 0.606691 |
-| b2-top1-r | 0.435453 | 0.552483 | 0.672745 | 0.606712 |
+| Epoch / step | Arm | Voxel IoU | Precision | Recall | F1 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 / 96 | b2-top1 | 0.435432 | 0.552400 | 0.672817 | 0.606691 |
+| 1 / 96 | b2-top1-r | 0.435453 | 0.552483 | 0.672745 | 0.606712 |
+| 2 / 192 | b2-top1 | 0.434025 | 0.553075 | 0.668475 | 0.605324 |
+| 2 / 192 | b2-top1-r | 0.432750 | 0.551961 | 0.667076 | 0.604083 |
 
-Confidence/rejection의 차이는+0.002%p, source-cluster paired95% CI[−0.108,+0.098]%p다. 첫 에폭에서 추가 이득은 구분되지 않으며 formal equivalence나 최종 무효를 입증한 것은 아니다. 두 arm의 학습 전 대비 상승에는 공통 LoRA 학습 효과도 포함되므로 그 증가량을 semantic matching만의 효과로 해석하지 않는다. 예정한480 updates와final128×3을 유지한다.
+Confidence/rejection의 차이는1에폭+0.002%p, source-cluster paired95% CI[−0.108,+0.098]%p였다. 2에폭은−0.127%p, CI[−0.293,+0.021]%p로 point estimate는 낮지만0을 포함한다. 현재 추가 이득은 구분되지 않으며 formal equivalence나 최종 무효를 입증한 것은 아니다.
 
-기록된 모든 update를 검사해 두 rank의 연속 step·finite loss·micro48·accumulation1·global96을 확인했다. Warmup25 이후 median compute는Top1 약17.236초, Top1-R 약17.217초/update이며 peak allocated는각47.02867GiB다. Step96 optimizer의361개 moment state가모두96이었고, 양쪽의denoiser/conditioner/misc 파일 크기도file4와일치했다. 중간 checkpoint는크기·CPU optimizer 검증 범위이며전체 SHA256 검증으로표현하지 않는다.
+1→2에폭의 Top1 변화는−0.141%p, CI[−1.232,+0.967]%p이고 Top1-R은−0.270%p, CI[−1.327,+0.819]%p다. 두 point estimate가 소폭 내려갔으나 각 변화의 CI도0을 포함한다. 두 arm 모두 여전히 초기 IoU보다 높지만, 그 증가에는 공통 LoRA 학습 효과도 포함되므로 semantic matching만의 효과로 해석하지 않는다. 중간 하락만으로 구현 오류나 과적합을 확정하지 않고 예정한480 updates와final128×3을 유지한다.
 
-근거는 `module-study-native-v4/interim-first-epoch-top1-rejection.json`, `epoch-comparisons/epoch-01-b2-top1-r-vs-b2-top1.json`, `provenance/native-ladder-epoch1-checkpoints.json`에있다. Paired CI는W&B에도기록됐다. 한 training seed·첫 에폭의중간 결과이며14개 구성의최종 표나채택 판단을대체하지 않는다.
+각 스냅샷에서 기록된 모든 update를 검사해 두 rank의 연속 step·finite loss·micro48·accumulation1·global96을 확인했다. 2에폭 스냅샷의 warmup25 이후 median compute는Top1 약17.232초, Top1-R 약17.211초/update이며 peak allocated는각47.02867GiB다. Step96/192 optimizer의361개 moment state가각각96/192였고, 양쪽의denoiser/conditioner/misc 파일 크기도file4와일치했다. 중간 checkpoint는크기·CPU optimizer 검증 범위이며전체 SHA256 검증으로표현하지 않는다.
+
+학습된 tanh gate는Top1의96→192에서0.008080→0.017181, Top1-R은0.007325→0.015744로 바뀌었다. 추가 경로의 parameter가0에 고정된 상태는 아니다. R은 별도로 query를 mask/weight하므로 gate 크기만으로 전체 source 기여나 유용성을 비교하지 않는다.
+
+근거는 `module-study-native-v4/interim-first-epoch-top1-rejection.json`, `interim-second-epoch-top1-rejection.json`, `epoch-comparisons/epoch-0{1,2}-b2-top1-r-vs-b2-top1.json`, `provenance/native-ladder-epoch{1,2}-checkpoints.json`에있다. 두 에폭의 paired CI는W&B에도기록됐다. 한 training seed·한 sampling noise·반복 관찰의 exploratory 결과이며14개 구성의최종 표나채택 판단을대체하지 않는다.
 
 ## 비교·완료 조건
 
