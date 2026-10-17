@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 2에폭 검증 후 학습 중; query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 3에폭 검증 후 학습 중; query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -150,6 +150,25 @@ P2-NoR의 같은 epoch IoU는0.441612다. C1-R−P2-NoR의 보조 비교는 −0
 B3/C1 optimizer의361/366개 상태가 모두step192이고 moment가finite임을 확인했다. Gate tanh는step96→192에서B3 0.007442→0.015897, C1 0.007071→0.015212로 변했다. C1의입력weight는여전히256×2048이다. 각checkpoint 세 파일의file4 크기가일치했고, 기록된양rank의연속update·micro48·accumulation1·global96·finite loss도확인했다. 이검사는실행정상성을뒷받침하며모듈효과나source 활용을입증하지않는다.
 
 근거는 `module-study-native-v4/interim-second-epoch-attention-adapter.json`, `epoch-comparisons/epoch-02-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch2-checkpoints.json`이다. 두주대비의CI는W&B에기록됐다. 두run의480 updates·final128×3, C2 및나머지baseline 평가를계속유지한다.
+
+### Attention / adapter 세 번째 epoch
+
+2026-10-18 05:28 KST에두run의step288 검증이완료됐다. 같은32개·동일seed·cluster·GT voxel geometry를유지한결과다.
+
+| Arm | IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| b2-top1 | 0.435287 | 0.553983 | 0.670139 | 0.606550 |
+| b2-top1-r | 0.434038 | 0.552076 | 0.669971 | 0.605337 |
+| b3-attention-r | 0.434564 | 0.552481 | 0.670628 | 0.605849 |
+| c1-retarget-r | 0.433627 | 0.553038 | 0.667585 | 0.604937 |
+
+Attention−Top1-R은+0.053%p, source-cluster paired95% CI[−0.001,+0.113]%p다. Adapter−attention은−0.094%p, CI[−0.335,+0.159]%p다. 두효과모두0을포함한다. Adapter의epoch별부호가음/양/음으로바뀌므로초기하락의지속이나확정된추가이득으로해석하지않는다. 2→3에폭변화는B3 +0.194%p, CI[−0.173,+0.592]%p, C1 −0.227%p, CI[−0.719,+0.193]%p다. 같은시점P2-NoR IoU는0.441529이며C1-R−P2-NoR는−0.790%p, CI[−2.303,+0.608]%p다. 기존중단/재개·구조별난수경로한계가적용된다.
+
+Optimizer의361/366개상태가모두288이고moment 값은finite였다. C1 adapter 입력은256×2048로RAW query 채널이없다. Tanh fusion gate는B3 0.024315, C1 0.022862다. 세종류중간checkpoint 크기는file4와일치했다. 전체SHA나source 유용성증명은아니다. 실제epoch3 GT/Pred/Diff 이미지에서도전체silhouette는유지되지만경계·얇은부분오차가있고, 이투영만으로3D 정합전체를증명하지않는다. 두주대비CI는W&B logging receipt에서도확인했다.
+
+별도CPU 조사에서고정threshold0.276316212를변경하지않고validation508 전체의실제cache와edited-RGB alpha를검사했다. 유효foreground query38,366개중4,348개(11.33%)가rejection을통과했고, `p_use * accepted`의평균은유효foreground 기준0.04277이었다. Common32/128의통과율은각10.59%/9.44%다. 이는추가경로가제한될수있다는정량근거이며, confidence의정확도·SS 성능하락의인과효과·projected voxel 기여를증명하지않는다. 현재R arm의threshold를사후조절하지않고P2-NoR 보조대조와고정checkpoint source/adapter 진단으로확인한다.
+
+근거는`module-study-native-v4/interim-third-epoch-attention-adapter.json`, `epoch-comparisons/epoch-03-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch3-checkpoints.json`, `provenance/rejection-validation-coverage.json`이다. 두run은480 updates와final128×3을계속진행하며C2와나머지평가·후속검증도유지한다.
 
 ### 저장된 checkpoint의 추가 경로 진단 준비
 
