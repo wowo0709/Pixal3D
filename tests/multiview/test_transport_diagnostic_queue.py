@@ -29,3 +29,16 @@ def test_saved_weight_diagnostics_preserve_main_training_and_pair_protocol(tmp_p
         assert path.parent == work / 'comparison-inputs'
         assert len(pairs) == 1 and pairs[0]['noise'] == '0'
         assert pairs[0]['baseline'].endswith('/normal/evaluation.json')
+
+
+def test_query_context_diagnostic_waits_for_c2_without_adding_training(tmp_path):
+    jobs, specifications = build_jobs(tmp_path / 'results', tmp_path / 'runtime', ['2', '3'],
+                                      'train-native-module-c2-query-r', query_only=True)
+    assert len(jobs) == 3 and len(specifications) == 1
+    generations = [j for j in jobs if j['resource'] == 'evaluation']
+    assert len(generations) == 2
+    assert {j['gpu'] for j in generations} == {'2'}
+    assert {j['command'][-1] for j in generations} == {'normal', 'shuffled-deform'}
+    assert all('train-native-module-c2-query-r' in j['depends_on'] for j in generations)
+    assert jobs[-1]['resource'] == 'cpu'
+    assert len({j['command'][j['command'].index('--checkpoint') + 1] for j in generations}) == 1

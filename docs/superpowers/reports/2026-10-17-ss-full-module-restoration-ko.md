@@ -184,6 +184,8 @@ Optimizer의361/366개상태가모두288이고moment 값은finite였다. C1 adap
 
 2026-10-18 05:25 KST에`queue_transport_diagnostics`로11개common32/noise0 생성과8개CPU paired 비교를실제큐에추가했다. 기존142개job의내용·의존성은그대로이며총161개다. P2-NoR와새C1의normal/source-off/adapter-off/wrong-corr, 새B3의normal/source-off/wrong-corr를각각동일물리GPU에서비교한다. 모든생성은C1 학습종료를기다린뒤비는GPU2·3에서실행하고, GPU0·1의C2 학습경로를유지한다. 기존baseline·final 평가는더높은우선순위를유지한다. 정상14개구성·새SS학습7개는변경하지않았다. Hook의실제residual 제거·weight/semantic gate 보존·예외후복원과queue의동일device/checkpoint/panel/seed 조건을포함한관련CPU32개테스트가통과했다. 생성결과는아직없으며예약완료와실행완료를구분한다. 근거는`provenance/transport-control-queue.json`이다.
 
+2026-10-18 05:32 KST에는 C2 학습 종료 뒤의 normal/shuffled-RAW-context 생성 두 개와 paired 비교 한 개도 예약했다. 기존 161개 작업은 유지되며 총 164개다. 두 생성은 비는 GPU2에서 동일 checkpoint·common32·batch8·noise로 실행한다. 실제 panel의 32개 source cluster가 서로 다르고, 각 batch8 안에서도 전부 다른 source임을 확인했다. RGB 네 장·카메라·GT·correspondence evidence·학습 weight는 유지하고 RAW context만 다른 asset과 순환시킨다. CPU 테스트에서는 C2의 물리적 RAW 입력에 연결된 출력이 context를 따라 바뀌고 semantic evidence·usage는 보존됨을 확인했다. 관련 테스트 34개가 통과했으며 GPU 생성 결과는 아직 없다. 정상 구성 14개와 새 SS 학습 7개는 그대로다. 근거는 `provenance/transport-query-control-queue.json`, `provenance/transport-query-control-panel-contract.json`이다.
+
 ## 비교·완료 조건
 
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.

@@ -420,3 +420,11 @@ and perturbed replicas use the same physical device. Output stays under
 `module-study-native-v4/evaluations/diagnostics`; paired intervals are separate
 from the fourteen-configuration primary report. These are eleven generation
 jobs and eight CPU comparisons, without new denoiser training.
+
+Use the same command with `--query-only --after-job train-native-module-c2-query-r`
+to append the C2 normal/shuffled-RAW-context pair and its CPU comparison.
+Both replicas run on the first device of the explicitly supplied freed pair,
+with the same common32 panel, batch8, weights and per-asset noise. Validate
+that each batch contains distinct source clusters before interpreting this
+as a cross-object context diagnostic. These outputs remain outside the
+fourteen normal configurations.

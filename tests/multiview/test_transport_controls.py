@@ -110,6 +110,37 @@ def test_adapter_only_removal_preserves_weights_evidence_usage_and_restores_afte
             pass
 
 
+def test_physical_query_shuffle_changes_only_context_of_existing_conditioner():
+    dataset = CachedSS()
+    dataset.transport_arm = 'c2'
+    for index, sample in enumerate(dataset.samples):
+        sample['transport_target_query'] = torch.zeros(8, 1024)
+        sample['transport_deformation'] = torch.full((8, 2048), float(index))
+    original = dataset.collate_fn(dataset.samples)
+    batch = TransportControl(dataset, 'shuffled-deform').collate_fn(dataset.samples)
+    for key, value in original.items():
+        torch.testing.assert_close(batch[key], value, rtol=0, atol=0)
+    module = MatchingV2Conditioner(arm='c2', deformation_dim=2048)
+    with torch.no_grad():
+        # A nonzero learned output exposes the physical RAW input path;
+        # zero-init parity alone cannot establish query use.
+        module.retargeter.net[0].weight.zero_()
+        module.retargeter.net[0].bias.zero_()
+        module.retargeter.net[0].weight[0, 2048] = 1.
+        module.retargeter.net[-1].weight.zero_()
+        module.retargeter.net[-1].bias.zero_()
+        module.retargeter.net[-1].weight[0, 0] = 1.
+    inputs = {k.removeprefix('transport_'): v for k, v in batch.items()
+              if k.startswith('transport_') and k != 'transport_control'}
+    normal = module(**inputs)
+    shuffled = module(**inputs, control=batch['transport_control'])
+    assert torch.count_nonzero(normal.retarget_residual) > 0
+    assert not torch.equal(shuffled.retarget_residual, normal.retarget_residual)
+    torch.testing.assert_close(shuffled.retarget_residual, normal.retarget_residual.flip(0), rtol=0, atol=0)
+    torch.testing.assert_close(shuffled.base_evidence, normal.base_evidence, rtol=0, atol=0)
+    torch.testing.assert_close(shuffled.usage_scale, normal.usage_scale, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize('mode', ['normal', 'source-off', 'wrong-corr'])
 def test_evaluation_control_reaches_native_inference_dispatch(mode):
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import ImageConditionedProjMixin
