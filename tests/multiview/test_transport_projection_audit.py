@@ -2,6 +2,7 @@ import torch
 import pytest
 import numpy as np
 from pathlib import Path
+import json
 
 from experiments.deformnext_retargeting.audit_native_transport_projection import normalized_evidence, DiagnosticDataset
 from experiments.deformnext_retargeting.probe_source_target_balance import blend_projected
@@ -10,6 +11,8 @@ from pixal3d.modules.transport_projection import support_weighted_projection
 from pixal3d.modules.matching_v2_conditioner import MatchingV2Conditioner
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
 from experiments.deformnext_retargeting.matching_v2_queue import choose_gpu,can_run,dependencies_ready
+from experiments.deformnext_retargeting.prepare_query_study import choose_parent
+from experiments.deformnext_retargeting import prepare_query_study
 
 
 def test_partial_support_does_not_dilute_transport_value_and_empty_support_is_finite():
@@ -141,3 +144,44 @@ def test_profiled_ddp_overlap_allows_one_small_head_but_blocks_generation():
     assert choose_gpu({'gpus':allowed,'resource':'exclusive'},allowed,state) is None
     with pytest.raises(ValueError,match='memory proof'):
         choose_gpu({'gpus':allowed,'resource':'train-with-light'},allowed,{})
+
+
+def test_query_parent_does_not_promote_a_new_matcher_from_mean_gain_alone():
+    record=lambda low,high:{'paired_cluster_bootstrap_ci95':[low,high]}
+    cases={'p1-vs-c1':record(-.01,.02),'p2-vs-c1':record(-.01,.03),'p2-vs-p1':record(.001,.02)}
+    assert choose_parent(cases)=='original-c1'
+    cases['p1-vs-c1']=record(.001,.02)
+    assert choose_parent(cases)=='p1-native-grid'
+    cases['p2-vs-c1']=record(.002,.03)
+    assert choose_parent(cases)=='p2-matcher-grid'
+    cases['p2-vs-p1']=record(-.001,.02)
+    assert choose_parent(cases)=='p1-native-grid'
+
+
+@pytest.mark.parametrize('improved',[False,True])
+def test_query_pair_uses_original_initializer_and_physical_extra_channels(tmp_path,monkeypatch,improved):
+    root=tmp_path/'campaign';stage=root/'retarget-native-v3'
+    (stage/'comparisons').mkdir(parents=True);(stage/'configs').mkdir()
+    (stage/'query-study').mkdir();(stage/'query-study/context-population-audit.json').write_text(json.dumps({'status':'PASS'}))
+    record={'assets':128,'sampling_noise_seeds':3,'paired_cluster_bootstrap_ci95':[.001,.02] if improved else [-.01,.02]}
+    for key in ['p1-vs-c1','p2-vs-c1','p2-vs-p1']:
+        (stage/'comparisons'/(key+'-three-noise.json')).write_text(json.dumps(record))
+    cfg={'trainer':{'args':{'max_steps':480,'continuation_ckpt':{'denoiser':'original-base-plus-lora'},
+        'deform_conditioner':{'implementation':'matching-v2','arm':'c1','projection_mode':'native-bilinear'}}},
+        'experiment':{'global_batch':96},'dataset':{'args':{}},'validation':{'dataset_args':{}}}
+    for name in ['p1-native-grid','p2-matcher-grid']:
+        (stage/'configs'/(name+'.json')).write_text(json.dumps(cfg))
+        done=stage/'runs_ss64'/name/'completed.json';done.parent.mkdir(parents=True)
+        done.write_text(json.dumps({'status':'PASS','updates':480,'epochs':5}))
+    monkeypatch.setattr('sys.argv',['prepare-query','--root',str(root)])
+    prepare_query_study.main()
+    c1=json.loads((stage/'query-study/configs/c1-control.json').read_text())
+    c2=json.loads((stage/'query-study/configs/c2-query.json').read_text())
+    for item in [c1,c2]:
+        assert item['trainer']['args']['continuation_ckpt']=={'denoiser':'original-base-plus-lora'}
+        assert item['num_gpus']==2 and item['trainer']['args']['batch_size_per_gpu']==48
+        assert item['trainer']['args']['batch_split']==1
+    assert 'deformation_dim' not in c1['trainer']['args']['deform_conditioner']
+    assert c2['trainer']['args']['deform_conditioner']['deformation_dim']==2048
+    assert 'deformation_root' not in c1['dataset']['args']
+    assert ('deformation_root' in c2['dataset']['args'])== (not improved)

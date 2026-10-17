@@ -118,9 +118,29 @@ def native_proof(cfg,output):
     adapter=trainer.deform_conditioner.retargeter
     gradient=float(adapter.net[-1].weight.grad.abs().sum()) if adapter is not None else None
     if not gate>0 or (gradient is not None and not gradient>0):raise ValueError('matching-v2 has no first-step gradient')
+    query_proof=None
+    if trainer.deform_conditioner.arm=='c2':
+        if adapter.input_dim!=4096:raise ValueError('C2 must physically add RAW2048 channels')
+        deformation=pack['transport_deformation'].float()
+        valid_query=pack['transport_target_valid']&pack.get('transport_cached_valid',torch.ones_like(pack['transport_target_valid']))
+        last=adapter.net[-1];saved_weight=last.weight.detach().clone();direction=last.weight.grad.detach().clone()
+        # A zero output layer intentionally blocks first-layer gradients at
+        # initialization. A temporary, restored output perturbation verifies
+        # the actual query channels without applying any optimizer update.
+        try:
+            with torch.no_grad():last.weight.add_(1e-3*direction)
+            for model in trainer.models.values():model.zero_grad(set_to_none=True)
+            with torch.autocast('cuda',dtype=trainer.mix_precision_dtype):probe,_=trainer.training_losses(x_0=target,**pack)
+            probe['loss'].backward();query_gradient=float(adapter.net[0].weight.grad[:,-2048:].abs().sum())
+            if not query_gradient>0 or not np.isfinite(query_gradient):raise ValueError('C2 query channels are disconnected')
+            query_proof={'input_dim':adapter.input_dim,'extra_channels':2048,'deformation_rms':float(deformation.square().mean().sqrt()),
+                'valid_deformation_rms':float(deformation[valid_query].square().mean().sqrt()),
+                'query_weight_gradient_l1':query_gradient,'temporary_output_probe_restored':True,'optimizer_updates':0}
+        finally:
+            with torch.no_grad():last.weight.copy_(saved_weight)
     write(output/'native-proof.json',{'status':'PASS','sample_id':ds.rows[index]['sample_id'],
         'condition_max_abs_errors':errors,'fusion_gate_gradient':gate,'adapter_output_gradient_l1':gradient,
-        'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0})
+        'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0,'query_channels':query_proof})
 
 
 def train(a):

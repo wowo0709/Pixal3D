@@ -366,3 +366,12 @@ and [follow-up learning plan](../../docs/superpowers/reports/2026-10-17-ss-nativ
 Runtime configs and caches live outside Git under the campaign's
 `retarget-native-v3/` namespace. Native bilinear is opt-in; existing
 nearest-projection recipes retain their behavior.
+
+The [query follow-up protocol](../../docs/superpowers/reports/2026-10-17-ss-query-study-execution-plan-ko.md)
+adds fixed-noise final parent comparisons followed by a fresh matched C1/C2
+pair. `queue_query_followup` requires explicit disjoint GPU pairs; it waits for
+completed five-epoch training and all three sampling repeats before preparing
+the parent. Reference RAW2048 context can be read from its immutable sidecar
+with strict head/input fencing, without duplicating evidence files. C1 omits
+the physical query channels; C2 checks their connection in a restored,
+optimizer-free GPU probe before training.

@@ -147,6 +147,41 @@ def test_edited_rgb_target_render_is_used_as_first_condition(tmp_path):
     torch.testing.assert_close(item['cond'][0],torch.full((3,8,8),99/255))
 
 
+def test_c2_reuses_reference_context_with_strict_head_and_rgb_fencing(tmp_path):
+    import hashlib
+    from pixal3d.modules.r9_matching import MATCHER_CONTRACT,ATTENTION_CONTRACT
+    manifest,row=_fixture(tmp_path);row['conditioning_input_sha256']='rgb-input'
+    manifest.write_text(json.dumps(row)+'\n')
+    with np.load(tmp_path/'transport.npz') as z:source={k:z[k] for k in z.files}
+    source.update(conditioning_input_sha256='rgb-input',target_query=np.ones((1024,1024),np.float16))
+    np.savez(tmp_path/'transport.npz',**source)
+    matches=tmp_path/'preaggregated';matches.mkdir();contract=json.dumps({'head_sha256':'reference-head'})+'\n'
+    (matches/'contract.json').write_text(contract)
+    np.savez(matches/'sample-a.npz',schema='deformnext-matching-v2-cache-v1',
+        contract_sha256=hashlib.sha256(contract.encode()).hexdigest(),sample_id='sample-a',split='train',
+        conditioning_input_sha256='rgb-input',evidence_top1=np.zeros((1024,1024),np.float16),
+        evidence_soft=np.zeros((1024,1024),np.float32),p_use=np.ones(1024,np.float32),cached_valid=np.ones(1024,bool))
+    sidecars=tmp_path/'reference-context';sidecars.mkdir()
+    payload=dict(schema='deformnext-match-r9-v5',q2c_sha256='reference-head',conditioning_input_sha256='rgb-input',
+        aggregation='global-categorical-v1',proposal_policy='GLOBAL64_VALID_OR_NATIVE',topk=64,
+        matcher_contract=json.dumps(MATCHER_CONTRACT),attention_contract=json.dumps(ATTENTION_CONTRACT),
+        deformation=np.full((1024,2048),.75,np.float16))
+    np.savez(sidecars/'sample-a.npz',**payload)
+    kwargs=dict(image_size=8,transport_implementation='matching-v2',expected_q2c_sha256='reference-head',
+        match_root=str(matches),deformation_root=str(sidecars))
+    dataset=DeformNeXtSS64(str(manifest),transport_arm='c2',**kwargs)
+    item=dataset[0]
+    assert item['transport_deformation'].shape==(1024,2048)
+    assert torch.all(item['transport_deformation']==.75)
+    with pytest.raises(ValueError,match='only for cached C2'):
+        DeformNeXtSS64(str(manifest),transport_arm='c1',**kwargs)
+    payload['q2c_sha256']='another-head';np.savez(sidecars/'sample-a.npz',**payload)
+    with pytest.raises(ValueError,match='sidecar head/input contract'):dataset[0]
+    payload['q2c_sha256']='reference-head';payload['conditioning_input_sha256']='different-RGB'
+    np.savez(sidecars/'sample-a.npz',**payload)
+    with pytest.raises(ValueError,match='sidecar head/input contract'):dataset[0]
+
+
 def test_depth_target_manifest_cannot_silently_train(tmp_path):
     manifest,row=_fixture(tmp_path)
     row['target_anchor_kind']='geometry_depth'

@@ -166,6 +166,7 @@ class _DeformNeXtBase(Dataset):
         projection_root: Optional[str],
         transport_implementation: str = "legacy-v4",
         expected_q2c_sha256: Optional[str] = None,
+        deformation_root: Optional[str] = None,
     ) -> None:
         self.manifest_path = Path(manifest).resolve()
         self.manifest_dir = self.manifest_path.parent
@@ -181,6 +182,9 @@ class _DeformNeXtBase(Dataset):
         self.expected_q2c_sha256 = expected_q2c_sha256
         self.match_root = None if match_root is None else self._resolve(str(match_root))
         self.projection_root = None if projection_root is None else self._resolve(str(projection_root))
+        self.deformation_root = None if deformation_root is None else self._resolve(str(deformation_root))
+        if self.deformation_root is not None and (transport_implementation!='matching-v2' or transport_arm!='c2'):
+            raise ValueError('separate deformation sidecars exist only for cached C2')
         if transport_implementation == 'matching-v2':
             import hashlib
             if self.match_root is None:
@@ -234,6 +238,8 @@ class _DeformNeXtBase(Dataset):
                     checks.append(self.match_root / f"{row['sample_id']}.npz")
                 if self.projection_root is not None and transport_arm != "v1":
                     checks.append(self.projection_root / f"{row['sample_id']}.npz")
+                if self.deformation_root is not None:
+                    checks.append(self.deformation_root / f"{row['sample_id']}.npz")
                 checks += [self._resolve(p) for p in row["source_images"]]
                 checks.append(self._resolve(row['source_anchor_rgb']))
                 missing_files = [str(p) for p in checks if not p.is_file()]
@@ -320,7 +326,7 @@ class _DeformNeXtBase(Dataset):
                         raise ValueError('matching-v2 cache contract differs')
                     if str(cache['sample_id']) != row['sample_id'] or str(cache['split']) != row['split']:
                         raise ValueError('matching-v2 cache identity differs')
-                    match_keys = ('evidence_top1','evidence_soft','p_use','cached_valid') + (('deformation',) if self.transport_arm=='c2' else ())
+                    match_keys = ('evidence_top1','evidence_soft','p_use','cached_valid') + (('deformation',) if self.transport_arm=='c2' and getattr(self,'deformation_root',None) is None else ())
                 for key in match_keys:
                     if key not in cache:
                         raise ValueError(
@@ -332,6 +338,25 @@ class _DeformNeXtBase(Dataset):
                     elif key in {"candidate_valid", "cached_valid"}:
                         tensor = tensor.bool()
                     pack[f"transport_{key}"] = tensor
+        deformation_root=getattr(self,'deformation_root',None)
+        if deformation_root is not None:
+            # The R9 source sidecar already contains inference-only RAW2048
+            # context deltas. Reuse it without duplicating all frozen values.
+            from ..modules.r9_matching import MATCHER_CONTRACT,ATTENTION_CONTRACT
+            with np.load(deformation_root/f"{row['sample_id']}.npz") as cache:
+                if (str(cache['schema'])!='deformnext-match-r9-v5'
+                    or str(cache['aggregation'])!='global-categorical-v1'
+                    or str(cache['proposal_policy'])!='GLOBAL64_VALID_OR_NATIVE'
+                    or int(cache['topk'])!=64
+                    or str(cache['q2c_sha256'])!=self.expected_q2c_sha256
+                    or str(cache['conditioning_input_sha256'])!=row['conditioning_input_sha256']
+                    or json.loads(str(cache['matcher_contract']))!=MATCHER_CONTRACT
+                    or json.loads(str(cache['attention_contract']))!=ATTENTION_CONTRACT):
+                    raise ValueError('C2 deformation sidecar head/input contract differs')
+                value=np.asarray(cache['deformation'])
+                if value.shape!=(1024,2048) or not np.isfinite(value).all():
+                    raise ValueError('C2 requires finite RAW2048 deformation context')
+                pack['transport_deformation']=torch.from_numpy(value)
         if self.transport_implementation in {"r9-native-v5", "matching-v2"}:
             from ..modules.r9_matching import frame_raw
             for key in ('target_keys', 'source_keys'):
@@ -385,6 +410,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         expected_ss_schema: Optional[str] = None,
         transport_implementation: str = "legacy-v4",
         expected_q2c_sha256: Optional[str] = None,
+        deformation_root: Optional[str] = None,
         pretrained_ss_dec: str = "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16",
         **_: Any,
     ) -> None:
@@ -404,6 +430,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
             verify_files=verify_files, path_map=path_map, transport_arm=transport_arm,
             match_root=match_root, projection_root=projection_root,
             transport_implementation=transport_implementation, expected_q2c_sha256=expected_q2c_sha256,
+            deformation_root=deformation_root,
         )
         if self.expected_ss_schema is not None:
             for row in self.rows:
