@@ -33,6 +33,7 @@ def main():
         comparisons=[a.root/'noise-confirmation/c1-v1-three-noise.json',
             a.root/'role-balance-probe/validation128/paired-v1.json',
             *(a.root/'retarget-native-v3/comparisons').glob('*.json'),
+            *(a.root/'retarget-native-v3/epoch-comparisons').glob('*.json'),
             *(a.root/'module-study-native-v4/comparisons').glob('*.json'),
             *(a.root/'retarget-native-v3/query-study/comparisons').glob('*.json')]
         for f in comparisons:
@@ -47,7 +48,7 @@ def main():
         state_path=a.work_root/'queue-state.json'
         report=a.root/'module-study-native-v4/final-primary-report.json'
         report_key=str(report.relative_to(a.root))
-        if report.exists() and report_key not in logged:
+        if report.exists() and report.with_suffix('.md').exists() and report_key not in logged:
             value=json.loads(report.read_text())
             artifact=wandb.Artifact('ss-native-module-v4-primary-report',type='evaluation-report')
             artifact.add_file(str(report));artifact.add_file(str(report.with_suffix('.md')))

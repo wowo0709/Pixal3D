@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -127,8 +128,9 @@ def main():
     report={'status':'primary_matrix_complete','training_seed_replication':False,'unseen_test_evaluation':False,
         'models':models,'contrasts':contrasts,'original_c1_vs_v1':baseline,'training_audit':training,
         'head_contract':head,'claim_scope':'fixed-final exploratory development comparison; final adoption and any required seed/causal follow-up remain separate'}
-    (study/'final-primary-report.json').write_text(json.dumps(report,indent=2)+'\n')
-    (study/'final-primary-report.md').write_text(render(report))
+    for suffix,content in [('md',render(report)),('json',json.dumps(report,indent=2)+'\n')]:
+        path=study/('final-primary-report.'+suffix);tmp=path.with_suffix('.'+suffix+'.tmp')
+        tmp.write_text(content);os.replace(tmp,path)
     print(json.dumps({'status':report['status'],'models':len(models),'contrasts':len(contrasts),'training_seed_replication':False}))
 
 
