@@ -1,6 +1,6 @@
 # SS matching 원인 진단과 후속 학습 진행
 
-2026-10-17 KST 실행 중간 결과다. 새 P1/P2의 5-epoch final 성능은 아직 없다. 물리 GPU 0~3만 사용하며 기존 SS C2(step90), PBR B3(step979)는 중단 상태로 file4에 보존했다.
+2026-10-18 01:05 KST 기준 중간 결과다. P1은5-epoch 학습과32개 검증을 완료했고 P2는 학습 중이며, 새 P1/P2의 final128×3 성능은 아직 없다. 아래 첫 표는 기존 noise0 결과이고 이후에 추가한 세-noise baseline 표와 구분한다. 물리 GPU0~3만 사용하며 기존 SS C2(step90), PBR B3(step979)는 중단 상태로 file4에 보존했다.
 
 ## 1. 기존 모델이 전부 악화됐다는 결론은 수정해야 한다
 
@@ -19,6 +19,30 @@
 B1~B3도 이 single-noise panel에서 작은 양의 차이가 있다. 그러나 B2−B1은 **+0.039%p, CI[−0.215,+0.289]**, B3−B2는 **+0.039%p, CI[−0.015,+0.086]**로 개별 matching/attention 추가의 증분은 아직 확인되지 않는다. C1−B3는 **+0.936%p, CI[+0.156,+1.735]**다. C1과 B 계열의 기존 microbatch/accumulation 차이에 따른 stochastic training nuisance도 있으므로 architecture만의 정확한 인과 효과로 확대하지 않는다.
 
 기존 C1과 V1을 추가 noise 두 개로 반복했다. 세 noise의 gain은 각각 **+1.218/+1.013/+0.851%p**였다. 동일 asset의 반복을 source cluster 안에 묶은 합산 IoU는 V1 **0.431926**, C1 **0.442214**, 차이 **+1.029%p, CI[+0.586,+1.498]**다. 따라서 4개 quick sample의 하락을 전체 C1의 실패로 일반화할 수 없다. 이는 generation-noise 안정성 확인이며 training-seed 재현성 검증은 아니다.
+
+### 공통128×3-noise baseline 보강
+
+Zero-shot 두 조건에도 추가 noise 두 개를 생성했다. 동일128개·93 source cluster·sampler12/CFG3·generation batch8이며, 세 반복의 TP/FP/FN을 합산한 지표다. 세 IoU를 단순 산술 평균하지 않는다.
+
+| 모델 | Voxel IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| Source-only zero-shot | 0.380711 | 0.505204 | 0.607067 | 0.551471 |
+| Edited-RGB zero-shot | 0.419275 | 0.546764 | 0.642621 | 0.590830 |
+| V1 | 0.431926 | 0.559812 | 0.654067 | 0.603280 |
+| 기존 C1 | 0.442214 | 0.575244 | 0.656616 | 0.613243 |
+
+| 동일 cohort의 대비 | IoU 차이, %p | Source-cluster paired95% CI, %p |
+| --- | ---: | --- |
+| Edited-RGB zero-shot − source-only zero-shot | +3.856 | [+2.874,+4.881] |
+| V1 − edited-RGB zero-shot | +1.265 | [+0.110,+2.543] |
+| 기존 C1 − V1 | +1.029 | [+0.586,+1.498] |
+| 기존 C1 − edited-RGB zero-shot | +2.294 | [+0.978,+3.731] |
+
+Source-only는 M0 camera8/9/10/11 RGB 네 장, edited-RGB는 camera8만 M1 RGB로 교체한 조건이다. 실제 tensor contact sheet 네 사례에서 camera9/10/11 영상은 픽셀까지 동일하고 camera8 RGB만 달라지는 것을 확인했다. 두 zero-shot 모두 M1 GT와 비교하므로 source-only 수치는 M0 자체의 복원 성능이 아니다. Target 입력의 효과와 동일 입력의 추가 fine-tuning 이득을 각각 관측했으나 데이터셋의 난도를 하나의 숫자로 정의하거나 특정 모듈의 인과 효과로 확대하지 않는다.
+
+새 두 noise의 zero-shot 조건끼리는128개 GT voxel hash가 모두 일치했다. 과거 V1/C1 및 noise0 결과에는 당시 저장하지 않은 일부 input/protocol metadata와 전체 GT hash가 없다. 저장된 명령,12-step recipe, CFG3 evaluator source와508개 RGB/four-camera manifest contract를 대조했으며, 과거 파일의 누락 필드는 그대로 보존했다. Legacy GT는 동일 foreground count·source cluster·sample별 seed 검사 범위로 보고하며, 없는 hash를 생성 당시 검증한 것처럼 표현하지 않는다. 근거는 `provenance/legacy-baseline-protocol-evidence.json`, `zero-shot-rgb-input-control-check.json`이다.
+
+이 결과는 네 baseline의 중간 집계다. B1/B2/B3의 나머지 반복과 새 일곱 run이 포함된14개 구성의 최종 표를 대체하지 않는다. P1/P2의32개 중간 지표도 이128개 표와 직접 차감하지 않는다. CI는 동일 source의 variant와 모든 noise를 cluster 안에 묶은4,000회 exploratory bootstrap이며 training-seed 재현이나 multiple-comparison 보정은 아니다.
 
 ## 2. 확인된 병목과 아직 분리되지 않은 원인
 
@@ -74,7 +98,7 @@ Projection을 맞추면 nearest보다 좋아지지만 native를 넘지는 못했
 | Single GPU, 최적화 후 | 48 / 1 / 2 | 34.63초 | 47.71 GiB |
 | **P1 DDP 검사** | **48 / 2 / 1, global96** | **약17.5초** | **각 rank47.75 GiB** |
 
-큰 microbatch가 항상 빠르지는 않았다. 두 GPU를 나눠 accumulation 없이 처리하는 방식으로 전체 latency를 줄인다. P1은 **GPU2·3**, P2는 **GPU0·1**에서 진행 중이며 steady-state 약17.2초/update, 각 rank peak47.75GiB다. 두 모델의 시작 전 공통32 IoU는 모두0.426715로 일치했다. P1의 첫 epoch(step96)는0.434282였다. 사용자 중단 이후 step103/56의 optimizer/scheduler/sampler까지 복원했으며 rank별 RNG가 없어 bitwise uninterrupted replay는 아니다. 5 epochs/480 updates, 매 epoch32개와 final128개, W&B loss/metric/GT-pred-diff logging을 유지한다.
+큰 microbatch가 항상 빠르지는 않았다. 두 GPU를 나눠 accumulation 없이 처리하는 방식으로 전체 latency를 줄인다. P1은 **GPU2·3**, P2는 **GPU0·1**에 배치했으며 steady-state 약17.2초/update, 각 rank peak47.75GiB다. P1은두 rank의480 updates와여섯 검증을 모두 완료했고 final checkpoint의 로컬/file4 SHA256도 일치했다. P1이 끝난 GPU2·3에서 zero-shot 반복 평가를 마치고 P1 final 평가가 시작됐다. P2는 계속 학습 중이다. 두 모델의 시작 전 공통32 IoU는 모두0.426715로 일치했다. 사용자 중단 이후 step103/56의 optimizer/scheduler/sampler까지 복원했으며 rank별 RNG가 없어 bitwise uninterrupted replay는 아니다. 5 epochs/480 updates, 매 epoch32개와 final128개, W&B loss/metric/GT-pred-diff logging을 유지한다. [에폭별 진행 결과](2026-10-17-ss-native-epoch2-progress-ko.md)를 참고한다.
 
 P1/P2와 별도로 원래 계획의 Top1 → rejection → attention → adapter → physical query **다섯 SS arm을 native projection에서 실행하도록 복원**했다. Retarget-only query-study의 미실행 두 run은 이 다섯 arm 중 C1/C2로 대체해 중복을 없앴다. [전체 범위 복원 및 실행표](2026-10-17-ss-full-module-restoration-ko.md)를 기준으로 진행하며, P1/P2만으로 원래 모듈 비교를 완료했다고 판정하지 않는다.
 
@@ -89,4 +113,4 @@ Pipeline에서 완료 의존성 대기가 빠진 문제로 H3/H0 최종 감사�
 
 SS quick voxel 지표의 GT는 정합된 M1 SS latent를 decoder로 복원한 occupancy다. Raw mesh 표면 또는 렌더링 지표와 혼동하지 않는다. 후속 결과에는 이 occupancy의 해시와 shape도 저장하고, 비교 시 동일 GT foreground 수·hash(양쪽에 존재할 때)·cluster·sampling 설정과 noise 반복 중복을 검사한다. 기존 V1/C1 공통128×3 noise의 GT foreground 수는 모두 일치했고, 보강한 comparator에서도 기존 gain/CI가 정확히 보존됐다. Legacy 결과에는 당시 저장한 전체 GT voxel hash가 없어 count 검사 범위를 넘어선 hash 검증을 주장하지 않는다.
 
-Authoritative outputs: file4의 `/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/`. 통계 근거는 `diagnostics/*common128-bootstrap.json`, `noise-confirmation/c1-v1-three-noise.json`, `head-audit/`, `projection-audit/`, `role-balance-probe/`에 있다. 새 학습은 `retarget-native-v3/`, 실행 큐는 `runtime/queue-state.json`이다. [W&B P1](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [공통 평가](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-matching-v2-evaluations).
+Authoritative outputs: file4의 `/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/`. 통계 근거는 `diagnostics/*common128-bootstrap.json`, `noise-confirmation/c1-v1-three-noise.json`, `baseline-noise-confirmation/interim-four-baseline-report.json`, `baseline-noise-confirmation/comparisons/`, `head-audit/`, `projection-audit/`, `role-balance-probe/`에 있다. 새 학습은 `retarget-native-v3/`, 실행 큐는 `runtime/queue-state.json`이다. [W&B P1](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [공통 평가](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-matching-v2-evaluations).
