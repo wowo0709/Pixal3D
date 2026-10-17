@@ -32,6 +32,16 @@ Single-GPU 실측 후 실행 배치를 수정했다. 최초 packed projection의
 
 새 학습/검증 위치는 file4의 `rgb_matching_v2/retarget-native-v3/`다. Gate 또는 pilot 통과를 성능 향상으로 표현하지 않으며, final 생성 지표와 이미지가 개선돼야 채택한다. 기존 4개 quick panel은 최종 판단 기준으로 사용하지 않는다.
 
+## 사용자 중단 후 상태 복원
+
+사용자 요청으로 P1 step103, P2 step56에서 정상 중단하고 denoiser, conditioner, misc 체크포인트를 file4에 보존했다. 이후 사용자가 goal을 active로 재설정하여 같은 두 실험만 재개한다. 기존 RGB SS C2/PBR B3는 계속 중단 상태다. 자동 queue의 중단 이전 상태는 별도 보존하며, raw transport gate의 HOLD 17개는 해제하지 않는다.
+
+`matching_v2_ss --mode resume`는 학습 recipe/데이터/검증 설정/LoRA와 저장된 설정이 같은지, checkpoint 세 파일과 optimizer moments/scheduler/sampler/gradient clip 상태가 완전한지 먼저 확인한다. 그 뒤 STOP을 이력 파일로 옮기고 명시한 step을 native `load_dir`/`ckpt` 경로로 불러온다. 초기화 증명이나 메모리 probe를 반복하지 않는다. 같은 W&B run ID, 2/2 DDP, rank당 micro48, accumulation1/global96 및 최종480 updates를 유지한다. 기존 native checkpoint에는 rank별 RNG 상태가 없으므로 optimizer와 sampler 상태를 복원하는 재개이며, 중단이 없었던 실행의 bitwise 재현은 아니다.
+
+중단 전 P1의 공통32 IoU는 step0 0.426715 → step96 0.434282였다. 이는 초기 경향이며 기존 V1/C1 대비 개선 채택 기준은 최종128개와 세 sampling noise의 paired cluster 비교다. P2는 중단 시 첫 epoch 검증 전이었다. 최종 부모 선택 후의 fresh C1-control/C2-query 학습과 평가 DAG도 재개하며, 같은 native DDP 조건에서 물리적 RAW2048 query 채널의 효과를 비교한다.
+
+재개 경로 및 기존 protocol/runtime CPU 검사 28개를 통과했다. 불완전 checkpoint, 변경된 recipe, 미할당 GPU가 STOP을 해제하거나 fresh-run 경로로 우회하지 못하는지 포함한다.
+
 ## 후보 확대의 별도 통제
 
 기존 H0는 train/calibration 및 학습 budget이 새 H1과 달랐다. 후보 확대 효과를 더 정확히 비교하기 위해 같은 새 head 구조, split, seed42017, query sampling, optimizer와 7 epochs로 Top64 ranking-only H0를 추가 replay한다. H1은 Top256이다. Visibility/miss 정책도 동일하게 적용한다. Candidate availability에 따라 eligible query 수는 달라지므로 실제 처리 query/update 수를 함께 기록한다. 이 replay는 작은 matching head 한 개이며 SS V1을 재학습하지 않는다. H* 선택을 변경하거나 H0가 끝날 때까지 P1/P2를 지연시키지 않는 진단용 통제다.

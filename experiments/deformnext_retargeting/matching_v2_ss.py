@@ -184,6 +184,61 @@ def train(a):
     write(Path(cfg['default_output_dir'])/'completed.json',{'status':'PASS','updates':480,'epochs':5,'microbatch':per_rank//selected,'world_size':world,'global_batch':96,'head_sha256':cfg['experiment']['head_sha256']})
 
 
+def resume_spec(cfg, root):
+    """Validate a stopped, complete run before removing its stop sentinel."""
+    import torch
+    output=Path(cfg['default_output_dir'])
+    if output.resolve()!=(root/'runs_ss64'/cfg['experiment']['arm']).resolve():
+        raise ValueError('resume output must belong to the selected arm')
+    saved=json.loads((output/'config.json').read_text())
+    for key in ['models','dataset','trainer','validation','data_dir','num_gpus','wandb_id']:
+        if cfg.get(key)!=saved.get(key):raise ValueError('resume recipe changed: '+key)
+    progress=json.loads((output/'progress.json').read_text());step=progress['current']
+    if progress['stage']!='stopped' or not 0<step<cfg['trainer']['args']['max_steps']:
+        raise ValueError('resume requires a stopped, incomplete run')
+    if progress['last_checkpoint_step']!=step or not (output/'STOP').is_file():
+        raise ValueError('resume requires a complete stop checkpoint and STOP sentinel')
+    paths={name:output/'ckpts'/f'{name}_step{step:07d}.pt' for name in ['denoiser','deform_conditioner','misc']}
+    if any(not path.is_file() or not path.stat().st_size for path in paths.values()):
+        raise ValueError('resume checkpoint set is incomplete')
+    misc=torch.load(paths['misc'],map_location='cpu',weights_only=False)
+    args=cfg['trainer']['args']
+    required={'step','optimizer','data_sampler','lora','lr_scheduler','grad_clip'}
+    if not required.issubset(misc) or misc['step']!=step or misc['lora']!=args['lora']:
+        raise ValueError('resume optimizer/sampler/LoRA state is incomplete or incompatible')
+    if not misc['optimizer']['state']:raise ValueError('resume optimizer moments are empty')
+    pinned=copy.deepcopy(cfg)
+    pinned.update(ckpt=str(step),load_dir=str(output),output_dir=str(output),auto_retry=0)
+    receipt={'status':'validated','resume_step':step,'restores':['model','conditioner','optimizer','scheduler','sampler','gradient_clip'],
+        'sampler':misc['data_sampler'],'optimizer_learning_rates':[g['lr'] for g in misc['optimizer']['param_groups']],
+        'rng_limitation':'native checkpoint does not store per-rank RNG; this is stateful resume, not bitwise replay',
+        'world_size':cfg['num_gpus'],'global_batch':96,'head_sha256':cfg['experiment']['head_sha256']}
+    return output,pinned,receipt
+
+
+def resume(a):
+    cfg=json.loads(a.config.read_text())
+    allowed=os.environ.get('CUDA_VISIBLE_DEVICES','').split(',')
+    authorized=os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(',')
+    if not allowed or len(set(allowed))!=len(allowed) or any(not g.isdigit() or g not in authorized for g in allowed):
+        raise ValueError('distinct physical GPUs explicitly assigned by this campaign are required')
+    args=cfg['trainer']['args'];world=len(allowed)
+    if world!=cfg['num_gpus'] or args['batch_size_per_gpu']*world!=96:
+        raise ValueError('resume must preserve the verified GPU count and global96')
+    output,pinned,receipt=resume_spec(cfg,a.root)
+    spec=output/'resume-config.json';write(spec,pinned)
+    write(output/'resume-request.json',receipt)
+    (output/'STOP').rename(output/f'STOP.before-resume-step{receipt["resume_step"]:07d}')
+    repo=Path(__file__).resolve().parents[2]
+    subprocess.run([sys.executable,'-u','train.py','--config',str(spec),'--num_gpus',str(world),
+        '--ckpt',str(receipt['resume_step']),'--load_dir',str(output),'--master_port',str(cfg['master_port']),
+        '--multiview_runtime','--auto_retry','0'],cwd=repo,check=True)
+    progress=json.loads((output/'progress.json').read_text())
+    if progress['stage']!='completed' or progress['current']!=480:raise RuntimeError('resumed SS run ended before five epochs')
+    write(output/'completed.json',{'status':'PASS','updates':480,'epochs':5,'microbatch':args['batch_size_per_gpu']//args['batch_split'],
+        'world_size':world,'global_batch':96,'head_sha256':cfg['experiment']['head_sha256'],'resumed_from_step':receipt['resume_step']})
+
+
 def promote(root):
     baseline=json.loads((root/'evaluations/v1/native/evaluation.json').read_text())
     byid={r['sample_id']:r for r in baseline['per_asset']}
@@ -211,7 +266,7 @@ def promote(root):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--mode',choices=['oracle-select','oracle-assess','configure','proof','train','promote'],required=True)
+    p.add_argument('--mode',choices=['oracle-select','oracle-assess','configure','proof','train','resume','promote'],required=True)
     p.add_argument('--root',type=Path,required=True);p.add_argument('--work-root',type=Path)
     p.add_argument('--config-root',type=Path);p.add_argument('--legacy-root',type=Path);p.add_argument('--config',type=Path)
     a=p.parse_args()
@@ -221,6 +276,7 @@ def main():
     elif a.mode=='proof':
         cfg=json.loads(a.config.read_text());out=a.root/'verification'/cfg['experiment']['arm'];out.mkdir(parents=True,exist_ok=True);native_proof(cfg,out)
     elif a.mode=='train':train(a)
+    elif a.mode=='resume':resume(a)
     else:promote(a.root)
 
 
