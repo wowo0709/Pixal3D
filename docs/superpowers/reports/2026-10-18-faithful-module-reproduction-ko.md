@@ -110,6 +110,16 @@ Geometry reference는 original TRAIN32/DEV8의 full region·predicted O/D9채널
 
 Actual GPU4-update smoke는 두 arm 모두 초기 native projection·첫 loss·첫 gradient norm이 exact다. 모든 step에서 adapter gradient가 finite/nonzero이며 frozen SS weight에는 gradient가 없다. 후속 step loss의 원본 대비 최대 절대 차이는 feature0.00187683, content0.00189209였다. **4-step optimizer trajectory가 bit-exact라는 주장은 하지 않는다.** 최초 실행의 seed 순서 차이를 발견해 seed→frozen flow→decoder→frozen DINO→adapter 순서로 복구했다. 실제 DINO 로딩이 CPU RNG를 소비하는 것도 확인했고, 앞으로는 export된 conditioner 초기화 config를 읽어 과거 worktree config에 실행 의존하지 않는다.
 
-기존6개 G2 fixed-final checkpoint의 DEV8×3noise 재생은 진행 중이다. 첫 content/seed101/pair/noise0에서 normal·source-off·geometry-shuffled의 모든 regional/global metric과 BCE가 원본과 exact였다. 전체144개 pair/model/noise 조합의 재생과 과거 source-use gate 재검토가 완료되기 전에는 geometry 모듈의 전체 재현/production 승격을 선언하지 않는다.
+기존6개 G2 fixed-final checkpoint의 DEV8×3noise 재생이 **144개 조합 모두 완료**됐다. Normal·projected-source-off·geometry-shuffled의 모든 regional/global metric과 nested BCE 항까지 원본과 exact이며 최대 절대 차이는0이다. `geometry-exact-reproduction-summary.json`은 원본8-pair bootstrap 함수로 model/noise9개를 각 pair 안에서 먼저 평균한다. 기존 trained checkpoint의 endpoint 재현이며,128-update 전체 재학습 trajectory 재현과는 구분한다.
+
+| 원본 DEV8 재현 대비 | Source-exclusive recall32 차이, pp [95% CI] |
+| --- | --- |
+| Geometry content−feature-only | +4.075 [+1.851,+5.959] |
+| Geometry intact−shuffled | +0.953 [+0.296,+1.922] |
+| Content source projection ON−OFF | −3.701 [−6.628,−0.131] |
+
+Geometry content의 상대 개선과 query를 섞으면 악화되는 경향은 재현됐다. 동시에 source projection OFF가 더 좋은 한계도 원본 그대로 재현됐다. OFF는 네 RGB의 native global/negative를 유지한다. 따라서 이를 source RGB 전체의 무용성으로 읽거나, 상대 cleanup 개선만으로 useful retargeting 성공/Full 채택을 선언하지 않는다. 이 한계는 현재 dataset 이식에서도 source-use 검증을 별도로 요구하는 이유다.
+
+현재 DeformNeXt에서 원본RGB task objective로 학습한 Q2C의 추가 대조도 완료됐다. 251 train/61 calibration query-eligible asset, D0/D1×3seed에서RGB error가0.09008583→0.08467440으로 감소했다. Paired CI는양수지만 DINO teacher error·exact-patch 정확도의 추가 개선 CI는0을 포함한다. 자세한 protocol/수치는 [현재 dataset task 대조](2026-10-18-task-rgb-matcher-transfer-ko.md)에 기록한다. 이 결과와 과거63-pair OOF 수치를 합쳐 집계하지 않으며, 현재SS 생성 효과는 별도 gate다.
 
 사용자 데이터/결과의 실제 file4 저장도 확인했다. `faithful-inputs-and-bridge-file4.json`은224개 immutable input·bridge output·source 파일(약9.52GB)의 local/actual-file4 SHA256 일치를 기록한다. Q2C/geometry reference와 현재14개 production 비교는 namespace·성능 주장 모두 분리한다. GPU0/1의 C2는 계속 진행하며, reference 작업은GPU2/3을 사용한다.

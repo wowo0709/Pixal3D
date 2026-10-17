@@ -39,4 +39,20 @@ RNG/role seed·barycentric area average·background·split·cluster 독립성의
 
 `train_task_rgb_transfer`는원본Scorer/temperature/optimizer budget을 사용하고 실제 patch의 연속RGB 정답을 읽는다. 별도 evaluator cue file은 final checkpoint freeze 뒤에만 연다. Preflight는 train pair 하나에서2-update·첫 score parity·gradient·held-out cue bank의I/O 및auxiliary topology/DINO metric을 확인한다. Calibration pair를 preflight에 쓰지 않는다. D0/D1 seed별head 초기화·pair/query sampler·초기 score/loss 동일성, RGB를 바꿔도 descriptor score가 안 바뀌는 것과 evaluator file이 training에 열리지 않는 것을 포함해 관련CPU7개 검증이 통과했다.
 
-Cal metric에는RGB task error와 함께 exact-patch Top1/proposal recall 및GT-nearest patch DINO teacher cosine error를 기록한다. Learned soft fusion과RAW soft/Top1·learned Top1은같은64 candidate와동일eval cue 위에서 비교한다. These auxiliary metrics use the same observable eligible queries; they are not the earlier full-validation H3 population.
+Cal metric에는RGB task error와 함께 exact-patch Top1/proposal recall 및GT-nearest patch DINO teacher cosine error를 기록한다. Learned soft fusion과RAW soft/Top1·learned Top1은같은64 candidate와동일eval cue 위에서 비교한다. 보조 metric도 동일한 관측 가능한 query에서 평가하며, 이전 H3의 full-validation population과 직접 합쳐 비교하지 않는다.
+
+## 실제 6-run 완료 결과
+
+6개 run 모두1,200 updates를 완료했다. 같은 seed의3,600개 paired update에서 sample ID·query hash가 모두 같고, 초기 loss도 세 seed 모두 exact였다. 각 checkpoint의 입력 cache SHA·optimizer budget·final freeze와 evaluator 개방 순서를 확인했다. 모든 run에서 같은61개 source cluster·같은query·같은RAW control 수치를 사용했다. 각 query/channel/cue와 seed를 cluster 안에서 평균한 뒤61개 cluster를10,000회 paired bootstrap했다.
+
+| Metric | RAW soft | D0 pairwise | D1 Q2C |
+| --- | ---: | ---: | ---: |
+| Held-out cue RGB L1 ↓ | 0.13757989 | 0.09008583 | 0.08467440 |
+| DINO teacher cosine error ↓ | 0.06034594 | 0.04545267 | 0.04471921 |
+| Exact-patch Top1 accuracy ↑ | 0.02576265 (RAW Top1) | 0.11975704 | 0.12107392 |
+
+Q2C의RGB error 감소는 **0.00541143 (D0 대비6.01%), 95% CI[0.00305711,0.00771686]**다. 세 seed의 감소량은0.00716815/0.00432741/0.00473875로 모두 양수다. Learned Top1으로 값을 읽어도 Q2C 추가 후 error가0.09308689→0.08739888로 감소했다. 이는 사용자가 정의한 No-score를 uniform attention으로 바꿔 평가한 것이 아니다.
+
+DINO error의 추가 감소량0.00073346은CI[−0.00020878,0.00166502], exact-patch accuracy 차이+0.00131688은CI[−0.01073324,0.01329354]로0을 포함한다. **RGB task의 Q2C 효과를 DINO address 개선이나 SS 생성 개선으로 확대하지 않는다.** RAW64 proposal recall은0.68218465이며GT 후보 누락을 제외하지 않았다. 이 pilot의선택/비교에 사용한61개 calibration cluster는 unseen test가 아니다. CI는 학습 seed 모집단의 불확실성을 추정하지 않는다.
+
+집계는 `python -m experiments.deformnext_retargeting.summarize_task_rgb_transfer --inputs <task-root>/inputs-v2 --root <task-root>/heads --output <new-summary.json>`로 재실행할 수 있다. 이미 존재하는 결과는 덮어쓰지 않는다. 결과와 전체 paired audit는 file4 namespace의 `task-rgb-transfer-v1/matched-six-run-summary.json`에 있다. 관련CPU11개 검증이 통과했다. 본학습 loop와 calibration 평가의 실측은 preload 이후약19~24초/run, GPU peak0.69/0.96GiB였으며 전체 데이터 준비시간과 구분한다.
