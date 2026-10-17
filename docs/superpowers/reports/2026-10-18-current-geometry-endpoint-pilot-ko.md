@@ -24,6 +24,12 @@ Native voxelization은CPUkernel을사용하고Open3D/BLAS도2core/1thread로제�
 
 파일은file4의`rgb_matching_v2/current-geometry-regions-v1`에저장한다. 이문서의준비/연결PASS는새module의학습완료·regional metric 향상·최종Full채택을뜻하지않는다.
 
+`train_current_geometry_endpoint`는위의128-update 학습과fixed-final 평가를실행한다. Seed101/202/303에서두additive arm을같은pair/noise hash schedule로각각학습한다. Train32는epoch마다한번씩사용하고총4회순회한다. Native flow/decoder/LoRA는frozen이고controller만최적화한다. Native/current/projected-source-off와query arm의joint-tuple shuffle을같은32개calibration cluster·3noise에서평가한다. Projected-source-off는native4RGB global/negative를유지한다.
+
+No-query는query 파일자체를열지않고training loader는calibration role을파일개방전에거부한다. Final checkpoint/SHA freeze후calibration GT를연다. Empty source/stale metric은0으로채우지않고None과유효population을보존한다. GT encoder support/predicted voxel SHA와TP/FP/FN, regional recall/stale/visible/BCE, first4 고정asset의Y voxel-projection GT/Pred/Diff를W&B에기록한다. 여기의macro asset/noise IoU·GT encoder support와본14개표의micro IoU·decoded-latent GT는같은표로직접합치지않는다. Evaluation batch32는같은cal32의native 설정으로고정한다.
+
+자원은첫seed의두arm을GPU2/3에각각배치한다. 본14개구성의최종report가완료되면seed202는GPU0/1을사용하고,seed303은첫seed가끝난GPU2/3에서실행한다. 최종Full/PBR판단은본비교와이source-use/geometry 결과및필요한training-seed 확인을함께사용한다.
+
 ## 전체검사에서확인한target authority 차이
 
 두번째train asset에서직접flexible64는8395개, 실제SS encoder입력은8400개였다. 추가5개는모두인접1voxel이내이고IoU0.99940476이다. 실제encoder입력의byte hash는SS latent의source_coords_sha256과exact다. 차이의상세root cause를확정한것은아니며한asset의100%일치를전체로확대하지않는다. Region label은이미학습한GT를지키도록실제encoder support를authority로사용한다. 두support와차이통계·GTfile SHA·frame contract를모두보존한다. V1의strict-equality실패출력은보존하고`deformnext-current-encoder-authority-regions64-v2` schema/새namespace로검증한다. 입력RGB·query·기존latent를고쳐PASS시키지않는다.
