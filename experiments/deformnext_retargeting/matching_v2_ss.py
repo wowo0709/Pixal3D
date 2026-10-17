@@ -191,6 +191,8 @@ def resume_spec(cfg, root):
     if output.resolve()!=(root/'runs_ss64'/cfg['experiment']['arm']).resolve():
         raise ValueError('resume output must belong to the selected arm')
     saved=json.loads((output/'config.json').read_text())
+    if cfg.get('training_seed',0)!=saved.get('training_seed',0):
+        raise ValueError('resume recipe changed: training_seed')
     for key in ['models','dataset','trainer','validation','data_dir','num_gpus','wandb_id']:
         if cfg.get(key)!=saved.get(key):raise ValueError('resume recipe changed: '+key)
     progress=json.loads((output/'progress.json').read_text());step=progress['current']

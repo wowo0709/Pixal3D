@@ -55,6 +55,14 @@ def test_incomplete_stop_checkpoint_cannot_resume(stopped_run):
     assert (run/'STOP').exists()
 
 
+def test_resume_cannot_switch_training_seed(stopped_run):
+    root,run,cfg,_=stopped_run
+    cfg['training_seed']=101
+    with pytest.raises(ValueError,match='training_seed'):
+        ss.resume_spec(cfg,root)
+    assert (run/'STOP').exists()
+
+
 def test_resume_launches_native_stateful_load_without_fresh_proofs(stopped_run,monkeypatch):
     root,run,cfg,path=stopped_run
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES','2,3');monkeypatch.setenv('MATCHING_V2_ALLOWED_GPUS','0,1,2,3')

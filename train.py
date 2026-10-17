@@ -40,11 +40,14 @@ def find_ckpt(cfg):
     return cfg
 
 
-def setup_rng(rank):
-    torch.manual_seed(rank)
-    torch.cuda.manual_seed_all(rank)
-    np.random.seed(rank)
-    random.seed(rank)
+def setup_rng(rank, base_seed=0):
+    if isinstance(base_seed,bool) or not isinstance(base_seed,int) or not (0<=base_seed<2**32 and 0<=base_seed+rank<2**32):
+        raise ValueError('training_seed plus rank must be a nonnegative32-bit integer')
+    seed=base_seed+rank
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
 def get_model_summary(model):
@@ -152,7 +155,7 @@ def main(local_rank, cfg):
             print(f'Uploaded config artifact to wandb: {config_file}')
 
     # Seed rngs
-    setup_rng(rank)
+    setup_rng(rank,cfg.get('training_seed',0))
 
     # Load data
     dataset_kwargs = dict(cfg.dataset.args)
@@ -218,6 +221,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     ## config
     parser.add_argument('--config', type=str, required=True, help='Experiment config file')
+    parser.add_argument('--training_seed',type=int,default=0,help='Base initialization/noise seed; rank is added, sampler seed is unchanged, and JSON takes precedence.')
     ## io and resume
     parser.add_argument(
         '--output_dir',

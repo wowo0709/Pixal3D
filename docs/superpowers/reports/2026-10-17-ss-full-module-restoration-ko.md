@@ -51,6 +51,8 @@ Zero-shot 두 조건과 기존 B1/B2/B3도 추가 noise 두 개를 생성해 최
 
 Full은 C2로 미리 확정하지 않는다. 다섯 대비를 모두 보고 best final 구성과 확인되지 않은 효과를 기록한다. 근소한 차이는 training-seed 재현을 추가한다. 개발용128을 선택에도 사용한 결과는 unseen test 성능으로 부르지 않는다. 과거 voxel P1/G2의 cleanup 개선도 source utilization 성공과 구분한다. 기존 보고서는 두 실험 모두 DEV projected-source 효용을 입증하지 못했다고 명시했다.
 
+추가 seed는 fresh run의 JSON에 `training_seed`를 지정한다. 기본0은 기존 `rank` seed 정책과 정확히 같으며, 값101이면 각 rank의 model initialization·diffusion noise/t·CFG RNG가101+rank가 된다. Dataset sampler 순서는 그대로 고정한다. JSON이 CLI보다 우선하므로 저장된 JSON의0을 CLI만으로 덮어썼다고 가정하지 않는다. 같은 run의 resume에서 seed를 변경할 수 없으며, seed 재현 run은 별도 output/optimizer/W&B ID로 시작해야 한다. 이 옵션 준비는 현재 주 비교의 seed나 학습 설정 변경을 뜻하지 않는다.
+
 완료 시 원래 계획 항목별 결과/미확인 가설, 같은-panel final 표, 학습 경향, GT/Pred 이미지, head/cache/checkpoint provenance, 실제 시간·메모리 및 PBR 확대 근거를 한 리포트에 정리한다. 실행 중이거나 config만 준비된 상태를 완료로 표시하지 않는다.
 
 `summarize_ss_module_study`를 마지막 CPU job으로 연결한다. 완료 marker뿐 아니라 두 rank의1~480 연속 update, 여섯 epoch 검증, 초기 generation parity, native/physical-query gradient 증명과 final checkpoint를 확인해야 primary report를 만든다. 이 report의 `primary_matrix_complete`는 최초 비교 행렬의 완료이며 추가 seed/최종 채택/PBR 또는 전체 goal 완료를 뜻하지 않는다. 자동 산출물은 file4와 W&B artifact로 보존하고 최종 채택과 필요한 후속 실험은 실제 결과를 검토해 결정한다.
