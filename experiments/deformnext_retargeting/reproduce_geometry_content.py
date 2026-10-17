@@ -7,6 +7,7 @@ Only the two feature/content reference arms are exposed, not a 2x2 experiment.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -187,12 +188,25 @@ def to_device(tree):
 
 def smoke(inputs, output, arm):
     """Four real frozen-flow gradient updates, paired to archived one-pair smoke."""
+    from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
     summary = read(inputs / 'summary.json')
     runtime_spec = read(checked(summary['runtime']))
+    # Original G2 seeds before constructing the frozen models; their CPU
+    # parameter initialization advances the RNG before adapter construction.
+    torch.manual_seed(101)
     pipeline = load_runtime(runtime_spec)
+    # The original reference constructs its frozen conditioner before the
+    # adapter. HF loading actually advances CPU RNG, even with complete weights.
+    # Reproduce that initialization on CPU; cached conditions need no DINO GPU.
+    archived = torch.load(checked(summary['models']['r4_content']['101']), map_location='cpu', weights_only=True)
+    recorded_runtime = archived['runtime']
+    conditioner_args = read(recorded_runtime['conditioner_config'])['trainer']['args']['image_cond_model']['args']
+    conditioner_args = {**conditioner_args, 'model_name': recorded_runtime['dinov3']['path']}
+    conditioner = DinoV3ProjFeatureExtractor(**conditioner_args).eval().requires_grad_(False)
+    del conditioner, archived
+    initializer_rng_sha = hashlib.sha256(torch.get_rng_state().numpy().tobytes()).hexdigest()
     row = next(r for r in summary['records'] if r['split'] == 'train')
     pair = to_device(torch.load(checked(row['staged']), map_location='cpu', weights_only=True))
-    torch.manual_seed(101)
     adapter = GeometryFactorialVoxelAdapter().cuda().train()
     optimizer = torch.optim.AdamW(adapter.parameters(), lr=1e-4, weight_decay=.01)
     history = []
@@ -227,7 +241,9 @@ def smoke(inputs, output, arm):
         record = {'update': update+1, 'total_loss': float(loss.detach()), 'gradient_norm': gradient,
                   'initial_native_projection_exact': parity if update == 0 else None,
                   'historical_total_loss': previous['total_loss'],
-                  'historical_loss_abs_difference': abs(float(loss.detach()) - previous['total_loss'])}
+                  'historical_loss_abs_difference': abs(float(loss.detach()) - previous['total_loss']),
+                  'historical_gradient_norm': previous['gradient_norm'],
+                  'historical_gradient_abs_difference': abs(gradient - previous['gradient_norm'])}
         history.append(record)
         print(json.dumps(record), flush=True)
         if os.environ.get('FAITHFUL_GEOMETRY_WANDB') == '1':
@@ -236,6 +252,8 @@ def smoke(inputs, output, arm):
     output.mkdir(parents=True, exist_ok=True)
     write_new(output / 'summary.json', {'status': 'PASS', 'scope': 'archived G2 reference smoke only',
               'arm': arm, 'updates': 4, 'history': history, 'frozen_SS_gradients_absent': True,
+              'initialization_order': 'seed101, flow, decoder, frozen-conditioner CPU, adapter',
+              'adapter_initializer_CPU_RNG_sha256': initializer_rng_sha,
               'current_DeformNeXt_SS_gain_claim': False})
 
 
@@ -320,7 +338,7 @@ def main():
         else:
             evaluate(args.input, args.output, args.arm, args.seed)
         if run:
-            run.summary.update(status='PASS_EXECUTION', current_DeformNeXt_SS_gain_claim=False)
+            run.summary.update({'status': 'PASS_EXECUTION', 'current_DeformNeXt_SS_gain_claim': False})
             run.finish()
 
 
