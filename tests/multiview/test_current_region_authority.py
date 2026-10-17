@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from experiments.deformnext_retargeting import historical_region_authority as authority
 from experiments.deformnext_retargeting import cache_current_regions as current
@@ -35,3 +36,17 @@ def test_conservative_cube_free_label_never_contradicts_target_support():
         target_support=np.array([True, False, True]), visible_target_support=np.array([False, False, True]),
         raster_depth=np.zeros((2, 2), np.float32), raster_mask=np.ones((2, 2), bool), depth_tolerance=1e-4)
     assert result.tolist() == [authority.UNKNOWN, authority.FREE, authority.SURFACE]
+
+
+def test_target_labels_keep_actual_SS_input_when_direct_mesh_misses_adjacent_cells():
+    physical = np.array([[x, y, 0] for x in range(10) for y in range(10)], np.uint8)
+    saved = np.concatenate([physical, [[10, 0, 0]]]).astype(np.uint8)
+    locked, audit = current.lock_target_authority(physical, saved, hashlib.sha256(saved.tobytes()).hexdigest())
+    assert current.coordinate_set(locked) == current.coordinate_set(saved)
+    assert audit['encoder_only_target_voxels'] == 1
+    assert audit['max_symmetric_Chebyshev_voxel_distance'] == 1
+    with pytest.raises(ValueError, match='source hash'):
+        current.lock_target_authority(physical, saved, 'wrong')
+    moved = saved + 10
+    with pytest.raises(ValueError, match='registration differs'):
+        current.lock_target_authority(physical, moved, hashlib.sha256(moved.tobytes()).hexdigest())

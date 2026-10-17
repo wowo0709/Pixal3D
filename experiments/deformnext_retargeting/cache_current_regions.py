@@ -6,6 +6,7 @@ Native current camera/scale is never replaced by an oracle pair-union scale.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,9 +14,11 @@ import time
 
 import numpy as np
 from PIL import Image
+from scipy.spatial import cKDTree
 import torch
 
 from .cache_task_rgb_transfer import surface_scene
+from .cache_reproduction_routes import frame_contract
 from .historical_geometry import camera_rays_for_pixels, barycentric_points, world_to_target_anchor_points
 from .historical_region_authority import (_surface_support, _camera_clip, target_anchor_to_world_points,
     voxel_grid_center_corner_points, classify_projected_voxel_cubes, pool_support, FREE, SURFACE)
@@ -23,7 +26,7 @@ from .historical_reproduction import make_loss_regions
 from .topology_labels import fingerprint, mask_agreement
 from .reproduce_q2c import read, reference, write_new
 
-SCHEMA = 'deformnext-current-physical-regions64-v1'
+SCHEMA = 'deformnext-current-encoder-authority-regions64-v2'
 
 
 def coordinate_set(coords):
@@ -32,6 +35,28 @@ def coordinate_set(coords):
 
 def coordinate_array(coords):
     return np.asarray(sorted(coords), np.int32).reshape(-1, 3)
+
+
+def lock_target_authority(physical64, saved_coords, ss_source_hash):
+    """Keep the real encoder input; mesh voxelization is an independent audit."""
+    if hashlib.sha256(saved_coords.tobytes()).hexdigest() != ss_source_hash:
+        raise ValueError('saved support does not match the actual SS latent source hash')
+    physical_set, saved_set = coordinate_set(physical64), coordinate_set(saved_coords)
+    if not physical_set or not saved_set:
+        raise ValueError('empty physical/encoder target support')
+    iou = len(physical_set & saved_set) / len(physical_set | saved_set)
+    distance = max(float(cKDTree(physical64).query(saved_coords, k=1, p=np.inf)[0].max()),
+                   float(cKDTree(saved_coords).query(physical64, k=1, p=np.inf)[0].max()))
+    if iou < .99 or distance > 1:
+        raise ValueError(f'physical/encoder registration differs: IoU{iou}, max-Chebyshev-cell-distance{distance}')
+    return coordinate_array(saved_set), {
+        'actual_encoder_support_source_hash_exact': True,
+        'actual_encoder_support_source_hash': ss_source_hash,
+        'physical_target_equals_saved_encoder_support': physical_set == saved_set,
+        'physical64_vs_encoder_support_iou': iou,
+        'max_symmetric_Chebyshev_voxel_distance': distance,
+        'encoder_only_target_voxels': len(saved_set-physical_set),
+        'physical_only_target_voxels': len(physical_set-saved_set)}
 
 
 def visible_coords(points, row):
@@ -80,12 +105,15 @@ def build(row, resolve):
         raise ValueError('source/target topology differs')
     camera = {'transform_matrix': row['transform_matrix'][0], 'camera_angle_x': row['camera_angle_x'][0]}
     canonical = [world_to_target_anchor_points(v, camera, scale=row['mesh_scale']) for v in [source, target]]
-    source64, target64 = [_surface_support(v, faces, resolution=64) for v in canonical]
-    source_set, target_set = coordinate_set(source64), coordinate_set(target64)
+    source64, physical_target64 = [_surface_support(v, faces, resolution=64) for v in canonical]
     with np.load(resolve(row['shape_latent'])) as saved:
-        saved_set = coordinate_set(saved['coords'])
-    if target_set != saved_set:
-        raise ValueError(f'physical64 differs from current saved encoder support: missing{len(saved_set-target_set)}, extra{len(target_set-saved_set)}')
+        saved_coords = saved['coords'].copy()
+    with np.load(resolve(row['ss_latent'])) as encoded:
+        if str(encoded['schema']) != 'deformnext-ss64-m1-anchor-v3':
+            raise ValueError('unexpected current SS latent schema')
+        ss_source_hash = str(encoded['source_coords_sha256'])
+    target64, target_audit = lock_target_authority(physical_target64, saved_coords, ss_source_hash)
+    source_set, target_set = coordinate_set(source64), coordinate_set(target64)
     target_raster = raster(surface_scene(target, faces), row, 0, target, faces, resolve(row['target_anchor']))
     target_visible, target_outside = visible_coords(target_raster['points'], row)
     target_visible &= target_set
@@ -113,7 +141,8 @@ def build(row, resolve):
     states = classify_projected_voxel_cubes(sample_ndc, target_support=membership(target64),
         visible_target_support=membership(coordinate_array(target_visible)),
         raster_depth=target_raster['depth_gl'], raster_mask=target_raster['mask_gl'], depth_tolerance=1e-4)
-    arrays = {'source64': source64, 'target64': target64, 'free64': indices[states == FREE],
+    arrays = {'source64': source64, 'target64': target64, 'physical_target64': physical_target64,
+        'free64': indices[states == FREE],
         'surface64': indices[states == SURFACE], 'matched_source_exclusive64': matched, 'stale_visible64': stale}
     for name in ['matched_source_exclusive', 'stale_visible']:
         arrays[name+'32'] = pool_support(arrays[name+'64'], source_resolution=64, target_resolution=32)
@@ -122,7 +151,7 @@ def build(row, resolve):
     # Zero source/stale regions are recorded, never replaced using observed loss.
     if not len(arrays['free64']) or not len(arrays['surface64']):
         raise ValueError('current region authority lacks observed FREE/SURFACE')
-    return arrays, {'region_counts': counts, 'physical_target_equals_saved_encoder_support': True,
+    return arrays, {'region_counts': counts, **target_audit,
         'source_vertices_outside_native_AABB': int(((canonical[0] < -.5) | (canonical[0] >= .5)).any(-1).sum()),
         'target_vertices_outside_native_AABB': int(((canonical[1] < -.5) | (canonical[1] >= .5)).any(-1).sum()),
         'observed_target_pixels_outside_native_AABB': target_outside,
@@ -146,7 +175,8 @@ def main():
     chosen = sum(([r for r in population['records'] if r['role'] == role][:32] for role in ['train', 'calibration']), [])
     if args.preflight_only:
         chosen = chosen[:1]
-    elif args.preflight_summary is None or read(args.preflight_summary)['status'] != 'PASS_PREFLIGHT_ONLY':
+    elif (args.preflight_summary is None or read(args.preflight_summary)['status'] != 'PASS_PREFLIGHT_ONLY'
+            or read(args.preflight_summary)['schema'] != SCHEMA):
         raise ValueError('full label cache requires actual aligned one-pair CPU preflight')
     lookup = {r['sample_id']: r for r in (json.loads(line) for line in args.manifest.read_text().splitlines())}
     resolve = lambda value: args.file4_mirror/value.removeprefix('/file4/') if value.startswith('/file4/') else Path(value)
@@ -166,10 +196,12 @@ def main():
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name('.'+path.name+f'.{os.getpid()}.tmp.npz')
         np.savez(temporary, schema=SCHEMA, supervision_only=True, sample_id=row['sample_id'],
-            role=selected['role'], input_sha256=digest, **arrays)
+            role=selected['role'], input_sha256=digest, frame_contract=frame_contract(row), **arrays)
         os.replace(temporary, path)
         records.append({'sample_id': row['sample_id'], 'source_cluster_id': row['source_cluster_id'],
-            'role': selected['role'], 'artifact': reference(path), 'geometry_input_sha256': digest, **audit})
+            'role': selected['role'], 'artifact': reference(path), 'geometry_input_sha256': digest,
+            'frame_contract': frame_contract(row), 'actual_encoder_input': reference(resolve(row['shape_latent'])),
+            'actual_SS_latent': reference(resolve(row['ss_latent'])), **audit})
         print(json.dumps({'completed': len(records), 'of': len(chosen), 'seconds': time.monotonic()-started,
             'last_region_counts': audit['region_counts']}), flush=True)
     write_new(args.output/'summary.json', {'status': 'PASS_PREFLIGHT_ONLY' if args.preflight_only else 'PASS',
@@ -178,6 +210,7 @@ def main():
         'selection': 'first32 per role from pre-frozen category/hash pilot, no metric/region-size selection',
         'frame': 'current audited native world-v4 target camera/scale; no oracle pair-union rescaling',
         'label_backend': 'CPU Open3D pixel-center barycentrics and original flexible64/cube-ray/loss functions',
+        'target64_authority': 'actual saved Shape encoder input verified against SS latent source_coords_sha256; direct flexible64 is independent registration audit',
         'alpha_policy': 'observed RGBA foreground restricts positive/source evidence; conservative FREE uses opaque geometry',
         'out_of_AABB_policy': 'drop out-of-grid interpolated points; never clamp them onto boundary voxels',
         'visible_device_for_optional_package_import': os.environ.get('CUDA_VISIBLE_DEVICES'),
