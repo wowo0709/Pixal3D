@@ -70,6 +70,7 @@ def main():
     parser.add_argument('--cases', default=','.join(MODES))
     parser.add_argument('--generation-batch', type=int, default=4)
     parser.add_argument('--preflight-only', action='store_true')
+    parser.add_argument('--wandb-id', help='Log generated metrics/images to the authorized youngwoojeon project')
     args = parser.parse_args()
     cases = args.cases.split(',')
     if len(set(cases)) != len(cases) or not set(cases) <= set(MODES):
@@ -110,6 +111,17 @@ def main():
     trainer.models['denoiser'].eval().requires_grad_(False)
     trainer.p_uncond = 0
     summaries = {}
+    case_records = {}
+    run = None
+    if args.wandb_id:
+        if args.preflight_only:
+            raise ValueError('preflight does not publish generated performance metrics')
+        import wandb
+        run = wandb.init(project='pixal3d-deformnext-retargeting', entity='youngwoojeon-unist',
+                         id=args.wandb_id, resume='allow', dir=str(args.output),
+                         config={'protocol': 'historical-three-source-camera-slot-transport',
+                                 'diagnostic_only': True, 'checkpoint': str(args.checkpoint),
+                                 'cases': cases, 'sample_ids': [dataset.rows[i]['sample_id'] for i in indices]})
     for case in cases:
         out = args.output / case
         if (out / 'evaluation.json').exists():
@@ -172,15 +184,43 @@ def main():
                       'case': case, 'checkpoint': str(args.checkpoint), 'sampling_steps': 12, 'guidance': 3.,
                       'optimizer_updates_during_evaluation': 0, 'per_asset': per_asset,
                       'quick_metrics': binary_metrics(pred_occ, target_occ), 'events': events,
+                      'quick_panel_ids': [dataset.rows[i]['sample_id'] for i in indices],
                       'input_view_count': 4, 'input_states': ['M1', 'M0', 'M0', 'M0'],
                       'geometry_protocol': 'per-source-camera GT slots before unchanged native ProjGrid',
                       'regional_metric_scope': 'sampled routed hidden surface cells intersected with decoded target SS; not full historical SS region authority',
                       'route_summary_sha256': hashlib.sha256((args.routes / 'summary.json').read_bytes()).hexdigest()}
         (out / 'evaluation.json').write_text(json.dumps(record, indent=2) + '\n')
+        case_records[case] = record
         summaries[case] = {k: record[k] for k in ['status', 'quick_metrics'] if k in record}
+        if run:
+            payload = {case + '/' + k: v for k, v in record['quick_metrics'].items()}
+            payload.update({case + '/assets': len(record['per_asset']),
+                            case + '/GT_Pred_Diff': wandb.Image(str(out / 'panel.png'))})
+            for resolution in [64, 32]:
+                key = f'route_sampled_hidden_gt_recall{resolution}'
+                values = [row[key] for row in record['per_asset'] if row[key] is not None]
+                if values:
+                    payload[case + '/' + key + '_pair_mean'] = float(np.mean(values))
+            run.log(payload)
         print(json.dumps({'case': case, **summaries[case]}), flush=True)
+    if not args.preflight_only and 'gt-corr' in case_records:
+        from .compare_ss_noise_panels import compare
+        directory = args.output / 'comparisons'
+        directory.mkdir(exist_ok=True)
+        for baseline in ['native', 'source-off', 'wrong-corr']:
+            if baseline not in case_records:
+                continue
+            contrast = compare([('0', case_records[baseline], case_records['gt-corr'])])
+            (directory / ('gt-vs-' + baseline + '.json')).write_text(json.dumps(contrast, indent=2) + '\n')
+            if run:
+                low, high = contrast['paired_cluster_bootstrap_ci95']
+                run.log({'paired/gt-vs-' + baseline + '/gain': contrast['gain'],
+                         'paired/gt-vs-' + baseline + '/ci95_lower': low,
+                         'paired/gt-vs-' + baseline + '/ci95_upper': high})
     (args.output / 'summary.json').write_text(json.dumps({'execution_status': 'PASS',
         'diagnostic_only': True, 'performance_promotion': False, 'cases': summaries}, indent=2) + '\n')
+    if run:
+        run.finish()
 
 
 if __name__ == '__main__':
