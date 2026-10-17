@@ -50,6 +50,10 @@ def choose_gpu(job, allowed, state):
     return candidate if candidate in free else None
 
 
+def dependencies_ready(job,state):
+    return all(state.get(name,{}).get('status')=='completed' for name in job.get('depends_on',[]))
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--work-root',type=Path,required=True);p.add_argument('--gpus',required=True)
@@ -81,6 +85,7 @@ def main():
                 decision=json.loads(Path(gate).read_text())
                 if decision.get('status')!='PASS':
                     record.update(status='HELD',reason=decision);continue
+            if not dependencies_ready(job,state):continue
             if any(not Path(f).exists() for f in job.get('requires',[])):continue
             if all(Path(f).exists() for f in job.get('outputs',[])):
                 record.update(status='completed',reused=True);continue

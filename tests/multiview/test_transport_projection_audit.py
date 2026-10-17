@@ -9,7 +9,7 @@ from experiments.deformnext_retargeting.compare_ss_noise_panels import compare
 from pixal3d.modules.transport_projection import support_weighted_projection
 from pixal3d.modules.matching_v2_conditioner import MatchingV2Conditioner
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
-from experiments.deformnext_retargeting.matching_v2_queue import choose_gpu,can_run
+from experiments.deformnext_retargeting.matching_v2_queue import choose_gpu,can_run,dependencies_ready
 
 
 def test_partial_support_does_not_dilute_transport_value_and_empty_support_is_finite():
@@ -119,3 +119,11 @@ def test_ddp_queue_reserves_all_assigned_devices_atomically():
     assert choose_gpu({'gpus':['8','9'],'resource':'exclusive'},allowed,state)=='8,9'
     with pytest.raises(ValueError,match='authorized'):
         choose_gpu({'gpus':['7','8'],'resource':'exclusive'},allowed,{})
+
+
+def test_dependencies_wait_for_completion_even_without_explicit_required_files():
+    job={'depends_on':['fixed-final-head']}
+    assert not dependencies_ready(job,{})
+    assert not dependencies_ready(job,{'fixed-final-head':{'status':'running'}})
+    assert dependencies_ready(job,{'fixed-final-head':{'status':'completed'}})
+    assert not dependencies_ready(job,{'fixed-final-head':{'status':'HELD'}})
