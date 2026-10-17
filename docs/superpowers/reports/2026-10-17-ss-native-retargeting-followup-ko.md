@@ -21,7 +21,7 @@ P1/P2는 모두 원본 mixed385 SS base+LoRA checkpoint에서 독립적으로 �
 
 ## 실행 검증과 자원
 
-- GPU 0~3만 사용한다. 아래 실측 후 P1은 GPU 2·3, P2는 GPU 0·1의 **2/2 DDP**로 실행한다. 각 rank micro48/accumulation1/global96이다. 본 학습은 해당 GPU 묶음을 독점하며 준비 중 남는 GPU는 head/cache/평가에 병렬 사용한다.
+- GPU 0~3만 사용한다. 아래 실측 후 P1은 GPU 2·3, P2는 GPU 0·1의 **2/2 DDP**로 실행한다. 각 rank micro48/accumulation1/global96이다. 무거운 학습/생성 평가는 같은 GPU에 배치하지 않는다. P2는 실측 main47.75 GiB + 작은 head 약2 GiB의 여유를 근거로 H0 잔여 학습/감사와의 일시적 동시 실행만 허용한다. H0를 기다리느라 P2를 지연시키지 않으며 동시 실행 중 속도도 별도 관찰한다.
 - 실제 checkpoint에서 초기 native condition 최대 오차 0과 gate/adapter의 실제 backward를 확인한다. Native bilinear에서 rejection은 adapter를 포함한 전체 update에 적용하며 support가 0이면 native로 돌아간다.
 - 각 run은 96 microbatch의 실제 2-update memory probe부터 시작한다. OOM인 경우 global96을 유지하며 가능한 최대 divisor로 줄인다. 실제 microbatch가 기존 C1의 48×2와 달라지면 stochastic training nuisance도 결과에 적는다.
 - P1의 기존 R9 attention도 SS batch에서 K64 값을 펼치지 않도록 사전 집계한다. Weighted evidence는 FP32로 유지하고 원래 R9 온라인 출력과 별도 감사한다. Frozen scorer 제거에 따른 RNG 소비 차이도 보존해 adapter 초기 weight가 R9 recipe와 동일하도록 검증했다. P2도 같은 초기화와 FP32 weighted evidence를 사용한다.

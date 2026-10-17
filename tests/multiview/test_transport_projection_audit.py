@@ -127,3 +127,17 @@ def test_dependencies_wait_for_completion_even_without_explicit_required_files()
     assert not dependencies_ready(job,{'fixed-final-head':{'status':'running'}})
     assert dependencies_ready(job,{'fixed-final-head':{'status':'completed'}})
     assert not dependencies_ready(job,{'fixed-final-head':{'status':'HELD'}})
+
+
+def test_profiled_ddp_overlap_allows_one_small_head_but_blocks_generation():
+    allowed=['8','9']
+    job={'gpus':allowed,'resource':'train-with-light','light_overlap_proof':{'main_peak_gib':48,'head_peak_gib':2}}
+    state={'head':{'status':'running','gpu':'8','resource':'light'}}
+    assert choose_gpu(job,allowed,state)=='8,9'
+    state['training']={'status':'running','gpu':'8,9','resource':'train-with-light'}
+    assert not can_run('8','light',state)
+    assert can_run('9','light',state)
+    assert not can_run('8','evaluation',state) and not can_run('9','evaluation',state)
+    assert choose_gpu({'gpus':allowed,'resource':'exclusive'},allowed,state) is None
+    with pytest.raises(ValueError,match='memory proof'):
+        choose_gpu({'gpus':allowed,'resource':'train-with-light'},allowed,{})
