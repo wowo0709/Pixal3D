@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse,json,hashlib
 from pathlib import Path
 import torch
-from .conditioning_controls import TransportControl
+from .conditioning_controls import TransportControl, transport_diagnostic_context
 
 
 def main():
@@ -51,7 +51,8 @@ def main():
     if args.conditioner_checkpoint:
         trainer.deform_conditioner.load_state_dict(torch.load(args.conditioner_checkpoint,map_location='cpu',weights_only=True),strict=True)
     trainer.models['denoiser'].eval();trainer.p_uncond=0
-    with torch.no_grad(),torch.autocast('cuda',dtype=trainer.mix_precision_dtype):
+    with transport_diagnostic_context(trainer.deform_conditioner,args.transport_control), \
+            torch.no_grad(),torch.autocast('cuda',dtype=trainer.mix_precision_dtype):
         metrics,panel,ids=evaluate_quick(trainer,ds,cfg['validation'])
     result={'status':'PASS','stage':args.stage,'step':args.step,'weights':'raw','checkpoint':str(args.checkpoint),
             'arm':cfg['experiment']['arm'],

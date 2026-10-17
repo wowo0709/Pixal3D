@@ -394,6 +394,9 @@ Use a separate output directory. The default `normal` path is unchanged.
 - `source-off` disables the additional transport/adapter path while retaining
   native multi-view conditioning and all four edited/source RGB images.
   It is distinct from training a new vanilla V1 or removing the source views.
+- `adapter-off` removes only the retargeter output with a scoped evaluation
+  hook. Cached semantic evidence, its learned fusion gate, all query channels
+  and learned weights remain intact; the hook is removed even on failure.
 - `wrong-corr` shifts correspondence values by one target-query slot within
   each object. This is a weak local sensitivity check; an unchanged result
   does not prove that source information or correspondence addresses are unused.
@@ -407,3 +410,13 @@ a normal result. Input controls such as `source-only` cannot be combined with
 transport perturbations. CPU data-interface checks preserve the actual RGB,
 camera, target latent and cached evidence tensors; generated GPU diagnostics
 are scheduled separately on the explicitly assigned resources.
+
+`queue_transport_diagnostics` appends saved-weight path diagnostics to an
+existing campaign. Supply the freed pair through `--gpus` and the completed
+training boundary through `--after-job`. It preserves all existing jobs and
+adds common32/noise0 normal, source-off and local wrong-corr evaluations for
+P2, native B3 and native C1, plus adapter-off for P2/C1. Each model's normal
+and perturbed replicas use the same physical device. Output stays under
+`module-study-native-v4/evaluations/diagnostics`; paired intervals are separate
+from the fourteen-configuration primary report. These are eleven generation
+jobs and eight CPU comparisons, without new denoiser training.

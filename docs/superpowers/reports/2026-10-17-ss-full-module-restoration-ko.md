@@ -157,9 +157,13 @@ B3/C1 optimizer의361/366개 상태가 모두step192이고 moment가finite임을
 
 `source-off`는 추가 transport/adapter 경로만 끄고 native multi-view와M1 RGB1장+M0 RGB3장을 유지한다. 별도로 학습한V1이나target-only arm과 같지 않다. `wrong-corr`는 같은 object 안에서 correspondence value를한query slot 이동하는 약한 국소 민감도 진단이다. 변화가 없더라도source/주소를 사용하지 않는다는 증거로 단정하지 않는다. `shuffled-deform`은C2의물리적RAW context를batch 내asset 사이에서순환시키며batch당최소2개를요구한다. C1의채널제거 ablation을0벡터로대체하는기능이아니다.
 
+`adapter-off`는동일checkpoint의retargeter 출력만scoped hook으로제거한다. Semantic evidence·학습된fusion gate·native RGB조건·입력채널은유지하며, 예외발생시에도hook을제거한다. 원래D-C의adapter 단독진단에해당하고학습arm의채널제거비교를대체하지않는다. 모델forward와weight는변경하지않는다.
+
 비정상control 결과에는`diagnostic_only`와control 정의를명시하며, primary collector는이를정상14개구성의평가로받지않는다. 같은voxel count로위장된diagnostic도거부하는경우를포함해관련CPU30개테스트가통과했다. Wrapper에서실제`get_inference_cond`·transport 추출·conditioner 호출까지control이전달되고sampler에는남지않는dispatch도검증했다. 실제C1/C2 validation cache에서각2개batch를읽어RGB4장·camera·GT·evidence tensor가정확히유지되고C2 RAW context가2×1024×2048임도확인했다. CPU 렌더러 import에는프로젝트테스트의초기화방식만사용했고GPU 연산은하지않았다.
 
 현재는실행경로와입력전달검증완료이며counterfactual 생성결과나source 유용성입증은아직없다. 후속진단은동일checkpoint·panel·seed의별도output으로허용된GPU0~3의빈시간에진행한다. 정상학습arm 수나필수14개구성은늘리거나줄이지않는다. 근거는 `provenance/transport-control-cpu-smoke.json`이다.
+
+2026-10-18 05:25 KST에`queue_transport_diagnostics`로11개common32/noise0 생성과8개CPU paired 비교를실제큐에추가했다. 기존142개job의내용·의존성은그대로이며총161개다. P2-NoR와새C1의normal/source-off/adapter-off/wrong-corr, 새B3의normal/source-off/wrong-corr를각각동일물리GPU에서비교한다. 모든생성은C1 학습종료를기다린뒤비는GPU2·3에서실행하고, GPU0·1의C2 학습경로를유지한다. 기존baseline·final 평가는더높은우선순위를유지한다. 정상14개구성·새SS학습7개는변경하지않았다. Hook의실제residual 제거·weight/semantic gate 보존·예외후복원과queue의동일device/checkpoint/panel/seed 조건을포함한관련CPU32개테스트가통과했다. 생성결과는아직없으며예약완료와실행완료를구분한다. 근거는`provenance/transport-control-queue.json`이다.
 
 ## 비교·완료 조건
 

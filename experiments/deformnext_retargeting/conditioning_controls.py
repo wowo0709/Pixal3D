@@ -1,5 +1,6 @@
 """Evaluation-only input controls for the unmodified multi-view model."""
 from __future__ import annotations
+from contextlib import contextmanager
 import torch
 
 
@@ -36,6 +37,7 @@ class TransportControl:
     """Perturb only the cached SS transport path, retaining all four RGB views."""
     DEFINITIONS = {
         'source-off': 'Disable the additional transport and adapter paths; native four-view conditioning remains.',
+        'adapter-off': 'Zero only the retargeter output; retain semantic evidence, learned fusion gate and native four-view conditioning.',
         'wrong-corr': 'Roll correspondence values by one target-query slot within each object; a weak local sensitivity control.',
         'shuffled-deform': 'Cycle the physical C2 RAW deformation context between assets in each generation batch.',
     }
@@ -49,6 +51,8 @@ class TransportControl:
             raise ValueError('transport controls require matching-v2 SS evidence')
         if mode == 'shuffled-deform' and dataset.transport_arm != 'c2':
             raise ValueError('shuffled deformation requires physical C2 query channels')
+        if mode == 'adapter-off' and dataset.transport_arm not in {'c1', 'c2'}:
+            raise ValueError('adapter-off requires an arm with a retargeter')
         self.dataset, self.mode = dataset, mode
 
     def __getattr__(self, name):
@@ -66,4 +70,21 @@ class TransportControl:
         pack = self.dataset.collate_fn(batch, split_size=split_size)
         if not isinstance(pack, dict) or 'transport_control' in pack:
             raise ValueError('transport control requires an unmodified dense SS batch')
-        return {**pack, 'transport_control': self.mode}
+        # Adapter removal uses a scoped output hook, keeping the existing
+        # conditioner inference control normal and all learned weights intact.
+        return {**pack, 'transport_control': 'normal' if self.mode == 'adapter-off' else self.mode}
+
+
+@contextmanager
+def transport_diagnostic_context(conditioner, mode):
+    if mode != 'adapter-off':
+        yield
+        return
+    retargeter = getattr(conditioner, 'retargeter', None)
+    if retargeter is None:
+        raise ValueError('adapter-off requires a loaded retargeter')
+    hook = retargeter.register_forward_hook(lambda module, inputs, output: torch.zeros_like(output))
+    try:
+        yield
+    finally:
+        hook.remove()

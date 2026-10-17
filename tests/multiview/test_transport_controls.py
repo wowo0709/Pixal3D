@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch.utils.data import default_collate
 
-from experiments.deformnext_retargeting.conditioning_controls import TransportControl
+from experiments.deformnext_retargeting.conditioning_controls import TransportControl, transport_diagnostic_context
 from pixal3d.modules.matching_v2_conditioner import MatchingV2Conditioner
 
 
@@ -74,6 +74,40 @@ def test_transport_controls_reject_native_legacy_and_ineffective_query_shuffle()
     with pytest.raises(ValueError, match='at least two'):
         wrapped.collate_fn([dataset[0]])
     assert wrapped.collate_fn(dataset.samples)['transport_control'] == 'shuffled-deform'
+    dataset.transport_arm = 'b3'
+    with pytest.raises(ValueError, match='with a retargeter'):
+        TransportControl(dataset, 'adapter-off')
+
+
+def test_adapter_only_removal_preserves_weights_evidence_usage_and_restores_after_error():
+    dataset = CachedSS()
+    dataset.transport_arm = 'c1'
+    batch = TransportControl(dataset, 'adapter-off').collate_fn(dataset.samples)
+    assert batch['transport_control'] == 'normal'
+    module = MatchingV2Conditioner(arm='c1', reject=True, reject_threshold=.5)
+    with torch.no_grad():
+        module.retargeter.net[-1].bias.fill_(.4)
+        module.fusion_gate.fill_(.2)
+    inputs = {k.removeprefix('transport_'): v for k, v in batch.items()
+              if k.startswith('transport_') and k != 'transport_control'}
+    inputs['target_query'] = torch.zeros_like(inputs['evidence_soft'])
+    weights = {k: v.clone() for k, v in module.state_dict().items()}
+    normal = module(**inputs)
+    assert torch.count_nonzero(normal.retarget_residual) > 0
+    with pytest.raises(RuntimeError, match='generation failed'):
+        with transport_diagnostic_context(module, 'adapter-off'):
+            removed = module(**inputs)
+            assert torch.count_nonzero(removed.retarget_residual) == 0
+            torch.testing.assert_close(removed.evidence, normal.base_evidence, rtol=0, atol=0)
+            torch.testing.assert_close(removed.usage_scale, normal.usage_scale, rtol=0, atol=0)
+            torch.testing.assert_close(removed.fusion_scale, normal.fusion_scale, rtol=0, atol=0)
+            raise RuntimeError('generation failed')
+    torch.testing.assert_close(module(**inputs).evidence, normal.evidence, rtol=0, atol=0)
+    for key, value in module.state_dict().items():
+        torch.testing.assert_close(value, weights[key], rtol=0, atol=0)
+    with pytest.raises(ValueError, match='loaded retargeter'):
+        with transport_diagnostic_context(MatchingV2Conditioner(arm='b3'), 'adapter-off'):
+            pass
 
 
 @pytest.mark.parametrize('mode', ['normal', 'source-off', 'wrong-corr'])
