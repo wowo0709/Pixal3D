@@ -293,6 +293,16 @@ B3의final128 noise0은같은checkpoint의epoch32개를seed·cluster·TP/FP/FN·
 
 ## 비교·완료 조건
 
+### 실험 목적과 직접적인 source 활용 진단의 우선순위
+
+현재 학습의 직접적인 목적은 LoRA와 함께 학습한 상태에서 각 모듈을 채택할 근거가 있는지 확인하는 것이다. Frozen consumer에 추론 시 GT 주소를 넣은 음의 결과는 joint training의 가능성까지 배제하지 않지만, 같은 모듈을 계속 추가하면 성능이 오를 것이라는 근거도 아니다. 현재 confidence/attention의 추가 이득이 없으므로 source evidence 자체의 유용성을 직접 확인해야 한다. Module arm의 실행 완료와 성능 향상 입증을 구분한다.
+
+2026-10-18 06:44 KST에 사용자의 실험 목적 질문을 반영해, 이미 예약된 P2-NoR/C1-R의 normal·source-off·adapter-off·wrong-object와 B3-R의 normal·source-off·wrong-object 및 paired 비교, 총19개 작업의 우선순위를 올렸다. 진행 중인 V1/C1 protocol replay 다음에 GPU2·3에서 실행하며, 새 C1의 final128×3보다 먼저 직접적인 경로 진단을 확보한다. 실행 중인 C2와 원래14개 primary 구성은 유지한다. Job170개, command·checkpoint·panel·seed·GPU·dependency·output은 그대로이고 priority만 바뀌었다. 당시19개는 전부pending이었으며 예약 변경과 실제 결과를 구분한다. 이전의 baseline/final 우선 배치는 이 시점부터 아래 원인 진단 우선 배치로 대체한다.
+
+해석은 동일 checkpoint의 perturbation에 한정한다. Source-off는 추가 transport와 adapter 전체를 제거하므로 source value만의 효과가 아니다. Adapter-off는 residual 출력의 역할을, support를 유지한 wrong-object는 recipient query·confidence·RAW·native RGB를 유지한 상태의 다른 물체 source evidence에 대한 민감도를 검사한다. Normal≈wrong-object인데 adapter-off에서 하락한다면 target-query 또는 일반 보정 성분의 가능성을 검토하고 semantic matching의 효과로 승격하지 않는다. Normal≈source-off라면 추가 경로의 생성 이득 근거가 약하므로 head 정확도나 학습 epoch만 늘리는 것을 해결책으로 제시하지 않는다. Common32에서 CI가0을 포함한다는 사실만으로 경로 미사용·동등성을 증명하지 않으며, 여러 진단과 실제 condition/gate 로그를 함께 본다.
+
+학습 추가와 PBR 확대는 이 경로 진단·최종 결과에서 근거를 확인한 뒤 결정한다. 우선순위 변경 전후 queue와 변경된19개 이름은 `provenance/transport-causal-diagnostics-priority.json` 및 runtime의 보존된 queue backup에 기록했다. 진단 우선은 전체 모듈 비교를 축소하거나 완료로 표시하는 조치가 아니다.
+
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.
 
 Zero-shot 두 조건과 기존 B1/B2/B3도 추가 noise 두 개를 생성해 최종 세-noise 표에 함께 넣는다. V1/기존 C1은 이미 세 noise가 있다. 이 보충은 저장된 checkpoint의 평가 열 개이며 재학습이 아니다. P1이 끝난 GPU2·3에서 zero-shot 반복 평가를 먼저 실행한다. 기존 B1/B2/B3의 반복 여섯 개는 C1 학습이 끝난 뒤 비는 GPU2·3에 배치해, P1/P2 final 평가와 새 SS 학습의 시작을 지연시키지 않는다. 해당 여섯 job은 `train-native-module-c1-retarget-r`를 기다리며 GPU2/3에만 배정한다. 명령·checkpoint·sample·noise·완료 조건은 바꾸지 않는다. 최종 집계는 baseline 일곱 개와 새 run 일곱 개, 총14개 구성을 같은128×3 조건으로 다룬다. Source-only의 네 M0 RGB도 동일 M1 target과 비교하는 입력 효과 진단임을 명시한다.
