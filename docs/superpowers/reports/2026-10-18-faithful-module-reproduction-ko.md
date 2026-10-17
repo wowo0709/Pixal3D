@@ -94,3 +94,22 @@ No-query는 content encoder가 아예 없고 residual 입력 폭에서도 geomet
 이는 **현재 mixed385 consumer에서도 correspondence 주소의 headroom이 있고, native source 보존이 중요함**을 보여준다. 과거 target-fallback GT case의0.32405를 native-spatial bridge로0.44631까지 바꾼 원인을 모듈 유무와 분리해서 볼 수 있다. 단, GT 주소를 쓰므로 학습된 matching 모듈이나 unseen-test 향상으로 발표하지 않는다. Final 모델에 GT route cache를 넣지 않는다. Learned correspondence의 per-view 연결과 source-use 검증은 별도 gate로 남는다.
 
 Physical No-query·reference runtime을 포함한 관련44개 CPU 검증이 통과했다. Q2C의 실제 GPU 학습도 시작됐고, 첫 D0 run의 중간 optimizer loss들이 과거 log와 bit-exact였다. 전체1200 update·held-out 결과와 D1까지 완료한 뒤 정확한 재현 범위를 판정한다.
+
+## Q2C 전체 수치 재현 완료와 geometry GPU 검증
+
+Controlled RGB task의 **24개 run(4-fold×3seed×D0/D1)**이 모두 완료됐다. 총28,800개 update의 pair/query sampling hash·loss가 과거 기록과 exact이고, 모든 최종 learned parameter tensor와 held-out RGB component도 원본과 exact다. 집계/불확실성 함수5개 역시 원본 AST를 이식했으며, cue→seed→pair 순서와 pair bootstrap을 그대로 사용했다.
+
+| Historical OOF63 | RGB L1 |
+| --- | ---: |
+| D0 pairwise | 0.03676911540385993 |
+| D1 Q2C | 0.035128986239626396 |
+
+D0−D1 error 감소는 **0.0016401291642335306**, paired95% CI[0.0009215979517582304,0.002400408386399977]로 과거 결과를 완전히 재현했다. 이 결과는 **과거63개 controlled task**에서 matching-aware Q2C의 효과를 재현한 것이다. 현재 DeformNeXt 전체 SS 생성 향상은 별도 검증 대상이다. 결과/tuple별 parameter·component audit는 file4 `faithful-reproduction-v1/q2c-exact-reproduction-summary.json`에 있다.
+
+Geometry reference는 original TRAIN32/DEV8의 full region·predicted O/D9채널·6개 trained checkpoint와 원래5.36GB SS20k weight를 모두 SHA 검증해 export했다. 원본 split manifest에 따로 있던6개 confirm pair는 export/검증에서 제외했다. 총48개 관련 CPU 검증을 통과했다.
+
+Actual GPU4-update smoke는 두 arm 모두 초기 native projection·첫 loss·첫 gradient norm이 exact다. 모든 step에서 adapter gradient가 finite/nonzero이며 frozen SS weight에는 gradient가 없다. 후속 step loss의 원본 대비 최대 절대 차이는 feature0.00187683, content0.00189209였다. **4-step optimizer trajectory가 bit-exact라는 주장은 하지 않는다.** 최초 실행의 seed 순서 차이를 발견해 seed→frozen flow→decoder→frozen DINO→adapter 순서로 복구했다. 실제 DINO 로딩이 CPU RNG를 소비하는 것도 확인했고, 앞으로는 export된 conditioner 초기화 config를 읽어 과거 worktree config에 실행 의존하지 않는다.
+
+기존6개 G2 fixed-final checkpoint의 DEV8×3noise 재생은 진행 중이다. 첫 content/seed101/pair/noise0에서 normal·source-off·geometry-shuffled의 모든 regional/global metric과 BCE가 원본과 exact였다. 전체144개 pair/model/noise 조합의 재생과 과거 source-use gate 재검토가 완료되기 전에는 geometry 모듈의 전체 재현/production 승격을 선언하지 않는다.
+
+사용자 데이터/결과의 실제 file4 저장도 확인했다. `faithful-inputs-and-bridge-file4.json`은224개 immutable input·bridge output·source 파일(약9.52GB)의 local/actual-file4 SHA256 일치를 기록한다. Q2C/geometry reference와 현재14개 production 비교는 namespace·성능 주장 모두 분리한다. GPU0/1의 C2는 계속 진행하며, reference 작업은GPU2/3을 사용한다.
