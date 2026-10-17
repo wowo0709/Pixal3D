@@ -14,7 +14,6 @@ import time
 
 import numpy as np
 from PIL import Image
-from scipy.spatial import cKDTree
 import torch
 
 from .cache_task_rgb_transfer import surface_scene
@@ -26,7 +25,7 @@ from .historical_reproduction import make_loss_regions
 from .topology_labels import fingerprint, mask_agreement
 from .reproduce_q2c import read, reference, write_new
 
-SCHEMA = 'deformnext-current-encoder-authority-regions64-v2'
+SCHEMA = 'deformnext-current-native1024-authority-regions64-v3'
 
 
 def coordinate_set(coords):
@@ -37,26 +36,19 @@ def coordinate_array(coords):
     return np.asarray(sorted(coords), np.int32).reshape(-1, 3)
 
 
-def lock_target_authority(physical64, saved_coords, ss_source_hash):
-    """Keep the real encoder input; mesh voxelization is an independent audit."""
+def lock_target_authority(rebuilt64, saved_coords, ss_source_hash):
+    """Require exact current1024->64 geometry and actual encoder-input parity."""
     if hashlib.sha256(saved_coords.tobytes()).hexdigest() != ss_source_hash:
         raise ValueError('saved support does not match the actual SS latent source hash')
-    physical_set, saved_set = coordinate_set(physical64), coordinate_set(saved_coords)
-    if not physical_set or not saved_set:
-        raise ValueError('empty physical/encoder target support')
-    iou = len(physical_set & saved_set) / len(physical_set | saved_set)
-    distance = max(float(cKDTree(physical64).query(saved_coords, k=1, p=np.inf)[0].max()),
-                   float(cKDTree(saved_coords).query(physical64, k=1, p=np.inf)[0].max()))
-    if iou < .99 or distance > 1:
-        raise ValueError(f'physical/encoder registration differs: IoU{iou}, max-Chebyshev-cell-distance{distance}')
+    physical_set, saved_set = coordinate_set(rebuilt64), coordinate_set(saved_coords)
+    if not physical_set or physical_set != saved_set:
+        raise ValueError(f'native1024 pooled target differs from actual SS input: missing{len(saved_set-physical_set)}, extra{len(physical_set-saved_set)}')
     return coordinate_array(saved_set), {
         'actual_encoder_support_source_hash_exact': True,
         'actual_encoder_support_source_hash': ss_source_hash,
-        'physical_target_equals_saved_encoder_support': physical_set == saved_set,
-        'physical64_vs_encoder_support_iou': iou,
-        'max_symmetric_Chebyshev_voxel_distance': distance,
-        'encoder_only_target_voxels': len(saved_set-physical_set),
-        'physical_only_target_voxels': len(physical_set-saved_set)}
+        'native1024_pooled_target_equals_saved_encoder_support': True,
+        'rebuilt_native1024_vs_encoder_support_iou': 1.,
+        'encoder_only_target_voxels': 0, 'rebuilt_native_only_target_voxels': 0}
 
 
 def visible_coords(points, row):
@@ -105,14 +97,17 @@ def build(row, resolve):
         raise ValueError('source/target topology differs')
     camera = {'transform_matrix': row['transform_matrix'][0], 'camera_angle_x': row['camera_angle_x'][0]}
     canonical = [world_to_target_anchor_points(v, camera, scale=row['mesh_scale']) for v in [source, target]]
-    source64, physical_target64 = [_surface_support(v, faces, resolution=64) for v in canonical]
+    # Match the current native Shape1024->SS64 input construction for both
+    # states. Direct64 voxelization does not commute with high-res pooling.
+    source64, rebuilt_target64 = [pool_support(_surface_support(v, faces, resolution=1024),
+        source_resolution=1024, target_resolution=64) for v in canonical]
     with np.load(resolve(row['shape_latent'])) as saved:
         saved_coords = saved['coords'].copy()
     with np.load(resolve(row['ss_latent'])) as encoded:
         if str(encoded['schema']) != 'deformnext-ss64-m1-anchor-v3':
             raise ValueError('unexpected current SS latent schema')
         ss_source_hash = str(encoded['source_coords_sha256'])
-    target64, target_audit = lock_target_authority(physical_target64, saved_coords, ss_source_hash)
+    target64, target_audit = lock_target_authority(rebuilt_target64, saved_coords, ss_source_hash)
     source_set, target_set = coordinate_set(source64), coordinate_set(target64)
     target_raster = raster(surface_scene(target, faces), row, 0, target, faces, resolve(row['target_anchor']))
     target_visible, target_outside = visible_coords(target_raster['points'], row)
@@ -141,7 +136,7 @@ def build(row, resolve):
     states = classify_projected_voxel_cubes(sample_ndc, target_support=membership(target64),
         visible_target_support=membership(coordinate_array(target_visible)),
         raster_depth=target_raster['depth_gl'], raster_mask=target_raster['mask_gl'], depth_tolerance=1e-4)
-    arrays = {'source64': source64, 'target64': target64, 'physical_target64': physical_target64,
+    arrays = {'source64': source64, 'target64': target64, 'rebuilt_target64': rebuilt_target64,
         'free64': indices[states == FREE],
         'surface64': indices[states == SURFACE], 'matched_source_exclusive64': matched, 'stale_visible64': stale}
     for name in ['matched_source_exclusive', 'stale_visible']:
@@ -209,8 +204,8 @@ def main():
         'manifest': reference(args.manifest), 'seconds': time.monotonic()-started, 'supervision_only': True,
         'selection': 'first32 per role from pre-frozen category/hash pilot, no metric/region-size selection',
         'frame': 'current audited native world-v4 target camera/scale; no oracle pair-union rescaling',
-        'label_backend': 'CPU Open3D pixel-center barycentrics and original flexible64/cube-ray/loss functions',
-        'target64_authority': 'actual saved Shape encoder input verified against SS latent source_coords_sha256; direct flexible64 is independent registration audit',
+        'label_backend': 'CPU Open3D pixel-center barycentrics and original flexible voxelization at current native1024 then exact pool64; original cube-ray/loss functions',
+        'target64_authority': 'rebuilt native1024 pool64 must exactly equal actual encoder input, which must match SS latent source_coords_sha256',
         'alpha_policy': 'observed RGBA foreground restricts positive/source evidence; conservative FREE uses opaque geometry',
         'out_of_AABB_policy': 'drop out-of-grid interpolated points; never clamp them onto boundary voxels',
         'visible_device_for_optional_package_import': os.environ.get('CUDA_VISIBLE_DEVICES'),

@@ -38,15 +38,17 @@ def test_conservative_cube_free_label_never_contradicts_target_support():
     assert result.tolist() == [authority.UNKNOWN, authority.FREE, authority.SURFACE]
 
 
-def test_target_labels_keep_actual_SS_input_when_direct_mesh_misses_adjacent_cells():
+def test_rebuilt_native1024_target_must_equal_actual_SS_input_without_relaxing_geometry():
     physical = np.array([[x, y, 0] for x in range(10) for y in range(10)], np.uint8)
     saved = np.concatenate([physical, [[10, 0, 0]]]).astype(np.uint8)
-    locked, audit = current.lock_target_authority(physical, saved, hashlib.sha256(saved.tobytes()).hexdigest())
+    locked, audit = current.lock_target_authority(saved, saved, hashlib.sha256(saved.tobytes()).hexdigest())
     assert current.coordinate_set(locked) == current.coordinate_set(saved)
-    assert audit['encoder_only_target_voxels'] == 1
-    assert audit['max_symmetric_Chebyshev_voxel_distance'] == 1
+    assert audit['encoder_only_target_voxels'] == 0
+    assert audit['rebuilt_native1024_vs_encoder_support_iou'] == 1
     with pytest.raises(ValueError, match='source hash'):
-        current.lock_target_authority(physical, saved, 'wrong')
+        current.lock_target_authority(saved, saved, 'wrong')
+    with pytest.raises(ValueError, match='native1024 pooled target differs'):
+        current.lock_target_authority(physical, saved, hashlib.sha256(saved.tobytes()).hexdigest())
     moved = saved + 10
-    with pytest.raises(ValueError, match='registration differs'):
+    with pytest.raises(ValueError, match='native1024 pooled target differs'):
         current.lock_target_authority(physical, moved, hashlib.sha256(moved.tobytes()).hexdigest())

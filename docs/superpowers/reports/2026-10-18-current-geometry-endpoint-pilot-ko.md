@@ -14,7 +14,7 @@ Q2C 원본24-run과G2 기존checkpoint의144개 endpoint는재현됐다. 그러�
 
 ## GT region의정합과보존
 
-`historical_region_authority.py`에원본native flexible64 voxelization·center+8corner cube-ray 분류·projection·pooling·validator7개함수를AST 그대로이식했다. SHA authority와입력검증을포함한CPU3개검증을통과했다. 현재mesh를기존world-v4 camera/mesh scale로변환한다. Target64의authority는현재실제SS encoder입력support이며SS latent에기록된source_coords_sha256과정확히일치해야한다. 직접flexible64 voxelization은별도정합검사로유지하고IoU0.99이상·대칭최대Chebyshev거리1voxel이내를요구한다. 원래CAGE의GT pair-union scale로현재frame을바꾸지않는다.
+`historical_region_authority.py`에원본native flexible64 voxelization·center+8corner cube-ray 분류·projection·pooling·validator7개함수를AST 그대로이식했다. SHA authority와입력검증을포함한CPU3개검증을통과했다. 현재mesh를기존world-v4 camera/mesh scale로변환한다. Target64의authority는현재실제SS encoder입력support이며SS latent에기록된source_coords_sha256과정확히일치해야한다. Source/target 모두현재native1024 voxelization→integer pool64로재구축하고target은실제encoder입력과좌표set까지exact여야한다. 직접64 voxelization의근접도임계값으로대체하지않는다. 원래CAGE의GT pair-union scale로현재frame을바꾸지않는다.
 
 Source-state visible face barycentric을M1의동일triangle에적용해matched source-exclusive label을만든다. Target 관측RGBAforeground는visible-positive를,sourceRGBAforeground는source evidence를제한한다. Conservative FREE는원래cube-ray 함수와opaque geometry z-buffer로계산하고GT target support를항상제외한다. Open3D의top-down pixel 배열을raw OpenGL bottom-up 순서로변환해원래classifier의y축과맞춘다. Current frame밖source point는boundary로clip하지않고제외·기록한다. Empty source/stale label도성능을보고대체하지않고count와함께보존한다.
 
@@ -27,3 +27,9 @@ Native voxelization은CPUkernel을사용하고Open3D/BLAS도2core/1thread로제�
 ## 전체검사에서확인한target authority 차이
 
 두번째train asset에서직접flexible64는8395개, 실제SS encoder입력은8400개였다. 추가5개는모두인접1voxel이내이고IoU0.99940476이다. 실제encoder입력의byte hash는SS latent의source_coords_sha256과exact다. 차이의상세root cause를확정한것은아니며한asset의100%일치를전체로확대하지않는다. Region label은이미학습한GT를지키도록실제encoder support를authority로사용한다. 두support와차이통계·GTfile SHA·frame contract를모두보존한다. V1의strict-equality실패출력은보존하고`deformnext-current-encoder-authority-regions64-v2` schema/새namespace로검증한다. 입력RGB·query·기존latent를고쳐PASS시키지않는다.
+
+## Native1024→64의exact authority로복구
+
+V2의24번째asset에서직접64는6382개, 실제encoder입력은6433개였고거리3cell 예외가확인됐다. 같은mesh/camera/scale로native1024 voxelization→pool64를수행하면6433개와정확히일치했다. 직접64 voxelization과고해상voxelization후pooling은같은연산이아니다. 이것을확인한뒤source와target 모두실제1024 pipeline으로맞췄다. V3는`deformnext-current-native1024-authority-regions64-v3`이며target set exact·SS source_coords hash exact를모두요구한다. 1/3cell 거리로허용범위를넓혀통과시키지않는다. V1/V2의실패와관측provenance는보존한다.
+
+현재native condition64 cache도완료됐다. 실제4-view projection mean과target first projection을고정했고로딩이후15.4초였다. GT geometry/latent 값을condition 구축에열지않았다. V2 one-pair full regional gradient proof도초기native regional loss55.82744598 exact, 두모듈2update·frozen SS/decoder gradient없음을통과했다. Query encoder의두번째gradient L1은0.004031518이었다. 새native1024 label의V3 preflight와본64개구축은별도로판정한다.
