@@ -76,6 +76,8 @@ Confidence/rejection의 차이는1에폭+0.002%p, source-cluster paired95% CI[�
 
 Zero-shot 두 조건과 기존 B1/B2/B3도 추가 noise 두 개를 생성해 최종 세-noise 표에 함께 넣는다. V1/기존 C1은 이미 세 noise가 있다. 이 보충은 저장된 checkpoint의 평가 열 개이며 재학습이 아니다. P1이 끝난 GPU2·3에서 zero-shot 반복 평가를 먼저 실행한다. 기존 B1/B2/B3의 반복 여섯 개는 C1 학습이 끝난 뒤 비는 GPU2·3에 배치해, P1/P2 final 평가와 새 SS 학습의 시작을 지연시키지 않는다. 해당 여섯 job은 `train-native-module-c1-retarget-r`를 기다리며 GPU2/3에만 배정한다. 명령·checkpoint·sample·noise·완료 조건은 바꾸지 않는다. 최종 집계는 baseline 일곱 개와 새 run 일곱 개, 총14개 구성을 같은128×3 조건으로 다룬다. Source-only의 네 M0 RGB도 동일 M1 target과 비교하는 입력 효과 진단임을 명시한다.
 
+최종 집계 사전 점검에서 기존 V1/C1 noise1 두 JSON에 `sampling_steps`와 `guidance`가 없음을 확인했다. 저장된 recipe·command·source의 별도 근거는 유지하되, strict primary collector에는 필드가 명시된 새 평가를 사용한다. 같은 checkpoint·128 panel·noise1 seed map으로 두 평가만 `baseline-noise-confirmation/protocol-replay/noise-1/{v1,c1}`에 추가하며 원래 파일은 보존한다. 새 학습 arm은 늘리지 않는다. 두 평가도 C1 학습 뒤 비는 GPU2·3에서 실행한다. 최종 집계는 새 결과의 sampler12/CFG3·optimizer update0과 기존 결과의 sample별 seed·cluster·TP/FP/FN 일치까지 검사한다. 불일치하면 집계를 통과시키지 않고 원인을 확인한다. 새 평가가 실행되기 전에는 replay 검증 완료로 표시하지 않는다.
+
 핵심 대비는 `b2-top1−V1`, `b2-top1-r−b2-top1`, `b3-attention-r−b2-top1-r`, `c1-retarget-r−b3-attention-r`, `c2-query-r−c1-retarget-r`다. P1/P2와 기존 C1도 최종 비교에 포함한다. Head Top1 향상만으로 SS module 효과를 입증하지 않는다. H2 confidence loss는 ranking branch에 detach되어 있어 H2−H1 순위 향상을 inference rejection의 인과 효과로 설명하지 않으며, 실제 SS R 대조로 판단한다.
 
 Full은 C2로 미리 확정하지 않는다. 다섯 대비를 모두 보고 best final 구성과 확인되지 않은 효과를 기록한다. 근소한 차이는 training-seed 재현을 추가한다. 개발용128을 선택에도 사용한 결과는 unseen test 성능으로 부르지 않는다. 과거 voxel P1/G2의 cleanup 개선도 source utilization 성공과 구분한다. 기존 보고서는 두 실험 모두 DEV projected-source 효용을 입증하지 못했다고 명시했다.

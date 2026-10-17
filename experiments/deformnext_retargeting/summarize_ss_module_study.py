@@ -20,6 +20,33 @@ def evaluation_paths(root,study,arm):
         *[study/f'noise-confirmation/noise-{n}/{arm}/evaluation.json' for n in [1,2]]]
 
 
+def baseline_paths(root,arm):
+    if arm not in {'v1','c1'}:raise ValueError('unsupported replay baseline: '+arm)
+    initial='evaluations/v1/native' if arm=='v1' else 'evaluations/c1/normal'
+    return [root/initial/'evaluation.json',
+        root/f'baseline-noise-confirmation/protocol-replay/noise-1/{arm}/evaluation.json',
+        root/f'noise-confirmation/noise-2/{arm}/evaluation.json']
+
+
+def audit_baseline_replays(root):
+    """Bind fresh explicit protocols to preserved historical noise1 counts."""
+    result={}
+    for arm in ['v1','c1']:
+        old_path=root/f'noise-confirmation/noise-1/{arm}/evaluation.json'
+        fresh_path=baseline_paths(root,arm)[1];old=read(old_path);fresh=read(fresh_path)
+        expected={'status':'PASS','sampling_steps':12,'guidance':3.,'optimizer_updates_during_evaluation':0}
+        if any(fresh.get(k)!=v or (k in old and old[k]!=v) for k,v in expected.items()):
+            raise ValueError('baseline replay protocol missing or different: '+arm)
+        keys=['sample_id','source_cluster_id','seed','tp','fp','fn']
+        records=[{r['sample_id']:tuple(r[k] for k in keys) for r in value['per_asset']} for value in [old,fresh]]
+        if any(len(value['per_asset'])!=128 or len(record)!=128 for value,record in zip([old,fresh],records)) or records[0]!=records[1]:
+            raise ValueError('fresh baseline does not replay historical noise1 counts: '+arm)
+        result[arm]={'status':'PASS','assets':128,'historical':str(old_path),'fresh':str(fresh_path),
+            'exact_seed_cluster_tp_fp_fn_replay':True,
+            'scope':'Historical missing metadata remains absent; fresh evaluator supplies explicit sampler metadata. No historical voxel hashes are fabricated.'}
+    return result
+
+
 def audit_validation_panel(records,expected_ids):
     if len(expected_ids)!=32 or len(set(expected_ids))!=32:raise ValueError('epoch panel must contain32 distinct assets')
     reference=None
@@ -117,6 +144,7 @@ def render(report):
     rows+=['','## Scope and follow-up','',
         'GT is decoded aligned-target SS latent occupancy. Paired target foreground counts are checked; full occupancy hashes are compared wherever both records contain them.',
         'Both zero-shot baselines use four distinct RGB views and the same desired-state M1 target: source-only uses four M0 views; edited-RGB uses one M1 and three M0 views. Source-only scores here do not measure M0 reconstruction.',
+        'V1/C1 noise1 baselines were re-evaluated into separate files with explicit sampler metadata. Their per-asset seeds, source clusters and TP/FP/FN exactly replay the preserved historical results; missing historical metadata was not filled in.',
         'This report completes the primary matrix and does not establish unseen-test performance, training-seed replication, source-utilization causality or PBR rendering quality.',
         'The full model is not automatically C2. Review matched increments, uncertainty, learning curves and counterfactual diagnostics before adoption. Small gains need training-seed confirmation.',
         '', 'Matching-head calibration/audits, initialization/physical-query proofs, per-rank runtime, checkpoint locations and evaluation inputs are retained in the JSON companion.']
@@ -132,11 +160,10 @@ def main():
     head=read(root/'selected-head.json')
     if any(v['head_sha256']!=head['head_sha256'] for k,v in training.items() if k!='p1-native-grid'):
         raise ValueError('shared matcher changed inside the module ladder')
+    baseline_replays=audit_baseline_replays(root)
     paths={name:[root/f'evaluations/initializer/{mode}/evaluation.json',*[root/f'baseline-noise-confirmation/noise-{n}/{name}/evaluation.json' for n in [1,2]]]
         for name,mode in [('zero-source-only','source-only'),('zero-edited-rgb','edited-rgb')]}
-    paths.update({'v1':[root/'evaluations/v1/native/evaluation.json',*[root/f'noise-confirmation/noise-{n}/v1/evaluation.json' for n in [1,2]]],
-        'original-c1':[root/'evaluations/c1/normal/evaluation.json',*[root/f'noise-confirmation/noise-{n}/c1/evaluation.json' for n in [1,2]]]}
-    )
+    paths.update({'v1':baseline_paths(root,'v1'),'original-c1':baseline_paths(root,'c1')})
     paths.update({name:[root/f'evaluations/{name}/normal/evaluation.json',*[root/f'baseline-noise-confirmation/noise-{n}/{name}/evaluation.json' for n in [1,2]]]
         for name in ['b1','b2','b3']})
     paths.update({name:evaluation_paths(root,reference,name) for name in ['p1-native-grid','p2-matcher-grid']})
@@ -158,7 +185,8 @@ def main():
     models={name:{k:v for k,v in record.items() if k!='records'} for name,record in results.items()}
     report={'status':'primary_matrix_complete','training_seed_replication':False,'unseen_test_evaluation':False,
         'models':models,'contrasts':contrasts,'original_c1_vs_v1':baseline,'training_audit':training,
-        'head_contract':head,'claim_scope':'fixed-final exploratory development comparison; final adoption and any required seed/causal follow-up remain separate'}
+        'head_contract':head,'baseline_protocol_replays':baseline_replays,
+        'claim_scope':'fixed-final exploratory development comparison; final adoption and any required seed/causal follow-up remain separate'}
     for suffix,content in [('md',render(report)),('json',json.dumps(report,indent=2)+'\n')]:
         path=study/('final-primary-report.'+suffix);tmp=path.with_suffix('.'+suffix+'.tmp')
         tmp.write_text(content);os.replace(tmp,path)

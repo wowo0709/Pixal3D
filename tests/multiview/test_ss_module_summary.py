@@ -4,7 +4,7 @@ import pytest
 
 from experiments.deformnext_retargeting.summarize_ss_module_study import audit_training,result_contrasts,audit_validation_panel,audit_final_replay
 from experiments.deformnext_retargeting import summarize_ss_module_study
-from experiments.deformnext_retargeting.queue_baseline_repeats import jobs
+from experiments.deformnext_retargeting.queue_baseline_repeats import jobs,protocol_replay_jobs
 from pathlib import Path
 import shutil
 import sys
@@ -99,6 +99,36 @@ def test_epoch_panel_guard_detects_changed_noise_even_when_aggregate_is_unchange
         audit_validation_panel(records,ids)
 
 
+def test_protocol_replays_preserve_legacy_outputs_and_use_saved_weights():
+    scheduled=protocol_replay_jobs(Path('/data'),Path('/work'),Path('/config'))
+    assert len(scheduled)==2
+    for arm,job in zip(['v1','c1'],scheduled):
+        command=job['command']
+        assert job['resource']=='evaluation' and 'train.py' not in command
+        assert command[command.index('--checkpoint')+1]==f'/work/evaluation-checkpoints/{arm}/denoiser_step0000480.pt'
+        assert command[command.index('--seed-map-file')+1]=='/work/panels/seed-map-extra-noise-1.json'
+        assert command[command.index('--generation-batch')+1]=='8'
+        assert command[command.index('--output')+1]==f'/data/baseline-noise-confirmation/protocol-replay/noise-1/{arm}'
+        assert ('--conditioner-checkpoint' in command)==(arm=='c1')
+        assert 'gpu' not in job and 'gpus' not in job
+
+
+def test_replay_guard_requires_explicit_protocol_and_exact_per_asset_counts(tmp_path):
+    for arm in ['v1','c1']:
+        rows=[dict(sample_id=str(i),source_cluster_id=str(i),seed=i,tp=5,fp=3,fn=2) for i in range(128)]
+        old={'status':'PASS','optimizer_updates_during_evaluation':0,'per_asset':rows}
+        write(tmp_path/f'noise-confirmation/noise-1/{arm}/evaluation.json',old)
+        write(summarize_ss_module_study.baseline_paths(tmp_path,arm)[1],dict(old,sampling_steps=12,guidance=3.))
+    assert summarize_ss_module_study.audit_baseline_replays(tmp_path)['v1']['exact_seed_cluster_tp_fp_fn_replay']
+    p=summarize_ss_module_study.baseline_paths(tmp_path,'v1')[1];fresh=json.loads(p.read_text())
+    del fresh['guidance'];write(p,fresh)
+    with pytest.raises(ValueError,match='replay protocol'):
+        summarize_ss_module_study.audit_baseline_replays(tmp_path)
+    fresh['guidance']=3.;fresh['per_asset'][0].update(tp=6,fn=1);write(p,fresh)
+    with pytest.raises(ValueError,match='does not replay historical'):
+        summarize_ss_module_study.audit_baseline_replays(tmp_path)
+
+
 def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeypatch):
     template,run=complete_run;root=template/'campaign';study=root/'module-study-native-v4';reference=root/'retarget-native-v3'
     write(root/'selected-head.json',{'head_sha256':'head','arm':'h3'})
@@ -116,8 +146,7 @@ def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeyp
     for index,name in enumerate(names):
         if name.startswith('zero-'):
             paths=[root/f'evaluations/initializer/{name.removeprefix("zero-")}/evaluation.json',*[root/f'baseline-noise-confirmation/noise-{n}/{name}/evaluation.json' for n in [1,2]]]
-        elif name=='v1':paths=[root/'evaluations/v1/native/evaluation.json',*[root/f'noise-confirmation/noise-{n}/v1/evaluation.json' for n in [1,2]]]
-        elif name=='original-c1':paths=[root/'evaluations/c1/normal/evaluation.json',*[root/f'noise-confirmation/noise-{n}/c1/evaluation.json' for n in [1,2]]]
+        elif name in ['v1','original-c1']:paths=summarize_ss_module_study.baseline_paths(root,'v1' if name=='v1' else 'c1')
         elif name in ['b1','b2','b3']:paths=[root/f'evaluations/{name}/normal/evaluation.json',*[root/f'baseline-noise-confirmation/noise-{n}/{name}/evaluation.json' for n in [1,2]]]
         else:paths=summarize_ss_module_study.evaluation_paths(root,reference if name.startswith('p') else study,name)
         for noise,path in enumerate(paths):
@@ -125,6 +154,9 @@ def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeyp
             if noise==0:
                 for row in rows[:32]:row.update(tp=21,fn=4,fp=25)
             write(path,{'status':'PASS','sampling_steps':12,'guidance':3.,'optimizer_updates_during_evaluation':0,'per_asset':rows})
+            if noise==1 and name in ['v1','original-c1']:
+                arm='v1' if name=='v1' else 'c1'
+                write(root/f'noise-confirmation/noise-1/{arm}/evaluation.json',{'status':'PASS','optimizer_updates_during_evaluation':0,'per_asset':rows})
     monkeypatch.setattr(sys,'argv',['summary','--root',str(root)])
     summarize_ss_module_study.main()
     result=json.loads((study/'final-primary-report.json').read_text())
@@ -133,6 +165,8 @@ def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeyp
     assert len(result['training_audit'])==7
     assert result['training_seed_replication'] is False
     assert all(r['final128_replays_epoch32'] for r in result['training_audit'].values())
+    assert all(r['exact_seed_cluster_tp_fp_fn_replay'] for r in result['baseline_protocol_replays'].values())
+    assert 'sampling_steps' not in json.loads((root/'noise-confirmation/noise-1/v1/evaluation.json').read_text())
     report=(study/'final-primary-report.md').read_text()
     assert 'zero-source-only' in report and 'c2-query-r' in report
     assert not list(study.glob('*.tmp'))
