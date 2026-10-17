@@ -31,6 +31,12 @@ Cue는 loss supervision이다. Matcher 입력은 기존 실제RGB에서 추출�
 
 ## 자원·실측 준비
 
-GPU는0~3만 사용한다. 현재0/1의C2와2/3의G2 재생을 유지하며 CPU cache는 affinity2core로 제한한다. 첫 실제 asset의512px4-view cache는약3.5초였고 mask IoU는각view0.9973 이상, containment1.0이었다.320개는 대략15~20분의 CPU 작업으로 예상하며 실제 경과를 기록한다. 기존 RGB/Omega cache를 재사용하므로80k 재다운로드나 backbone 재추론은 필요 없다.
+GPU는0~3만 사용한다. 현재0/1의C2와2/3의G2 재생을 유지하며 CPU cache는 affinity2core로 제한한다. 첫 실제 asset의512px4-view cache는약3.3초였고 mask IoU는각view0.9973 이상, containment1.0이었다. 이후 실제320개 전체는196.3초(약3.3분)에 완료됐다. 기존 RGB/Omega cache를 재사용했으므로80k 재다운로드나 backbone 재추론은 하지 않았다.
 
 RNG/role seed·barycentric area average·background·split·cluster 독립성의CPU4개 검증과 실제1개 asset의 label/evaluator 파일 분리를 확인했다. 이 PASS는 학습 개선을 뜻하지 않는다. Cache와 source provenance를 file4에 보존하고, 비는GPU2/3에서6개의 짧은 head 학습을 실행한다.
+
+전체320개 중 source-visible task query가 있는 pair는 train251/256개, calibration61/64개다. 나머지8개의ID와 역할은cache summary에 보존하며 다른asset으로 대체하지 않았다. T0/T1의 paired 비교는 같은61개 calibration cluster를 사용한다. 이 제외는 학습 전 geometry/visibility 조건으로 결정됐으며 task error를 본 뒤 선택하지 않았다.
+
+`train_task_rgb_transfer`는원본Scorer/temperature/optimizer budget을 사용하고 실제 patch의 연속RGB 정답을 읽는다. 별도 evaluator cue file은 final checkpoint freeze 뒤에만 연다. Preflight는 train pair 하나에서2-update·첫 score parity·gradient·held-out cue bank의I/O 및auxiliary topology/DINO metric을 확인한다. Calibration pair를 preflight에 쓰지 않는다. D0/D1 seed별head 초기화·pair/query sampler·초기 score/loss 동일성, RGB를 바꿔도 descriptor score가 안 바뀌는 것과 evaluator file이 training에 열리지 않는 것을 포함해 관련CPU7개 검증이 통과했다.
+
+Cal metric에는RGB task error와 함께 exact-patch Top1/proposal recall 및GT-nearest patch DINO teacher cosine error를 기록한다. Learned soft fusion과RAW soft/Top1·learned Top1은같은64 candidate와동일eval cue 위에서 비교한다. These auxiliary metrics use the same observable eligible queries; they are not the earlier full-validation H3 population.

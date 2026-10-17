@@ -151,7 +151,7 @@ def evaluate(model, records, labels, output, *, allowed_role='calibration'):
             with np.load(labels / (record['sample_id'] + '.npz'), allow_pickle=False) as teacher:
                 if str(teacher['input_sha256']) != record['geometry_input_sha256']:
                     raise ValueError('auxiliary topology evaluation teacher differs')
-                positive = torch.as_tensor(teacher['positive_indices'][eligible], device='cuda:0')
+                positive = torch.as_tensor(teacher['positive_indices'][eligible], device='cuda:0').long()
                 visible = torch.as_tensor(teacher['positive_visible'][eligible], device='cuda:0')
             correct = ((ids[..., None] == positive[:, None]) & visible[:, None]).any(-1)
             with np.load(checked(record['descriptor_cache']), allow_pickle=False) as original:
