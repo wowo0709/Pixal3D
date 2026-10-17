@@ -6,7 +6,7 @@
 
 | 구분 | 실험 | 상태/역할 |
 | --- | --- | --- |
-| 공통 기준 | Source-only RGB 4장 / edited-RGB 1+3장 zero-shot, V1, 기존 B1/B2/B3/C1 | 공통128 noise0 완료; zero-shot/V1/C1 세 noise 완료; B1/B2/B3 추가 noise 예약; V1 재학습 없음 |
+| 공통 기준 | Source-only RGB 4장 / edited-RGB 1+3장 zero-shot, V1, 기존 B1/B2/B3/C1 | 공통128 noise0 완료; zero-shot/V1/B1/C1 세 noise 완료; B2/B3 추가 noise 진행; V1/C1 protocol replay 예약; V1 재학습 없음 |
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
@@ -223,6 +223,29 @@ Attention−Top1-R은−0.002%p, source-cluster paired95% CI[−0.058,+0.062]%p�
 B3의final128 noise0은같은checkpoint의epoch32개를seed·cluster·TP/FP/FN·GT voxel hash까지정확히재현했다. 이검증은noise0의재현성범위이며세-noise평가나C2완료를뜻하지않는다. C2·나머지baseline·actual path controls·필요한seed/최종채택후속은계속진행한다.
 
 근거는`module-study-native-v4/interim-fifth-epoch-attention-adapter.json`, `epoch-comparisons/epoch-05-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/{b3-attention-r,c1-retarget-r}-final-training-audit.json`, `provenance/{b3-attention-r,c1-retarget-r}-final-checkpoint-checksum.json`, `provenance/native-second-pair-epoch5-wandb-remote.json`, `provenance/b3-attention-r-final128-epoch32-replay.json`이다. 전체14개구성의final128×3와모듈채택은아직미완료다.
+
+### Attention와 기존 B1의 final128×3 완료
+
+2026-10-18 06:35 KST에새B3의세-noise평가가완료됐다. 기존B1의추가두noise도완료돼정상구성10개의128×3수치가모였다. 같은128개·93 source cluster·sample별서로다른noise3개·sampler12/CFG3의TP/FP/FN합산값이며, 위32개epoch검증과섞지않는다.
+
+| 구성 | Voxel IoU |
+| --- | ---: |
+| Source-only zero-shot, M0 RGB 4장 | 0.380711 |
+| Edited-RGB zero-shot, M1 1장 + M0 3장 | 0.419275 |
+| V1 | 0.431926 |
+| 기존 B1 | 0.433912 |
+| 기존 C1 | 0.442214 |
+| P1 native-grid + adapter | 0.441459 |
+| P2 H3 native-grid + adapter, No-R | 0.440920 |
+| 새 b2-top1 | 0.433644 |
+| 새 b2-top1-r | 0.432806 |
+| 새 b3-attention-r | 0.432847 |
+
+새attention−Top1-R은+0.004%p, source-cluster paired95% CI[−0.021,+0.025]%p다. 384개paired GT voxel hash가모두일치했다. 이조건에서matching-aware attention의추가이득은확인되지않았다. 새attention−V1도+0.092%p, CI[−0.038,+0.235]%p로0을포함한다. 기존C1대비−0.937%p, CI[−1.440,−0.448]%p, P2-NoR대비−0.807%p, CI[−1.396,−0.245]%p지만여러모듈·학습이력차이가있으므로단일모듈원인으로확정하지않는다.
+
+기존B1−V1은+0.199%p, CI[+0.069,+0.330]%p다. 한training seed의exploratory개발패널결과이며training-seed변동·다중비교보정을포함하지않는다. V1/기존C1의noise1역사파일은sampler metadata누락을별도근거와함께보존했고, 이미예약한명시적protocol replay가strict primary표의필수조건으로남아있다. 이중간표로14개전체비교완료를선언하지않는다.
+
+근거는`module-study-native-v4/interim-attention-b1-final128-three-noise-report.json`이다. 새C1최종평가·기존B2/B3추가noise·C2학습/최종평가·고정checkpoint진단·필요한채택후속이남아있다. C2는GPU0·1에서native/physical-query proof를통과했고본학습전memory/초기검증을진행한다.
 
 ### 저장된 checkpoint의 추가 경로 진단 준비
 
