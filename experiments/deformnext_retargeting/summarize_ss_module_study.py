@@ -20,6 +20,20 @@ def evaluation_paths(root,study,arm):
         *[study/f'noise-confirmation/noise-{n}/{arm}/evaluation.json' for n in [1,2]]]
 
 
+def audit_validation_panel(records,expected_ids):
+    if len(expected_ids)!=32 or len(set(expected_ids))!=32:raise ValueError('epoch panel must contain32 distinct assets')
+    reference=None
+    for record in records:
+        if record['quick_panel_ids']!=expected_ids:raise ValueError('epoch panel identity/order changed')
+        per_asset=record['quick_per_asset']
+        if [row['sample_id'] for row in per_asset]!=expected_ids:raise ValueError('epoch per-asset records differ from the fixed panel')
+        identity=[(row['sample_id'],row['seed'],row['source_cluster_id'],row['tp']+row['fn']) for row in per_asset]
+        if any(not row[2] for row in identity):raise ValueError('epoch source cluster missing')
+        if reference is not None and identity!=reference:raise ValueError('epoch noise, cluster or target changed')
+        reference=identity
+    return expected_ids
+
+
 def audit_training(study,arm,initial_iou):
     run=study/'runs_ss64'/arm;done=read(run/'completed.json');cfg=read(study/'configs'/(arm+'.json'))
     if any(done.get(k)!=v for k,v in {'status':'PASS','updates':480,'epochs':5,'global_batch':96,'world_size':2}.items()):
@@ -37,6 +51,8 @@ def audit_training(study,arm,initial_iou):
         or not proof['query_channels']['query_weight_gradient_l1']>0):raise ValueError('physical query proof missing: '+arm)
     validation=[json.loads(x) for x in (run/'validation.jsonl').read_text().splitlines()]
     if [r['step'] for r in validation]!=[0,96,192,288,384,480]:raise ValueError('epoch validations incomplete: '+arm)
+    panel=read(Path(cfg['validation']['quick_metrics']['panel_file']))['sample_ids']
+    audit_validation_panel(validation,panel)
     if validation[0]['quick_metrics']['voxel_iou']!=initial_iou:raise ValueError('initial generation quality differs: '+arm)
     rank_records=[]
     for rank in [0,1]:
@@ -53,6 +69,7 @@ def audit_training(study,arm,initial_iou):
         path=run/'ckpts'/f'{prefix}_step0000480.pt'
         if not path.is_file() or not path.stat().st_size:raise ValueError('final checkpoint missing: '+arm)
     return {'completed':done,'initial_iou':initial_iou,'validation':validation,'rank_runtime':rank_records,
+        'validation_panel_ids':panel,'validation_noise_and_target_counts_fixed':True,
         'head_sha256':cfg['experiment']['head_sha256'],'omega_checkpoint':cfg['experiment']['omega_checkpoint'],
         'physical_query_channels':2048 if spec['arm']=='c2' else 0,'config':str(study/'configs'/(arm+'.json'))}
 
@@ -67,6 +84,18 @@ def result_contrasts(results):
         ('b3-attention-r','b2-top1-r'),('c1-retarget-r','b3-attention-r'),('c2-query-r','c1-retarget-r')]:
         contrasts[candidate+'-vs-'+baseline]=compare([(str(n),results[baseline]['records'][n],results[candidate]['records'][n]) for n in range(3)])
     return contrasts
+
+
+def audit_final_replay(training,evaluation):
+    epoch=training['validation'][-1]['quick_per_asset']
+    final={row['sample_id']:row for row in evaluation['per_asset']}
+    for row in epoch:
+        other=final.get(row['sample_id'])
+        if other is None or any(row[key]!=other[key] for key in ['seed','source_cluster_id','tp','fp','fn']):
+            raise ValueError('final128 does not replay the same-checkpoint epoch32 generation')
+        if row.get('target_voxels_sha256') and other.get('target_voxels_sha256') and row['target_voxels_sha256']!=other['target_voxels_sha256']:
+            raise ValueError('final128 target voxels differ from epoch32')
+    return True
 
 
 def render(report):
@@ -123,6 +152,8 @@ def main():
             'voxel_iou':float(tp/(tp+fp+fn)),'voxel_f1':float(2*tp/(2*tp+fp+fn)),
             'voxel_precision':float(tp/(tp+fp)),'voxel_recall':float(tp/(tp+fn))}
     contrasts=result_contrasts(results)
+    for name,audit in training.items():
+        audit['final128_replays_epoch32']=audit_final_replay(audit,results[name]['records'][0])
     baseline=compare([(str(n),results['v1']['records'][n],results['original-c1']['records'][n]) for n in range(3)])
     models={name:{k:v for k,v in record.items() if k!='records'} for name,record in results.items()}
     report={'status':'primary_matrix_complete','training_seed_replication':False,'unseen_test_evaluation':False,

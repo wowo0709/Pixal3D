@@ -2,9 +2,12 @@ import json
 
 import pytest
 
-from experiments.deformnext_retargeting.summarize_ss_module_study import audit_training,result_contrasts
+from experiments.deformnext_retargeting.summarize_ss_module_study import audit_training,result_contrasts,audit_validation_panel,audit_final_replay
+from experiments.deformnext_retargeting import summarize_ss_module_study
 from experiments.deformnext_retargeting.queue_baseline_repeats import jobs
 from pathlib import Path
+import shutil
+import sys
 
 
 def write(path,value):
@@ -14,12 +17,15 @@ def write(path,value):
 @pytest.fixture
 def complete_run(tmp_path):
     arm='model';run=tmp_path/'runs_ss64'/arm
+    ids=[f'object{i}' for i in range(32)];panel=tmp_path/'panel.json';write(panel,{'sample_ids':ids})
     write(run/'completed.json',{'status':'PASS','updates':480,'epochs':5,'global_batch':96,'world_size':2})
     write(run/'progress.json',{'stage':'completed','current':480})
     write(tmp_path/'configs/model.json',{'trainer':{'args':{'deform_conditioner':{'arm':'c1'}}},
+        'validation':{'quick_metrics':{'panel_file':str(panel)}},
         'experiment':{'head_sha256':'head','omega_checkpoint':'frozen'}})
     write(tmp_path/'verification/model/native-proof.json',{'status':'PASS','condition_max_abs_errors':{'global':0,'proj':0},'fusion_gate_gradient':.001,'adapter_output_gradient_l1':.01})
-    validation=[{'step':step,'quick_metrics':{'voxel_iou':.42}} for step in [0,96,192,288,384,480]]
+    per_asset=[{'sample_id':sid,'source_cluster_id':'source'+str(i),'seed':i,'tp':21,'fn':4,'fp':25} for i,sid in enumerate(ids)]
+    validation=[{'step':step,'quick_metrics':{'voxel_iou':.42},'quick_panel_ids':ids,'quick_per_asset':per_asset} for step in [0,96,192,288,384,480]]
     (run/'validation.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in validation))
     for rank in [0,1]:
         rows=[{'step':step,'effective_batch_size':96,'world_size':2,'accumulation_packs':1,
@@ -83,3 +89,60 @@ def test_baseline_repeats_preserve_zero_shot_modality_and_saved_weights():
         else:
             assert '--conditioner-checkpoint' in command
             assert command[command.index('--step')+1]=='480'
+
+
+def test_epoch_panel_guard_detects_changed_noise_even_when_aggregate_is_unchanged(complete_run):
+    study,run=complete_run;records=[json.loads(s) for s in (run/'validation.jsonl').read_text().splitlines()]
+    ids=records[0]['quick_panel_ids'];audit_validation_panel(records,ids)
+    records[1]['quick_per_asset'][0]['seed']+=1
+    with pytest.raises(ValueError,match='noise, cluster or target changed'):
+        audit_validation_panel(records,ids)
+
+
+def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeypatch):
+    template,run=complete_run;root=template/'campaign';study=root/'module-study-native-v4';reference=root/'retarget-native-v3'
+    write(root/'selected-head.json',{'head_sha256':'head','arm':'h3'})
+    for directory,names in [(study,[x[0] for x in summarize_ss_module_study.ARMS]),(reference,['p1-native-grid','p2-matcher-grid'])]:
+        for name in names:
+            shutil.copytree(run,directory/'runs_ss64'/name)
+            cfg=json.loads((template/'configs/model.json').read_text())
+            spec=next((a for n,a,_ in summarize_ss_module_study.ARMS if n==name),'c1')
+            cfg['trainer']['args']['deform_conditioner']['arm']=spec
+            write(directory/'configs'/(name+'.json'),cfg)
+            proof=json.loads((template/'verification/model/native-proof.json').read_text())
+            if spec=='c2':proof['query_channels']={'extra_channels':2048,'query_weight_gradient_l1':.01}
+            write(directory/'verification'/name/'native-proof.json',proof)
+    names=['zero-source-only','zero-edited-rgb','v1','original-c1','b1','b2','b3','p1-native-grid','p2-matcher-grid',*[x[0] for x in summarize_ss_module_study.ARMS]]
+    for index,name in enumerate(names):
+        if name.startswith('zero-'):
+            paths=[root/f'evaluations/initializer/{name.removeprefix("zero-")}/evaluation.json',*[root/f'baseline-noise-confirmation/noise-{n}/{name}/evaluation.json' for n in [1,2]]]
+        elif name=='v1':paths=[root/'evaluations/v1/native/evaluation.json',*[root/f'noise-confirmation/noise-{n}/v1/evaluation.json' for n in [1,2]]]
+        elif name=='original-c1':paths=[root/'evaluations/c1/normal/evaluation.json',*[root/f'noise-confirmation/noise-{n}/c1/evaluation.json' for n in [1,2]]]
+        elif name in ['b1','b2','b3']:paths=[root/f'evaluations/{name}/normal/evaluation.json',*[root/f'baseline-noise-confirmation/noise-{n}/{name}/evaluation.json' for n in [1,2]]]
+        else:paths=summarize_ss_module_study.evaluation_paths(root,reference if name.startswith('p') else study,name)
+        for noise,path in enumerate(paths):
+            rows=[{'sample_id':f'object{i}','source_cluster_id':'source'+str(i),'seed':i+noise*1000,'tp':10+index,'fn':15-index,'fp':5} for i in range(128)]
+            if noise==0:
+                for row in rows[:32]:row.update(tp=21,fn=4,fp=25)
+            write(path,{'status':'PASS','sampling_steps':12,'guidance':3.,'optimizer_updates_during_evaluation':0,'per_asset':rows})
+    monkeypatch.setattr(sys,'argv',['summary','--root',str(root)])
+    summarize_ss_module_study.main()
+    result=json.loads((study/'final-primary-report.json').read_text())
+    assert result['status']=='primary_matrix_complete'
+    assert len(result['models'])==14
+    assert len(result['training_audit'])==7
+    assert result['training_seed_replication'] is False
+    assert all(r['final128_replays_epoch32'] for r in result['training_audit'].values())
+    report=(study/'final-primary-report.md').read_text()
+    assert 'zero-source-only' in report and 'c2-query-r' in report
+    assert not list(study.glob('*.tmp'))
+
+
+def test_final_replay_guard_detects_different_saved_weight_results(complete_run):
+    _,run=complete_run;validation=[json.loads(s) for s in (run/'validation.jsonl').read_text().splitlines()]
+    final={'per_asset':[dict(row) for row in validation[-1]['quick_per_asset']]}
+    audit={'validation':validation}
+    assert audit_final_replay(audit,final)
+    final['per_asset'][0]['tp']-=1;final['per_asset'][0]['fn']+=1
+    with pytest.raises(ValueError,match='same-checkpoint'):
+        audit_final_replay(audit,final)
