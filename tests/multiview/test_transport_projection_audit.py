@@ -41,15 +41,54 @@ def test_role_probe_keeps_source_views_and_zero_strength_is_native():
 def test_noise_repeats_stay_in_source_clusters_and_noise_is_paired():
     baseline={'per_asset':[{'sample_id':str(i),'source_cluster_id':'c'+str(i//2),
         'seed':i,'tp':10,'fp':5,'fn':5} for i in range(8)]}
-    candidate={'per_asset':[{**r,'tp':r['tp']+int(r['sample_id'])%3} for r in baseline['per_asset']]}
+    candidate={'per_asset':[{**r,'tp':r['tp']+int(r['sample_id'])%3,'fn':r['fn']-int(r['sample_id'])%3} for r in baseline['per_asset']]}
     once=compare([('0',baseline,candidate)])
-    repeated=compare([(str(i),baseline,candidate) for i in range(3)])
+    repeats=[]
+    for i in range(3):
+        left={'per_asset':[{**r,'seed':r['seed']+100*i} for r in baseline['per_asset']]}
+        right={'per_asset':[{**r,'seed':r['seed']+100*i} for r in candidate['per_asset']]}
+        repeats.append((str(i),left,right))
+    repeated=compare(repeats)
     assert repeated['source_clusters']==4
     assert repeated['sampling_noise_seeds']==3
     assert repeated['paired_cluster_bootstrap_ci95']==once['paired_cluster_bootstrap_ci95']
     candidate['per_asset'][0]['seed']=999
     with pytest.raises(ValueError,match='noise seed'):
         compare([('bad',baseline,candidate)])
+
+
+def test_comparison_refuses_different_targets_or_duplicate_noise_repeats():
+    row={'sample_id':'asset','source_cluster_id':'cluster','seed':8,'tp':10,'fp':5,'fn':5}
+    baseline={'per_asset':[row]}
+    candidate={'per_asset':[{**row,'fn':6}]}
+    with pytest.raises(ValueError,match='target foreground'):
+        compare([('0',baseline,candidate)])
+    with pytest.raises(ValueError,match='same per-asset noise'):
+        compare([('0',baseline,baseline),('1',baseline,baseline)])
+    with pytest.raises(ValueError,match='duplicate sampling-noise'):
+        compare([('0',baseline,baseline),('0',baseline,baseline)])
+
+
+def test_target_geometry_hash_detects_equal_count_but_different_voxel_locations():
+    row={'sample_id':'asset','source_cluster_id':'cluster','seed':8,'tp':10,'fp':5,'fn':5,
+        'target_voxels_sha256':'a'*64,'target_voxel_shape':[64,64,64]}
+    baseline={'per_asset':[row]}
+    candidate={'per_asset':[{**row,'target_voxels_sha256':'b'*64}]}
+    with pytest.raises(ValueError,match='voxel geometry'):
+        compare([('0',baseline,candidate)])
+    valid=compare([('0',baseline,baseline)])
+    assert valid['paired_target_hashes_verified']==1
+
+
+def test_comparison_refuses_cross_repeat_target_or_sampling_protocol_changes():
+    row={'sample_id':'asset','source_cluster_id':'cluster','seed':8,'tp':10,'fp':5,'fn':5}
+    baseline={'per_asset':[row],'sampling_steps':12}
+    changed={'per_asset':[row],'sampling_steps':24}
+    with pytest.raises(ValueError,match='generation protocol'):
+        compare([('0',baseline,changed)])
+    other={'per_asset':[{**row,'seed':9,'fn':6}]}
+    with pytest.raises(ValueError,match='identity changed'):
+        compare([('0',baseline,baseline),('1',other,other)])
 
 
 def test_matched_teacher_support_preserves_learned_addresses(tmp_path):

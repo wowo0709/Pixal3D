@@ -7,8 +7,13 @@ import numpy as np
 
 
 def compare(pairs, draws=4000):
-    groups={};noise_results=[];population=None
+    groups={};noise_results=[];population=None;targets={};target_hashes={};observed_seeds={};noise_names=set();hash_verified=0
     for name,baseline,candidate in pairs:
+        if name in noise_names:raise ValueError('duplicate sampling-noise repeat')
+        noise_names.add(name)
+        for field in ['sampling_steps','guidance']:
+            if field in baseline and field in candidate and baseline[field]!=candidate[field]:
+                raise ValueError('paired generation protocol differs: '+field)
         left={r['sample_id']:r for r in baseline['per_asset']}
         right={r['sample_id']:r for r in candidate['per_asset']}
         if len(left)!=len(baseline['per_asset']) or len(right)!=len(candidate['per_asset']):
@@ -22,6 +27,30 @@ def compare(pairs, draws=4000):
                 raise ValueError('paired noise seed or source cluster differs')
             cluster=b['source_cluster_id']
             if not cluster:raise ValueError('source cluster is required')
+            for record in [b,c]:
+                if any(not isinstance(record[k],int) or isinstance(record[k],bool) or record[k]<0 for k in ['tp','fp','fn']):
+                    raise ValueError('voxel counts must be nonnegative integers')
+            target_count=b['tp']+b['fn']
+            if target_count!=c['tp']+c['fn']:
+                raise ValueError('paired target foreground voxel counts differ')
+            identity=(target_count,cluster)
+            if sid in targets and targets[sid]!=identity:
+                raise ValueError('target or source-cluster identity changed across sampling repeats')
+            targets[sid]=identity
+            seeds=observed_seeds.setdefault(sid,set())
+            if b['seed'] in seeds:raise ValueError('sampling repeats reused the same per-asset noise seed')
+            seeds.add(b['seed'])
+            hashes=[record.get('target_voxels_sha256') for record in [b,c]]
+            for record in [b,c]:
+                if record.get('target_voxels_sha256'):
+                    geometry=(record['target_voxels_sha256'],tuple(record['target_voxel_shape']))
+                    if sid in target_hashes and target_hashes[sid]!=geometry:
+                        raise ValueError('target voxel geometry changed across paired records')
+                    target_hashes[sid]=geometry
+            if all(hashes):
+                if hashes[0]!=hashes[1] or b['target_voxel_shape']!=c['target_voxel_shape']:
+                    raise ValueError('paired target voxel geometry differs')
+                hash_verified+=1
             x=np.array([c['tp'],c['fp'],c['fn'],b['tp'],b['fp'],b['fn']],dtype=np.float64)
             groups[cluster]=groups.get(cluster,np.zeros(6))+x;counts.append(x)
         total=np.stack(counts).sum(0)
@@ -38,6 +67,8 @@ def compare(pairs, draws=4000):
         'paired_cluster_bootstrap_ci95':np.quantile(gain,[.025,.975]).tolist(),
         'bootstrap_draws':draws,'bootstrap_seed':42017,'per_noise':noise_results,
         'aggregation':'sum TP/FP/FN across equal sampling repeats; bootstrap source clusters with all repeats together',
+        'target_foreground_counts_verified':True,'paired_target_hashes_verified':hash_verified,
+        'target_hash_scope':'only pairs carrying hashes on both sides; legacy pairs have count checks only',
         'training_seed_replication':False}
 
 

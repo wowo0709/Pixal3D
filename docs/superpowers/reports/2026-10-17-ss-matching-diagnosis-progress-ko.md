@@ -26,7 +26,11 @@ B1~B3도 이 single-noise panel에서 작은 양의 차이가 있다. 그러나 
 
 Top64 후보 recall은 validation 63.86%였고 Top256에서는 93.16%다. Train-internal calibration은 57.18% → 88.39%로, 고정한 상한 K256을 사용했다. Calibration 목표 90%를 달성했다고 표현하지 않는다.
 
-새 고정-final 7-epoch Top-1은 H1 **21.79%**, H2 **22.78%**, H3 **23.71%**다. 기존 matcher의 이력 값은 21.19%다. 기존 matcher와 새 head는 train/calibration 및 budget이 달라 단일 변수 비교가 아니므로, 같은 새 protocol의 Top64 H0 replay도 진행한다. H*는 validation으로 고르지 않고 calibration의 transported feature error로 **H3 / T0.1**을 선택했다.
+새 고정-final 7-epoch Top-1은 H1 **21.79%**, H2 **22.78%**, H3 **23.71%**다. 기존 matcher의 이력 값은 21.19%다. 기존 matcher와 새 head는 train/calibration 및 budget이 달라 단일 변수 비교가 아니므로, 같은 새 protocol의 Top64 H0 replay도 완료했다. H0 replay Top1은 **20.71%**, near1은 **49.26%**다. H*는 validation으로 고르지 않고 calibration의 transported feature error로 **H3 / T0.1**을 선택했다.
+
+같은 508개/132 source cluster의 paired bootstrap에서 H1−H0 Top1은 **+1.083%p, CI[+0.108,+2.066]**, H2−H1은 **+0.996%p, CI[+0.481,+1.529]**, H3−H2는 **+0.926%p, CI[+0.359,+1.479]**였다. H3−H2 near1은 **+0.450%p, CI[−0.370,+1.255]**로 불확실하다. H0/H1의 feature error 평균은 각각 자신의 proposal-hit query를 분모로 써 모집단이 다르므로 직접 차감하지 않는다.
+
+H2 confidence loss의 ranking 입력은 detach되어 있다. 실제 calibration descriptor의 CPU autograd 검사에서도 ranking parameter의 direct confidence gradient는 0이었다. Confidence 추가로 전체 gradient clipping의 효과는 달라질 수 있으므로 H2의 Top1 상승을 inference rejection의 인과 효과로 해석하지 않는다. 생성 성능에서의 효과는 아래 별도 SS R arm으로 확인한다.
 
 H1/H2 최종 감사에서 근접 1-patch(Chebyshev, 같은 source view)의 정확도는 51.64%/53.50%다. H2의 weighted DINO feature cosine error는 **0.01670**, 같은 후보의 uniform 진단은 **0.04348**이었다. Source foreground mean을 제거한 feature error도 **0.20456 대 0.68056**으로, 단순 공통 feature 평균만으로 설명되지는 않는다. 여기서 uniform은 feature utility 진단일 뿐 no-score arm의 정의가 아니다. No-score arm은 Top-1을 유지한다.
 
@@ -60,7 +64,7 @@ Projection을 맞추면 nearest보다 좋아지지만 native를 넘지는 못했
 
 [후속 계획](2026-10-17-ss-native-retargeting-followup-ko.md)에 따라 **P1은 기존 R9 attention + native/support-normalized projection + C1 adapter**, **P2는 동일 consumer에 calibration-selected H3 matcher를 적용**한다. 두 모델 모두 원본 mixed385 base+LoRA에서 독립적으로 시작하며, 기존 C1 weight를 continuation하지 않는다. Dataset/latent/Omega는 재구축하지 않았다.
 
-기존 R9 weighted evidence를 SS batch에서 K64로 펼치지 않도록 사전 집계했다. 9,657개를 처리했고 8개 audit에서 원래 online soft evidence와 **최대 오차 0**을 확인했다. FP32 weighted feature를 유지하고 frozen scorer 제거에 따른 retargeter 초기 RNG 소비도 보존했다. Teacher 파일을 이 inference cache에 넣지 않았다. 새 H3 cache도 별도 namespace에서 구축하며 contract/online parity를 통과해야 P2가 시작된다.
+기존 R9 weighted evidence를 SS batch에서 K64로 펼치지 않도록 사전 집계했다. 9,657개를 처리했고 8개 audit에서 원래 online soft evidence와 **최대 오차 0**을 확인했다. FP32 weighted feature를 유지하고 frozen scorer 제거에 따른 retargeter 초기 RNG 소비도 보존했다. Teacher 파일을 이 inference cache에 넣지 않았다. 새 H3 cache도 별도 namespace에 9,657개 구축을 완료했고 별도 8개 online audit의 최대 오차 0을 확인했다.
 
 실제 GPU에서 native-bilinear B2/B3/C1/C2 경로의 초기 global/proj 최대 오차 **0**, gate 및 adapter gradient를 확인했다. P1 실제 R9-reference cache에서도 같은 검사가 통과했다. P1 시작 전 생성 IoU는 **0.42671546671444294**로 기존 edited-RGB zero-shot 32개 값과 정확히 같았다. 초기 성능 하락이 없는 것을 생성 지표로도 확인했다.
 
@@ -70,15 +74,19 @@ Projection을 맞추면 nearest보다 좋아지지만 native를 넘지는 못했
 | Single GPU, 최적화 후 | 48 / 1 / 2 | 34.63초 | 47.71 GiB |
 | **P1 DDP 검사** | **48 / 2 / 1, global96** | **약17.5초** | **각 rank47.75 GiB** |
 
-큰 microbatch가 항상 빠르지는 않았다. 두 GPU를 나눠 accumulation 없이 처리하는 방식으로 전체 latency를 줄인다. P1은 **GPU2·3에서 본 학습 step1을 확인**했다. 첫 batch는 worker spawn/초기 I/O로 steady-state보다 느리므로 최종 ETA는 후속 update를 보고 갱신한다. P2는 **GPU0·1**, H3 cache/최종 감사와 기존 head 작업이 끝난 뒤 시작된다. 5 epochs/480 updates, 매 epoch32개와 final128개, W&B loss/metric/GT-pred-diff logging을 유지한다.
+큰 microbatch가 항상 빠르지는 않았다. 두 GPU를 나눠 accumulation 없이 처리하는 방식으로 전체 latency를 줄인다. P1은 **GPU2·3**, P2는 **GPU0·1**에서 진행 중이며 steady-state 약17.2초/update, 각 rank peak47.75GiB다. 두 모델의 시작 전 공통32 IoU는 모두0.426715로 일치했다. P1의 첫 epoch(step96)는0.434282였다. 사용자 중단 이후 step103/56의 optimizer/scheduler/sampler까지 복원했으며 rank별 RNG가 없어 bitwise uninterrupted replay는 아니다. 5 epochs/480 updates, 매 epoch32개와 final128개, W&B loss/metric/GT-pred-diff logging을 유지한다.
+
+P1/P2와 별도로 원래 계획의 Top1 → rejection → attention → adapter → physical query **다섯 SS arm을 native projection에서 실행하도록 복원**했다. Retarget-only query-study의 미실행 두 run은 이 다섯 arm 중 C1/C2로 대체해 중복을 없앴다. [전체 범위 복원 및 실행표](2026-10-17-ss-full-module-restoration-ko.md)를 기준으로 진행하며, P1/P2만으로 원래 모듈 비교를 완료했다고 판정하지 않는다.
 
 Pipeline에서 완료 의존성 대기가 빠진 문제로 H3/H0 최종 감사가 일찍 시도됐지만, 감사의 7-epoch guard가 이를 거부했다. 의존성 완료 대기를 수정하고 해당 감사만 재예약했다. 불완전한 head 결과를 최종 수치로 사용하지 않았고, 진행 중 SS/head process는 보존했다.
 
 ## 4. 확인해야 할 남은 결과
 
 - P1/P2의 5-epoch final 생성 지표와 기존 V1/C1 대비 paired 차이. 현재 새 full 성능 향상을 주장하지 않는다.
-- 같은 protocol의 H0 replay와 H3의 near/feature/confidence 최종 감사.
+- 복원한 다섯 SS arm의 final 결과와 Top1/rejection/attention/adapter/query 인접 대비. H0/H3 head 최종 감사는 완료했다.
 - 실제 학습 속도/메모리의 안정성, epoch별 생성 경향과 loss의 관계.
-- P 계열 parent를 고정한 뒤 물리적인 deformation-query 채널을 추가하는 C2 비교. Retargeter/query 2×2는 구성하지 않는다.
+- 같은 H3/rejection/native projection에서 물리적인 deformation-query 채널을 추가하는 C2 비교. C1에는 해당 채널이 없으며 retargeter/query 2×2는 구성하지 않는다.
+
+SS quick voxel 지표의 GT는 정합된 M1 SS latent를 decoder로 복원한 occupancy다. Raw mesh 표면 또는 렌더링 지표와 혼동하지 않는다. 후속 결과에는 이 occupancy의 해시와 shape도 저장하고, 비교 시 동일 GT foreground 수·hash(양쪽에 존재할 때)·cluster·sampling 설정과 noise 반복 중복을 검사한다. 기존 V1/C1 공통128×3 noise의 GT foreground 수는 모두 일치했고, 보강한 comparator에서도 기존 gain/CI가 정확히 보존됐다. Legacy 결과에는 당시 저장한 전체 GT voxel hash가 없어 count 검사 범위를 넘어선 hash 검증을 주장하지 않는다.
 
 Authoritative outputs: file4의 `/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/`. 통계 근거는 `diagnostics/*common128-bootstrap.json`, `noise-confirmation/c1-v1-three-noise.json`, `head-audit/`, `projection-audit/`, `role-balance-probe/`에 있다. 새 학습은 `retarget-native-v3/`, 실행 큐는 `runtime/queue-state.json`이다. [W&B P1](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [공통 평가](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-matching-v2-evaluations).

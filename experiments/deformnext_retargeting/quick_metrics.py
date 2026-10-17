@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -142,6 +143,9 @@ def _ss_metrics(self, dataset, indices: list[int], config: dict[str, Any]):
             'seed': seed, **binary_metrics(pred, gt),
             'tp': int((pred & gt).sum()), 'fp': int((pred & ~gt).sum()),
             'fn': int((~pred & gt).sum()),
+            'target_voxels_sha256': hashlib.sha256(np.packbits(gt.detach().cpu().numpy().reshape(-1)).tobytes()).hexdigest(),
+            'target_voxel_shape': list(gt.shape),
+            'target_representation': 'decoder reconstruction of aligned target SS latent',
         })
     pred_projection = pred_occ.float().amax(dim=1, keepdim=True).repeat(1, 3, 1, 1)
     target_projection = target_occ.float().amax(dim=1, keepdim=True).repeat(1, 3, 1, 1)
