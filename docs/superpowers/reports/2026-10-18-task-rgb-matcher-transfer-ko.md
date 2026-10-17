@@ -1,0 +1,36 @@
+# 재현한 Q2C의 DeformNeXt task RGB 대조
+
+원본63-pair Q2C의24개 run을 수치까지 재현한 다음 단계다. 현재H3의 ranking CE/DINO cosine objective를 원래 RGB task와 같다고 취급하지 않는다. 새 결과는 별도 `task-rgb-transfer-v1` namespace에 기록한다. 진행 중인14개 SS 비교와G2 reference 재생은 유지한다.
+
+## 고정 비교
+
+| Arm | Architecture | 후보 | Loss |
+| --- | --- | --- | --- |
+| T0 | 원본 R9Scorer D0 pairwise | 기존 frozen Omega epoch7 global RAW64 | controlled RGB L1 |
+| T1 | 동일 + 원본 D1 Q2C | 동일64개 | 동일 RGB L1 |
+
+Score-aware soft fusion은 양쪽에 같다. 이것은 Q2C context의 유무 비교다. 사용자가 정의한 No-score(Top1 선택), No-corr(native spatial), physical No-query의 의미를 바꾸지 않는다. Confidence/rejection을 새 head에 임시로 붙이지 않는다.
+
+기존 head-train8570개에서256개, head-calibration573개에서64개를 category round-robin·role/sample hash로 선택했다. 각 pair는 서로 다른 source cluster이며 train/calibration/validation cluster가 겹치지 않는다. 기존508 validation의 이미지나 task label을 이 pilot 평가에 사용하지 않는다. 이64개 calibration 결과를 보고 방법을 선택하면 unseen-test라고 부르지 않는다.
+
+## 원래 task를 patch 공간에 옮기는 계약
+
+이전 `procedural_surface_cue` 함수를 AST 그대로 이식했다. M0 vertex에 label16개·분리된 evaluator16개 RGB cue를 만든다. M1은 같은 topology의 barycentric interpolation으로 같은 source-space identity를 받는다. 대상은 전체 source surface이며, 과거의 vertex-level transport-region carrier와 이 patch-level 확장은 별도 task variant다.
+
+실제512px4-view camera에서 CPU raycast를 수행하고, 기존RGB alpha를 사용해 patch16×16의 foreground-normalized mean cue를 구한다. Sparse pixel→vertex barycentric operator를 사용하므로 nearest-patch hard label로 색을 복사하지 않는다. 원본 topology/raster certification과 이미지·mesh·camera fingerprint를 대조하고, 새 raycast도 input alpha와 검증한다. 원래 descriptor source-valid mask 및 기존Top64 proposal은 변경하지 않는다. GT geometry로 후보를 고르지 않는다.
+
+Cue는 loss supervision이다. Matcher 입력은 기존 실제RGB에서 추출한 Omega epoch7 FRAME1024이며, cue RGB·vertex ID·geometry·camera·sample ID를 feature로 전달하지 않는다. Label/evaluator cue는 별도 파일에 저장한다. GT상 source-visible인 foreground query를 task 대상으로 쓰되, 후보 안의 exact patch 정답 여부로 eligibility를 다시 고르지 않는다. 후보 miss·가시 query 수는 별도 기록한다. 관측 가능한 query가0개인 pair는 임의 대체하지 않고 수와 ID를 보고한다.
+
+## 학습·평가
+
+원본과 같은 pair-uniform sampling·256query/update·1200update를 사용한다. Scalar head LR0.001, added Q2C LR0.0001, AdamW weight decay0.0001, fixed tau0.005, no correspondence CE다. P0-RAW의 preservation term은0이다. Seed42017/42018/42019에서 T0/T1을 각각 fresh로 학습한다. 같은 seed는 동일 pair/query sampler를 쓰고 초기 score가 RAW 및D0와 exact인지 확인한다.
+
+이것은 matching head의 query batch다. 현재 SS의 global asset batch96·LoRA continuation·5epoch 설정은 바꾸지 않는다. 최종 checkpoint와 SHA를 고정한 뒤 evaluator cue를 연다. Calibration64의 pair별 RGB L1·RAW/Top1 참고치·seed별 변화와 source-cluster paired CI를 저장한다. 원본 controlled experiment와 현재 dataset 결과를 합쳐서 집계하지 않는다.
+
+학습된 pilot checkpoint는 자동 production 승격하지 않는다. Task gain·native SS 입력 경로·SS 실제 생성의 순서로 검증한다. 기존 G2의9채널/region-loss 재현, native per-source-camera 경로와 native fallback의 검증은 별도 조건이다. 현재 GT-address32 진단의+1.96IoU pp를 이 learned matcher의 향상으로 사용하지 않는다.
+
+## 자원·실측 준비
+
+GPU는0~3만 사용한다. 현재0/1의C2와2/3의G2 재생을 유지하며 CPU cache는 affinity2core로 제한한다. 첫 실제 asset의512px4-view cache는약3.5초였고 mask IoU는각view0.9973 이상, containment1.0이었다.320개는 대략15~20분의 CPU 작업으로 예상하며 실제 경과를 기록한다. 기존 RGB/Omega cache를 재사용하므로80k 재다운로드나 backbone 재추론은 필요 없다.
+
+RNG/role seed·barycentric area average·background·split·cluster 독립성의CPU4개 검증과 실제1개 asset의 label/evaluator 파일 분리를 확인했다. 이 PASS는 학습 개선을 뜻하지 않는다. Cache와 source provenance를 file4에 보존하고, 비는GPU2/3에서6개의 짧은 head 학습을 실행한다.

@@ -1,0 +1,7 @@
+{
+  "file": "pixal3d/experiments/exg_app_cue_alignment.py",
+  "file_sha256": "95a2a0f5579411380d45f422f1b5ca94abeed5f199882cd9f864161938afa8e9",
+  "symbol": "procedural_surface_cue",
+  "AST_sha256": "abd63c69ea21392cd7672cb8bdbd4a049fc3001d34c08454328da02c8d5a93a8",
+  "policy": "Original value generator, never a descriptor input. Current patch RGB task uses foreground-normalized barycentric area averages."
+}
