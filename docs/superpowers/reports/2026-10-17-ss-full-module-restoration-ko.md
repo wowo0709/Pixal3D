@@ -45,8 +45,12 @@ P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler
 
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.
 
+Zero-shot 두 조건과 기존 B1/B2/B3도 추가 noise 두 개를 생성해 최종 세-noise 표에 함께 넣는다. V1/기존 C1은 이미 세 noise가 있다. 이 보충은 저장된 checkpoint의 평가 열 개이며 재학습이 아니다. GPU pair가 비면 실행하도록 queue에서 자원을 예약하며 기존 학습과 겹치지 않는다. 최종 집계는 baseline 일곱 개와 새 run 일곱 개, 총14개 구성을 같은128×3 조건으로 다룬다. Source-only의 네 M0 RGB도 동일 M1 target과 비교하는 입력 효과 진단임을 명시한다.
+
 핵심 대비는 `b2-top1−V1`, `b2-top1-r−b2-top1`, `b3-attention-r−b2-top1-r`, `c1-retarget-r−b3-attention-r`, `c2-query-r−c1-retarget-r`다. P1/P2와 기존 C1도 최종 비교에 포함한다. Head Top1 향상만으로 SS module 효과를 입증하지 않는다. H2 confidence loss는 ranking branch에 detach되어 있어 H2−H1 순위 향상을 inference rejection의 인과 효과로 설명하지 않으며, 실제 SS R 대조로 판단한다.
 
 Full은 C2로 미리 확정하지 않는다. 다섯 대비를 모두 보고 best final 구성과 확인되지 않은 효과를 기록한다. 근소한 차이는 training-seed 재현을 추가한다. 개발용128을 선택에도 사용한 결과는 unseen test 성능으로 부르지 않는다. 과거 voxel P1/G2의 cleanup 개선도 source utilization 성공과 구분한다. 기존 보고서는 두 실험 모두 DEV projected-source 효용을 입증하지 못했다고 명시했다.
 
 완료 시 원래 계획 항목별 결과/미확인 가설, 같은-panel final 표, 학습 경향, GT/Pred 이미지, head/cache/checkpoint provenance, 실제 시간·메모리 및 PBR 확대 근거를 한 리포트에 정리한다. 실행 중이거나 config만 준비된 상태를 완료로 표시하지 않는다.
+
+`summarize_ss_module_study`를 마지막 CPU job으로 연결한다. 완료 marker뿐 아니라 두 rank의1~480 연속 update, 여섯 epoch 검증, 초기 generation parity, native/physical-query gradient 증명과 final checkpoint를 확인해야 primary report를 만든다. 이 report의 `primary_matrix_complete`는 최초 비교 행렬의 완료이며 추가 seed/최종 채택/PBR 또는 전체 goal 완료를 뜻하지 않는다. 자동 산출물은 file4와 W&B artifact로 보존하고 최종 채택과 필요한 후속 실험은 실제 결과를 검토해 결정한다.

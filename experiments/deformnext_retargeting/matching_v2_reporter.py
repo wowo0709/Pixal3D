@@ -17,7 +17,7 @@ def main():
         dir=str(a.work_root),config={'physical_gpu_allowlist':[int(g) for g in gpu_ids(a.gpus)],'data':'DeformNeXt RGB','stage':'SS64','generation_batch':8})
     receipt=a.work_root/'evaluation-logging.json';logged=set(json.loads(receipt.read_text()).get('logged',[])) if receipt.exists() else set()
     while True:
-        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','retarget-native-v3/evaluations','retarget-native-v3/noise-confirmation','retarget-native-v3/query-study/evaluations','retarget-native-v3/query-study/noise-confirmation','module-study-native-v4/evaluations','module-study-native-v4/noise-confirmation']:
+        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','baseline-noise-confirmation','retarget-native-v3/evaluations','retarget-native-v3/noise-confirmation','retarget-native-v3/query-study/evaluations','retarget-native-v3/query-study/noise-confirmation','module-study-native-v4/evaluations','module-study-native-v4/noise-confirmation']:
             for f in (a.root/directory).glob('**/evaluation.json'):
                 key=str(f.relative_to(a.root))
                 if key in logged:continue
@@ -45,6 +45,15 @@ def main():
             run.log(payload);logged.add(key)
             receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         state_path=a.work_root/'queue-state.json'
+        report=a.root/'module-study-native-v4/final-primary-report.json'
+        report_key=str(report.relative_to(a.root))
+        if report.exists() and report_key not in logged:
+            value=json.loads(report.read_text())
+            artifact=wandb.Artifact('ss-native-module-v4-primary-report',type='evaluation-report')
+            artifact.add_file(str(report));artifact.add_file(str(report.with_suffix('.md')))
+            run.log_artifact(artifact);run.summary['primary_report_status']=value['status']
+            run.summary['primary_models']=len(value['models'])
+            logged.add(report_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         state=json.loads(state_path.read_text()) if state_path.exists() else {}
         run.log({'campaign/running':sum(r['status']=='running' for r in state.values()),
                  'campaign/completed':sum(r['status']=='completed' for r in state.values()),
