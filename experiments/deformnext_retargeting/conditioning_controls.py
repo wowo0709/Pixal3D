@@ -30,3 +30,40 @@ class ConditioningControl:
             path=self.dataset._resolve(self.dataset.rows[index]['source_anchor_rgb'])
             sample['cond'][0]=_load_image(path,self.dataset.image_size)
         return sample
+
+
+class TransportControl:
+    """Perturb only the cached SS transport path, retaining all four RGB views."""
+    DEFINITIONS = {
+        'source-off': 'Disable the additional transport and adapter paths; native four-view conditioning remains.',
+        'wrong-corr': 'Roll correspondence values by one target-query slot within each object; a weak local sensitivity control.',
+        'shuffled-deform': 'Cycle the physical C2 RAW deformation context between assets in each generation batch.',
+    }
+    MODES = tuple(DEFINITIONS)
+
+    def __init__(self, dataset, mode):
+        if mode not in self.MODES:
+            raise ValueError('unknown transport control')
+        if (getattr(dataset, 'transport_implementation', None) != 'matching-v2'
+                or getattr(dataset, 'transport_arm', None) not in {'b2', 'b3', 'c1', 'c2'}):
+            raise ValueError('transport controls require matching-v2 SS evidence')
+        if mode == 'shuffled-deform' and dataset.transport_arm != 'c2':
+            raise ValueError('shuffled deformation requires physical C2 query channels')
+        self.dataset, self.mode = dataset, mode
+
+    def __getattr__(self, name):
+        return getattr(self.dataset, name)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        return self.dataset[index]
+
+    def collate_fn(self, batch, split_size=None):
+        if self.mode == 'shuffled-deform' and len(batch) < 2:
+            raise ValueError('shuffled deformation requires at least two assets per generation batch')
+        pack = self.dataset.collate_fn(batch, split_size=split_size)
+        if not isinstance(pack, dict) or 'transport_control' in pack:
+            raise ValueError('transport control requires an unmodified dense SS batch')
+        return {**pack, 'transport_control': self.mode}

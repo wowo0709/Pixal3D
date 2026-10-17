@@ -151,6 +151,16 @@ B3/C1 optimizer의361/366개 상태가 모두step192이고 moment가finite임을
 
 근거는 `module-study-native-v4/interim-second-epoch-attention-adapter.json`, `epoch-comparisons/epoch-02-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch2-checkpoints.json`이다. 두주대비의CI는W&B에기록됐다. 두run의480 updates·final128×3, C2 및나머지baseline 평가를계속유지한다.
 
+### 저장된 checkpoint의 추가 경로 진단 준비
+
+기존 진단의 일부는 legacy candidate cache를 전제로 하므로 새 matching-v2 cache에 그대로 적용하지 않는다. `evaluate_native_checkpoint --transport-control`에 기존 inference control 경로를 연결했다. 기본값은`normal`이고 정상 평가의 tensor 흐름은 유지한다. 모델 forward·학습 설정·진행 중 프로세스는 변경하지 않았다.
+
+`source-off`는 추가 transport/adapter 경로만 끄고 native multi-view와M1 RGB1장+M0 RGB3장을 유지한다. 별도로 학습한V1이나target-only arm과 같지 않다. `wrong-corr`는 같은 object 안에서 correspondence value를한query slot 이동하는 약한 국소 민감도 진단이다. 변화가 없더라도source/주소를 사용하지 않는다는 증거로 단정하지 않는다. `shuffled-deform`은C2의물리적RAW context를batch 내asset 사이에서순환시키며batch당최소2개를요구한다. C1의채널제거 ablation을0벡터로대체하는기능이아니다.
+
+비정상control 결과에는`diagnostic_only`와control 정의를명시하며, primary collector는이를정상14개구성의평가로받지않는다. 같은voxel count로위장된diagnostic도거부하는경우를포함해관련CPU30개테스트가통과했다. Wrapper에서실제`get_inference_cond`·transport 추출·conditioner 호출까지control이전달되고sampler에는남지않는dispatch도검증했다. 실제C1/C2 validation cache에서각2개batch를읽어RGB4장·camera·GT·evidence tensor가정확히유지되고C2 RAW context가2×1024×2048임도확인했다. CPU 렌더러 import에는프로젝트테스트의초기화방식만사용했고GPU 연산은하지않았다.
+
+현재는실행경로와입력전달검증완료이며counterfactual 생성결과나source 유용성입증은아직없다. 후속진단은동일checkpoint·panel·seed의별도output으로허용된GPU0~3의빈시간에진행한다. 정상학습arm 수나필수14개구성은늘리거나줄이지않는다. 근거는 `provenance/transport-control-cpu-smoke.json`이다.
+
 ## 비교·완료 조건
 
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.

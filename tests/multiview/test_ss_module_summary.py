@@ -170,6 +170,13 @@ def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeyp
     report=(study/'final-primary-report.md').read_text()
     assert 'zero-source-only' in report and 'c2-query-r' in report
     assert not list(study.glob('*.tmp'))
+    # Even unchanged voxel counts cannot turn an inference diagnostic into
+    # a normal ablation record.
+    diagnostic=study/'noise-confirmation/noise-2/b2-top1/evaluation.json'
+    value=json.loads(diagnostic.read_text());value.update(transport_control='source-off',diagnostic_only=True)
+    write(diagnostic,value)
+    with pytest.raises(ValueError,match='nonmatching final generation'):
+        summarize_ss_module_study.main()
 
 
 def test_final_replay_guard_detects_different_saved_weight_results(complete_run):

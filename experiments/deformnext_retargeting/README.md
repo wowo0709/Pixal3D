@@ -375,3 +375,35 @@ the parent. Reference RAW2048 context can be read from its immutable sidecar
 with strict head/input fencing, without duplicating evidence files. C1 omits
 the physical query channels; C2 checks their connection in a restored,
 optimizer-free GPU probe before training.
+
+## Restored native SS module study
+
+The [full module protocol](../../docs/superpowers/reports/2026-10-17-ss-full-module-restoration-ko.md)
+restores the Top1, rejection, attention, adapter and physical-query comparisons.
+These five independent runs supplement P1/P2; the historical nearest-grid
+HOLD does not cancel the native module ladder. The fixed-final report requires
+all seven new 480-update runs and all fourteen normal configurations on the
+same128 panel with three sampling repeats. Completion of that primary matrix
+does not itself resolve seed replication, source-use or model-adoption questions.
+
+`evaluate_native_checkpoint --transport-control` supports inference-only
+diagnostics on matching-v2 SS checkpoints, using the same arm config,
+denoiser/conditioner weights, panel and seed map as the normal evaluation.
+Use a separate output directory. The default `normal` path is unchanged.
+
+- `source-off` disables the additional transport/adapter path while retaining
+  native multi-view conditioning and all four edited/source RGB images.
+  It is distinct from training a new vanilla V1 or removing the source views.
+- `wrong-corr` shifts correspondence values by one target-query slot within
+  each object. This is a weak local sensitivity check; an unchanged result
+  does not prove that source information or correspondence addresses are unused.
+- `shuffled-deform` cycles the physical RAW context across assets in a C2
+  generation batch. Each batch must contain at least two assets. Structural
+  query ablation still uses C1 without those channels, rather than zero inputs.
+
+Non-normal results carry `diagnostic_only` and `transport_control` metadata.
+The primary collector rejects them even if their voxel counts happen to equal
+a normal result. Input controls such as `source-only` cannot be combined with
+transport perturbations. CPU data-interface checks preserve the actual RGB,
+camera, target latent and cached evidence tensors; generated GPU diagnostics
+are scheduled separately on the explicitly assigned resources.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse,json,hashlib
 from pathlib import Path
 import torch
+from .conditioning_controls import TransportControl
 
 
 def main():
@@ -15,11 +16,15 @@ def main():
     p.add_argument('--arm-config',type=Path)
     p.add_argument('--conditioner-checkpoint',type=Path)
     p.add_argument('--conditioning-mode',choices=['edited-rgb','source-only'],default='edited-rgb')
+    p.add_argument('--transport-control',choices=('normal',*TransportControl.MODES),default='normal',
+                   help='Diagnostic-only transport perturbation; retains the edited-RGB four-view input')
     p.add_argument('--panel-size',type=int)
     p.add_argument('--panel-file',type=Path)
     p.add_argument('--seed-map-file',type=Path)
     p.add_argument('--generation-batch',type=int,default=1)
     args=p.parse_args()
+    if args.transport_control!='normal' and args.conditioning_mode!='edited-rgb':
+        raise ValueError('transport diagnostics retain the edited-RGB input; do not combine input controls')
     from pixal3d import datasets,models,trainers
     from .quick_metrics import evaluate_quick
     from PIL import Image
@@ -31,6 +36,8 @@ def main():
     if args.conditioning_mode!='edited-rgb':
         from .conditioning_controls import ConditioningControl
         ds=ConditioningControl(ds,args.conditioning_mode)
+    if args.transport_control!='normal':
+        ds=TransportControl(ds,args.transport_control)
     if args.panel_size is not None:cfg['validation']['quick_metrics']['panel_size']=args.panel_size
     cfg['validation']['quick_metrics'].update(generation_batch_size=args.generation_batch,log_progress=True)
     if args.panel_file:cfg['validation']['quick_metrics']['panel_file']=str(args.panel_file)
@@ -55,6 +62,8 @@ def main():
             'panel_file':str(args.panel_file) if args.panel_file else None,
             'seed_map_file':str(args.seed_map_file) if args.seed_map_file else None}
     result.update(conditioning_mode=args.conditioning_mode,target_modality='rgb',
+                  transport_control=args.transport_control,diagnostic_only=args.transport_control!='normal',
+                  transport_control_definition=TransportControl.DEFINITIONS.get(args.transport_control),
                   pbr_geometry='GT_target_shape_fixed' if args.stage=='pbr1024' else None,
                   input_states=['M0']*4 if args.conditioning_mode=='source-only' else ['M1','M0','M0','M0'],
                   input_view_count=4,
