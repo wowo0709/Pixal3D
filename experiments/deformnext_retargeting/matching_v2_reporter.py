@@ -17,7 +17,7 @@ def main():
         dir=str(a.work_root),config={'physical_gpu_allowlist':[int(g) for g in gpu_ids(a.gpus)],'data':'DeformNeXt RGB','stage':'SS64','generation_batch':8})
     receipt=a.work_root/'evaluation-logging.json';logged=set(json.loads(receipt.read_text()).get('logged',[])) if receipt.exists() else set()
     while True:
-        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','retarget-native-v3/evaluations','retarget-native-v3/noise-confirmation','retarget-native-v3/query-study/evaluations','retarget-native-v3/query-study/noise-confirmation']:
+        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','retarget-native-v3/evaluations','retarget-native-v3/noise-confirmation','retarget-native-v3/query-study/evaluations','retarget-native-v3/query-study/noise-confirmation','module-study-native-v4/evaluations','module-study-native-v4/noise-confirmation']:
             for f in (a.root/directory).glob('**/evaluation.json'):
                 key=str(f.relative_to(a.root))
                 if key in logged:continue
@@ -33,6 +33,7 @@ def main():
         comparisons=[a.root/'noise-confirmation/c1-v1-three-noise.json',
             a.root/'role-balance-probe/validation128/paired-v1.json',
             *(a.root/'retarget-native-v3/comparisons').glob('*.json'),
+            *(a.root/'module-study-native-v4/comparisons').glob('*.json'),
             *(a.root/'retarget-native-v3/query-study/comparisons').glob('*.json')]
         for f in comparisons:
             key=str(f.relative_to(a.root))
