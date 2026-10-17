@@ -6,14 +6,14 @@
 
 | 구분 | 실험 | 상태/역할 |
 | --- | --- | --- |
-| 공통 기준 | Source-only RGB 4장 / edited-RGB 1+3장 zero-shot, V1, 기존 B1/B2/B3/C1 | 기존 checkpoint 공통128 재평가 완료; V1 재학습 없음 |
+| 공통 기준 | Source-only RGB 4장 / edited-RGB 1+3장 zero-shot, V1, 기존 B1/B2/B3/C1 | 공통128 noise0 완료; zero-shot/V1/C1 세 noise 완료; B1/B2/B3 추가 noise 예약; V1 재학습 없음 |
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
-| Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 진행 중; 새 main ladder와 별도로 보고 |
-| SS 본 비교 | 아래의 다섯 arm | native projection에서 실행 복원 |
+| Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 실행 중; attention/adapter/query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
-P1/P2를 포함하면 새 SS run은 총 일곱 개다. 현재 P1/P2는 같은 run의 저장 상태부터 이어가며, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
+P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
 
 ## 복원한 다섯 arm
 
@@ -36,7 +36,7 @@ V1은 native spatial correspondence 기준이다. No-score 비교는 b2-top1-r �
 - DeformNeXt RGB/world-v4 train9149/val508, frozen Omega epoch7, 기존 정합 latent와 cache를 재사용한다. Clean80k를 추가하지 않는다.
 - 원본 mixed385 complete base+LoRA checkpoint에서 각 arm을 독립적으로 시작한다. 구조의 순서는 weight continuation을 뜻하지 않으므로 고정한 arm은 병렬 학습할 수 있다.
 - 480 updates/약5 epochs, global96, 2-GPU DDP, rank당 micro48, accumulation1. 원래 optimizer/LoRA/conditioner LR/warmup/CFG dropout을 유지한다.
-- GPU0·1에는 P2 → b2-top1 → b3-attention-r → c2-query-r, GPU2·3에는 P1 → b2-top1-r → c1-retarget-r를 배치한다. 각 run의 final 세-noise 평가를 마치면 같은 pair의 다음 학습을 실행한다. 이21개 final 평가 job도 해당 학습 pair에 고정하고 noise0은 validation rank0의 물리 GPU에 배치한다. 다른 pair의 다음 학습이 평가 때문에 지연되는 것을 피하며, 생성 평가는 학습 GPU와 겹치지 않는다. 마지막 학습 중 다른 pair는 평가와 진단에 사용한다.
+- GPU0·1에는 P2 → b2-top1 → b3-attention-r → c2-query-r, GPU2·3에는 P1 → b2-top1-r → c1-retarget-r를 배치한다. 각 run의 final 세-noise 평가를 마치면 같은 pair의 다음 학습을 실행하는 것이 기본이다. 이21개 final 평가 job은 기본적으로 해당 학습 pair에 배치하고 noise0은 validation rank0의 물리 GPU에 고정한다. 실제 빈 GPU의 backfill은 별도 receipt에 남긴다. P1 noise2가 GPU2, P2 noise0/1이 GPU0/1에서 실행되고 GPU3이 빈 시점에는 P2 noise2 하나를 GPU3으로 옮겨 세 학습 wave가 남은 GPU0/1의 전환을 앞당긴다. 독립 초기화인 b2-top1은 GPU0/1의 두 평가가 끝나면 시작할 수 있고 GPU3의 P2 noise2는 최종 집계의 필수 의존성으로 유지한다. GPU2/3의 다음 학습은 이 backfill의 잔여 시간도 기다릴 수 있음을 명시한다. 생성 평가는 학습 GPU와 겹치지 않는다. 마지막 학습 중 다른 pair는 평가와 진단에 사용한다.
 - 실제 native-start/gradient 증명과 2-update per-rank memory probe를 통과한 run만 본 학습으로 진행한다. 메모리·속도·loss·gate/update RMS·metric·이미지를 W&B와 file4에 남긴다.
 
 P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler/sampler까지 복원했다. Native checkpoint에는 rank별 RNG가 없어 bitwise uninterrupted replay라고 주장하지 않는다. 현재 설정의 steady-state는 약17.2초/update, 각 rank peak47.75GiB였다.

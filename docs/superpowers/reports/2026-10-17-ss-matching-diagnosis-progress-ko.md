@@ -1,6 +1,6 @@
 # SS matching 원인 진단과 후속 학습 진행
 
-2026-10-18 01:05 KST 기준 중간 결과다. P1은5-epoch 학습과32개 검증을 완료했고 P2는 학습 중이며, 새 P1/P2의 final128×3 성능은 아직 없다. 아래 첫 표는 기존 noise0 결과이고 이후에 추가한 세-noise baseline 표와 구분한다. 물리 GPU0~3만 사용하며 기존 SS C2(step90), PBR B3(step979)는 중단 상태로 file4에 보존했다.
+2026-10-18 01:20 KST 기준 중간 결과다. P1/P2의5-epoch 학습·32개 검증·final128×3 평가가 완료됐고, 다섯 모듈 ablation의 첫 두 arm이 시작됐다. 아래 첫 표는 기존 noise0 결과이고 이후에 추가한 세-noise baseline 표와 구분한다. P1/P2의 최종 interface 비교는 [별도 리포트](2026-10-17-ss-native-epoch2-progress-ko.md)에 있다. 물리 GPU0~3만 사용하며 기존 SS C2(step90), PBR B3(step979)는 중단 상태로 file4에 보존했다.
 
 ## 1. 기존 모델이 전부 악화됐다는 결론은 수정해야 한다
 
@@ -98,7 +98,7 @@ Projection을 맞추면 nearest보다 좋아지지만 native를 넘지는 못했
 | Single GPU, 최적화 후 | 48 / 1 / 2 | 34.63초 | 47.71 GiB |
 | **P1 DDP 검사** | **48 / 2 / 1, global96** | **약17.5초** | **각 rank47.75 GiB** |
 
-큰 microbatch가 항상 빠르지는 않았다. 두 GPU를 나눠 accumulation 없이 처리하는 방식으로 전체 latency를 줄인다. P1은 **GPU2·3**, P2는 **GPU0·1**에 배치했으며 steady-state 약17.2초/update, 각 rank peak47.75GiB다. P1은두 rank의480 updates와여섯 검증을 모두 완료했고 final checkpoint의 로컬/file4 SHA256도 일치했다. P1이 끝난 GPU2·3에서 zero-shot 반복 평가를 마치고 P1 final 평가가 시작됐다. P2는 계속 학습 중이다. 두 모델의 시작 전 공통32 IoU는 모두0.426715로 일치했다. 사용자 중단 이후 step103/56의 optimizer/scheduler/sampler까지 복원했으며 rank별 RNG가 없어 bitwise uninterrupted replay는 아니다. 5 epochs/480 updates, 매 epoch32개와 final128개, W&B loss/metric/GT-pred-diff logging을 유지한다. [에폭별 진행 결과](2026-10-17-ss-native-epoch2-progress-ko.md)를 참고한다.
+큰 microbatch가 항상 빠르지는 않았다. 두 GPU를 나눠 accumulation 없이 처리하는 방식으로 전체 latency를 줄인다. P1은 **GPU2·3**, P2는 **GPU0·1**에 배치했으며 steady-state 약17.2초/update, 각 rank peak47.75GiB다. 두 모델 모두 두 rank의480 updates와여섯 검증을 완료했고 final checkpoint의 로컬/file4 SHA256도 일치했다. P1/P2의 final 평가는 완료됐으며 공통32개의 epoch/final 생성 재현도 확인했다. 같은 GPU들에서 본 비교의 Top1/Top1-R가 시작됐다. 두 모델의 시작 전 공통32 IoU는 모두0.426715로 일치했다. 사용자 중단 이후 step103/56의 optimizer/scheduler/sampler까지 복원했으며 rank별 RNG가 없어 bitwise uninterrupted replay는 아니다. 5 epochs/480 updates, 매 epoch32개와 final128개, W&B loss/metric/GT-pred-diff logging을 유지한다. [에폭별 진행 결과](2026-10-17-ss-native-epoch2-progress-ko.md)를 참고한다.
 
 P1/P2와 별도로 원래 계획의 Top1 → rejection → attention → adapter → physical query **다섯 SS arm을 native projection에서 실행하도록 복원**했다. Retarget-only query-study의 미실행 두 run은 이 다섯 arm 중 C1/C2로 대체해 중복을 없앴다. [전체 범위 복원 및 실행표](2026-10-17-ss-full-module-restoration-ko.md)를 기준으로 진행하며, P1/P2만으로 원래 모듈 비교를 완료했다고 판정하지 않는다.
 
@@ -106,7 +106,7 @@ Pipeline에서 완료 의존성 대기가 빠진 문제로 H3/H0 최종 감사�
 
 ## 4. 확인해야 할 남은 결과
 
-- P1/P2의 5-epoch final 생성 지표와 기존 V1/C1 대비 paired 차이. 현재 새 full 성능 향상을 주장하지 않는다.
+- P1/P2 final128×3은 완료됐다. P1/P2는 V1보다 각각+0.953/+0.899%p 높았으나 기존 C1 대비 추가 개선은 확인되지 않았다. 현재 새 full 성능 향상을 주장하지 않는다.
 - 복원한 다섯 SS arm의 final 결과와 Top1/rejection/attention/adapter/query 인접 대비. H0/H3 head 최종 감사는 완료했다.
 - 실제 학습 속도/메모리의 안정성, epoch별 생성 경향과 loss의 관계.
 - 같은 H3/rejection/native projection에서 물리적인 deformation-query 채널을 추가하는 C2 비교. C1에는 해당 채널이 없으며 retargeter/query 2×2는 구성하지 않는다.
