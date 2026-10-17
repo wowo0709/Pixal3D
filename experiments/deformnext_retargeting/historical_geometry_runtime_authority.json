@@ -1,0 +1,65 @@
+{
+  "function_origins": {
+    "_condition": {
+      "file": "scripts/evaluate_ss_source_utility_same_state.py",
+      "file_sha256": "60b8ad3c7d0cabe73639fc3b353a495a42d626778499e62ddcc925706b7f6579",
+      "AST_sha256": "b0bc10e1cb157034cea07efa2238dfed60a3de55622f9fdef1714ad386c2b804",
+      "line": 35
+    },
+    "_sample_native": {
+      "file": "scripts/evaluate_ss_source_utility_same_state.py",
+      "file_sha256": "60b8ad3c7d0cabe73639fc3b353a495a42d626778499e62ddcc925706b7f6579",
+      "AST_sha256": "760284990cd7b40db464260b1302be94d8ce3e6635541a868d5e65caff2d5070",
+      "line": 42
+    },
+    "_decode_logits": {
+      "file": "scripts/run_exg_ss_ray_guidance64_v1.py",
+      "file_sha256": "9b890b5f368db8ce774a2b2c1d57d6e5658a177beced2eea3338e7b1b06a1346",
+      "AST_sha256": "39d6190a74189ad3f4bcb29be4f9c3752d92060dd28e24e79f80d03748634b03",
+      "line": 104
+    },
+    "_noise": {
+      "file": "scripts/run_exg_ss_ray_guidance64_v1.py",
+      "file_sha256": "9b890b5f368db8ce774a2b2c1d57d6e5658a177beced2eea3338e7b1b06a1346",
+      "AST_sha256": "abf2ea79dfcca55607144053f6d7d13e7a919e647b4e82083e1c48880ba0d91c",
+      "line": 67
+    },
+    "_seeded_noise": {
+      "file": "scripts/run_ss_tto_teacher_screen0.py",
+      "file_sha256": "ac97b3cfef6a5d47febbc1f6512e4697ac411c34d52419ede37d54065c3f5e6b",
+      "AST_sha256": "9e08fe80175fc1e462be3dd43ae54bd27228602a40f7a848f005a95570af1cfb",
+      "line": 62
+    },
+    "_f1": {
+      "file": "scripts/evaluate_ss_slot_q2c_s2.py",
+      "file_sha256": "a108b60348504222a24c8bc7a29112440cf0ef1577fe4ecfd3e3136894014113",
+      "AST_sha256": "c6d1d43f9fc99a06a627ac9dac4f5444fc2a8728529063464cee22b2edf2ae06",
+      "line": 101
+    },
+    "_score": {
+      "file": "scripts/evaluate_ss_slot_q2c_s2.py",
+      "file_sha256": "a108b60348504222a24c8bc7a29112440cf0ef1577fe4ecfd3e3136894014113",
+      "AST_sha256": "4fa810a509be5e4028cbef2ec2492b0afc8742bbe814409c8894d70ec3795b04",
+      "line": 107
+    },
+    "adapted_condition": {
+      "file": "scripts/train_ss_proj_geometry_factorial_g2.py",
+      "file_sha256": "3d64ede43e59c9f4f1e0248078cae8d9b000179a093df27e9000474f57acd0d6",
+      "AST_sha256": "4102129b335aa8e9bac1549da8b47b798cd7a649e46a6b8b29e3f049ba9df411",
+      "line": 51
+    },
+    "_seed": {
+      "file": "scripts/train_ss_proj_voxel_retarget_p1.py",
+      "file_sha256": "a7ac6dcd7ba4f35f4b070ac8f3248a692320fc434691a390010e316668354e98",
+      "AST_sha256": "3d6aa95e19d8bb2a087c7b04b4f2701fe84b941bb7366dde6c2af816c84afeea",
+      "line": 39
+    },
+    "geometry_derangement": {
+      "file": "scripts/ss_proj_geometry_factorial_data.py",
+      "file_sha256": "46ac2c18d380abfbb05030fb9f82d239e4182300b123b528968b1fec7ccd6cca",
+      "AST_sha256": "7d9e2e5c1e7112db61efb53e71c828045b0e41cd9435b66ab7130a30c0223cb6",
+      "line": 41
+    }
+  },
+  "policy": "Exact mathematical helpers; reference consumer uses the archived full-FT step20000, never substituted for current LoRA initializer."
+}

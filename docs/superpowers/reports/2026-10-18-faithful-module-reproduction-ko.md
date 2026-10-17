@@ -50,3 +50,22 @@ Checkpoint는 원본 multi-view mixed385 complete base+LoRA SS64이며, loader·
 같은63개 component-disjoint4-fold,42017/42018/42019,각1200 update×256query,동일Top64·L12 RAW·TRAIN-only tau0.005를 사용한다. D0/D1은 같은 upstream P0와 같은 scalar-head 초기화·pair/query sampler·원본 RGB carrier L1을 사용하며 correspondence CE를 추가하지 않는다. 각1200개 pair/query hash를 과거 log와 모두 대조하고 loss 차이를 기록한다. Frozen final checkpoint와 SHA를 쓴 다음 held-out evaluator cue를 연다. 총24개 tuple을 빠른 head job으로 등록하며, 현재 SS DDP와 겹치는 GPU는 배정하지 않는다.
 
 새5개 CPU 검증을 추가해 관련16개 검증을 통과했다. AST·초기 score parity·head 초기화·candidate/query 동일성·RGB가 scorer 입력에 들어가지 않는 계약·visibility-matched wrong map·파일 변조 거부를 확인했다. 이 실행은 **과거의 controlled RGB task 재현**이다. 여기서 얻은 양의 결과를 현재 DeformNeXt SS 생성 성능 향상으로 보고하지 않으며, native per-view consumer 연결 뒤 별도 검증한다.
+
+## 실제32개 transport 결과와 G2 consumer 차이
+
+원본 mixed385 SS64 checkpoint, 동일32개·1noise·12steps/CFG3의 생성이 완료됐다.
+
+| Case | Global SS IoU64 |
+| --- | ---: |
+| Native four RGB | 0.42671547 |
+| Source projection off | 0.37160198 |
+| GT-corr, 원래 target fallback | 0.32404648 |
+| Wrong-corr, 같은 support/value multiset | 0.27693184 |
+
+GT−wrong은 **+4.711pp**, source-cluster bootstrap95% CI[+2.865,+6.675]pp이다. 주소의 유효한 효과가 존재한다. 그러나 GT−native는−10.267pp CI[−13.745,−7.075]pp로, 이 replacement를 그대로 production에 채택할 수 없다. GT cache는 여전히 diagnostic-only다. Global/negative는 모두 보존했고, native replay projection maxabs=0·wrong source value multiset exact·active address changed100%를 actual GPU에서 확인했다. 원래 target fallback은 native source의 일부 지원도 제거하므로, 주소 효과와 native 대비 향상을 구분해야 한다.
+
+G2 archived checkpoint의 runtime을 열어 추가 차이를 확인했다. 당시 consumer는 full fine-tuning SS64 EMA step20000(`c2700988…`)이고, sampler는12steps·CFG7.5·guidance rescale0.7·interval[0.6,1]·rescale_t5였다. 현재 production의 mixed385 base+LoRA step4210·CFG3와 같지 않다. **현재 학습의 checkpoint를 과거20k로 바꾸지 않는다.** 과거 consumer는 별도 namespace에서 원래 양의 결과가 이식 코드로 재현되는지 검증하는 reference로만 사용한다.
+
+`historical_geometry_runtime.py`에 native sampling/scoring·noise·condition10개 함수를 AST 그대로 옮겼다. `reproduce_geometry_content.py`는 실제 predicted O/D9채널·full SS regional masks·원래 frozen flow/decoder·훈련된 adapter를 file4 reproduction namespace로 고정한다. 두 reference arm(feature/content)만 실행한다. 각4-update 실제 gradient smoke와 기존3seed fixed-final checkpoint의 DEV8×3noise endpoint 재생을 수행해 수치 차이를 직접 기록한다. 이미 존재하는128-update checkpoint를 재생하므로 같은 학습을 처음부터 모두 반복하지 않는다.
+
+추가5개를 포함해 관련21개 CPU 검증과 CLI 검증이 통과했다. 이 reference의 historical zero-geometry control은 과거 수치 검증용이다. 향후 production의 No-query는 기존 사용자 정의대로 query 입력·encoder·채널을 물리적으로 제거한다. Reference 결과와 현재 데이터의 module 채택 결정을 혼합하지 않는다.
