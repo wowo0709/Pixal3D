@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter도480 updates 완료·final128×3 평가 중; query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R/attention 480 updates·final128×3 완료; adapter도480 updates 완료·final 평가 예약; query 초기검증과실제5 updates 확인 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -246,6 +246,28 @@ B3의final128 noise0은같은checkpoint의epoch32개를seed·cluster·TP/FP/FN·
 기존B1−V1은+0.199%p, CI[+0.069,+0.330]%p다. 한training seed의exploratory개발패널결과이며training-seed변동·다중비교보정을포함하지않는다. V1/기존C1의noise1역사파일은sampler metadata누락을별도근거와함께보존했고, 이미예약한명시적protocol replay가strict primary표의필수조건으로남아있다. 이중간표로14개전체비교완료를선언하지않는다.
 
 근거는`module-study-native-v4/interim-attention-b1-final128-three-noise-report.json`이다. 새C1최종평가·기존B2/B3추가noise·C2학습/최종평가·고정checkpoint진단·필요한채택후속이남아있다. C2는GPU0·1에서native/physical-query proof를통과했고본학습전memory/초기검증을진행한다.
+
+### C2 physical-query 본 학습 시작 확인
+
+2026-10-18 06:40 KST에GPU0·1의C2에서양rank각5회본학습update를확인했다. Initial32 IoU는0.42671546671444294이며기존native초기검증과32개sample순서·seed·cluster·TP/FP/FN·GT voxel hash/shape가모두정확히일치했다. 초기성능하락은관찰되지않았다.
+
+실제GPU proof의global/proj 최대오차는0이고gate/adapter gradient가양수다. C2 adapter는4096입력이며추가RAW2048채널의weight gradient도양수이고임시probe출력은복원됐다. C1의2048입력과물리적으로다른구조다. Frozen Omega epoch7의RAW FRAME+GLOBAL context를쓰며GT mesh deformation을추론입력으로쓰지않는다.
+
+2-update 양rank memory probe와실제5회update모두global96·world2·micro48·accumulation1·finite loss를확인했다. 관측peak allocated는각48.134GiB다. 시작5회compute 중앙값은각약17.23초/update이며steady-state 전체측정으로확대하지않는다. 이검증은본학습시작에대한것이며모듈gain이나480-step완료를뜻하지않는다. 근거는`provenance/native-query-c2-preflight.json`, `provenance/native-ladder-query-startup.json`이다. 두파일과아래GT검사요약의file4 SHA256일치는`native-query-startup-and-gt-summary-file4.json`에보존했다.
+
+### 앞서 수행한 GT 정답 주소 검사 재확인
+
+과거저장된동일checkpoint의native/GT 생성결과에서sample별TP/FP/FN·seed·source cluster를다시검사하고paired source-cluster bootstrap4000회(seed42017)로요약했다. 아래는서로다른validation/calibration집단을구분한진단이며새native-v4 final128×3표에섞지않는다.
+
+| 검사 | 원래조건IoU | GT주소IoU | GT−원래, %p | 95% CI, %p |
+| --- | ---: | ---: | ---: | --- |
+| V1, validation32 | 0.437100 | 0.436965 | −0.013 | [−0.441,+0.324] |
+| 기존B3, validation32 | 0.438276 | 0.436163 | −0.211 | [−0.685,+0.124] |
+| 기존C1, calibration32·동일teacher-visible support | 0.444285 | 0.441959 | −0.233 | [−0.735,+0.209] |
+
+모든 CI가 0을 포함한다. 검사한 범위에서 GT 주소의 추가 이득이 확인되지 않았으며, 확정적인 악화나 동등성 증명도 아니다. V1/B3의 GT 조건은 visibility support도 바뀌므로 주소 정확도만의 효과로 해석하지 않는다. C1은 이 부분을 동일 support로 통제했으나 이미 학습된 consumer에 새 feature를 주입하는 분포 차이는 남는다. Legacy에는 전체 GT voxel hash가 저장되지 않았으므로 sample/count/seed/cluster 검사 범위를 지킨다.
+
+앞선calibration32의projection검사도native0.426813, GT nearest0.421874, GT normalized-bilinear0.425286이었다. Operator를맞추면회복됐지만native를넘지는못했다. Matching정확도외에feature표현/소비방식도검토할근거이며GT주소로학습한모델의성능상한을측정한것은아니다. 재계산입력경로·SHA256·집단과해석한계는`provenance/historical-gt-address-check-summary.json`에보존했다.
 
 ### 저장된 checkpoint의 추가 경로 진단 준비
 
