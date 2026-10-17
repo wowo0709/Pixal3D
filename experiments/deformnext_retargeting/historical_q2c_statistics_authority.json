@@ -1,0 +1,35 @@
+{
+  "function_origins": {
+    "_finite_array": {
+      "file": "pixal3d/experiments/exg_app_cue_b_region_fusion.py",
+      "file_sha256": "5336520c91136be13391b9fc6253487b79963ccf0f65d0022e5cd5b45692a26f",
+      "AST_sha256": "1fd52fc056aba4a74cd2e8caebaf216e573f726c4255b16b9e4b45410b67fd68",
+      "line": 129
+    },
+    "pair_bootstrap_delta": {
+      "file": "pixal3d/experiments/exg_app_cue_b_region_fusion.py",
+      "file_sha256": "5336520c91136be13391b9fc6253487b79963ccf0f65d0022e5cd5b45692a26f",
+      "AST_sha256": "14d2e55c5edd54ab06f9d72b43cf20e1f9ec44bb2f68b5dcf17290a3aef9331c",
+      "line": 415
+    },
+    "_means": {
+      "file": "scripts/summarize_exg_app_cue_b_r9.py",
+      "file_sha256": "e946a5ccea7916ee1bd9aa94f03c9fd47414f1f2b2ded778a4c9f3cbdecccd75",
+      "AST_sha256": "310d774c0fb8aea349058e66d60cf3676cabcc35c4d507fb00d956da8dc5ed28",
+      "line": 31
+    },
+    "aggregate_rows": {
+      "file": "scripts/summarize_exg_app_cue_b_r9.py",
+      "file_sha256": "e946a5ccea7916ee1bd9aa94f03c9fd47414f1f2b2ded778a4c9f3cbdecccd75",
+      "AST_sha256": "40820ed8c6855f0f55d2b885e1dd4b6346b908fac9fdcf23838934bf25a12b65",
+      "line": 35
+    },
+    "contrast": {
+      "file": "scripts/summarize_exg_app_cue_b_r9.py",
+      "file_sha256": "e946a5ccea7916ee1bd9aa94f03c9fd47414f1f2b2ded778a4c9f3cbdecccd75",
+      "AST_sha256": "6674267d4b01b5decf92cf9e215b5e252f9007022c5508417eef24d2c020194b",
+      "line": 92
+    }
+  },
+  "policy": "Primary RGB error components only; optional geometry diagnostics are not fabricated."
+}
