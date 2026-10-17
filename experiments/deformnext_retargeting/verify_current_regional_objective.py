@@ -90,7 +90,7 @@ def main():
                     raise ValueError('initial adapter has regressed native projected input')
                 condition = {'cond': {**native['cond'], 'proj': projected}, 'neg_cond': native['neg_cond']}
                 latent = differentiable_flow_euler_samples(sampler, flow, noise, condition,
-                    steps=12, rescale_t=1., checkpoint_model=True, guidance_strength=3., verbose=False)
+                    steps=12, rescale_t=1., checkpoint_model=True, guidance_strength=3.)
                 endpoint, _ = locked_endpoint_loss(decoder(latent).float(), regions)
                 correction = trace['correction'].float().square().mean()
                 loss = endpoint + .001 * correction
