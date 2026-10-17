@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 4에폭 검증 후 학습 중; query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter도480 updates 완료·final128×3 평가 중; query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -200,6 +200,29 @@ Attention−Top1-R은−0.028%p, source-cluster paired95% CI[−0.127,+0.054]%p�
 CPU 검사에서 optimizer361/366개 상태가 전부384이고 moment 값도finite였다. C1 adapter 입력은256×2048이며 RAW query 채널이 없다. Tanh fusion gate는B3 0.032525, C1 0.030677이다. 모든 중간 checkpoint 파일 크기는file4와 일치했다. 두 rank의 모든 연속 update에 global96·micro48·accumulation1·finite loss가 유지됐다. Steady median은B3 약17.24초, C1 약17.22초/update이며 peak allocated는46.841/47.749GiB다. 중간 PT 전체SHA 검증으로 표현하지 않는다.
 
 W&B는 client receipt뿐 아니라 원격API에서도 검증했다. 두 training run의4에폭 IoU와 paired run의 gain/CI가 실제 기록과 일치했고, 서버의 GT/Pred/Diff 두 이미지를 다운로드해 로컬 이미지와SHA256이 같은지 확인했다. 두 run의 서버 상태는running이었다. 근거는`module-study-native-v4/interim-fourth-epoch-attention-adapter.json`, `epoch-comparisons/epoch-04-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch4-checkpoints.json`, `provenance/native-second-pair-epoch4-wandb-remote.json`이다. C2·나머지baseline 평가·경로 진단·필요한 seed/채택 후속은 아직 남아 있다.
+
+### Attention / adapter 다섯 번째 epoch와 학습 완료
+
+2026-10-18 06:26 KST에 두 run의480 updates·5에폭 검증이 모두 완료됐다. 아래는 같은32개·32 source cluster·한 sampling noise의 결과이며, final128×3 표와 구분한다. 대비별32개 GT voxel hash도 일치했다.
+
+| Arm | IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| b2-top1 | 0.434014 | 0.551235 | 0.671157 | 0.605314 |
+| b2-top1-r | 0.433655 | 0.553065 | 0.667613 | 0.604964 |
+| b3-attention-r | 0.433638 | 0.553084 | 0.667545 | 0.604948 |
+| c1-retarget-r | 0.436316 | 0.553788 | 0.672870 | 0.607549 |
+
+Attention−Top1-R은−0.002%p, source-cluster paired95% CI[−0.058,+0.062]%p다. Adapter−attention은+0.268%p, CI[−0.090,+0.680]%p다. Adapter의점추정치는높지만추가이득은아직확정되지않았다. 4→5에폭변화도B3 −0.091%p, CI[−0.436,+0.183]%p, C1 +0.233%p, CI[−0.153,+0.603]%p로0을포함한다. 이32개중간패널로고정한실험을연장하거나취소하지않는다.
+
+같은32개에서P2-NoR의IoU는0.453171이다. C1-R−P2-NoR은−1.686%p, CI[−3.208,−0.383]%p다. 이seed·패널에서는P2가높지만, P2의중단/재개RNG·구조초기화의난수소비차이가있으므로rejection만의인과효과로확정하지않는다. CI는training-seed변동을포함하지않는다. Confidence통과율·경로RMS와함께최종평가·고정checkpoint진단·필요한matched follow-up으로검토한다.
+
+두rank의1~480연속update·global96·micro48·accumulation1·finite loss, step0/96/192/288/384/480검증, native 초기출력·gradient proof가모두PASS다. Optimizer361/366개상태는전부step480이고moment도finite다. C1첫weight는256×2048로RAW query채널이없다. 최종tanh fusion gate는B3 0.040660, C1 0.037955다. 각run의denoiser/conditioner/misc 세파일은로컬과file4에서전체SHA256·크기가일치했다.
+
+큐wrapper기준preflight·validation·저장을포함한시간은각약2시간29분27초다. Rank별median compute는B3 약17.24초, C1 약17.22초/update이며peak allocated는각46.841/47.749GiB다. W&B원격API의최종IoU·paired gain/CI가로컬과일치하고두training run상태도finished다. 서버에서실제다운로드한최종GT/Pred/Diff 이미지두개도로컬PNG와SHA256이일치했다.
+
+B3의final128 noise0은같은checkpoint의epoch32개를seed·cluster·TP/FP/FN·GT voxel hash까지정확히재현했다. 이검증은noise0의재현성범위이며세-noise평가나C2완료를뜻하지않는다. C2·나머지baseline·actual path controls·필요한seed/최종채택후속은계속진행한다.
+
+근거는`module-study-native-v4/interim-fifth-epoch-attention-adapter.json`, `epoch-comparisons/epoch-05-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/{b3-attention-r,c1-retarget-r}-final-training-audit.json`, `provenance/{b3-attention-r,c1-retarget-r}-final-checkpoint-checksum.json`, `provenance/native-second-pair-epoch5-wandb-remote.json`, `provenance/b3-attention-r-final128-epoch32-replay.json`이다. 전체14개구성의final128×3와모듈채택은아직미완료다.
 
 ### 저장된 checkpoint의 추가 경로 진단 준비
 
