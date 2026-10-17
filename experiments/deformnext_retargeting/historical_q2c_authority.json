@@ -1,0 +1,97 @@
+{
+  "policy": "Copied historical math, current package model; no historical worktree runtime import. Runner retains only initializer/sampler/step, no legacy I/O lifecycle.",
+  "function_origins": {
+    "_json": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "53a3ee75a7f2c44c9df4eafd0032c503898e64a65dce3b84f19d5198af39ba63",
+      "line": 42
+    },
+    "_firewall": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "5b4d2dbc05f7435ea2560dc55cd88a027011a46489139abef892b55276c51652",
+      "line": 180
+    },
+    "TrainingTuple": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "0ca609ff6da2f3f71dbd9df01247c19b4b1b8ab93a9c9b00c1f45d909270d02d",
+      "line": 204
+    },
+    "TrainingBatch": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "05ab6f4341a0290d0c8f04fd29ec506da98919bd918ef1c89bd7245dbdbf2505",
+      "line": 248
+    },
+    "_normalize_records": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "c2d0d4084a5e59cfd1f55d03274c4f62d28e240ea9cb52b5d9672be523999b1e",
+      "line": 260
+    },
+    "_record_hashes": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "185c6effd1b42e356932d3a7e0765fcee81e3c5a0ecad9e87904b966f01586c9",
+      "line": 306
+    },
+    "_parameter_hash": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "7b12deb861a9e20d15c2f3f6a07f3d63a68d58381dea01d185a7f6f76d7a7ff5",
+      "line": 319
+    },
+    "fuse_label_values": {
+      "file": "pixal3d/experiments/exg_app_cue_b_r9_ladder.py",
+      "file_sha256": "e7be96c47803d16a769fcb9e9cf0026b314c4983c6b40f9d3c21604b15d973d2",
+      "AST_sha256": "021c915f4ca6c556fa3ca3354134dc306219c607d68d90a12d987dd87cfd7259",
+      "line": 308
+    },
+    "wrong_indices": {
+      "file": "scripts/evaluate_exg_app_cue_b_r9.py",
+      "file_sha256": "07c4324e866b7a3b82073835b888250a19f77f0eba87b5151d46b1da79340ff3",
+      "AST_sha256": "8117c7e3c9aba12a01ba6e143a21ababd2223b79c97f019415ed67424330c745",
+      "line": 62
+    },
+    "component_rows": {
+      "file": "scripts/evaluate_exg_app_cue_b_r9.py",
+      "file_sha256": "07c4324e866b7a3b82073835b888250a19f77f0eba87b5151d46b1da79340ff3",
+      "AST_sha256": "570fec6d6a5646b0f842c9c93464fb36797e4f206ec73835169b0209e0b311c7",
+      "line": 72
+    }
+  },
+  "runner_method_origins": {
+    "__init__": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "c901cc24ca18ffaf33f754ab42863231bb083bfe77003d45b74388bb9ce50cc8",
+      "line": 348
+    },
+    "next_batch": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "9de83b38e9efd40db1848202d34cf281e6d6bb6ac38d4348bd9d7323cc4e1b8b",
+      "line": 394
+    },
+    "_forward": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "88708d43d3871d19882d9738d13a4053a85689462bc20a5d635c1e61f323d634",
+      "line": 411
+    },
+    "_check_zero": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "8e59430364d089fc9272ba9c3fe6523be44646b179063afc2d53748d54138f59",
+      "line": 414
+    },
+    "step": {
+      "file": "scripts/run_exg_app_cue_b_r9_cv.py",
+      "file_sha256": "9e4fa709518c216e3cbedcf5dac3c759ea5b9512e8be00a934e2a35dd07f5881",
+      "AST_sha256": "82a5cd572f268c466f38e297b2b3b32572cd94949c5b694e35f06e1d0d7434e8",
+      "line": 430
+    }
+  }
+}

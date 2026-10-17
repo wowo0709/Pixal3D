@@ -42,3 +42,11 @@ Checkpoint는 원본 multi-view mixed385 complete base+LoRA SS64이며, loader·
 4. 재현 가능한 source-use/geometry gain이 확인된 경로에 adapter와 physical query를 순서대로 연결한다. 기존 데이터의 전체 재전처리나 장기 fine-tuning을 먼저 반복하지 않는다.
 
 현재 성능 gate가 열린 것으로 간주하지 않는다. 준비·수식 검증·GPU preflight·생성 endpoint·모듈 채택은 별도 상태로 기록한다. 기존14개 비교의 완료와 위 faithful reproduction·필요한 후속의 완료도 구분하며, Full/PBR 결정까지 추적한다.
+
+## Q2C의 통제된 task 재현 실행
+
+`historical_q2c_training.py`는 과거 RGB task의10개 함수/자료형과 initializer·sampler·zero-check·optimizer-step5개 method를 AST 그대로 이식한다. 별도 authority에 원본 SHA와 method hash를 기록했다. `reproduce_q2c.py`는 과거 TRAIN source array로 packed data를 다시 대조한 뒤 file4 reproduction namespace로 옮긴다. 기존 worktree를 실행 중 import하지 않는다.
+
+같은63개 component-disjoint4-fold,42017/42018/42019,각1200 update×256query,동일Top64·L12 RAW·TRAIN-only tau0.005를 사용한다. D0/D1은 같은 upstream P0와 같은 scalar-head 초기화·pair/query sampler·원본 RGB carrier L1을 사용하며 correspondence CE를 추가하지 않는다. 각1200개 pair/query hash를 과거 log와 모두 대조하고 loss 차이를 기록한다. Frozen final checkpoint와 SHA를 쓴 다음 held-out evaluator cue를 연다. 총24개 tuple을 빠른 head job으로 등록하며, 현재 SS DDP와 겹치는 GPU는 배정하지 않는다.
+
+새5개 CPU 검증을 추가해 관련16개 검증을 통과했다. AST·초기 score parity·head 초기화·candidate/query 동일성·RGB가 scorer 입력에 들어가지 않는 계약·visibility-matched wrong map·파일 변조 거부를 확인했다. 이 실행은 **과거의 controlled RGB task 재현**이다. 여기서 얻은 양의 결과를 현재 DeformNeXt SS 생성 성능 향상으로 보고하지 않으며, native per-view consumer 연결 뒤 별도 검증한다.
