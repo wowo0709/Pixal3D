@@ -400,6 +400,10 @@ Use a separate output directory. The default `normal` path is unchanged.
 - `wrong-corr` shifts correspondence values by one target-query slot within
   each object. This is a weak local sensitivity check; an unchanged result
   does not prove that source information or correspondence addresses are unused.
+- `wrong-object` cycles the preaggregated Top1/soft evidence across assets
+  using a scoped inference hook. Recipient confidence, validity, target query,
+  RAW context and native images/cameras remain fixed. Donor feature support
+  can differ, so sensitivity alone does not isolate address correctness.
 - `shuffled-deform` cycles the physical RAW context across assets in a C2
   generation batch. Each batch must contain at least two assets. Structural
   query ablation still uses C1 without those channels, rather than zero inputs.
@@ -428,3 +432,9 @@ with the same common32 panel, batch8, weights and per-asset noise. Validate
 that each batch contains distinct source clusters before interpreting this
 as a cross-object context diagnostic. These outputs remain outside the
 fourteen normal configurations.
+
+`--wrong-object-only --after-job train-native-module-c1-retarget-r` appends
+three cross-object evaluations and three paired comparisons for P2/B3/C1,
+reusing the already queued normal replicas on their respective devices.
+Use the same distinct-source-cluster common32 batches as the query diagnostic.
+The input cache is not edited, and the hook is removed on generation failure.

@@ -170,6 +170,18 @@ Optimizer의361/366개상태가모두288이고moment 값은finite였다. C1 adap
 
 근거는`module-study-native-v4/interim-third-epoch-attention-adapter.json`, `epoch-comparisons/epoch-03-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch3-checkpoints.json`, `provenance/rejection-validation-coverage.json`이다. 두run은480 updates와final128×3을계속진행하며C2와나머지평가·후속검증도유지한다.
 
+3에폭의 steps193~288, 양 rank의 192개 pack을 비교해 실제 추가 경로의 크기도 집계했다. 모든 대응 rank/step에서 native condition RMS와 유효 query 비율이 정확히 같았다. 아래 값은 로그에 기록된 strided RMS 비율의 pack 중앙값이다.
+
+| Arm | 추가 update RMS / native RMS |
+| --- | ---: |
+| Top1, No-R | 0.735% |
+| Top1-R | 0.090% |
+| Attention-R | 0.083% |
+| Adapter-R | 0.928% |
+| P2 adapter, No-R | 9.875% |
+
+Gate의 중앙값은 대략0.019~0.022로 비슷하지만 R arm의 유효 query당 평균 usage weight 중앙값은0.04722이고 No-R은1이다. R을 사용한 추가 경로가 작다는 실제 로그 근거다. P2/새 C1의 학습 이력과 학습된 adapter도 다르므로 위 크기 차이를 rejection만의 인과 효과나 생성 품질 개선량으로 해석하지 않는다. Confidence는 선택한 Top1의 정확성을 감독받지만 attention consumer는 soft evidence를 사용하므로, 정확한 patch 판정과 유용한 feature 전달 사이의 차이도 후속 진단에서 확인한다. Threshold를 비교 도중 바꾸지는 않는다. 근거는`provenance/native-epoch3-path-strength.json`과`module-study-native-v4/figures/interim-epoch3-transport-strength.{png,svg}`다. Boxplot은 pack 분포이며 신뢰구간이 아니다.
+
 ### 저장된 checkpoint의 추가 경로 진단 준비
 
 기존 진단의 일부는 legacy candidate cache를 전제로 하므로 새 matching-v2 cache에 그대로 적용하지 않는다. `evaluate_native_checkpoint --transport-control`에 기존 inference control 경로를 연결했다. 기본값은`normal`이고 정상 평가의 tensor 흐름은 유지한다. 모델 forward·학습 설정·진행 중 프로세스는 변경하지 않았다.
@@ -185,6 +197,8 @@ Optimizer의361/366개상태가모두288이고moment 값은finite였다. C1 adap
 2026-10-18 05:25 KST에`queue_transport_diagnostics`로11개common32/noise0 생성과8개CPU paired 비교를실제큐에추가했다. 기존142개job의내용·의존성은그대로이며총161개다. P2-NoR와새C1의normal/source-off/adapter-off/wrong-corr, 새B3의normal/source-off/wrong-corr를각각동일물리GPU에서비교한다. 모든생성은C1 학습종료를기다린뒤비는GPU2·3에서실행하고, GPU0·1의C2 학습경로를유지한다. 기존baseline·final 평가는더높은우선순위를유지한다. 정상14개구성·새SS학습7개는변경하지않았다. Hook의실제residual 제거·weight/semantic gate 보존·예외후복원과queue의동일device/checkpoint/panel/seed 조건을포함한관련CPU32개테스트가통과했다. 생성결과는아직없으며예약완료와실행완료를구분한다. 근거는`provenance/transport-control-queue.json`이다.
 
 2026-10-18 05:32 KST에는 C2 학습 종료 뒤의 normal/shuffled-RAW-context 생성 두 개와 paired 비교 한 개도 예약했다. 기존 161개 작업은 유지되며 총 164개다. 두 생성은 비는 GPU2에서 동일 checkpoint·common32·batch8·noise로 실행한다. 실제 panel의 32개 source cluster가 서로 다르고, 각 batch8 안에서도 전부 다른 source임을 확인했다. RGB 네 장·카메라·GT·correspondence evidence·학습 weight는 유지하고 RAW context만 다른 asset과 순환시킨다. CPU 테스트에서는 C2의 물리적 RAW 입력에 연결된 출력이 context를 따라 바뀌고 semantic evidence·usage는 보존됨을 확인했다. 관련 테스트 34개가 통과했으며 GPU 생성 결과는 아직 없다. 정상 구성 14개와 새 SS 학습 7개는 그대로다. 근거는 `provenance/transport-query-control-queue.json`, `provenance/transport-query-control-panel-contract.json`이다.
+
+2026-10-18 05:39 KST에는 P2/B3/C1의`wrong-object` 생성 세 개와 paired 비교 세 개를 추가했다. 기존164개 작업은 유지되며 총170개다. 이미 예약한 동일 device의 normal32를 재사용하고 각 모델의 correspondence evidence만 다른 source cluster의 asset과 순환시킨다. 기존 legacy 진단에서 사용한`source_values`는 새 cache의 실제 전달값이 아니므로, matching-v2가 소비하는`evidence_top1/evidence_soft`에 scoped pre-hook을 적용한다. Recipient target query·confidence·validity·RGB·camera·weight는 유지한다. CPU 테스트는 target-query-only residual이 유지되는 경우에도 source evidence만 바뀌고, 실패 후 hook과 caller tensor가 원래대로 남는지 확인했다. 관련 테스트36개가 통과했다. Donor feature의 유효 영역/zero support도 달라질 수 있어 결과만으로 주소 정확성의 효과를 고립시켰다고 주장하지 않는다. 약한 within-object 이동과 source-off·adapter-off를 함께 해석한다. 새 학습은 없으며 GPU2·3의 C1 학습 뒤 빈 시간에 실행한다. 근거는`provenance/transport-wrong-object-control-queue.json`이다.
 
 ## 비교·완료 조건
 

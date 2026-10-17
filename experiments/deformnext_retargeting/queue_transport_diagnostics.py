@@ -10,9 +10,11 @@ import sys
 from .matching_v2_queue import gpu_ids
 
 
-def build_jobs(root, work, devices, after_job, query_only=False):
+def build_jobs(root, work, devices, after_job, query_only=False, wrong_object_only=False):
     if len(devices) != 2 or len(set(devices)) != 2:
         raise ValueError('two distinct assigned diagnostic GPUs required')
+    if query_only and wrong_object_only:
+        raise ValueError('choose one diagnostic append scope')
     study = root / 'module-study-native-v4'
     panel, seeds = work / 'panels/panel-32.json', work / 'panels/seed-map.json'
     configurations = [
@@ -32,6 +34,11 @@ def build_jobs(root, work, devices, after_job, query_only=False):
             modes.insert(2, 'adapter-off')
         outputs, names = {}, {}
         previous = None
+        if wrong_object_only:
+            modes = ['wrong-object']
+            outputs['normal'] = study / 'evaluations/diagnostics' / arm / 'normal/evaluation.json'
+            names['normal'] = f'diagnose32-{arm}-normal'
+            previous = names['normal']
         for mode in modes:
             out = study / 'evaluations/diagnostics' / arm / mode
             name = f'diagnose32-{arm}-{mode}'
@@ -55,7 +62,7 @@ def build_jobs(root, work, devices, after_job, query_only=False):
             })
             outputs[mode], names[mode] = out / 'evaluation.json', name
             previous = name
-        for mode in modes[1:]:
+        for mode in modes if wrong_object_only else modes[1:]:
             name = f'compare-diagnostic-{arm}-{mode}-vs-normal'
             spec = work / 'comparison-inputs' / (name + '.json')
             specifications[spec] = [{'noise': '0', 'baseline': str(outputs['normal']),
@@ -77,13 +84,17 @@ def main():
     p.add_argument('--work-root', type=Path, required=True)
     p.add_argument('--gpus', required=True)
     p.add_argument('--after-job', required=True)
-    p.add_argument('--query-only', action='store_true',
+    scope = p.add_mutually_exclusive_group()
+    scope.add_argument('--query-only', action='store_true',
                    help='Append only the saved C2 normal/shuffled-context diagnostic and comparison')
+    scope.add_argument('--wrong-object-only', action='store_true',
+                   help='Reuse queued normal replicas and append cross-object source-evidence diagnostics')
     a = p.parse_args()
     path = a.work_root / 'queue-jobs.json'
     original = path.read_bytes()
     existing = json.loads(original)
-    new, specifications = build_jobs(a.root, a.work_root, gpu_ids(a.gpus), a.after_job, a.query_only)
+    new, specifications = build_jobs(a.root, a.work_root, gpu_ids(a.gpus), a.after_job,
+                                      a.query_only, a.wrong_object_only)
     old_names, new_names = {j['name'] for j in existing}, {j['name'] for j in new}
     if old_names & new_names:
         raise ValueError('transport diagnostics already queued')
@@ -92,7 +103,7 @@ def main():
     if any(f.exists() for f in specifications):
         raise ValueError('diagnostic comparison specification already exists')
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    kind = 'query' if a.query_only else 'transport'
+    kind = 'query' if a.query_only else 'wrong-object' if a.wrong_object_only else 'transport'
     backup = path.with_name(path.name + '.before-' + kind + '-diagnostics-' + stamp)
     backup.write_bytes(original)
     for f, value in specifications.items():
@@ -116,8 +127,10 @@ def main():
         'limitations': 'One development-panel32 sampling repeat, no training-seed replication; '
                        'perturbed-minus-normal gain is a path diagnostic. '
                        + ('RAW context cycles across each generation batch; other conditioning stays intact.'
-                          if a.query_only else 'Wrong-corr is a weak one-query-slot perturbation.')}
-    out = a.root / ('provenance/transport-query-control-queue.json' if a.query_only
+                          if a.query_only else 'Donor evidence support can differ; sensitivity does not isolate address correctness.'
+                          if a.wrong_object_only else 'Wrong-corr is a weak one-query-slot perturbation.')}
+    out = a.root / ('provenance/transport-query-control-queue.json' if a.query_only else
+                    'provenance/transport-wrong-object-control-queue.json' if a.wrong_object_only
                     else 'provenance/transport-control-queue.json')
     out.write_text(json.dumps(receipt, indent=2) + '\n')
     print(json.dumps(receipt), flush=True)

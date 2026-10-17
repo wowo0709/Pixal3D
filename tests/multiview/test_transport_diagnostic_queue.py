@@ -42,3 +42,17 @@ def test_query_context_diagnostic_waits_for_c2_without_adding_training(tmp_path)
     assert all('train-native-module-c2-query-r' in j['depends_on'] for j in generations)
     assert jobs[-1]['resource'] == 'cpu'
     assert len({j['command'][j['command'].index('--checkpoint') + 1] for j in generations}) == 1
+
+
+def test_cross_object_diagnostics_reuse_existing_same_device_normal_replicas(tmp_path):
+    jobs, specifications = build_jobs(tmp_path / 'results', tmp_path / 'runtime', ['2', '3'],
+                                      'train-native-module-c1-retarget-r', wrong_object_only=True)
+    assert len(jobs) == 6 and len(specifications) == 3
+    generations = [j for j in jobs if j['resource'] == 'evaluation']
+    assert len(generations) == 3
+    for j in generations:
+        assert j['command'][-1] == 'wrong-object'
+        arm = j['name'].removeprefix('diagnose32-').removesuffix('-wrong-object')
+        assert f'diagnose32-{arm}-normal' in j['depends_on']
+        assert j['gpu'] == ('3' if arm == 'c1-retarget-r' else '2')
+    assert all('/normal/evaluation.json' in records[0]['baseline'] for records in specifications.values())

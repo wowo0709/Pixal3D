@@ -141,6 +141,46 @@ def test_physical_query_shuffle_changes_only_context_of_existing_conditioner():
     torch.testing.assert_close(shuffled.usage_scale, normal.usage_scale, rtol=0, atol=0)
 
 
+def test_wrong_object_changes_cached_source_values_and_keeps_recipient_target_path():
+    dataset = CachedSS()
+    dataset.transport_arm = 'c1'
+    for index, sample in enumerate(dataset.samples):
+        sample['transport_evidence_top1'] += index * 10000
+        sample['transport_evidence_soft'] += index * 10000
+        sample['transport_target_query'] = torch.full((8, 1024), float(index))
+        sample['transport_p_use'].fill_(.7 + index * .1)
+    wrapped = TransportControl(dataset, 'wrong-object')
+    with pytest.raises(ValueError, match='at least two'):
+        wrapped.collate_fn([dataset[0]])
+    original = dataset.collate_fn(dataset.samples)
+    batch = wrapped.collate_fn(dataset.samples)
+    assert batch['transport_control'] == 'normal'
+    for key, value in original.items():
+        torch.testing.assert_close(batch[key], value, rtol=0, atol=0)
+    inputs = {k.removeprefix('transport_'): v for k, v in batch.items()
+              if k.startswith('transport_') and k != 'transport_control'}
+    module = MatchingV2Conditioner(arm='c1', reject=True, reject_threshold=.5)
+    with torch.no_grad():
+        # Make the residual depend only on the recipient's native query.
+        module.retargeter.net[0].weight.zero_()
+        module.retargeter.net[0].bias.zero_()
+        module.retargeter.net[0].weight[0, 1024] = 1.
+        module.retargeter.net[-1].weight.zero_()
+        module.retargeter.net[-1].bias.zero_()
+        module.retargeter.net[-1].weight[0, 0] = 1.
+    normal = module(**inputs)
+    with pytest.raises(RuntimeError, match='generation failed'):
+        with transport_diagnostic_context(module, 'wrong-object'):
+            swapped = module(**inputs)
+            torch.testing.assert_close(swapped.base_evidence, normal.base_evidence.flip(0), rtol=0, atol=0)
+            torch.testing.assert_close(swapped.retarget_residual, normal.retarget_residual, rtol=0, atol=0)
+            torch.testing.assert_close(swapped.usage_scale, normal.usage_scale, rtol=0, atol=0)
+            raise RuntimeError('generation failed')
+    torch.testing.assert_close(module(**inputs).evidence, normal.evidence, rtol=0, atol=0)
+    for key, value in original.items():
+        torch.testing.assert_close(batch[key], value, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize('mode', ['normal', 'source-off', 'wrong-corr'])
 def test_evaluation_control_reaches_native_inference_dispatch(mode):
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import ImageConditionedProjMixin

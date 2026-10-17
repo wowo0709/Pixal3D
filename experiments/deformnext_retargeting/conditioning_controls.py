@@ -39,6 +39,7 @@ class TransportControl:
         'source-off': 'Disable the additional transport and adapter paths; native four-view conditioning remains.',
         'adapter-off': 'Zero only the retargeter output; retain semantic evidence, learned fusion gate and native four-view conditioning.',
         'wrong-corr': 'Roll correspondence values by one target-query slot within each object; a weak local sensitivity control.',
+        'wrong-object': 'Cycle preaggregated correspondence evidence across assets; retain recipient validity, confidence, target query and native RGB. Donor feature support can differ.',
         'shuffled-deform': 'Cycle the physical C2 RAW deformation context between assets in each generation batch.',
     }
     MODES = tuple(DEFINITIONS)
@@ -67,23 +68,37 @@ class TransportControl:
     def collate_fn(self, batch, split_size=None):
         if self.mode == 'shuffled-deform' and len(batch) < 2:
             raise ValueError('shuffled deformation requires at least two assets per generation batch')
+        if self.mode == 'wrong-object' and len(batch) < 2:
+            raise ValueError('wrong-object requires at least two assets per generation batch')
         pack = self.dataset.collate_fn(batch, split_size=split_size)
         if not isinstance(pack, dict) or 'transport_control' in pack:
             raise ValueError('transport control requires an unmodified dense SS batch')
-        # Adapter removal uses a scoped output hook, keeping the existing
-        # conditioner inference control normal and all learned weights intact.
-        return {**pack, 'transport_control': 'normal' if self.mode == 'adapter-off' else self.mode}
+        # Scoped hooks perturb loaded modules without changing their inference
+        # control API, cached input tensors or learned weights.
+        return {**pack, 'transport_control': 'normal' if self.mode in {'adapter-off', 'wrong-object'} else self.mode}
 
 
 @contextmanager
 def transport_diagnostic_context(conditioner, mode):
-    if mode != 'adapter-off':
+    if mode not in {'adapter-off', 'wrong-object'}:
         yield
         return
-    retargeter = getattr(conditioner, 'retargeter', None)
-    if retargeter is None:
-        raise ValueError('adapter-off requires a loaded retargeter')
-    hook = retargeter.register_forward_hook(lambda module, inputs, output: torch.zeros_like(output))
+    if mode == 'adapter-off':
+        retargeter = getattr(conditioner, 'retargeter', None)
+        if retargeter is None:
+            raise ValueError('adapter-off requires a loaded retargeter')
+        hook = retargeter.register_forward_hook(lambda module, inputs, output: torch.zeros_like(output))
+    else:
+        if getattr(conditioner, 'implementation', None) != 'matching-v2':
+            raise ValueError('wrong-object requires preaggregated matching-v2 evidence')
+        def swap_evidence(module, positional, keyword):
+            if keyword['evidence_soft'].shape[0] < 2:
+                raise ValueError('wrong-object requires at least two assets per generation batch')
+            changed = dict(keyword)
+            for key in ['evidence_top1', 'evidence_soft']:
+                changed[key] = torch.roll(keyword[key], 1, 0)
+            return positional, changed
+        hook = conditioner.register_forward_pre_hook(swap_evidence, with_kwargs=True)
     try:
         yield
     finally:
