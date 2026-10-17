@@ -229,17 +229,26 @@ def train(path, output, wandb_id=None):
     with torch.no_grad():
         for pair, ref in spec['evaluation_records'].items():
             with np.load(checked(ref), allow_pickle=False) as data:
+                # NPZ members decompress on every __getitem__. Materialize once
+                # before query chunks, preserving the exact arrays and math.
+                query_array = data['query_L12']
+                candidates = data['candidates']
+                raw_scores = data['raw_scores']
+                query_ids = data['query_ids']
                 source = {12: torch.tensor(data['source_L12'], device='cuda:0')}
                 scores = []
-                for start in range(0, len(data['query_ids']), 32):
-                    query = {12: torch.tensor(data['query_L12'][start:start+32], device='cuda:0')}
-                    ids = torch.tensor(data['candidates'][start:start+32], device='cuda:0')
-                    raw = torch.tensor(data['raw_scores'][start:start+32], device='cuda:0')
+                for start in range(0, len(query_ids), 32):
+                    query = {12: torch.tensor(query_array[start:start+32], device='cuda:0')}
+                    ids = torch.tensor(candidates[start:start+32], device='cuda:0')
+                    raw = torch.tensor(raw_scores[start:start+32], device='cuda:0')
                     scores.append(runner.model(query, source, ids, raw_scores=raw)['scores'].cpu().numpy())
                 rows.extend(component_rows(metadata={'pair_id': pair, 'arm': info.decoder_arm,
                     'fold': info.fold, 'seed': info.seed, 'split': 'DEV'}, scores=np.concatenate(scores),
-                    candidates=data['candidates'], query_ids=data['query_ids'], cue_rgb=data['evaluator_rgb'],
+                    candidates=candidates, query_ids=query_ids, cue_rgb=data['evaluator_rgb'],
                     eligible=data['eligible'], wrong_maps=data['wrong_maps'], temperature=spec['temperature']))
+                print(json.dumps({'evaluation_pair': pair,
+                    'completed_pairs': len({r['pair_id'] for r in rows}),
+                    'total_pairs': len(spec['evaluation_records'])}), flush=True)
     gates = {name: float(value.detach()) for name, value in runner.model.named_parameters()
              if name.endswith(('attention_gate', 'ffn_gate'))}
     pair_errors = [np.mean([r['task_rgb_error'] for r in rows if r['pair_id'] == pair])

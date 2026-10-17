@@ -81,3 +81,16 @@ G2 archived checkpoint의 runtime을 열어 추가 차이를 확인했다. 당�
 No-query는 content encoder가 아예 없고 residual 입력 폭에서도 geometry embedding 채널을 뺀다. Geometry tensor를 전달하면 zero tensor라도 거부한다. 두 arm은 초기 projection이 native와 exact이며, 출력 layer의 gradient가 연결돼 있다. Reference old-zero arm의 수치를 production physical-No-query arm의 수치로 재사용하지 않는다.
 
 과거 flow의 기록 경로 `/root/data3/pixal3d/ckpts/...`가 비어 있어 최초 reference export는 실패했다. 파일은 `/root/data3/delete-at-261010/pixal3d/ckpts/ss64/20260730T160615Z/ckpts/denoiser_ema0.9999_step0020000.pt`에서 발견했다. 새 실행에는 이 위치를 **명시적** `--flow-checkpoint`로 전달하고 원래 SHA `c2700988…`와 대조한다. 임의 checkpoint fallback이나 현재 production initializer 교체는 하지 않는다. 실패 기록은 보존하고 별도 v2 export/job으로 다시 실행한다.
+
+## Native fallback bridge 실제 결과
+
+동일32개·1noise에서 두 사전 명시 weight의 생성이 완료됐다. 모든32개 native prediction/GT occupancy SHA가 최초 reproduction과 일치하고, correct/wrong은 같은 GT mask·sample noise·global/negative·write support를 쓴다. Wrong의 active address는100% 바뀌며 view별 source value multiset은 exact다.
+
+| Native-spatial bridge | GT IoU64 | Wrong IoU64 | GT−native, pp [95% CI] | GT−wrong, pp [95% CI] |
+| --- | ---: | ---: | --- | --- |
+| weight1 | 0.44631358 | 0.38078197 | +1.960 [+0.517,+3.457] | +6.553 [+4.934,+8.261] |
+| weight0.25 | 0.43296665 | 0.42611825 | +0.625 [+0.205,+1.060] | +0.685 [+0.075,+1.355] |
+
+이는 **현재 mixed385 consumer에서도 correspondence 주소의 headroom이 있고, native source 보존이 중요함**을 보여준다. 과거 target-fallback GT case의0.32405를 native-spatial bridge로0.44631까지 바꾼 원인을 모듈 유무와 분리해서 볼 수 있다. 단, GT 주소를 쓰므로 학습된 matching 모듈이나 unseen-test 향상으로 발표하지 않는다. Final 모델에 GT route cache를 넣지 않는다. Learned correspondence의 per-view 연결과 source-use 검증은 별도 gate로 남는다.
+
+Physical No-query·reference runtime을 포함한 관련44개 CPU 검증이 통과했다. Q2C의 실제 GPU 학습도 시작됐고, 첫 D0 run의 중간 optimizer loss들이 과거 log와 bit-exact였다. 전체1200 update·held-out 결과와 D1까지 완료한 뒤 정확한 재현 범위를 판정한다.
