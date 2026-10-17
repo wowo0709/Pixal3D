@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 학습 중; query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 1에폭 검증 후 학습 중; query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -106,6 +106,29 @@ Top1−V1은+0.172%p, source-cluster paired95% CI[+0.005,+0.371]%p다. 이seed�
 2026-10-18 04:01 KST에GPU0·1의`b3-attention-r`와GPU2·3의`c1-retarget-r`에서본학습update가확인됐다. 두arm 모두native 조건차이0·유효gradient·2-rank2-update memory probe를통과했다. 초기32개IoU는둘다0.42671546671444294이며sample별TP/FP/FN·seed·cluster·GT voxel hash도앞선native 초기값과일치했다. Native 초기성능하락은관찰되지않았다.
 
 시작스냅샷은각12/4 updates였고rank별micro48·accumulation1·global96·finite loss가확인됐다. 관측peak allocated는attention46.84117GiB, adapter47.74934GiB다. C1의adapter gradient가연결돼있으며RAW deformation query는C2에만추가한다. 이는시작검증결과이며학습완료나성능향상을뜻하지않는다. 근거는 `provenance/native-ladder-second-pair-startup.json`이다.
+
+### Attention / adapter 첫 epoch
+
+2026-10-18 04:30 KST에 두 arm의 step96 검증이 완료됐다. 아래는 같은32개·32 source cluster·한 sampling noise의 같은 epoch 비교다. 각 대비의32개 GT voxel hash도 모두 일치했다.
+
+| Arm | Voxel IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| b2-top1 | 0.435432 | 0.552400 | 0.672817 | 0.606691 |
+| b2-top1-r | 0.435453 | 0.552483 | 0.672745 | 0.606712 |
+| b3-attention-r | 0.435604 | 0.552723 | 0.672749 | 0.606858 |
+| c1-retarget-r | 0.431068 | 0.544840 | 0.673663 | 0.602442 |
+
+Attention−Top1-R은 +0.015%p, source-cluster paired95% CI[−0.068,+0.105]%p로 첫 epoch의 추가 이득은 구분되지 않는다. Adapter−attention은 −0.454%p, CI[−0.814,−0.150]%p다. 이 패널·seed에서는 adapter 추가 후 첫 epoch 성능이 낮다. Precision은 낮아지고 recall은 소폭 높아졌으며, 이를 초기 native 성능 붕괴와 구분한다. 두 arm의 학습 전 출력은 정확히 같았고 adapter도 초기 IoU보다 높다. 이 결과로 학습을 중단하거나 query arm을 취소하지 않고 480 updates와 final128×3을 유지한다.
+
+P2-NoR의 같은 epoch IoU는0.437257이다. C1-R−P2-NoR의 보조 비교는 −0.619%p, CI[−1.362,+0.174]%p이며0을 포함한다. P2의 중단/재개 RNG 차이가 있어 rejection만의 인과 효과로 확정하지 않는다.
+
+CPU checkpoint 검사에서 B3의 optimizer361개, C1의366개 상태가 모두step96이고 moment 값도finite였다. C1의 실제 `retargeter.net.0.weight`는256×2048이며 RAW query 추가 채널이 없다. Zero-init·gradient·rejection 시 추가 경로 전체 차단은 검토한 구현에서 계획과 일치했다. 각 denoiser/conditioner/misc 파일 크기도file4와 일치했다. 중간 checkpoint의 전체SHA256 검증이나 source feature의 유용성을 입증한 것은 아니다.
+
+별도CPU constructor probe에서는 adapter 추가가 난수 소비를 바꾸는 것도 확인했다. `sample_t`는CPU 난수 생성기를 사용하고 validation은RNG를 저장·복원하므로, 같은seed·world·microbatch만으로 서로 다른 구조의 학습 난수 경로까지 일치한다고 볼 수 없다. 이는 격리된 초기화 검사이며 실제 rank별 timestep을 캡처한 결과는 아니다. 한seed의 source-cluster CI가 training stochastic variation을 포함하지 않는다는 해석 한계로 기록하고, 기존R9-compatible 초기화와 실행 설정은 유지한다.
+
+기록된 모든 update에서 micro48·accumulation1·global96·finite loss를 확인했다. Warmup25 이후 median compute는attention 약17.26초/update, adapter 약17.22초/update였고 rank별peak는46.84117/47.74934GiB였다. GT/Pred/Diff 투영 이미지도 확인했으며 두 모델 모두 큰 형상은 유지되고 경계·가는 구조 등에 차이가 남았다. 한 방향 투영으로3D 정확도를 대체하지 않는다.
+
+근거는 `module-study-native-v4/interim-first-epoch-attention-adapter.json`, `epoch-comparisons/epoch-01-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch1-checkpoints.json`, `provenance/native-second-pair-constructor-rng-probe.json`이다. 두 주 대비의CI는W&B에도 기록됐다. 이 첫 epoch 결과는 최종 모듈 채택 판단을 대체하지 않는다.
 
 ## 비교·완료 조건
 
