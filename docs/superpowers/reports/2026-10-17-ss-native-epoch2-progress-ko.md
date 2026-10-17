@@ -1,6 +1,6 @@
 # SS P1/P2: 에폭별 중간 결과
 
-2026-10-18 00:41 KST / 2026-10-17 15:41 UTC 기준이다. 두 run 모두 학습 중이며 5에폭 최종 결과가 아니다.
+2026-10-18 00:54 KST / 2026-10-17 15:54 UTC 기준이다. P1은480 updates와5에폭 검증을 완료했고 P2는 학습 중이다. 최종128×3-noise 비교는 아직 완료되지 않았다.
 
 ## 동일 에폭 비교
 
@@ -13,6 +13,7 @@
 | Epoch2 / step192 | 0.438175 | 0.441612 | +0.344 | [+0.036,+0.645] |
 | Epoch3 / step288 | 0.442308 | 0.441529 | −0.078 | [−0.668,+0.567] |
 | Epoch4 / step384 | 0.448729 | 0.445345 | −0.338 | [−1.320,+0.681] |
+| Epoch5 / step480 | 0.451872 | 학습 중 | 대기 | 대기 |
 
 2에폭에서는 precision도 P1 0.557612 → P2 0.561878, recall은0.671667 →0.673543, F1은0.609348 →0.612664로 함께 높았다. P2의 중간 우세가 단순 precision/recall 한쪽의 상승만으로 생긴 것은 아니다.
 
@@ -21,6 +22,8 @@
 P1의4에폭은 precision0.569479, recall0.679104, F1 0.619479다. 3에폭 대비 IoU point gain은+0.642%p이며 같은32개 source cluster의 paired CI는[−0.334,+1.696]%p다. P2의4에폭은 precision0.565638, recall0.676803, F1 0.616247이며3에폭 대비IoU+0.382%p, paired CI[−0.240,+1.031]%p다. 두 run 모두 point estimate는 상승했으나 각 증가량의 CI는0을 포함한다.
 
 같은4에폭의 P2−P1은−0.338%p, CI[−1.320,+0.681]%p다. P2의2에폭 우세가3·4에폭에도 유지되지는 않았다. H3 bundle의 SS 추가 이득은 현재까지 확인되지 않았으나, 반대로 P2가 확정적으로 열세라고 결론 내릴 근거도 부족하다. 4에폭의 두 run 비교와 각 run의3→4에폭 비교 모두32개 GT occupancy 전체 hash가 일치했다.
+
+P1의5에폭은 precision0.572939, recall0.681370, F1 0.622468이다. 4에폭 대비IoU+0.314%p, paired CI[−0.209,+0.945]%p로 point estimate는 계속 상승했으나 증가량의 CI는0을 포함한다. 같은32개·seed·GT occupancy hash를 확인했다. P2의5에폭은 아직 없어 같은 최종 epoch의 차이는 계산하지 않는다. 기존 V1/C1의128개 집계와도 직접 차감하지 않는다.
 
 P1 자체의 epoch1→2 gain은 +0.389%p였고 paired CI는[−0.424,+1.215]%p였다. 따라서 모든 에폭 증가가 통계적으로 확정됐다고 표현하지 않는다. P2의 epoch1→2 point gain은+0.435%p다.
 
@@ -33,12 +36,13 @@ P1/P2는 각각 step103/56에서 사용자 중단 후 optimizer/scheduler/sample
 ## 실행·정합 확인
 
 - 각 에폭 결과는 동일 panel 순서, per-asset seed와 GT foreground 수를 유지했다. Epoch2와3의32개 GT occupancy 전체 hash도 P1/P2 사이에 모두 일치했다. GT는 정합된 M1 SS latent의 decoder 복원 occupancy다.
-- GPU2·3의 P1, GPU0·1의 P2가 rank당 micro48/accumulation1/global96으로 진행 중이다. 최근 compute는 약17.2초/update, peak allocated는 rank당47.75GiB다. 당시 실패 작업/OOM은 없었다.
-- P1/P2 모두 step192/288/384 checkpoint 세 파일을 생성했다. 파일서버 보존과 optimizer step 확인은 `provenance/*-file4-checkpoint-receipt.json`에 기록한다.
+- P1의 두 rank 모두1~480 update가 누락·중복 없이 남았고, 여섯 검증(step0/96/192/288/384/480), finite loss, 초기 정합·gradient와 final checkpoint가 완료 검사를 통과했다. `provenance/p1-final-training-audit.json`에 전체 근거를 보존했다. 실제 micro48/rank, accumulation1, world2, global96이며 median compute는 rank0 17.21985초, rank1 17.22072초/update, peak allocated는 모두47.74934GiB다.
+- GPU2·3의 P1 완료 후 zero-shot의128개 추가 noise 평가 두 개가 실제 시작됐다. GPU0·1의 P2는 계속 학습 중이다. 이후에도 예약된 baseline 보충, P1/P2 final 평가와 다섯 모듈 arm을 이어간다. 당시 실패 작업/OOM은 없었다.
+- P1/P2 모두 step192/288/384 checkpoint 세 파일을 생성했다. 파일서버 보존과 optimizer step 확인은 `provenance/*-file4-checkpoint-receipt.json`에 기록한다. P1 final480의 로컬 세 파일은 생성됐고 file4 복사·전체 SHA256 대조는 `provenance/p1-final-checkpoint-checksum.json`의 상태로 구분한다.
 - Epoch 비교는 CPU reporter가 양쪽의 동일 step 결과가 생기면 자동 산출한다. W&B에 epoch4 paired CI까지 기록된 것을 확인했다. 시각화 검토 기록이 통계 JSON 폴더에 들어가 reporter가 종료된 건은 해당 기록을 `visual-reviews/`로 옮기고 CPU reporter만 재개해 복구했다. 학습 두 개는 중단하지 않았다. 최종 모듈 행렬의 다섯 학습은 큐에서 대기 중이며 이 중간 결과로 취소하거나 대체하지 않는다.
 
 ## 남은 실험
 
-[전체 모듈 비교 복원 계획](2026-10-17-ss-full-module-restoration-ko.md)에 따라 P1/P2의480 updates를 마치고, 같은 H3에서 Top1 → confidence/rejection → attention → retargeter → physical RAW2048 query의 다섯 arm을 독립 학습한다. Zero-shot 두 조건과 기존 V1/B1/B2/B3/C1을 포함한14개 구성을 동일128×3으로 최종 집계한다.
+[전체 모듈 비교 복원 계획](2026-10-17-ss-full-module-restoration-ko.md)에 따라 P2의480 updates와 P1/P2 final 평가를 마치고, 같은 H3에서 Top1 → confidence/rejection → attention → retargeter → physical RAW2048 query의 다섯 arm을 독립 학습한다. 각 GPU pair의 평가가 끝나면 해당 pair의 다음 학습을 시작한다. Zero-shot 두 조건과 기존 V1/B1/B2/B3/C1을 포함한14개 구성을 동일128×3으로 최종 집계한다.
 
-Authoritative data: file4의 `rgb_matching_v2/retarget-native-v3/runs_ss64/*/validation.jsonl`, `epoch-comparisons/epoch-0{1,2,3,4}-p2-vs-p1.json`, `training-trends/p{1,2}-epoch4-vs3.json`. [P1 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [P2 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p2).
+Authoritative data: file4의 `rgb_matching_v2/retarget-native-v3/runs_ss64/*/validation.jsonl`, `epoch-comparisons/epoch-0{1,2,3,4}-p2-vs-p1.json`, `training-trends/p{1,2}-epoch4-vs3.json`, `training-trends/p1-epoch5-vs4.json`. [P1 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [P2 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p2).
