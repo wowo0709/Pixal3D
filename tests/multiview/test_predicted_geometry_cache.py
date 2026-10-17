@@ -7,6 +7,9 @@ import torch
 from torch.utils.data import default_collate
 
 from experiments.deformnext_retargeting.cache_predicted_geometry import rgb_packs, noise_seed
+from experiments.deformnext_retargeting.audit_predicted_geometry import check_arrays
+from experiments.deformnext_retargeting.historical_reproduction import geometry_from_logits
+from experiments.deformnext_retargeting.cache_predicted_geometry import SCHEMA
 
 
 class RGBOnlyDataset:
@@ -67,3 +70,15 @@ def test_query_noise_is_pair_specific_and_independent_of_label_random_state():
     assert seed == noise_seed('pair') and seed != noise_seed('other')
     assert 0 <= seed < 2**63-1
     assert all(np.array_equal(a, b) for a, b in zip(state, np.random.get_state()))
+
+
+def test_stored_query_must_reproduce_original_logit_probability_sdf_order_exactly():
+    original = np.full((64, 64, 64), -2., np.float32)
+    original[20:40, 20:40, 20:40] = 2.
+    desired = np.roll(original, 4, axis=0)
+    data = dict(schema=SCHEMA, original_logit64=original, desired_logit64=desired,
+                geometry9=geometry_from_logits(original, desired).numpy()[0])
+    check_arrays(data)
+    data['geometry9'] = data['geometry9'][:, ::-1].copy()
+    with pytest.raises(ValueError, match='original O/D9'):
+        check_arrays(data)

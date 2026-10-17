@@ -1,5 +1,7 @@
 # 소규모 양의 모듈 결과와 현재 DeformNeXt SS 실험의 차이
 
+후속실행에서는[원본모듈재현](2026-10-18-faithful-module-reproduction-ko.md)의Q2C24-run 학습/endpoint와G2144건 checkpoint endpoint를원본수치까지재현했다. [현재RGB task](2026-10-18-task-rgb-matcher-transfer-ko.md)의matched D0/D1 대조에서도Q2C RGB error 개선이확인됐다. [현재9채널query 구축](2026-10-18-predicted-geometry-query-cache-ko.md)은GPUpreflight후진행중이다. 아래는이후속실행전의불일치진단및당시production 경로검사기록이다. 재현완료로과거진단근거를삭제하거나현재SS개선으로바꾸지않는다.
+
 ## 결론과 근거 범위
 
 현재의 작은 증분 효과를 곧바로 “이전에 유효했던 모듈이 큰 데이터에서 무효가 됐다”로 해석할 수 없다. 코드와 실험 기록을 대조하면, 양의 결과가 났던 feature 전달 경로·ablation factor·geometry 표현·학습 loss·평가 영역이 현재와 다르다. 일부 저수준 구현은 정확히 재사용했지만 **이전 양의 실험 조건 전체를 재현한 것은 아니다.** 이전 조건까지 일치했다고 판단한 부분을 정정한다.
