@@ -9,7 +9,7 @@ import torch
 
 from experiments.deformnext_retargeting import historical_geometry_runtime as runtime
 from experiments.deformnext_retargeting.historical_reproduction import GeometryFactorialVoxelAdapter
-from experiments.deformnext_retargeting.reproduce_geometry_content import ARMS
+from experiments.deformnext_retargeting.reproduce_geometry_content import ARMS, reference_rows
 
 
 def test_native_sampler_scoring_condition_and_noise_match_historical_ast():
@@ -60,3 +60,16 @@ def test_geometry_shuffle_preserves_nine_channel_tuples_without_fixed_locations(
     assert not torch.any(order == torch.arange(4096))
     assert torch.equal(order.sort().values, torch.arange(4096))
     assert torch.equal(geometry[:, order].sort(dim=1).values, geometry)
+
+
+def test_reference_export_excludes_confirm_pairs_and_requires_locked_train_dev_counts():
+    rows = [{'pair_id': f'train{i}', 'split': 'train'} for i in range(32)]
+    rows += [{'pair_id': f'dev{i}', 'split': 'dev'} for i in range(8)]
+    rows += [{'pair_id': f'confirm{i}', 'split': 'confirm'} for i in range(6)]
+    selected = reference_rows({'records': rows})
+    assert len(selected) == 40
+    assert all(r['split'] in ['train', 'dev'] for r in selected)
+    with pytest.raises(ValueError, match='TRAIN32/DEV8'):
+        reference_rows({'records': rows[1:]})
+    with pytest.raises(ValueError, match='TRAIN32/DEV8'):
+        reference_rows({'records': [rows[1], *rows[1:]]})

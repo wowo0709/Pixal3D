@@ -28,6 +28,18 @@ from .reproduce_q2c import checked, read, reference, write_new, sha
 ARMS = ['r2_feat', 'r4_content']
 
 
+def reference_rows(manifest):
+    # The source manifest also holds six untouched confirm pairs. They are
+    # outside this historical TRAIN32/DEV8 reproduction and must never be read.
+    rows = sorted((r for r in manifest['records'] if r['split'] in ['train', 'dev']),
+                  key=lambda r: r['pair_id'])
+    if (len({r['pair_id'] for r in rows}) != 40
+            or len([r for r in rows if r['split'] == 'train']) != 32
+            or len([r for r in rows if r['split'] == 'dev']) != 8):
+        raise ValueError('historical TRAIN32/DEV8 split differs')
+    return rows
+
+
 def copy_verified(source, target, expected=None):
     source_hash = sha(source)
     if expected is not None and source_hash != expected:
@@ -67,9 +79,7 @@ def prepare(root, checkpoint, output, flow_checkpoint=None):
                                      for ext in ['.json', '.safetensors']]}
     write_new(output / 'runtime.json', runtime_out)
     manifest = read(root / 'ss_tto_adapter0/split_manifest.json')
-    rows = sorted(manifest['records'], key=lambda r: r['pair_id'])
-    if len([r for r in rows if r['split'] == 'train']) != 32 or len([r for r in rows if r['split'] == 'dev']) != 8:
-        raise ValueError('historical TRAIN32/DEV8 split differs')
+    rows = reference_rows(manifest)
     records = []
     for row in rows:
         pair = row['pair_id']
@@ -122,6 +132,9 @@ def prepare(root, checkpoint, output, flow_checkpoint=None):
         for seed in [101, 202, 303]:
             old_summary = read(factorial / 'TRAIN32' / arm / f'seed{seed}/summary.json')
             source = Path(old_summary['checkpoint'])
+            saved = torch.load(source, map_location='cpu', weights_only=True)
+            if sorted(saved['train_pairs']) != sorted(r['pair_id'] for r in rows if r['split'] == 'train'):
+                raise ValueError('historical learned adapter used a different training split')
             staged = output / 'checkpoints' / arm / f'seed{seed}.pt'
             models[arm][str(seed)] = copy_verified(source, staged, old_summary['checkpoint_sha256'])
     smoke_history = {arm: read(factorial / 'SMOKE_ONEPAIR' / arm / 'seed101/summary.json')['history']
