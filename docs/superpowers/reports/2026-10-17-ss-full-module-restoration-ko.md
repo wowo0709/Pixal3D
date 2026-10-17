@@ -41,6 +41,21 @@ V1은 native spatial correspondence 기준이다. No-score 비교는 b2-top1-r �
 
 P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler/sampler까지 복원했다. Native checkpoint에는 rank별 RNG가 없어 bitwise uninterrupted replay라고 주장하지 않는다. 현재 설정의 steady-state는 약17.2초/update, 각 rank peak47.75GiB였다.
 
+### 첫 에폭의 Top1 / confidence 비교
+
+2026-10-18 01:50 KST에 두 arm의step96 검증이 완료됐다. 같은32개·32 source cluster·한 sampling noise이며,32개 GT voxel hash가 모두 일치했다. 두 arm의 초기 IoU는 모두0.42671546671444294였다.
+
+| Step96 | Voxel IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| b2-top1 | 0.435432 | 0.552400 | 0.672817 | 0.606691 |
+| b2-top1-r | 0.435453 | 0.552483 | 0.672745 | 0.606712 |
+
+Confidence/rejection의 차이는+0.002%p, source-cluster paired95% CI[−0.108,+0.098]%p다. 첫 에폭에서 추가 이득은 구분되지 않으며 formal equivalence나 최종 무효를 입증한 것은 아니다. 두 arm의 학습 전 대비 상승에는 공통 LoRA 학습 효과도 포함되므로 그 증가량을 semantic matching만의 효과로 해석하지 않는다. 예정한480 updates와final128×3을 유지한다.
+
+기록된 모든 update를 검사해 두 rank의 연속 step·finite loss·micro48·accumulation1·global96을 확인했다. Warmup25 이후 median compute는Top1 약17.236초, Top1-R 약17.217초/update이며 peak allocated는각47.02867GiB다. Step96 optimizer의361개 moment state가모두96이었고, 양쪽의denoiser/conditioner/misc 파일 크기도file4와일치했다. 중간 checkpoint는크기·CPU optimizer 검증 범위이며전체 SHA256 검증으로표현하지 않는다.
+
+근거는 `module-study-native-v4/interim-first-epoch-top1-rejection.json`, `epoch-comparisons/epoch-01-b2-top1-r-vs-b2-top1.json`, `provenance/native-ladder-epoch1-checkpoints.json`에있다. Paired CI는W&B에도기록됐다. 한 training seed·첫 에폭의중간 결과이며14개 구성의최종 표나채택 판단을대체하지 않는다.
+
 ## 비교·완료 조건
 
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.
