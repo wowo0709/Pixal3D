@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 1에폭 검증 후 학습 중; query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 2에폭 검증 후 학습 중; query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -129,6 +129,27 @@ CPU checkpoint 검사에서 B3의 optimizer361개, C1의366개 상태가 모두s
 기록된 모든 update에서 micro48·accumulation1·global96·finite loss를 확인했다. Warmup25 이후 median compute는attention 약17.26초/update, adapter 약17.22초/update였고 rank별peak는46.84117/47.74934GiB였다. GT/Pred/Diff 투영 이미지도 확인했으며 두 모델 모두 큰 형상은 유지되고 경계·가는 구조 등에 차이가 남았다. 한 방향 투영으로3D 정확도를 대체하지 않는다.
 
 근거는 `module-study-native-v4/interim-first-epoch-attention-adapter.json`, `epoch-comparisons/epoch-01-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch1-checkpoints.json`, `provenance/native-second-pair-constructor-rng-probe.json`이다. 두 주 대비의CI는W&B에도 기록됐다. 이 첫 epoch 결과는 최종 모듈 채택 판단을 대체하지 않는다.
+
+### Attention / adapter 두 번째 epoch
+
+2026-10-18 04:59 KST에 두 arm의 step192 검증이 완료됐다. 같은32개·한 sampling noise에서 얻은 결과이며, 대비별32개 GT voxel hash도 일치했다.
+
+| Arm | Voxel IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| b2-top1 | 0.434025 | 0.553075 | 0.668475 | 0.605324 |
+| b2-top1-r | 0.432750 | 0.551961 | 0.667076 | 0.604083 |
+| b3-attention-r | 0.432622 | 0.552025 | 0.666679 | 0.603959 |
+| c1-retarget-r | 0.435896 | 0.554282 | 0.671145 | 0.607142 |
+
+Attention−Top1-R은 −0.013%p, paired95% CI[−0.060,+0.021]%p로 추가 이득이 구분되지 않는다. Adapter−attention은 +0.327%p, CI[−0.006,+0.787]%p다. 첫 epoch의 −0.454%p에서 양의 점추정치로 바뀌었으나 CI는 아직0을 포함한다. 초기 하락이 계속된다고 볼 수 없으며, 첫 epoch만으로 adapter 실패를 결정하지 않은 이유를 보여준다. 최종 이득의 확정이나 채택은 아니다.
+
+같은 arm의1→2에폭 변화는attention −0.298%p, CI[−1.357,+0.813]%p, adapter +0.483%p, CI[−0.624,+1.592]%p다. 두 변화 모두0을 포함한다. Adapter는precision이0.544840→0.554282로 높아졌고recall은0.673663→0.671145로 소폭 낮아졌다. 같은 epoch의attention보다precision·recall 점추정치가 모두 높지만, 단일seed와작은패널의 불확실성을 유지해 해석한다.
+
+P2-NoR의 같은 epoch IoU는0.441612다. C1-R−P2-NoR의 보조 비교는 −0.572%p, CI[−1.469,+0.403]%p이며0을 포함한다. P2의 중단/재개 및 학습 난수 경로 한계는 그대로 적용한다.
+
+B3/C1 optimizer의361/366개 상태가 모두step192이고 moment가finite임을 확인했다. Gate tanh는step96→192에서B3 0.007442→0.015897, C1 0.007071→0.015212로 변했다. C1의입력weight는여전히256×2048이다. 각checkpoint 세 파일의file4 크기가일치했고, 기록된양rank의연속update·micro48·accumulation1·global96·finite loss도확인했다. 이검사는실행정상성을뒷받침하며모듈효과나source 활용을입증하지않는다.
+
+근거는 `module-study-native-v4/interim-second-epoch-attention-adapter.json`, `epoch-comparisons/epoch-02-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch2-checkpoints.json`이다. 두주대비의CI는W&B에기록됐다. 두run의480 updates·final128×3, C2 및나머지baseline 평가를계속유지한다.
 
 ## 비교·완료 조건
 
