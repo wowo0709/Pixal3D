@@ -36,7 +36,7 @@ V1은 native spatial correspondence 기준이다. No-score 비교는 b2-top1-r �
 - DeformNeXt RGB/world-v4 train9149/val508, frozen Omega epoch7, 기존 정합 latent와 cache를 재사용한다. Clean80k를 추가하지 않는다.
 - 원본 mixed385 complete base+LoRA checkpoint에서 각 arm을 독립적으로 시작한다. 구조의 순서는 weight continuation을 뜻하지 않으므로 고정한 arm은 병렬 학습할 수 있다.
 - 480 updates/약5 epochs, global96, 2-GPU DDP, rank당 micro48, accumulation1. 원래 optimizer/LoRA/conditioner LR/warmup/CFG dropout을 유지한다.
-- GPU0·1에는 P2 → b2-top1 → b3-attention-r → c2-query-r, GPU2·3에는 P1 → b2-top1-r → c1-retarget-r를 배치한다. 각 run의 final 세-noise 평가를 마치면 같은 pair의 다음 학습을 실행한다. 생성 평가는 학습 GPU와 겹치지 않는다. 마지막 학습 중 다른 pair는 평가와 진단에 사용한다.
+- GPU0·1에는 P2 → b2-top1 → b3-attention-r → c2-query-r, GPU2·3에는 P1 → b2-top1-r → c1-retarget-r를 배치한다. 각 run의 final 세-noise 평가를 마치면 같은 pair의 다음 학습을 실행한다. 이21개 final 평가 job도 해당 학습 pair에 고정하고 noise0은 validation rank0의 물리 GPU에 배치한다. 다른 pair의 다음 학습이 평가 때문에 지연되는 것을 피하며, 생성 평가는 학습 GPU와 겹치지 않는다. 마지막 학습 중 다른 pair는 평가와 진단에 사용한다.
 - 실제 native-start/gradient 증명과 2-update per-rank memory probe를 통과한 run만 본 학습으로 진행한다. 메모리·속도·loss·gate/update RMS·metric·이미지를 W&B와 file4에 남긴다.
 
 P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler/sampler까지 복원했다. Native checkpoint에는 rank별 RNG가 없어 bitwise uninterrupted replay라고 주장하지 않는다. 현재 설정의 steady-state는 약17.2초/update, 각 rank peak47.75GiB였다.
@@ -45,7 +45,7 @@ P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler
 
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.
 
-Zero-shot 두 조건과 기존 B1/B2/B3도 추가 noise 두 개를 생성해 최종 세-noise 표에 함께 넣는다. V1/기존 C1은 이미 세 noise가 있다. 이 보충은 저장된 checkpoint의 평가 열 개이며 재학습이 아니다. GPU pair가 비면 실행하도록 queue에서 자원을 예약하며 기존 학습과 겹치지 않는다. 최종 집계는 baseline 일곱 개와 새 run 일곱 개, 총14개 구성을 같은128×3 조건으로 다룬다. Source-only의 네 M0 RGB도 동일 M1 target과 비교하는 입력 효과 진단임을 명시한다.
+Zero-shot 두 조건과 기존 B1/B2/B3도 추가 noise 두 개를 생성해 최종 세-noise 표에 함께 넣는다. V1/기존 C1은 이미 세 noise가 있다. 이 보충은 저장된 checkpoint의 평가 열 개이며 재학습이 아니다. P1이 끝난 GPU2·3에서 zero-shot 반복 평가를 먼저 실행한다. 기존 B1/B2/B3의 반복 여섯 개는 C1 학습이 끝난 뒤 비는 GPU2·3에 배치해, P1/P2 final 평가와 새 SS 학습의 시작을 지연시키지 않는다. 해당 여섯 job은 `train-native-module-c1-retarget-r`를 기다리며 GPU2/3에만 배정한다. 명령·checkpoint·sample·noise·완료 조건은 바꾸지 않는다. 최종 집계는 baseline 일곱 개와 새 run 일곱 개, 총14개 구성을 같은128×3 조건으로 다룬다. Source-only의 네 M0 RGB도 동일 M1 target과 비교하는 입력 효과 진단임을 명시한다.
 
 핵심 대비는 `b2-top1−V1`, `b2-top1-r−b2-top1`, `b3-attention-r−b2-top1-r`, `c1-retarget-r−b3-attention-r`, `c2-query-r−c1-retarget-r`다. P1/P2와 기존 C1도 최종 비교에 포함한다. Head Top1 향상만으로 SS module 효과를 입증하지 않는다. H2 confidence loss는 ranking branch에 detach되어 있어 H2−H1 순위 향상을 inference rejection의 인과 효과로 설명하지 않으며, 실제 SS R 대조로 판단한다.
 
