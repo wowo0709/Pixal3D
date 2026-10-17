@@ -1,0 +1,205 @@
+{
+  "reference_worktree": "anchor-hybrid-prestudy",
+  "function_AST_sha256": {
+    "historical_reproduction.py": {
+      "identity_patch_grid": "6ff61fbe941b4876c5726ed610a1836b12af734ce7dbe5b1f955aebe21037e3f",
+      "pixel_to_patch_grid": "157e0e4a48dc921879a878e304a56c4cbf20bb9137988295b92534415e99b8f7",
+      "_sample_neighborhood": "9ea77a992af04741bc644d1843c71b7360d47d9b9092fca6ea92f5ab9f8fc37f",
+      "project_static_source_maps": "3f8f6f816494d530aeb25022254dd9b4ecb3ab8ee717d30a1c5813a8ece2a441",
+      "target_first_static_projection": "666fb72dc321d3664a78866b4907c7e695bca5e2445afd50a1aff14600cbd67a",
+      "route_tensors": "6051990eeac54cff21dcb9e03e5ac86a10a11f4700ae54fe7b26280f72cbc6e3",
+      "wrong_permutation": "6c76091c7cedacc9c6287f0c1a73b051d67000b623447a1e6ea86894add86c0f",
+      "geometry_from_logits": "d99a02de5ad9ed815121471b7fbbe256e24e0d4064ba13d318246dba5141fc42",
+      "GeometryFactorialVoxelAdapter": "9a1afedf7f35c19ef0c2667919578084f06031dfef62f0e95989b8c1c23baa27",
+      "differentiable_flow_euler_samples": "56983f1d4cdaf36e8318cbe0de90d8c30ad6671f929a3602b9e46aa0925a7023",
+      "pool_ss_logits": "7813e7820ef645e0b89dc69acbe37c94315e38846f931d85bcde12c88082d426",
+      "coords_to_mask": "ea7890d2f46f6a05c48ef09012b56b227610285c8f7df8d7baced7c769416de6",
+      "make_loss_regions": "4f508c6774a05e924bc3ce1281cb98dbce027dc72a82aa387a9949a4e53a43ca",
+      "locked_endpoint_loss": "964fbdcad67c8e3d3a58746f241bcebd62f01bfd61fba663ec2e14676e769d24"
+    },
+    "historical_geometry.py": {
+      "project_points": "1ee8eb48f525761ab41174fb863b55fe9545643b046ff022a3b625b7cd00c576",
+      "barycentric_points": "d205b29b98033453e0bb217a7d04680be513938208efbe3fb8a10c67e40fd5ec",
+      "patch_center_pixels": "052a8694fd3c16905c76bb84e9f2002c7efb0272cea110e5d091d837094bdde8",
+      "teacher_pair_mask": "584c1332b11c1543f0fc04e5d462b3df090363771348cf268ecb39d90fe2d020",
+      "camera_rays_for_pixels": "1132092bf6937c20ba911da279b456c30be022457cdb4c6d007033e130ee3042",
+      "raycast_mesh_pixels": "7eedf7fd61374f7d6c16cacb6b63e3a956fecddfbcfbcbcc4f4f37301b77c4dc",
+      "_visible_points": "39a66dff736dc72177026a1e51531ed9f0359fb903cdbc51ffcbf747032ca7fb",
+      "_surface_route": "c007405d6ed48605745dd5f8d0eefd74eba32c166b0847f68f0805030b806ab7",
+      "_coord64": "0059ee46ac968fcd136cfefe045310e0e45b43fc51072ca93957e5f1278f7cdd",
+      "target_anchor_affine": "284e152a01e159317685797a622eb344253e48cbe1d700f4bb08fce44a340af8",
+      "_apply_affine_points": "d6d989dfdaaa8957f69ccf96d1a711fa19cd11ea164c73aefdaff1f36d084de6",
+      "world_to_target_anchor_points": "7f600f15fb9385c4bfc680cf6fb7a25ed7168999114b6e3c01a8a90787990529"
+    }
+  },
+  "policy": "Functions/classes copied from recorded positive SS module protocols. Imports and fixed local camera IDs are integration changes. No runtime dependency on a worktree snapshot. Historical G2 zero-input modes are reference controls, not production channel-removal arms.",
+  "reference_symbol_origins": {
+    "identity_patch_grid": {
+      "file": "pixal3d/experiments/ss_static_ray_reference.py",
+      "file_sha256": "12b04dd5a4e2f627a1cd9e3b874317a176e154bcdf6aa2093f739802e826a255",
+      "AST_sha256": "6ff61fbe941b4876c5726ed610a1836b12af734ce7dbe5b1f955aebe21037e3f",
+      "line": 18
+    },
+    "pixel_to_patch_grid": {
+      "file": "pixal3d/experiments/ss_static_ray_reference.py",
+      "file_sha256": "12b04dd5a4e2f627a1cd9e3b874317a176e154bcdf6aa2093f739802e826a255",
+      "AST_sha256": "157e0e4a48dc921879a878e304a56c4cbf20bb9137988295b92534415e99b8f7",
+      "line": 32
+    },
+    "_sample_neighborhood": {
+      "file": "pixal3d/experiments/ss_static_ray_reference.py",
+      "file_sha256": "12b04dd5a4e2f627a1cd9e3b874317a176e154bcdf6aa2093f739802e826a255",
+      "AST_sha256": "9ea77a992af04741bc644d1843c71b7360d47d9b9092fca6ea92f5ab9f8fc37f",
+      "line": 41
+    },
+    "project_static_source_maps": {
+      "file": "pixal3d/experiments/ss_static_ray_reference.py",
+      "file_sha256": "12b04dd5a4e2f627a1cd9e3b874317a176e154bcdf6aa2093f739802e826a255",
+      "AST_sha256": "3f8f6f816494d530aeb25022254dd9b4ecb3ab8ee717d30a1c5813a8ece2a441",
+      "line": 164
+    },
+    "target_first_static_projection": {
+      "file": "pixal3d/experiments/ss_static_ray_reference.py",
+      "file_sha256": "12b04dd5a4e2f627a1cd9e3b874317a176e154bcdf6aa2093f739802e826a255",
+      "AST_sha256": "666fb72dc321d3664a78866b4907c7e695bca5e2445afd50a1aff14600cbd67a",
+      "line": 217
+    },
+    "route_tensors": {
+      "file": "pixal3d/experiments/ss_gt_corr_proj_what.py",
+      "file_sha256": "0337e7fc4308f39d201edd46f6a6be1d9c56d9926e50c94c3a0b11769375d10b",
+      "AST_sha256": "6051990eeac54cff21dcb9e03e5ac86a10a11f4700ae54fe7b26280f72cbc6e3",
+      "line": 30
+    },
+    "wrong_permutation": {
+      "file": "pixal3d/experiments/ss_gt_corr_proj_what.py",
+      "file_sha256": "0337e7fc4308f39d201edd46f6a6be1d9c56d9926e50c94c3a0b11769375d10b",
+      "AST_sha256": "6c76091c7cedacc9c6287f0c1a73b051d67000b623447a1e6ea86894add86c0f",
+      "line": 48
+    },
+    "geometry_from_logits": {
+      "file": "pixal3d/experiments/ss_proj_geometry_factorial.py",
+      "file_sha256": "b793236fad2647c645fb41479126c71e0a3f71f3f35573d95b2af36770f67d96",
+      "AST_sha256": "d99a02de5ad9ed815121471b7fbbe256e24e0d4064ba13d318246dba5141fc42",
+      "line": 20
+    },
+    "GeometryFactorialVoxelAdapter": {
+      "file": "pixal3d/experiments/ss_proj_geometry_factorial.py",
+      "file_sha256": "b793236fad2647c645fb41479126c71e0a3f71f3f35573d95b2af36770f67d96",
+      "AST_sha256": "9a1afedf7f35c19ef0c2667919578084f06031dfef62f0e95989b8c1c23baa27",
+      "line": 46
+    },
+    "differentiable_flow_euler_samples": {
+      "file": "pixal3d/experiments/exg_ss_target_authority.py",
+      "file_sha256": "28f4fd41f644befec39b5446c8e03244149825003dc37b03fdddc06fbcf7cd5c",
+      "AST_sha256": "56983f1d4cdaf36e8318cbe0de90d8c30ad6671f929a3602b9e46aa0925a7023",
+      "line": 163
+    },
+    "pool_ss_logits": {
+      "file": "pixal3d/experiments/exg_ss_target_authority.py",
+      "file_sha256": "28f4fd41f644befec39b5446c8e03244149825003dc37b03fdddc06fbcf7cd5c",
+      "AST_sha256": "7813e7820ef645e0b89dc69acbe37c94315e38846f931d85bcde12c88082d426",
+      "line": 219
+    },
+    "coords_to_mask": {
+      "file": "pixal3d/experiments/ss_target_local_ray_objective.py",
+      "file_sha256": "f2e290de9156c291d4b904e7c36ef74081c4c984d565c142e707ed829a0a1889",
+      "AST_sha256": "ea7890d2f46f6a05c48ef09012b56b227610285c8f7df8d7baced7c769416de6",
+      "line": 10
+    },
+    "make_loss_regions": {
+      "file": "pixal3d/experiments/ss_target_local_ray_objective.py",
+      "file_sha256": "f2e290de9156c291d4b904e7c36ef74081c4c984d565c142e707ed829a0a1889",
+      "AST_sha256": "4f508c6774a05e924bc3ce1281cb98dbce027dc72a82aa387a9949a4e53a43ca",
+      "line": 20
+    },
+    "locked_endpoint_loss": {
+      "file": "pixal3d/experiments/ss_target_local_ray_objective.py",
+      "file_sha256": "f2e290de9156c291d4b904e7c36ef74081c4c984d565c142e707ed829a0a1889",
+      "AST_sha256": "964fbdcad67c8e3d3a58746f241bcebd62f01bfd61fba663ec2e14676e769d24",
+      "line": 49
+    },
+    "project_points": {
+      "file": "pixal3d/experiments/proxy_surface_correspondence/geometry.py",
+      "file_sha256": "0caf463d171714605db0be70876be52d7065760a889b1efa78d0a0165b9935c8",
+      "AST_sha256": "1ee8eb48f525761ab41174fb863b55fe9545643b046ff022a3b625b7cd00c576",
+      "line": 31
+    },
+    "barycentric_points": {
+      "file": "pixal3d/experiments/proxy_surface_correspondence/bank.py",
+      "file_sha256": "ac2bc3140f8b34568b1dc475f7aa2a48300ba2758ba44fb64be2f3a3b41d2d6b",
+      "AST_sha256": "d205b29b98033453e0bb217a7d04680be513938208efbe3fb8a10c67e40fd5ec",
+      "line": 53
+    },
+    "patch_center_pixels": {
+      "file": "pixal3d/experiments/gcf_counterfactual_feature_transport.py",
+      "file_sha256": "e60cb88b87ab5669dacfca45b847c88d0a069c1583cd7e9bb8bbdcd0b6ef07a4",
+      "AST_sha256": "052a8694fd3c16905c76bb84e9f2002c7efb0272cea110e5d091d837094bdde8",
+      "line": 14
+    },
+    "teacher_pair_mask": {
+      "file": "pixal3d/experiments/ss_state_feature_retargetability.py",
+      "file_sha256": "2a6167564533eb0597df033791e213e3812c256fda950b58b66660759c2a21f6",
+      "AST_sha256": "584c1332b11c1543f0fc04e5d462b3df090363771348cf268ecb39d90fe2d020",
+      "line": 116
+    },
+    "camera_rays_for_pixels": {
+      "file": "pixal3d/experiments/surface_warping/wr2_coordinate_oracle.py",
+      "file_sha256": "779183d0328239eb147f4ee19f1b58221c90c74603411427fe9761153b5761a3",
+      "AST_sha256": "1132092bf6937c20ba911da279b456c30be022457cdb4c6d007033e130ee3042",
+      "line": 18
+    },
+    "raycast_mesh_pixels": {
+      "file": "pixal3d/experiments/surface_warping/wr2_coordinate_oracle.py",
+      "file_sha256": "779183d0328239eb147f4ee19f1b58221c90c74603411427fe9761153b5761a3",
+      "AST_sha256": "7eedf7fd61374f7d6c16cacb6b63e3a956fecddfbcfbcbcc4f4f37301b77c4dc",
+      "line": 43
+    },
+    "_coord64": {
+      "file": "scripts/materialize_ss_state_feature_ladder.py",
+      "file_sha256": "effa93130ae55040bebad19484780fc3d8ac5a90d2a75a377cf6500879739653",
+      "AST_sha256": "0059ee46ac968fcd136cfefe045310e0e45b43fc51072ca93957e5f1278f7cdd",
+      "line": 63
+    },
+    "_visible_points": {
+      "file": "scripts/materialize_ss_state_feature_ladder.py",
+      "file_sha256": "effa93130ae55040bebad19484780fc3d8ac5a90d2a75a377cf6500879739653",
+      "AST_sha256": "39a66dff736dc72177026a1e51531ed9f0359fb903cdbc51ffcbf747032ca7fb",
+      "line": 73
+    },
+    "_surface_route": {
+      "file": "scripts/materialize_ss_state_feature_ladder.py",
+      "file_sha256": "effa93130ae55040bebad19484780fc3d8ac5a90d2a75a377cf6500879739653",
+      "AST_sha256": "c007405d6ed48605745dd5f8d0eefd74eba32c166b0847f68f0805030b806ab7",
+      "line": 108
+    },
+    "target_anchor_affine": {
+      "file": "pixal3d/experiments/exg_ss_ray_guidance64.py",
+      "file_sha256": "4483c602bf113bfb2103d7a89955fbc8d20d32f00eda4d0a431cf4c3f499bcec",
+      "AST_sha256": "284e152a01e159317685797a622eb344253e48cbe1d700f4bb08fce44a340af8",
+      "line": 68
+    },
+    "_apply_affine_points": {
+      "file": "pixal3d/experiments/exg_ss_ray_guidance64.py",
+      "file_sha256": "4483c602bf113bfb2103d7a89955fbc8d20d32f00eda4d0a431cf4c3f499bcec",
+      "AST_sha256": "d6d989dfdaaa8957f69ccf96d1a711fa19cd11ea164c73aefdaff1f36d084de6",
+      "line": 95
+    },
+    "world_to_target_anchor_points": {
+      "file": "pixal3d/experiments/exg_ss_ray_guidance64.py",
+      "file_sha256": "4483c602bf113bfb2103d7a89955fbc8d20d32f00eda4d0a431cf4c3f499bcec",
+      "AST_sha256": "7f600f15fb9385c4bfc680cf6fb7a25ed7168999114b6e3c01a8a90787990529",
+      "line": 108
+    }
+  },
+  "integration_constants": {
+    "source_camera_ids": [
+      9,
+      10,
+      11
+    ],
+    "image_resolution": 512,
+    "patch_grid": 32,
+    "visibility_tolerance": 0.002,
+    "G2_reference_modes": "exact historical flags; separate from channel-removed production arms"
+  }
+}
