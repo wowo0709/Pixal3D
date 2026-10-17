@@ -127,7 +127,8 @@ def main():
         'limitations': 'One development-panel32 sampling repeat, no training-seed replication; '
                        'perturbed-minus-normal gain is a path diagnostic. '
                        + ('RAW context cycles across each generation batch; other conditioning stays intact.'
-                          if a.query_only else 'Donor evidence support can differ; sensitivity does not isolate address correctness.'
+                          if a.query_only else 'Donor foreground values are resampled onto recipient valid queries; '
+                          'sensitivity also changes object appearance and does not isolate address correctness.'
                           if a.wrong_object_only else 'Wrong-corr is a weak one-query-slot perturbation.')}
     out = a.root / ('provenance/transport-query-control-queue.json' if a.query_only else
                     'provenance/transport-wrong-object-control-queue.json' if a.wrong_object_only

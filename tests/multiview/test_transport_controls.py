@@ -181,6 +181,27 @@ def test_wrong_object_changes_cached_source_values_and_keeps_recipient_target_pa
         torch.testing.assert_close(batch[key], value, rtol=0, atol=0)
 
 
+def test_wrong_object_preserves_recipient_support_when_donor_foreground_differs():
+    module = MatchingV2Conditioner(arm='b3', reject=True, reject_threshold=.5)
+    valid = torch.tensor([[True, True, False, False], [False, False, False, True]])
+    evidence = valid[..., None].float().expand(2, 4, 1024).clone()
+    evidence[1] *= 2
+    inputs = dict(evidence_top1=evidence.clone(), evidence_soft=evidence.clone(),
+                  cached_valid=valid, target_valid=valid, p_use=torch.full((2, 4), .8))
+    normal = module(**inputs)
+    with transport_diagnostic_context(module, 'wrong-object'):
+        swapped = module(**inputs)
+    torch.testing.assert_close(swapped.base_evidence.abs().sum(-1) > 0, valid)
+    assert torch.all(swapped.base_evidence[0, :2] == 2)
+    assert torch.all(swapped.base_evidence[1, 3] == 1)
+    torch.testing.assert_close(swapped.usage_scale, normal.usage_scale, rtol=0, atol=0)
+    torch.testing.assert_close(inputs['evidence_soft'], evidence, rtol=0, atol=0)
+    inputs['target_valid'] = torch.zeros_like(valid)
+    with pytest.raises(ValueError, match='foreground evidence'):
+        with transport_diagnostic_context(module, 'wrong-object'):
+            module(**inputs)
+
+
 @pytest.mark.parametrize('mode', ['normal', 'source-off', 'wrong-corr'])
 def test_evaluation_control_reaches_native_inference_dispatch(mode):
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import ImageConditionedProjMixin

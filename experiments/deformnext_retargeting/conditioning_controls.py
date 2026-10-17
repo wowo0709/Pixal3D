@@ -39,7 +39,7 @@ class TransportControl:
         'source-off': 'Disable the additional transport and adapter paths; native four-view conditioning remains.',
         'adapter-off': 'Zero only the retargeter output; retain semantic evidence, learned fusion gate and native four-view conditioning.',
         'wrong-corr': 'Roll correspondence values by one target-query slot within each object; a weak local sensitivity control.',
-        'wrong-object': 'Cycle preaggregated correspondence evidence across assets; retain recipient validity, confidence, target query and native RGB. Donor feature support can differ.',
+        'wrong-object': 'Cycle donor foreground evidence across assets, deterministically resampling foreground-token order onto recipient valid queries; retain recipient support, confidence, target query and native RGB.',
         'shuffled-deform': 'Cycle the physical C2 RAW deformation context between assets in each generation batch.',
     }
     MODES = tuple(DEFINITIONS)
@@ -94,9 +94,24 @@ def transport_diagnostic_context(conditioner, mode):
         def swap_evidence(module, positional, keyword):
             if keyword['evidence_soft'].shape[0] < 2:
                 raise ValueError('wrong-object requires at least two assets per generation batch')
+            valid = keyword['cached_valid'].bool() & keyword['target_valid'].bool()
+            positions = [torch.where(row)[0] for row in valid]
+            if any(len(index) == 0 for index in positions):
+                raise ValueError('wrong-object requires foreground evidence in every donor')
             changed = dict(keyword)
             for key in ['evidence_top1', 'evidence_soft']:
-                changed[key] = torch.roll(keyword[key], 1, 0)
+                values = keyword[key]
+                replacement = values.clone()
+                for recipient, index in enumerate(positions):
+                    donor = (recipient - 1) % len(positions)
+                    source_index = positions[donor]
+                    # Preserve recipient foreground support instead of mostly
+                    # injecting donor background zeros. No geometry/teacher or
+                    # RNG is used; ordinal resampling only chooses donor tokens.
+                    ordinal = torch.arange(len(index), device=index.device)
+                    selected = source_index[ordinal * len(source_index) // len(index)]
+                    replacement[recipient, index] = values[donor, selected]
+                changed[key] = replacement
             return positional, changed
         hook = conditioner.register_forward_pre_hook(swap_evidence, with_kwargs=True)
     try:

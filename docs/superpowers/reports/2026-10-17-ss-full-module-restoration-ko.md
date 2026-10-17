@@ -200,6 +200,10 @@ Gate의 중앙값은 대략0.019~0.022로 비슷하지만 R arm의 유효 query�
 
 2026-10-18 05:39 KST에는 P2/B3/C1의`wrong-object` 생성 세 개와 paired 비교 세 개를 추가했다. 기존164개 작업은 유지되며 총170개다. 이미 예약한 동일 device의 normal32를 재사용하고 각 모델의 correspondence evidence만 다른 source cluster의 asset과 순환시킨다. 기존 legacy 진단에서 사용한`source_values`는 새 cache의 실제 전달값이 아니므로, matching-v2가 소비하는`evidence_top1/evidence_soft`에 scoped pre-hook을 적용한다. Recipient target query·confidence·validity·RGB·camera·weight는 유지한다. CPU 테스트는 target-query-only residual이 유지되는 경우에도 source evidence만 바뀌고, 실패 후 hook과 caller tensor가 원래대로 남는지 확인했다. 관련 테스트36개가 통과했다. Donor feature의 유효 영역/zero support도 달라질 수 있어 결과만으로 주소 정확성의 효과를 고립시켰다고 주장하지 않는다. 약한 within-object 이동과 source-off·adapter-off를 함께 해석한다. 새 학습은 없으며 GPU2·3의 C1 학습 뒤 빈 시간에 실행한다. 근거는`provenance/transport-wrong-object-control-queue.json`이다.
 
+05:40 KST의 실제 C1 cache/step288 conditioner 검사에서는 위 단순 roll이 유효 query150개 중136개, R 통과 query25개 중22개에 donor background zero를 전달했다. GPU 진단6개가 전부 pending임을 확인하고, 실행 전에 donor foreground의 token 순서를 recipient의 유효 query 개수에 맞춰 결정적으로 resample하는 방식으로 수정했다. Recipient support·confidence·native target query·RGB/camera는 유지하며 donor의 실제 feature만 선택한다. Teacher·새 RNG·feature 합성은 사용하지 않고 빈 donor foreground는 오류로 중단한다. 원래 roll 구현과 CPU 관찰은`campaign-source-5b1a96f.tar.gz`, `transport-wrong-object-real-cache-smoke.json`에 보존했다.
+
+수정 후 같은 실제 두 asset/학습된 conditioner에서 zero donor feature는0/150이고, 정상 출력 복원·parameter 보존·recipient usage 일치를 확인했다. 실제 common32의 batch8 네 개도 전부 검사해2,511개의 유효 query와266개의 R 통과 query를 유지하고 donor zero 주입이0개임을 확인했다. 관련 CPU37개 테스트가 통과했다. 작업 수170개·명령·checkpoint·noise·정상 학습은 그대로이며 GPU 생성 결과는 아직 없다. Cross-object appearance도 바뀌므로 주소 정확성만의 단독 인과 비교는 아니다. 근거는`provenance/transport-wrong-object-support-preserved-smoke.json`, `provenance/transport-wrong-object-common32-support-audit.json`이다.
+
 ## 비교·완료 조건
 
 매 epoch 공통32의 voxel IoU/F1/precision/recall과 GT/Pred/Diff를 확인한다. 최종은 같은128개, sampling12/CFG3, sample별 고정 noise 세 개다. 다섯 인접 대비와 각 arm의 V1/기존 C1 대비 차이를 source cluster bootstrap으로 계산한다. 같은 source의 variant/noise를 독립 표본으로 세지 않는다.
