@@ -57,7 +57,7 @@ def build_jobs(root,work,study,first,second):
         config=study/'configs'/(name+'.json');run=study/'runs_ss64'/name
         train='train-native-module-'+name
         jobs.append({'name':train,'resource':'exclusive','gpus':assigned,'priority':0,
-            'depends_on':dependencies,'requires':[str(study/'configs-ready.json'),str(root/'retarget-native-v3/learned-evidence/cache-audit.json')],
+            'depends_on':dependencies,'requires':[str(study/'configs-ready.json'),str(study/'context-loader-preflight.json'),str(root/'retarget-native-v3/learned-evidence/cache-audit.json')],
             'outputs':[str(run/'completed.json')],
             'command':[py,'-u','-m','experiments.deformnext_retargeting.matching_v2_ss',
                 '--mode','train','--root',str(study),'--config',str(config)]})

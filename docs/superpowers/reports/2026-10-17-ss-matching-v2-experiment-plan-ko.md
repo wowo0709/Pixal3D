@@ -3,6 +3,8 @@
 작성일: 2026-10-17 KST  
 대상: DeformNeXt-10k / multi-view Pixal3D SS64 / VGGT-Omega epoch-7
 
+실행 범위 복원: [SS 전체 모듈 비교와 현재 큐](2026-10-17-ss-full-module-restoration-ko.md)에 원래 필수 Top1/rejection/attention과 adapter/query 다섯 arm을 native projection에서 실행하는 계획을 기록했다. 별도 P1/P2 interface 진단은 이 다섯 비교를 대체하지 않는다. 아래 최초 nearest gate·single-GPU 계획과 구분해 읽는다.
+
 ## 1. 결정 사항과 실험 범위
 
 Matching 개선을 먼저 검증하고, 개선이 확인된 구성에 retargeting adapter와 deformation-aware query를 순서대로 추가한다. 새 SS 학습은 **필수 3개, 조건부 2개로 최대 5개**다. Matching head 실험과 기존 checkpoint를 이용하는 진단은 SS denoiser 학습과 별도로 집계한다.
