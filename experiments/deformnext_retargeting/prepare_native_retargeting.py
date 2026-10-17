@@ -28,10 +28,11 @@ def main():
         source_comparison='P1 same consumer; calibrated learned matcher bundle replaces R9; NULL rejection OFF',
         reference_attention_preserved=False,release_status='pending-cache-audit-native-proof-memory-probe')
     cfg['trainer']['args']['deform_conditioner'].update(reject=False,reject_threshold=0.)
-    # P1 may already have resolved a smaller microbatch. Probe P2 independently
-    # from96; both optimizer/sampler states still start from the original base.
-    cfg['trainer']['args'].update(batch_size_per_gpu=96,batch_split=1,max_steps=480)
-    cfg['experiment']['microbatch_per_gpu']=96
+    # Probe the largest per-rank batch independently, retaining global96.
+    # Both optimizer/sampler states still start from the original base.
+    per_rank=96//cfg['num_gpus']
+    cfg['trainer']['args'].update(batch_size_per_gpu=per_rank,batch_split=1,max_steps=480)
+    cfg['experiment'].update(microbatch_per_gpu=per_rank,world_size=cfg['num_gpus'])
     (out/'configs'/f'{name}.json').write_text(json.dumps(cfg,indent=2)+'\n')
     result={'status':'PASS','head_sha256':head['head_sha256'],'head_arm':head['arm'],
         'fixed_final_epoch':7,'calibration_selected_temperature':head['temperature'],

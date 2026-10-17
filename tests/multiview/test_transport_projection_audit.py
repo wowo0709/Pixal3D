@@ -9,6 +9,7 @@ from experiments.deformnext_retargeting.compare_ss_noise_panels import compare
 from pixal3d.modules.transport_projection import support_weighted_projection
 from pixal3d.modules.matching_v2_conditioner import MatchingV2Conditioner
 from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
+from experiments.deformnext_retargeting.matching_v2_queue import choose_gpu,can_run
 
 
 def test_partial_support_does_not_dilute_transport_value_and_empty_support_is_finite():
@@ -106,3 +107,15 @@ def test_separate_projection_preserves_packed_value_and_gradient_math():
     expected_grad=torch.autograd.grad(reference.sum(),(values,residual),retain_graph=True)
     actual_grad=torch.autograd.grad(actual.sum(),(values,residual))
     for a,b in zip(actual_grad,expected_grad):torch.testing.assert_close(a,b,rtol=0,atol=0)
+
+
+def test_ddp_queue_reserves_all_assigned_devices_atomically():
+    allowed=['8','9','10','11']
+    job={'gpus':['10','11'],'resource':'exclusive'}
+    assert choose_gpu(job,allowed,{})=='10,11'
+    state={'ddp':{'status':'running','gpu':'10,11','resource':'exclusive'}}
+    assert not can_run('10','evaluation',state) and not can_run('11','light',state)
+    assert choose_gpu({'gpus':['9','10'],'resource':'exclusive'},allowed,state) is None
+    assert choose_gpu({'gpus':['8','9'],'resource':'exclusive'},allowed,state)=='8,9'
+    with pytest.raises(ValueError,match='authorized'):
+        choose_gpu({'gpus':['7','8'],'resource':'exclusive'},allowed,{})

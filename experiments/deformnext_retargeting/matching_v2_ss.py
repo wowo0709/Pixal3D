@@ -126,16 +126,19 @@ def native_proof(cfg,output):
 def train(a):
     allowed=os.environ.get('CUDA_VISIBLE_DEVICES','').split(',')
     authorized=os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(',')
-    if len(allowed)!=1 or not allowed[0].isdigit() or allowed[0] not in authorized:
-        raise ValueError('one physical GPU explicitly assigned by this campaign is required')
+    if not allowed or len(allowed)!=len(set(allowed)) or any(not g.isdigit() or g not in authorized for g in allowed):
+        raise ValueError('distinct physical GPUs explicitly assigned by this campaign are required')
     cfg=json.loads(a.config.read_text());name=cfg['experiment']['arm'];repo=Path(__file__).resolve().parents[2]
+    world=len(allowed);per_rank=cfg['trainer']['args']['batch_size_per_gpu']
+    if cfg['num_gpus']!=world or per_rank*world!=96:
+        raise ValueError('SS launch GPU count and per-rank batch must preserve global96')
     proof=a.root/'verification'/name;proof.mkdir(parents=True,exist_ok=True)
     # Separate process releases all proof allocations before the maximum-batch probe.
     command=[sys.executable,'-u','-m','experiments.deformnext_retargeting.matching_v2_ss',
              '--mode','proof','--root',str(a.root),'--config',str(a.config)]
     with (proof/'proof.log').open('ab') as log:subprocess.run(command,cwd=repo,stdout=log,stderr=subprocess.STDOUT,check=True)
     selected=None
-    for split in [1,2,3,4,6,8,12,16]:
+    for split in [d for d in [1,2,3,4,6,8,12,16,24,48,96] if per_rank%d==0]:
         bench=copy.deepcopy(cfg);directory=a.root/'memory-bench'/name/f'split{split}';directory.mkdir(parents=True,exist_ok=True)
         bench.update(default_output_dir=str(directory),use_wandb=False)
         bench['trainer']['args'].update(max_steps=2,batch_split=split,num_workers=0,i_save=2,max_checkpoints=1,i_log=1)
@@ -143,22 +146,22 @@ def train(a):
         bench['validation']['every_steps']=3
         path=directory/'config.json';write(path,bench);logpath=directory/'launch.log'
         with logpath.open('ab') as log:
-            done=subprocess.run([sys.executable,'-u','train.py','--config',str(path),'--num_gpus','1','--master_port',str(cfg['master_port']),'--multiview_runtime','--auto_retry','0'],cwd=repo,stdout=log,stderr=subprocess.STDOUT)
+            done=subprocess.run([sys.executable,'-u','train.py','--config',str(path),'--num_gpus',str(world),'--master_port',str(cfg['master_port']),'--multiview_runtime','--auto_retry','0'],cwd=repo,stdout=log,stderr=subprocess.STDOUT)
         if done.returncode:
             text=logpath.read_text(errors='replace')
             if 'out of memory' in text.lower():continue
             raise RuntimeError('SS memory probe failed; see '+str(logpath))
-        rows=[json.loads(l) for l in (directory/'runtime_batch.jsonl').read_text().splitlines()]
-        if len(rows)!=2 or max(r['peak_allocated_gib'] for r in rows)>91:continue
+        byrank=[[json.loads(l) for l in (directory/('runtime_batch.jsonl' if rank==0 else f'runtime_batch.rank{rank}.jsonl')).read_text().splitlines()] for rank in range(world)]
+        if any(len(rows)!=2 for rows in byrank) or max(r['peak_allocated_gib'] for rows in byrank for r in rows)>91:continue
         selected=split;break
     if selected is None:raise RuntimeError('no verified SS microbatch')
-    cfg['trainer']['args']['batch_split']=selected;cfg['experiment']['microbatch_per_gpu']=96//selected
+    cfg['trainer']['args']['batch_split']=selected;cfg['experiment']['microbatch_per_gpu']=per_rank//selected
     cfg['experiment']['release_status']='native-and-memory-verified';write(a.config,cfg)
-    subprocess.run([sys.executable,'-u','train.py','--config',str(a.config),'--num_gpus','1',
+    subprocess.run([sys.executable,'-u','train.py','--config',str(a.config),'--num_gpus',str(world),
         '--master_port',str(cfg['master_port']),'--multiview_runtime','--auto_retry','0'],cwd=repo,check=True)
     progress=json.loads((Path(cfg['default_output_dir'])/'progress.json').read_text())
     if progress['stage']!='completed' or progress['current']!=480:raise RuntimeError('SS run ended before five epochs')
-    write(Path(cfg['default_output_dir'])/'completed.json',{'status':'PASS','updates':480,'epochs':5,'microbatch':96//selected,'global_batch':96,'head_sha256':cfg['experiment']['head_sha256']})
+    write(Path(cfg['default_output_dir'])/'completed.json',{'status':'PASS','updates':480,'epochs':5,'microbatch':per_rank//selected,'world_size':world,'global_batch':96,'head_sha256':cfg['experiment']['head_sha256']})
 
 
 def promote(root):

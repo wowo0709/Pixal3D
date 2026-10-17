@@ -28,7 +28,7 @@ def alive(pid):
 
 
 def can_run(gpu, resource, state):
-    occupants=[r.get('resource','exclusive') for r in state.values() if r['status']=='running' and r.get('gpu')==gpu]
+    occupants=[r.get('resource','exclusive') for r in state.values() if r['status']=='running' and gpu in r.get('gpu','').split(',')]
     if resource=='cpu':return True
     if resource=='exclusive':return not occupants
     if resource=='light':return not any(r in {'exclusive','light'} for r in occupants)
@@ -39,6 +39,11 @@ def can_run(gpu, resource, state):
 def choose_gpu(job, allowed, state):
     resource=job.get('resource','exclusive')
     if resource=='cpu':return ''
+    if 'gpus' in job:
+        requested=[str(g) for g in job['gpus']]
+        if resource!='exclusive' or not requested or len(requested)!=len(set(requested)) or any(g not in allowed for g in requested):
+            raise ValueError('GPU group must be distinct, authorized and exclusive')
+        return ','.join(requested) if all(can_run(g,resource,state) for g in requested) else None
     if 'gpu' in job and str(job['gpu']) not in allowed:raise ValueError('job GPU not authorized')
     free=[g for g in allowed if can_run(g,resource,state)]
     candidate=str(job.get('gpu',free[0] if free else ''))

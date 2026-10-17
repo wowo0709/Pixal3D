@@ -21,12 +21,14 @@ P1/P2는 모두 원본 mixed385 SS base+LoRA checkpoint에서 독립적으로 �
 
 ## 실행 검증과 자원
 
-- GPU 0~3만 사용하고, run당 GPU 한 장을 기본으로 한다. 본 학습은 GPU를 독점한다. 남는 GPU는 head/cache/평가에 병렬 사용한다.
+- GPU 0~3만 사용한다. 아래 실측 후 P1은 GPU 2·3, P2는 GPU 0·1의 **2/2 DDP**로 실행한다. 각 rank micro48/accumulation1/global96이다. 본 학습은 해당 GPU 묶음을 독점하며 준비 중 남는 GPU는 head/cache/평가에 병렬 사용한다.
 - 실제 checkpoint에서 초기 native condition 최대 오차 0과 gate/adapter의 실제 backward를 확인한다. Native bilinear에서 rejection은 adapter를 포함한 전체 update에 적용하며 support가 0이면 native로 돌아간다.
 - 각 run은 96 microbatch의 실제 2-update memory probe부터 시작한다. OOM인 경우 global96을 유지하며 가능한 최대 divisor로 줄인다. 실제 microbatch가 기존 C1의 48×2와 달라지면 stochastic training nuisance도 결과에 적는다.
 - P1의 기존 R9 attention도 SS batch에서 K64 값을 펼치지 않도록 사전 집계한다. Weighted evidence는 FP32로 유지하고 원래 R9 온라인 출력과 별도 감사한다. Frozen scorer 제거에 따른 RNG 소비 차이도 보존해 adapter 초기 weight가 R9 recipe와 동일하도록 검증했다. P2도 같은 초기화와 FP32 weighted evidence를 사용한다.
 - P2는 frozen H*가 확정되고 별도 namespace의 inference-only cache parity가 통과한 뒤 실행한다. GT address/visibility teacher를 배포 cache나 SS 입력에 넣지 않는다.
 - 기존 중단한 SS C2/PBR B3는 재개하지 않고 checkpoint를 보존한다.
+
+Single-GPU 실측 후 실행 배치를 수정했다. 최초 packed projection의 micro96은 OOM이었고, 값을 바꾸지 않는 streamed projection/autograd 최적화 후 micro96은 두 update를 통과했다(평균 37.49초/update, peak91.57 GiB). 같은 최적화에서 micro48×2는 평균 34.63초, peak47.71 GiB였다. 큰 microbatch가 항상 빠르다는 가정은 이 SS 모델에서 성립하지 않았다. 전체 시간을 줄이면서 accumulation도 없애기 위해 두 GPU가 micro48씩 병렬 처리하도록 했다. DDP의 실제 속도와 두 rank의 memory는 별도 2-update 검사로 기록하고, 검사가 통과해야 본 학습으로 이어진다. Single-GPU 검사 결과/체크포인트는 diagnostics에 보존했다. P1/P2는 같은 DDP 설정으로 비교하며 기존 single-GPU C1과의 차이에 이 실행 방식의 nuisance도 명시한다.
 
 새 학습/검증 위치는 file4의 `rgb_matching_v2/retarget-native-v3/`다. Gate 또는 pilot 통과를 성능 향상으로 표현하지 않으며, final 생성 지표와 이미지가 개선돼야 채택한다. 기존 4개 quick panel은 최종 판단 기준으로 사용하지 않는다.
 
