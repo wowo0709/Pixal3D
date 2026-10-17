@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates 완료·final128×3 평가 중; attention/adapter/query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 학습 중; query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -43,7 +43,7 @@ P1/P2는 사용자 중단 당시 step103/56 checkpoint에서 optimizer/scheduler
 
 ### 1~5에폭의 Top1 / confidence 비교
 
-2026-10-18 03:46 KST에 두 arm의480-update 학습과5에폭 검증이 완료됐다. 같은32개·32 source cluster·한 sampling noise이며, 각 에폭의32개 GT voxel hash가 모두 일치했다. 두 arm의 초기 IoU는 모두0.42671546671444294였다. Final128×3 평가는 진행 중이며 아래 수치는32개 패널의 경향이다.
+2026-10-18 03:46 KST에 두 arm의480-update 학습과5에폭 검증이 완료됐다. 같은32개·32 source cluster·한 sampling noise이며, 각 에폭의32개 GT voxel hash가 모두 일치했다. 두 arm의 초기 IoU는 모두0.42671546671444294였다. 아래 수치는32개 패널의 경향이며, 완료된final128×3 결과는별도표에기록한다.
 
 | Epoch / step | Arm | Voxel IoU | Precision | Recall | F1 |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -75,6 +75,37 @@ Confidence/rejection의 차이는1에폭+0.002%p, source-cluster paired95% CI[�
 학습된 tanh gate는Top1의96→192→288→384→480에서0.008080→0.017181→0.026108→0.035086→0.043826, Top1-R은0.007325→0.015744→0.024041→0.032035→0.039978로 바뀌었다. 추가 경로의 parameter가0에 고정된 상태는 아니다. R은 별도로 query를 mask/weight하므로 gate 크기만으로 전체 source 기여나 유용성을 비교하지 않는다.
 
 근거는 `module-study-native-v4/interim-{first,second,third,fourth,fifth}-epoch-top1-rejection.json`, `epoch-comparisons/epoch-0{1,2,3,4,5}-b2-top1-r-vs-b2-top1.json`, `provenance/native-ladder-epoch{1,2,3,4}-checkpoints.json`, `provenance/b2-top1{,-r}-final-training-audit.json`, `provenance/b2-top1{,-r}-final-checkpoint-checksum.json`에있다. 다섯 에폭의 paired CI는W&B에도기록됐다. 한 training seed·한 sampling noise·반복 관찰의 exploratory 결과이며14개 구성의최종 표나채택 판단을대체하지 않는다.
+
+### 완료된 여덟 구성의 final128×3
+
+2026-10-18 03:57 KST에Top1 두 arm의세-noise 평가가완료됐다. 아래는같은128개·93 source cluster·샘플별서로다른noise3개, sampler12/CFG3의TP/FP/FN 합산IoU다. Source-only도동일한M1 desired-state GT와비교한다. 한training seed의개발패널결과이며14개구성의전체표는아직미완료다.
+
+| 구성 | Voxel IoU |
+| --- | ---: |
+| Source-only zero-shot, M0 RGB 4장 | 0.380711 |
+| Edited-RGB zero-shot, M1 1장 + M0 3장 | 0.419275 |
+| V1 | 0.431926 |
+| 기존 C1 | 0.442214 |
+| P1 native-grid + adapter | 0.441459 |
+| P2 H3 native-grid + adapter, No-R | 0.440920 |
+| 새 b2-top1 | 0.433644 |
+| 새 b2-top1-r | 0.432806 |
+
+Top1−V1은+0.172%p, source-cluster paired95% CI[+0.005,+0.371]%p다. 이seed에서는작은양의차이지만경계에가까운exploratory 결과이고training-seed 재현은없다. Top1-R−V1은+0.088%p, CI[−0.039,+0.228]%p이며R−Top1은−0.084%p, CI[−0.190,+0.011]%p다. 현재confidence/rejection의추가이득은확인되지않는다.
+
+실제V1 runtime은world1·micro96·accumulation1이고새arm은world2·rank당micro48·accumulation1이다. Global96은같지만rank별RNG·학습trajectory까지같은대조는아니다. 위CI는source cluster의불확실성이며training-seed 변동이나이실행차이를포함하지않는다. 작은Top1 gain을matching만의확정적인인과효과로해석하지않으며필요한matched seed 확인은최종채택단계에남긴다. 주모듈다섯arm끼리는같은2-GPU/micro48 조건이다. 근거는 `provenance/native-top1-v1-execution-nuisance.json`이다.
+
+기존C1은Top1보다+0.857%p, CI[+0.362,+1.331]%p이고P2는+0.728%p, CI[+0.183,+1.268]%p다. 이차이에는attention·adapter 등여러변경과training trajectory 차이가포함되므로adapter 단독효과로해석하지않는다. 새B3/C1의동일조건비교를마쳐분리한다. Head 개선이나Top1의작은gain만으로full을확정하지않는다.
+
+128 패널의공통32개는같은checkpoint의epoch 검증TP/FP/FN·seed·cluster·GT voxel hash를양쪽모두정확히재현했다. 새두arm끼리는384개paired record의GT voxel hash가모두일치했다. 기존V1/C1에는전체voxel hash가없으므로count/identity 검사로구분했다. 기존V1/C1 noise1의sampler metadata 두필드누락은저장된recipe/command/source 근거와별도로명시했고, strict primary 표에는아래의추가재평가를요구한다. 역사파일에필드를채워넣지않았다.
+
+근거는 `module-study-native-v4/interim-top1-final128-three-noise-report.json`, `provenance/native-top1-eight-model-panel-contract.json`, `provenance/b2-top1{,-r}-final128-epoch32-replay.json`이다. 기존B1/B2/B3의추가noise와새attention/adapter/query 결과는진행·예약상태이며이여덟구성표를전체완료로표현하지않는다.
+
+### Attention / adapter 학습 전환
+
+2026-10-18 04:01 KST에GPU0·1의`b3-attention-r`와GPU2·3의`c1-retarget-r`에서본학습update가확인됐다. 두arm 모두native 조건차이0·유효gradient·2-rank2-update memory probe를통과했다. 초기32개IoU는둘다0.42671546671444294이며sample별TP/FP/FN·seed·cluster·GT voxel hash도앞선native 초기값과일치했다. Native 초기성능하락은관찰되지않았다.
+
+시작스냅샷은각12/4 updates였고rank별micro48·accumulation1·global96·finite loss가확인됐다. 관측peak allocated는attention46.84117GiB, adapter47.74934GiB다. C1의adapter gradient가연결돼있으며RAW deformation query는C2에만추가한다. 이는시작검증결과이며학습완료나성능향상을뜻하지않는다. 근거는 `provenance/native-ladder-second-pair-startup.json`이다.
 
 ## 비교·완료 조건
 
