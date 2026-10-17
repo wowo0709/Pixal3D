@@ -29,18 +29,19 @@ ARMS = ['r2_feat', 'r4_content']
 
 
 def copy_verified(source, target, expected=None):
-    if expected is not None and sha(source) != expected:
+    source_hash = sha(source)
+    if expected is not None and source_hash != expected:
         raise ValueError('historical runtime/source checksum differs: ' + str(source))
     if target.exists():
         raise FileExistsError(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)
-    if sha(source) != sha(target):
+    if source_hash != sha(target):
         raise ValueError('staged reference file differs')
     return reference(target)
 
 
-def prepare(root, checkpoint, output):
+def prepare(root, checkpoint, output, flow_checkpoint=None):
     if (output / 'summary.json').exists():
         raise FileExistsError('immutable G2 input export exists')
     archived = torch.load(checkpoint, map_location='cpu', weights_only=False)
@@ -59,7 +60,8 @@ def prepare(root, checkpoint, output):
                    'model_spec': model_spec, 'original_flow': flow,
                    'original_pipeline': reference(pipeline_file),
                    'sampler': pipeline['sparse_structure_sampler'],
-                   'flow_checkpoint': copy_verified(Path(flow['path']), output / 'runtime/ss64-reference.pt', flow['sha256']),
+                   'flow_checkpoint_source_path': str(flow_checkpoint or flow['path']),
+                   'flow_checkpoint': copy_verified(Path(flow_checkpoint or flow['path']), output / 'runtime/ss64-reference.pt', flow['sha256']),
                    'decoder_prefix': str(output / 'runtime/ss-decoder'),
                    'decoder_files': [copy_verified(Path(str(decoder) + ext), output / ('runtime/ss-decoder' + ext))
                                      for ext in ['.json', '.safetensors']]}
@@ -273,6 +275,8 @@ def main():
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--reference-checkpoint', type=Path)
+    parser.add_argument('--flow-checkpoint', type=Path,
+                        help='Explicit relocated historical flow; its SHA must match the recorded consumer')
     parser.add_argument('--arm', choices=ARMS)
     parser.add_argument('--seed', type=int, choices=[101, 202, 303], default=101)
     parser.add_argument('--wandb-id')
@@ -283,7 +287,7 @@ def main():
     if args.mode == 'prepare':
         if args.reference_checkpoint is None:
             parser.error('prepare requires the recorded G2 checkpoint/runtime authority')
-        prepare(args.input, args.reference_checkpoint, args.output)
+        prepare(args.input, args.reference_checkpoint, args.output, args.flow_checkpoint)
     else:
         torch.cuda.set_device(0)
         if args.arm is None:

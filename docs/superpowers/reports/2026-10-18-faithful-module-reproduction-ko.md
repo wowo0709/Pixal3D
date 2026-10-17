@@ -73,3 +73,11 @@ G2 archived checkpoint의 runtime을 열어 추가 차이를 확인했다. 당�
 ## Native fallback의 별도 bridge control
 
 원래 reproduction의 `historical-target` 출력을 보존한다. 추가 `native-spatial` control은 각 source camera의 **valid write map에서만** `selected - native`를 투영해 원래 four-view projection에 더한다. GT/wrong의 support·source value multiset은 고정하며, 나머지 native source 정보와 global/negative를 보존한다. source-weight0은 실제 native projection을 그대로 반환한다. 이 control은 과거 성공 수식을 재현했다고 이름을 바꾸는 작업이 아니라, 현재 consumer로 옮길 때의 fallback 문제를 분리하는 새 진단이다. 고정 weight1 및0.25의 common32 비교를 별도 namespace에서 실행한다. GT 경로이므로 production 학습·추론 cache로 승격하지 않는다.
+
+## Physical No-query 구현과 원본 weight 위치 복구
+
+`GeometryContentRetargetAdapter`는 두 additive arm용 구현이다. Query-enabled는 원래 R4-CONTENT의9채널 encoder·target/mismatch/difference/xyz·zero-initialized residual을 사용한다. 원래 content mode의 gate는 geometry와 무관한 상수이므로 scalar logit으로 나타냈다. 학습된 원본 weight를 변환했을 때 출력과 입력 gradient의 일치를 검사했다. **상수 gate의 재파라미터화는 추론 함수의 동등성이고, 앞으로의 optimizer trajectory까지 같다는 주장은 아니다.**
+
+No-query는 content encoder가 아예 없고 residual 입력 폭에서도 geometry embedding 채널을 뺀다. Geometry tensor를 전달하면 zero tensor라도 거부한다. 두 arm은 초기 projection이 native와 exact이며, 출력 layer의 gradient가 연결돼 있다. Reference old-zero arm의 수치를 production physical-No-query arm의 수치로 재사용하지 않는다.
+
+과거 flow의 기록 경로 `/root/data3/pixal3d/ckpts/...`가 비어 있어 최초 reference export는 실패했다. 파일은 `/root/data3/delete-at-261010/pixal3d/ckpts/ss64/20260730T160615Z/ckpts/denoiser_ema0.9999_step0020000.pt`에서 발견했다. 새 실행에는 이 위치를 **명시적** `--flow-checkpoint`로 전달하고 원래 SHA `c2700988…`와 대조한다. 임의 checkpoint fallback이나 현재 production initializer 교체는 하지 않는다. 실패 기록은 보존하고 별도 v2 export/job으로 다시 실행한다.
