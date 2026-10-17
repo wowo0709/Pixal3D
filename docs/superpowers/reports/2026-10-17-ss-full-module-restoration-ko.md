@@ -10,7 +10,7 @@
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 3에폭 검증 후 학습 중; query 예약 |
+| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R 480 updates·final128×3 완료; attention/adapter 4에폭 검증 후 학습 중; query 예약 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
@@ -181,6 +181,25 @@ Optimizer의361/366개상태가모두288이고moment 값은finite였다. C1 adap
 | P2 adapter, No-R | 9.875% |
 
 Gate의 중앙값은 대략0.019~0.022로 비슷하지만 R arm의 유효 query당 평균 usage weight 중앙값은0.04722이고 No-R은1이다. R을 사용한 추가 경로가 작다는 실제 로그 근거다. P2/새 C1의 학습 이력과 학습된 adapter도 다르므로 위 크기 차이를 rejection만의 인과 효과나 생성 품질 개선량으로 해석하지 않는다. Confidence는 선택한 Top1의 정확성을 감독받지만 attention consumer는 soft evidence를 사용하므로, 정확한 patch 판정과 유용한 feature 전달 사이의 차이도 후속 진단에서 확인한다. Threshold를 비교 도중 바꾸지는 않는다. 근거는`provenance/native-epoch3-path-strength.json`과`module-study-native-v4/figures/interim-epoch3-transport-strength.{png,svg}`다. Boxplot은 pack 분포이며 신뢰구간이 아니다.
+
+### Attention / adapter 네 번째 epoch
+
+2026-10-18 05:57 KST에 step384 검증이 모두 완료됐다. 같은32개·동일 순서·seed·cluster·GT voxel geometry, sampler12/CFG3/batch8을 유지했다.
+
+| Arm | IoU | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| b2-top1 | 0.435127 | 0.552991 | 0.671218 | 0.606395 |
+| b2-top1-r | 0.434820 | 0.552641 | 0.671001 | 0.606096 |
+| b3-attention-r | 0.434544 | 0.552388 | 0.670716 | 0.605828 |
+| c1-retarget-r | 0.433987 | 0.551289 | 0.671013 | 0.605287 |
+
+Attention−Top1-R은−0.028%p, source-cluster paired95% CI[−0.127,+0.054]%p다. Adapter−attention은−0.056%p, CI[−0.474,+0.386]%p다. 두 모듈 모두 추가 이득이 확인되지 않았다. 3→4에폭 변화도 B3 −0.002%p, CI[−0.423,+0.390]%p, C1 +0.036%p, CI[−0.218,+0.313]%p로0을 포함한다. 초기 성능 붕괴나 최종 모듈 무효의 확정으로 해석하지 않고, 예정한480 updates와final128×3을 유지한다.
+
+같은 epoch의 P2-NoR IoU는0.445345이며 C1-R−P2-NoR은−1.136%p, CI[−2.331,+0.072]%p다. 앞서 관찰한 작은 R usage와 함께 확인할 보조 비교지만, P2 중단/재개 RNG와 구조별 초기화 난수 경로 한계가 있어 rejection만의 인과 효과로 확정하지 않는다. Threshold·LR·학습 budget을 중간에 변경하지 않았다.
+
+CPU 검사에서 optimizer361/366개 상태가 전부384이고 moment 값도finite였다. C1 adapter 입력은256×2048이며 RAW query 채널이 없다. Tanh fusion gate는B3 0.032525, C1 0.030677이다. 모든 중간 checkpoint 파일 크기는file4와 일치했다. 두 rank의 모든 연속 update에 global96·micro48·accumulation1·finite loss가 유지됐다. Steady median은B3 약17.24초, C1 약17.22초/update이며 peak allocated는46.841/47.749GiB다. 중간 PT 전체SHA 검증으로 표현하지 않는다.
+
+W&B는 client receipt뿐 아니라 원격API에서도 검증했다. 두 training run의4에폭 IoU와 paired run의 gain/CI가 실제 기록과 일치했고, 서버의 GT/Pred/Diff 두 이미지를 다운로드해 로컬 이미지와SHA256이 같은지 확인했다. 두 run의 서버 상태는running이었다. 근거는`module-study-native-v4/interim-fourth-epoch-attention-adapter.json`, `epoch-comparisons/epoch-04-{b3-attention-r-vs-b2-top1-r,c1-retarget-r-vs-b3-attention-r}.json`, `provenance/native-second-pair-epoch4-checkpoints.json`, `provenance/native-second-pair-epoch4-wandb-remote.json`이다. C2·나머지baseline 평가·경로 진단·필요한 seed/채택 후속은 아직 남아 있다.
 
 ### 저장된 checkpoint의 추가 경로 진단 준비
 
