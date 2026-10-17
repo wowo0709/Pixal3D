@@ -1055,7 +1055,11 @@ class ImageConditionedProjMixin:
         if self.deform_conditioner_config is not None and self.deform_conditioner is None:
             from ....modules.deform_conditioner import DeformationAwareConditioner
             config = dict(self.deform_conditioner_config)
-            self.deform_conditioner = DeformationAwareConditioner(**config).cuda()
+            if config.get('implementation') == 'matching-v2':
+                from ....modules.matching_v2_conditioner import MatchingV2Conditioner
+                self.deform_conditioner = MatchingV2Conditioner(**config).cuda()
+            else:
+                self.deform_conditioner = DeformationAwareConditioner(**config).cuda()
             if any(parameter.requires_grad for parameter in self.deform_conditioner.parameters()):
                 self.models['deform_conditioner'] = self.deform_conditioner
         
@@ -1080,6 +1084,7 @@ class ImageConditionedProjMixin:
         'target_valid',
         'target_context', 'source_context',
         'semantic_indices', 'matching_logits', 'candidate_valid',
+        'evidence_top1', 'evidence_soft', 'p_use', 'cached_valid',
     )
 
     def _pop_deform_transport(self, kwargs):
@@ -1092,6 +1097,8 @@ class ImageConditionedProjMixin:
                 output[key] = value
         arm = self.deform_conditioner_config.get('arm')
         required = {'source_values', 'source_valid'}
+        if self.deform_conditioner_config.get('implementation') == 'matching-v2':
+            required = {'evidence_top1','evidence_soft','p_use','cached_valid','target_valid'}
         if arm in {'c1', 'c2'}:
             required.add('target_query')
         missing = required - set(output)
@@ -1112,7 +1119,8 @@ class ImageConditionedProjMixin:
         }
         output = module(**call, control=control)
         evidence = output.evidence
-        corrected = self.deform_conditioner.implementation == 'r9-native-v5'
+        corrected = self.deform_conditioner.implementation in {'r9-native-v5', 'matching-v2'}
+        v2 = self.deform_conditioner.implementation == 'matching-v2'
         if corrected:
             if anchor_condition is None:
                 raise ValueError('r9-native-v5 fusion requires both native MV and anchor conditions')
@@ -1121,6 +1129,8 @@ class ImageConditionedProjMixin:
             # Project all three using exactly the same target-to-patch map.
             evidence = torch.cat((evidence - residual, residual,
                                   output.query_valid[..., None].to(evidence.dtype)), dim=-1)
+            if v2:
+                evidence = torch.cat((evidence, output.usage_scale[..., None].to(evidence.dtype)), -1)
         patch_grid = transport.get('patch_grid')
         patch_ids = transport.get('patch_ids')
 
@@ -1161,7 +1171,10 @@ class ImageConditionedProjMixin:
         key = 'proj_semantic' if 'proj_semantic' in condition else 'proj'
         if corrected:
             width = self.deform_conditioner.value_dim
-            projected, residual, valid = projected.split((width, width, 1), dim=-1)
+            if v2:
+                projected, residual, valid, usage = projected.split((width, width, 1, 1), dim=-1)
+            else:
+                projected, residual, valid = projected.split((width, width, 1), dim=-1)
         if condition[key].shape != projected.shape:
             raise ValueError(
                 f'deformation evidence shape {tuple(projected.shape)} does not match '
@@ -1181,7 +1194,16 @@ class ImageConditionedProjMixin:
             # Retargeter's zero output is outside the zero semantic gate:
             # both the gate and retargeter final layer can learn on step one.
             update = gate * delta + (source_views / (source_views + 1)) * residual.to(native.dtype)
+            if v2:
+                update = update * usage.to(native.dtype)
             condition[key] = native + torch.where(valid.bool(), update, torch.zeros_like(update))
+            if v2:
+                # A fixed strided diagnostic avoids materializing a second
+                # full FP32 dense condition at the maximum SS batch size.
+                before = native.detach().reshape(-1)[::256].float()
+                after = condition[key].detach().reshape(-1)[::256].float()
+                self._last_deform_update_rms = float((after-before).square().mean().sqrt())
+                self._last_deform_native_rms = float(before.square().mean().sqrt())
         else:
             condition[key] = (condition[key] + source_views * projected.to(condition[key].dtype)) / (source_views + 1)
         self._last_deform_condition = output

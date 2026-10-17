@@ -31,6 +31,7 @@ class DeformationCondition:
     retarget_residual: Optional[torch.Tensor]
     query_valid: Optional[torch.Tensor] = None
     fusion_scale: Optional[torch.Tensor] = None
+    usage_scale: Optional[torch.Tensor] = None
 
 
 class _Retargeter(nn.Module):

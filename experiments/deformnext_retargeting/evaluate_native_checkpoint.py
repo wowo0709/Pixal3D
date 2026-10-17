@@ -16,6 +16,9 @@ def main():
     p.add_argument('--conditioner-checkpoint',type=Path)
     p.add_argument('--conditioning-mode',choices=['edited-rgb','source-only'],default='edited-rgb')
     p.add_argument('--panel-size',type=int)
+    p.add_argument('--panel-file',type=Path)
+    p.add_argument('--seed-map-file',type=Path)
+    p.add_argument('--generation-batch',type=int,default=1)
     args=p.parse_args()
     from pixal3d import datasets,models,trainers
     from .quick_metrics import evaluate_quick
@@ -29,6 +32,9 @@ def main():
         from .conditioning_controls import ConditioningControl
         ds=ConditioningControl(ds,args.conditioning_mode)
     if args.panel_size is not None:cfg['validation']['quick_metrics']['panel_size']=args.panel_size
+    cfg['validation']['quick_metrics'].update(generation_batch_size=args.generation_batch,log_progress=True)
+    if args.panel_file:cfg['validation']['quick_metrics']['panel_file']=str(args.panel_file)
+    if args.seed_map_file:cfg['validation']['quick_metrics']['seed_map_file']=str(args.seed_map_file)
     with torch.device('meta'):
         md={name:getattr(models,spec['name'])(**spec['args']) for name,spec in cfg['models'].items()}
     kw=dict(cfg['trainer']['args']);kw.update(continuation_ckpt={'denoiser':str(args.checkpoint)},
@@ -42,7 +48,9 @@ def main():
         metrics,panel,ids=evaluate_quick(trainer,ds,cfg['validation'])
     result={'status':'PASS','stage':args.stage,'step':args.step,'weights':'raw','checkpoint':str(args.checkpoint),
             'arm':cfg['experiment']['arm'],
-            'quick_metrics':metrics,'quick_panel_ids':ids,'ao_sampling_seed':0,'optimizer_updates':0}
+            'quick_metrics':metrics,'quick_panel_ids':ids,'ao_sampling_seed':0,'optimizer_updates':0,
+            'optimizer_updates_during_evaluation':0,'per_asset':getattr(trainer,'_quick_per_asset',[]),
+            'generation_batch_size':args.generation_batch}
     result.update(conditioning_mode=args.conditioning_mode,target_modality='rgb',
                   pbr_geometry='GT_target_shape_fixed' if args.stage=='pbr1024' else None,
                   input_states=['M0']*4 if args.conditioning_mode=='source-only' else ['M1','M0','M0','M0'],

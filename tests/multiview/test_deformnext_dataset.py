@@ -111,6 +111,29 @@ def test_match_cache_avoids_loading_full_omega_keys(tmp_path):
     assert "transport_source_keys" not in item
 
 
+def test_v2_cache_is_fenced_and_does_not_load_unused_source_values(tmp_path):
+    import hashlib
+    manifest,row=_fixture(tmp_path)
+    matches=tmp_path/'matches-v2';matches.mkdir()
+    contract=json.dumps({'head_sha256':'head-hash'})+'\n'
+    (matches/'contract.json').write_text(contract)
+    digest=hashlib.sha256(contract.encode()).hexdigest()
+    arrays=dict(schema='deformnext-matching-v2-cache-v1',contract_sha256=digest,
+                sample_id=row['sample_id'],split=row['split'],evidence_top1=np.zeros((1024,1024),np.float16),
+                evidence_soft=np.zeros((1024,1024),np.float16),p_use=np.ones(1024,np.float32),cached_valid=np.ones(1024,bool))
+    np.savez(matches/'sample-a.npz',**arrays)
+    with np.load(tmp_path/'transport.npz') as z:
+        retained={k:z[k] for k in z.files if k not in {'source_values','source_valid','target_keys','source_keys'}}
+    np.savez(tmp_path/'transport.npz',**retained)
+    dataset=DeformNeXtSS64(str(manifest),image_size=8,expected_split='train',transport_arm='b2',
+        transport_implementation='matching-v2',expected_q2c_sha256='head-hash',match_root=str(matches))
+    item=dataset[0]
+    assert 'transport_source_values' not in item and 'transport_target_keys' not in item
+    assert item['transport_evidence_top1'].shape==(1024,1024)
+    arrays['contract_sha256']='stale';np.savez(matches/'sample-a.npz',**arrays)
+    with pytest.raises(ValueError,match='contract differs'):dataset[0]
+
+
 def test_edited_rgb_target_render_is_used_as_first_condition(tmp_path):
     manifest, row = _fixture(tmp_path)
     render = tmp_path / "render_cond"

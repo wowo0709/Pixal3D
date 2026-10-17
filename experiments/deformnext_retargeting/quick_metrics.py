@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import json
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -48,6 +50,24 @@ def binary_metrics(prediction: torch.Tensor, target: torch.Tensor) -> dict[str, 
     }
 
 
+def panel_indices(dataset, quick):
+    if not quick.get('panel_file'):
+        return stratified_indices(dataset, int(quick['panel_size']))
+    record = json.loads(Path(quick['panel_file']).read_text())
+    ids = record['sample_ids']
+    lookup = {row['sample_id']: i for i, row in enumerate(dataset.rows)}
+    if len(ids) != len(set(ids)) or any(sid not in lookup for sid in ids):
+        raise ValueError('fixed evaluation panel has duplicate or missing sample IDs')
+    return [lookup[sid] for sid in ids]
+
+
+def panel_seeds(dataset, indices, config):
+    if not config.get('seed_map_file'):
+        return [config.get('seed', 42) + i for i in range(len(indices))]
+    seeds = json.loads(Path(config['seed_map_file']).read_text())
+    return [int(seeds[dataset.rows[i]['sample_id']]) for i in indices]
+
+
 def _panel_image(prediction: torch.Tensor, target: torch.Tensor) -> np.ndarray:
     rows = []
     for pred, gt in zip(prediction, target):
@@ -85,17 +105,44 @@ def _sample(self, dataset, index: int, steps: int, seed: int):
 
 def _ss_metrics(self, dataset, indices: list[int], config: dict[str, Any]):
     predictions, targets = [], []
-    for panel_index, index in enumerate(indices):
-        pred, target, _ = _sample(
-            self, dataset, index, config["sampling_steps"],
-            config.get("seed", 42) + panel_index,
-        )
+    seeds = panel_seeds(dataset, indices, config)
+    batch_size = int(config.get('generation_batch_size', 1))
+    if batch_size < 1:
+        raise ValueError('generation batch size must be positive')
+    for start in range(0, len(indices), batch_size):
+        batch_indices, batch_seeds = indices[start:start + batch_size], seeds[start:start + batch_size]
+        if batch_size == 1:
+            pred, target, _ = _sample(self, dataset, batch_indices[0], config['sampling_steps'], batch_seeds[0])
+        else:
+            from pixal3d.utils.data_utils import recursive_to_device
+            pack = dataset.collate_fn([dataset[i] for i in batch_indices])
+            pack = pack if isinstance(pack, dict) else pack[0]
+            pack = recursive_to_device(pack, self.device)
+            pack.pop('_dataset_name', None); pack.pop('_sha256', None)
+            target = pack.pop('x_0')
+            noises = []
+            for offset, seed in enumerate(batch_seeds):
+                torch.manual_seed(seed); torch.cuda.manual_seed(seed)
+                noises.append(torch.randn_like(target[offset:offset + 1]))
+            pred = self.get_sampler().sample(self.models['denoiser'], noise=torch.cat(noises),
+                **self.get_inference_cond(**pack), steps=config['sampling_steps'], guidance_strength=3., verbose=False).samples
         predictions.append(pred)
         targets.append(target)
-    count = len(predictions)
+        if config.get('log_progress'):
+            print(f'SS_PANEL completed {min(start + batch_size, len(indices))}/{len(indices)}', flush=True)
+    count = len(indices)
     decoded = dataset.decode_latent(torch.cat(predictions + targets, dim=0), batch_size=2)
     pred_occ, target_occ = decoded[:count, 0] > 0, decoded[count:, 0] > 0
     metrics = binary_metrics(pred_occ, target_occ)
+    self._quick_per_asset = []
+    for index, seed, pred, gt in zip(indices, seeds, pred_occ, target_occ):
+        row = dataset.rows[index]
+        self._quick_per_asset.append({
+            'sample_id': row['sample_id'], 'source_cluster_id': row.get('source_cluster_id'),
+            'seed': seed, **binary_metrics(pred, gt),
+            'tp': int((pred & gt).sum()), 'fp': int((pred & ~gt).sum()),
+            'fn': int((~pred & gt).sum()),
+        })
     pred_projection = pred_occ.float().amax(dim=1, keepdim=True).repeat(1, 3, 1, 1)
     target_projection = target_occ.float().amax(dim=1, keepdim=True).repeat(1, 3, 1, 1)
     return metrics, _panel_image(pred_projection, target_projection)
@@ -225,7 +272,7 @@ def evaluate_quick(self, dataset, config: dict[str, Any]):
     quick = config.get("quick_metrics") or {}
     if not quick.get("enabled", False):
         return {}, None, []
-    indices = stratified_indices(dataset, int(quick["panel_size"]))
+    indices = panel_indices(dataset, quick)
     with torch.autocast("cuda", dtype=self.mix_precision_dtype):
         if config["dataset_name"] == "DeformNeXtSS64":
             metrics, panel = _ss_metrics(self, dataset, indices, quick)

@@ -175,12 +175,21 @@ class _DeformNeXtBase(Dataset):
         if transport_arm is not None and transport_arm not in TRANSPORT_KEYS_BY_ARM:
             raise ValueError(f"unknown transport arm: {transport_arm}")
         self.transport_arm = transport_arm
-        if transport_implementation not in {"legacy-v4", "r9-native-v5"}:
+        if transport_implementation not in {"legacy-v4", "r9-native-v5", "matching-v2"}:
             raise ValueError("unknown transport implementation")
         self.transport_implementation = transport_implementation
         self.expected_q2c_sha256 = expected_q2c_sha256
         self.match_root = None if match_root is None else self._resolve(str(match_root))
         self.projection_root = None if projection_root is None else self._resolve(str(projection_root))
+        if transport_implementation == 'matching-v2':
+            import hashlib
+            if self.match_root is None:
+                raise ValueError('matching-v2 requires frozen preaggregated cache')
+            contract_bytes = (self.match_root / 'contract.json').read_bytes()
+            self.matching_v2_contract = json.loads(contract_bytes)
+            self.matching_v2_hash = hashlib.sha256(contract_bytes).hexdigest()
+            if self.matching_v2_contract['head_sha256'] != expected_q2c_sha256:
+                raise ValueError('matching-v2 head/contract hash differs')
         self.transport_keys = (
             TRANSPORT_KEYS if transport_arm is None else (
                 CACHED_TRANSPORT_KEYS_BY_ARM[transport_arm]
@@ -188,6 +197,10 @@ class _DeformNeXtBase(Dataset):
             )
         )
         self.value_range = (0, 1)
+        if transport_implementation == 'matching-v2':
+            # Frozen evidence is already gathered/weighted. Re-reading full
+            # source values needlessly multiplies I/O and device residency.
+            self.transport_keys = ('patch_grid','patch_ids') + (('target_query',) if transport_arm in {'c1','c2'} else ())
         self.instances = []
         for row in self.rows:
             cache_fields = () if transport_arm == "v1" else getattr(self, "transport_fields", ("transport_cache",))
@@ -301,7 +314,14 @@ class _DeformNeXtBase(Dataset):
                         raise ValueError('incompatible R9 match cache contract')
                     if not raw and (self.expected_q2c_sha256 is None or str(cache['q2c_sha256']) != self.expected_q2c_sha256):
                         raise ValueError('R9 match cache checkpoint hash mismatch')
-                for key in MATCH_KEYS_BY_ARM[self.transport_arm]:
+                match_keys = MATCH_KEYS_BY_ARM[self.transport_arm]
+                if self.transport_implementation == 'matching-v2':
+                    if str(cache['schema']) != 'deformnext-matching-v2-cache-v1' or str(cache['contract_sha256']) != self.matching_v2_hash:
+                        raise ValueError('matching-v2 cache contract differs')
+                    if str(cache['sample_id']) != row['sample_id'] or str(cache['split']) != row['split']:
+                        raise ValueError('matching-v2 cache identity differs')
+                    match_keys = ('evidence_top1','evidence_soft','p_use','cached_valid') + (('deformation',) if self.transport_arm=='c2' else ())
+                for key in match_keys:
                     if key not in cache:
                         raise ValueError(
                             f"match cache for {row['sample_id']} missing {key}"
@@ -309,10 +329,10 @@ class _DeformNeXtBase(Dataset):
                     tensor = torch.from_numpy(np.asarray(cache[key]))
                     if key == "semantic_indices":
                         tensor = tensor.long()
-                    elif key == "candidate_valid":
+                    elif key in {"candidate_valid", "cached_valid"}:
                         tensor = tensor.bool()
                     pack[f"transport_{key}"] = tensor
-        if self.transport_implementation == "r9-native-v5":
+        if self.transport_implementation in {"r9-native-v5", "matching-v2"}:
             from ..modules.r9_matching import frame_raw
             for key in ('target_keys', 'source_keys'):
                 full = f'transport_{key}'
@@ -335,6 +355,8 @@ class _DeformNeXtBase(Dataset):
                 key = 'patch_ids' if 'transport_cache_pbr' in self.transport_fields else 'patch_grid'
                 pack[f'transport_{key}'] = torch.from_numpy(np.asarray(cache[key])).long()
         mandatory = {"source_values", "source_valid"}
+        if self.transport_implementation == 'matching-v2':
+            mandatory = {'evidence_top1','evidence_soft','p_use','cached_valid','target_valid'}
         if self.transport_arm != "v1" and self.match_root is None:
             mandatory.update(("target_keys", "source_keys"))
         if self.transport_arm in {"c1", "c2"}:

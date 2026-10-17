@@ -8,6 +8,31 @@ DeformNeXt split: SS 9,149 train / 508 validation, PBR 9,139 train after the
 
 ## Current contract
 
+**2026-10-17 SS matching-v2 campaign:** see the
+[experiment plan](../../docs/superpowers/reports/2026-10-17-ss-matching-v2-experiment-plan-ko.md)
+and [execution evidence](../../docs/superpowers/reports/2026-10-17-ss-matching-v2-execution-ko.md).
+`matching_v2_setup.py` freezes cluster-disjoint calibration and nested common
+evaluation panels. `matching_v2_proposals.py` measures expanded RAW proposal
+recall; `train_matching_v2.py` trains independent H1/H2/H3 heads. Calibration
+selects a fixed final head, temperature and separately supervised reliability.
+`matching_v2_finalize.py` builds preaggregated inference evidence only after
+GT-transport screening passes. Failed scientific gates hold SS runs and do not
+silently substitute a matcher or change fusion strength. Existing weights are
+re-evaluated; vanilla V1 is not retrained.
+
+`matching_v2_queue.py --work-root <runtime> --gpus <assigned-physical-IDs>`
+executes the frozen runtime `queue-jobs.json`. GPU assignments are explicit;
+light head/cache jobs may share with bounded evaluation, while SS training is
+exclusive. CPU jobs have no visible GPUs. The new `matching-v2` conditioner is
+SS-only, preserves native output at initialization, rejects whole updates
+including adapter residuals, and physically adds deformation channels only
+for C2. It does not change the historical promoted R9 scorer contract.
+
+Fixed-panel SS evaluation supports per-asset seeds independent of panel order,
+batched generation, per-asset voxel counts and source-cluster comparisons.
+`matching_v2_storage.py` retains file4 outputs; `matching_v2_reporter.py` logs
+paired voxel metrics/images and explicit completion/hold/failure outcomes.
+
 **2026-10-16 correction:** conditioning is edited **M1 RGB**, followed by three
 M0 RGB views from different cameras. For the current target-camera-8 split,
 the four cameras are `[8,9,10,11]`: edited input states are `[M1,M0,M0,M0]`,

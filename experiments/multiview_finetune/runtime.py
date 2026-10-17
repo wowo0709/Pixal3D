@@ -63,11 +63,16 @@ def run_step(self, packs):
     result = _native_step(self, packs)
     torch.cuda.synchronize()
     module=getattr(self,'deform_conditioner',None)
-    if module is not None and getattr(module,'implementation',None)=='r9-native-v5':
+    if module is not None and getattr(module,'implementation',None) in {'r9-native-v5','matching-v2'}:
         diagnostics={'fusion_gate':float(torch.tanh(module.fusion_gate.detach()))}
         last=getattr(self,'_last_deform_condition',None)
         if last is not None and last.query_valid is not None:
             diagnostics['query_coverage_last_pack']=float(last.query_valid.float().mean())
+        if last is not None and getattr(last,'usage_scale',None) is not None:
+            diagnostics['usage_scale_mean_last_pack']=float(last.usage_scale.float().mean())
+        if hasattr(self,'_last_deform_update_rms'):
+            diagnostics['condition_update_rms_strided_last_pack']=self._last_deform_update_rms
+            diagnostics['condition_native_rms_strided_last_pack']=self._last_deform_native_rms
         if last is not None and last.retarget_residual is not None:
             diagnostics['retarget_residual_rms_last_pack']=float(last.retarget_residual.detach().float().square().mean().sqrt())
         result['conditioner']=diagnostics
@@ -298,6 +303,7 @@ def evaluate(self):
         "sources": output_rows,
         "quick_metrics": quick_metrics,
         "quick_panel_ids": quick_ids,
+        "quick_per_asset": getattr(self, '_quick_per_asset', []),
     }
     with (Path(self.output_dir) / "validation.jsonl").open("a") as output:
         output.write(json.dumps(validation_row) + "\n")
