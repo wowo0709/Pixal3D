@@ -96,7 +96,7 @@ Train calibration 32개에서 주입 강도를 점검한 결과:
 
 Calibration에서 선택된 scale은 기존 작은 scale과 같았으며, validation에서의 개선 근거는 없다. 따라서 계획의 “GT matching에서도 개선이 없으면 주입 구조를 먼저 재검토” 조건에 따라 **새 B2-v2/B2-v2-R/B3-v2 본 학습은 transport gate에서 HOLD**한다. 이 HOLD를 실행 오류 또는 사용자 승인 대기로 표현하지 않는다.
 
-기존 C1의 추가 32개 진단에서 normal **0.452509**, GT correspondence **0.440061**, wrong-object source feature **0.448433**이었다. Wrong-object는 native RGB와 target query를 유지한 채 semantic 경로의 source value만 같은 batch의 다른 asset 값으로 교체한다. GT 주소로 바꾸는 것이 개선되지 않았고, 잘못된 object의 feature를 넣어도 adapter 효과가 상당 부분 남는다. 따라서 C1의 양의 결과를 정확한 semantic matching의 효과로 해석할 수 없다. Source value의 물체 식별 정보와 retargeter가 만드는 보정 성분을 더 구분해야 한다. 이 32개 경로 제거/교체 진단은 독립 재학습 ablation이 아니다.
+기존 C1의 추가 32개 진단에서 normal **0.452509**, GT correspondence **0.440061**, wrong-object source feature **0.448433**이었다. Wrong-object는 native RGB와 target query를 유지한 채 semantic 경로의 source value만 같은 batch의 다른 asset 값으로 교체한다. **GT 조건은 teacher-visible query로 지원 영역도 줄어든다. 따라서 이 GT−normal 차이를 주소 정확도만의 효과로 귀속할 수 없다.** 동일 teacher-visible support의 learned/GT 주소 비교를 추가로 수행한다. 잘못된 object의 feature를 넣어도 adapter 효과가 상당 부분 남으므로 C1의 양의 결과를 정확한 semantic matching의 효과로 바로 해석할 수도 없다. Source value의 물체 식별 정보, 지원 영역과 retargeter 보정 성분을 더 구분해야 한다. 이 32개 경로 제거/교체 진단은 독립 재학습 ablation이 아니다.
 
 H1/H2/H3 학습은 계속한다. Epoch 2 validation Top-1은 H1 **20.09%**, H2 **20.11%**, H3 **21.38%**로 각 epoch 1보다 증가했다. Fixed-final epoch 7 이전의 중간 수치를 최종 선택에 사용하지 않는다. 새 SS arm의 5-epoch 학습을 이미 시작했다고 보고하지 않는다.
 

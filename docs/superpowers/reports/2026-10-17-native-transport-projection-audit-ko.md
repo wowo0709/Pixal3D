@@ -18,6 +18,12 @@ Self-map 검사는 feature/projection 동등성 진단이며 target-only 생성 
 
 실행은 명시적으로 할당된 GPU 0~3 내 빈 장치에서 수행한다. 결과는 file4의 `rgb_matching_v2/projection-audit/`에 별도 보존하고 W&B 공통 평가 run에 기록한다.
 
+동일 teacher-visible support의 learned/GT 주소 비교도 추가한다. GT 주소와 native matcher의 원래 지원 영역이 다르므로 GT−normal만으로 주소 효과를 추정하지 않는다. C1 final의 learned gate를 그대로 유지하고 `teacher-visible + learned nearest`와 `teacher-visible + GT nearest`를 같은 calibration32에서 비교한다. 이 경우 learned 조건에도 GT visibility mask가 들어가므로 두 조건 모두 진단 전용이다. 별도로 기존 C1의 전체 native support에서 bilinear/정규화 operator만 바꾸는 비교도 수행한다.
+
 ## 독립적인 source/target balance 진단
 
 C1 wrong-object 진단에서 효과가 상당 부분 남았으므로 adapter가 정확한 source address 외의 보정을 수행했을 가능성도 조사한다. `native_proj + w*(anchor_proj-native_proj)`, 고정 w=0/0.25/0.5를 calibration32에서 비교한다. Native global condition은 바꾸지 않고 모든 경우 source 세 장의 projection 가중치도 양수다. w=0.5에서도 target/source별 가중치는 0.625/0.125/0.125/0.125로, target-only arm이 아니다. GT geometry/address를 이 진단의 추론 입력으로 사용하지 않는다. 기존 V1 checkpoint를 고정한 추론 개입이며 새 독립 학습의 효과와 구분한다. Calibration에서 선택된 nonzero w가 native를 개선하면 고정한 뒤 validation128에서 V1과 비교한다. 결과는 `role-balance-probe/`에 보존한다.
+
+## 기존 C1 양의 결과의 sampling 안정성
+
+기존 V1/C1 final을 동일 128개 asset에서 추가 sampling noise 두 개로 paired 재평가한다. 이미 계산한 기본 noise와 합쳐 총 세 개다. 같은 asset의 모든 noise 반복을 source cluster 안에 묶어서 TP/FP/FN을 집계하고 cluster bootstrap을 수행한다. 반복 384개를 독립 384개 asset으로 세지 않는다. 이는 generation noise 재현성 확인이며 추가 training seed 실험이 아니다. 새 noise seed는 결과를 보기 전에 sample ID의 SHA-256으로 고정했다. 결과 위치는 `noise-confirmation/`이다.

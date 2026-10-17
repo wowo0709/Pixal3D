@@ -50,7 +50,10 @@ def main():
             'arm':cfg['experiment']['arm'],
             'quick_metrics':metrics,'quick_panel_ids':ids,'ao_sampling_seed':0,'optimizer_updates':0,
             'optimizer_updates_during_evaluation':0,'per_asset':getattr(trainer,'_quick_per_asset',[]),
-            'generation_batch_size':args.generation_batch}
+            'generation_batch_size':args.generation_batch,
+            'sampling_steps':cfg['validation']['quick_metrics']['sampling_steps'],'guidance':3.,
+            'panel_file':str(args.panel_file) if args.panel_file else None,
+            'seed_map_file':str(args.seed_map_file) if args.seed_map_file else None}
     result.update(conditioning_mode=args.conditioning_mode,target_modality='rgb',
                   pbr_geometry='GT_target_shape_fixed' if args.stage=='pbr1024' else None,
                   input_states=['M0']*4 if args.conditioning_mode=='source-only' else ['M1','M0','M0','M0'],

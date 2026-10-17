@@ -33,9 +33,22 @@ def normalized_evidence(project, values, valid):
 
 
 class DiagnosticDataset(OracleDataset):
+    def __init__(self,dataset,labels,oracle=True,teacher_support=False):
+        super().__init__(dataset,labels);self.oracle=oracle;self.teacher_support=teacher_support
+
     def __getitem__(self, index):
-        item = super().__getitem__(index)
+        item = super().__getitem__(index) if self.oracle else self.dataset[index]
         row = self.rows[index]
+        if self.teacher_support and not self.oracle:
+            with np.load(self.labels/(row['sample_id']+'.npz')) as z:
+                if str(z['sample_id'])!=row['sample_id'] or str(z['split'])!=row['split']:
+                    raise ValueError('diagnostic support teacher identity differs')
+                positive=torch.from_numpy(z['positive_indices'].copy()).long()
+                visible=torch.from_numpy(z['positive_visible'].copy()).bool()
+            item['transport_target_valid']=visible.any(-1)
+            valid=item['transport_source_valid'].flatten().clone()
+            valid[positive[visible]]=True
+            item['transport_source_valid']=valid.reshape_as(item['transport_source_valid'])
         with np.load(self.dataset._resolve(row['transport_cache'])) as z:
             if str(z['conditioning_input_sha256']) != row['conditioning_input_sha256']:
                 raise ValueError('target query RGB fingerprint differs')
@@ -48,12 +61,20 @@ def main():
     for name in ('config-root', 'checkpoint', 'panels', 'labels', 'output'):
         p.add_argument('--' + name, type=Path, required=True)
     p.add_argument('--calibration', action='store_true')
-    p.add_argument('--scale', type=float, default=.25)
+    p.add_argument('--arm', choices=['b3','c1'],default='b3')
+    p.add_argument('--conditioner-checkpoint',type=Path)
+    p.add_argument('--correspondence',choices=['gt','native'],default='gt')
+    p.add_argument('--support',choices=['native','teacher-visible'],default='native')
+    p.add_argument('--scale', type=float)
     p.add_argument('--generation-batch', type=int, default=8)
     p.add_argument('--cases', default='native,nearest,bilinear,normalized,wrong-object')
     a = p.parse_args()
-    if not 0 < a.scale < 1:
+    if a.scale is not None and not 0 < a.scale < 1:
         raise ValueError('a fixed nonzero diagnostic scale in (0,1) is required')
+    if a.arm=='c1' and a.conditioner_checkpoint is None:
+        raise ValueError('trained C1 diagnostic requires the paired conditioner checkpoint')
+    if a.arm=='b3' and a.scale is None and a.conditioner_checkpoint is None:
+        raise ValueError('untrained B3 transport requires an explicit nonzero diagnostic scale')
     cases = a.cases.split(',')
     if set(cases) - {'native','nearest','bilinear','normalized','wrong-object'}:
         raise ValueError('unknown projection diagnostic')
@@ -61,13 +82,13 @@ def main():
     from .quick_metrics import evaluate_quick
     from PIL import Image
     torch.set_num_threads(4); torch.cuda.set_device(0)
-    cfg = json.loads((a.config_root / 'ss64-b3.json').read_text())
+    cfg = json.loads((a.config_root / f'ss64-{a.arm}.json').read_text())
     args = copy.deepcopy(cfg['validation']['dataset_args'])
     manifest = cfg['validation']['roots_file']
     if a.calibration:
         manifest = str(a.panels / 'head_calibration.jsonl'); args['expected_split'] = 'train'
     raw = getattr(datasets, cfg['dataset']['name'])(manifest, **args)
-    ds = DiagnosticDataset(raw, a.labels)
+    ds = DiagnosticDataset(raw, a.labels,oracle=a.correspondence=='gt',teacher_support=a.support=='teacher-visible')
     quick = cfg['validation']['quick_metrics']
     quick.update(panel_file=str(a.panels / ('calibration-32.json' if a.calibration else 'panel-32.json')),
         seed_map_file=str(a.panels / ('calibration-seeds.json' if a.calibration else 'seed-map.json')),
@@ -81,7 +102,11 @@ def main():
     trainer = getattr(trainers,cfg['trainer']['name'])(md,raw,**kw,output_dir=str(a.output),
         load_dir=None,step=None,wandb_run=None)
     trainer.models['denoiser'].eval(); trainer.p_uncond=0
-    trainer.deform_conditioner.fusion_gate.data.fill_(np.arctanh(a.scale))
+    if a.conditioner_checkpoint:
+        trainer.deform_conditioner.load_state_dict(torch.load(a.conditioner_checkpoint,map_location='cpu',weights_only=True),strict=True)
+    if a.scale is not None:trainer.deform_conditioner.fusion_gate.data.fill_(np.arctanh(a.scale))
+    a.scale=float(torch.tanh(trainer.deform_conditioner.fusion_gate.detach()))
+    if a.scale==0:raise ValueError('a zero transport gate cannot test projection utility')
     encode = trainer._encode_deform_views; inject = trainer._inject_deform_transport
     state = {'case':'native','parity':[]}
 
@@ -114,15 +139,20 @@ def main():
                 raise ValueError('wrong-object requires a batch of distinct assets')
             call['source_values']=torch.roll(call['source_values'],1,0)
         result=self.deform_conditioner(**call)
+        residual=result.retarget_residual
+        residual=torch.zeros_like(result.evidence) if residual is None else residual
+        combined=torch.cat((result.evidence-residual,residual),-1)
         if state['case']=='normalized':
-            value,coverage=normalized_evidence(project,result.evidence,result.query_valid)
+            value,coverage=normalized_evidence(project,combined,result.query_valid)
             valid=coverage>0; usage=coverage
         else:
-            value=project(result.evidence)
+            value=project(combined)
             valid=result.query_valid.gather(1,transport['patch_grid'].flatten(1))[...,None]
             usage=1
+        value,residual=value.split((1024,1024),-1)
         semantic=(anchor_condition[key]+source_views*value.to(native.dtype))/(source_views+1)
-        update=result.fusion_scale.to(native.dtype)*(semantic-native)*usage
+        update=(result.fusion_scale.to(native.dtype)*(semantic-native)
+            +source_views/(source_views+1)*residual.to(native.dtype))*usage
         condition[key]=native+torch.where(valid,update,torch.zeros_like(update))
         return condition
 
@@ -133,8 +163,10 @@ def main():
         state['case']=case;out=a.output/case;out.mkdir(exist_ok=True)
         with torch.inference_mode():
             metrics,panel,ids=evaluate_quick(trainer,ds,cfg['validation'])
-        result={'status':'PASS','case':case,'diagnostic_only':True,'GT_addresses':True,
+        result={'status':'PASS','case':case,'diagnostic_only':True,'GT_addresses':a.correspondence=='gt',
             'optimizer_updates':0,'checkpoint':str(a.checkpoint),'scale':a.scale,
+            'arm':a.arm,'conditioner_checkpoint':str(a.conditioner_checkpoint) if a.conditioner_checkpoint else None,
+            'support':'teacher-visible' if a.correspondence=='gt' or a.support=='teacher-visible' else 'native',
             'split':'train-calibration' if a.calibration else 'validation',
             'sampling_steps':12,'guidance':3.,'sample_ids':ids,
             'quick_metrics':metrics,'per_asset':trainer._quick_per_asset}
@@ -144,7 +176,8 @@ def main():
     (a.output/'summary.json').write_text(json.dumps(results,indent=2)+'\n')
     report={'status':'finished','cases':results,'self_projection':state['parity'],
         'fixed_scale':a.scale,'selection_scope':'train-calibration' if a.calibration else 'validation',
-        'GT_diagnostic_not_deployable':True,'original_arms_unchanged':True}
+        'GT_diagnostic_not_deployable':a.correspondence=='gt','original_arms_unchanged':True,
+        'arm':a.arm,'correspondence':a.correspondence}
     (a.output/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 
 

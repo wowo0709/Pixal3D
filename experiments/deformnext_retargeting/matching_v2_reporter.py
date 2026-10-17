@@ -17,16 +17,17 @@ def main():
         dir=str(a.work_root),config={'physical_gpu_allowlist':[int(g) for g in gpu_ids(a.gpus)],'data':'DeformNeXt RGB','stage':'SS64','generation_batch':8})
     receipt=a.work_root/'evaluation-logging.json';logged=set(json.loads(receipt.read_text()).get('logged',[])) if receipt.exists() else set()
     while True:
-        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe']:
+        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation']:
             for f in (a.root/directory).glob('**/evaluation.json'):
                 key=str(f.relative_to(a.root))
                 if key in logged:continue
+                image=f.parent/'panel.png'
+                if not image.exists():continue
                 value=json.loads(f.read_text());metrics=value.get('quick_metrics',{})
                 name=str(f.parent.relative_to(a.root)).replace('/','_')
                 payload={name+'/'+k:v for k,v in metrics.items()}
                 payload[name+'/assets']=len(value.get('sample_ids',value.get('quick_panel_ids',[])))
-                image=f.parent/'panel.png'
-                if image.exists():payload[name+'/GT_Pred_Diff']=wandb.Image(str(image))
+                payload[name+'/GT_Pred_Diff']=wandb.Image(str(image))
                 run.log(payload);logged.add(key)
                 receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         state_path=a.work_root/'queue-state.json'
