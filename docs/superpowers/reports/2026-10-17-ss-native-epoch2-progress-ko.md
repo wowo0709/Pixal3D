@@ -1,6 +1,6 @@
-# SS P1/P2: 2에폭 중간 결과
+# SS P1/P2: 2~3에폭 중간 결과
 
-2026-10-17 23:44 KST / 14:44 UTC 기준이다. 두 run 모두 학습 중이며 5에폭 최종 결과가 아니다.
+2026-10-18 00:12 KST / 2026-10-17 15:12 UTC 기준이다. 두 run 모두 학습 중이며 5에폭 최종 결과가 아니다.
 
 ## 동일 에폭 비교
 
@@ -11,26 +11,29 @@
 | 학습 전 | 0.426715 | 0.426715 | 0 | 동일 초기 출력 |
 | Epoch1 / step96 | 0.434282 | 0.437257 | +0.297 | [−0.077,+0.715] |
 | Epoch2 / step192 | 0.438175 | 0.441612 | +0.344 | [+0.036,+0.645] |
+| Epoch3 / step288 | 0.442308 | 0.441529 | −0.078 | [−0.668,+0.567] |
 
 2에폭에서는 precision도 P1 0.557612 → P2 0.561878, recall은0.671667 →0.673543, F1은0.609348 →0.612664로 함께 높았다. P2의 중간 우세가 단순 precision/recall 한쪽의 상승만으로 생긴 것은 아니다.
+
+3에폭에서는 P2가2에폭 대비−0.008%p로 거의 같은 수준에 머물렀고 P1은+0.413%p 상승했다. P2−P1은−0.078%p이며 CI가0을 포함한다. 따라서2에폭의 양의 CI가 이후 에폭에도 유지됐다는 주장은 성립하지 않는다. P2의 초반 개선이 더 빠른 학습인지 final quality 차이인지는 아직 분리되지 않았으며, final128×3 비교 전에는 H3 bundle의 SS 생성 이득을 확정하지 않는다.
 
 P1 자체의 epoch1→2 gain은 +0.389%p였고 paired CI는[−0.424,+1.215]%p였다. 따라서 모든 에폭 증가가 통계적으로 확정됐다고 표현하지 않는다. P2의 epoch1→2 point gain은+0.435%p다.
 
 ## 해석 범위
 
-개선된 matcher bundle을 같은 native consumer에 넣었을 때 SS 생성에서도 도움이 될 가능성이 보인다. 그러나 이번 비교는32개·한 sampling noise·한 training seed의 중간 결과이며 여러 에폭을 관찰한 exploratory CI다. Proposal 수, ranking 학습, feature loss와 temperature를 함께 바꾼 bundle 비교이므로 H3의 특정 loss 하나의 효과로 분해하지 않는다.
+개선된 matcher bundle의 초반 이득은 관측됐지만3에폭에서 우세는 확인되지 않았다. 이번 비교는32개·한 sampling noise·한 training seed의 중간 결과이며 여러 에폭을 관찰한 exploratory CI다. Proposal 수, ranking 학습, feature loss와 temperature를 함께 바꾼 bundle 비교이므로 H3의 특정 loss 하나의 효과로 분해하지 않는다.
 
 P1/P2는 각각 step103/56에서 사용자 중단 후 optimizer/scheduler/sampler를 복원했다. Native checkpoint에는 rank별 RNG가 없어 두 run이 같은 stochastic trajectory를 따랐다고 주장할 수 없다. Full 채택은 예정한 final128×3-noise 비교 및 필요한 training-seed 확인 이후 결정한다. 기존128개 aggregate를 이32개 중간 수치와 직접 차감하지 않는다.
 
 ## 실행·정합 확인
 
-- 두 에폭 결과는 동일 panel 순서, per-asset seed와 GT foreground 수를 유지했다. Epoch2의32개 GT occupancy 전체 hash도 P1/P2 사이에 모두 일치했다. GT는 정합된 M1 SS latent의 decoder 복원 occupancy다.
+- 각 에폭 결과는 동일 panel 순서, per-asset seed와 GT foreground 수를 유지했다. Epoch2와3의32개 GT occupancy 전체 hash도 P1/P2 사이에 모두 일치했다. GT는 정합된 M1 SS latent의 decoder 복원 occupancy다.
 - GPU2·3의 P1, GPU0·1의 P2가 rank당 micro48/accumulation1/global96으로 진행 중이다. 최근 compute는 약17.2초/update, peak allocated는 rank당47.75GiB다. 당시 실패 작업/OOM은 없었다.
-- P1/P2 모두 step192 checkpoint 세 파일을 생성했다. P1의 optimizer step192와 파일서버 저장은 확인했으며, P2의 원격 보존 확인도 별도 provenance receipt에 남긴다.
+- P1/P2 모두 step192/288 checkpoint 세 파일을 생성했다. 파일서버 보존과 optimizer step 확인은 `provenance/*-file4-checkpoint-receipt.json`에 기록한다.
 - Epoch 비교는 CPU reporter가 양쪽의 동일 step 결과가 생기면 자동 산출한다. W&B에 epoch2 paired CI까지 기록된 것을 확인했다. 최종 모듈 행렬의 다섯 학습은 큐에서 대기 중이며 이 중간 결과로 취소하거나 대체하지 않는다.
 
 ## 남은 실험
 
 [전체 모듈 비교 복원 계획](2026-10-17-ss-full-module-restoration-ko.md)에 따라 P1/P2의480 updates를 마치고, 같은 H3에서 Top1 → confidence/rejection → attention → retargeter → physical RAW2048 query의 다섯 arm을 독립 학습한다. Zero-shot 두 조건과 기존 V1/B1/B2/B3/C1을 포함한14개 구성을 동일128×3으로 최종 집계한다.
 
-Authoritative data: file4의 `rgb_matching_v2/retarget-native-v3/runs_ss64/*/validation.jsonl`, `epoch-comparisons/epoch-0{1,2}-p2-vs-p1.json`. [P1 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [P2 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p2).
+Authoritative data: file4의 `rgb_matching_v2/retarget-native-v3/runs_ss64/*/validation.jsonl`, `epoch-comparisons/epoch-0{1,2,3}-p2-vs-p1.json`. [P1 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p1), [P2 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-native-v3-p2).
