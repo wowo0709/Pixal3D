@@ -66,6 +66,11 @@ def prepare(root, checkpoint, output, flow_checkpoint=None):
     if (flow['step'], flow['weight_kind']) != (20000, 'ema'):
         raise ValueError('unexpected archived G2 consumer; never substitute the current LoRA model')
     model_spec = read(flow_config)['models']['denoiser']
+    conditioner_args = read(flow_config)['trainer']['args']['image_cond_model']['args']
+    conditioner_args = {**conditioner_args, 'model_name': runtime['dinov3']['path']}
+    write_new(output / 'conditioner-initialization.json', {
+        'schema': 'historical-G2-conditioner-initialization-v1',
+        'source_config': reference(flow_config), 'args': conditioner_args})
     pipeline_file = Path(runtime['pipeline_snapshot']) / 'pipeline.json'
     pipeline = read(pipeline_file)['args']
     decoder = Path(runtime['pipeline_snapshot']) / pipeline['models']['sparse_structure_decoder']
@@ -198,12 +203,13 @@ def smoke(inputs, output, arm):
     # The original reference constructs its frozen conditioner before the
     # adapter. HF loading actually advances CPU RNG, even with complete weights.
     # Reproduce that initialization on CPU; cached conditions need no DINO GPU.
-    archived = torch.load(checked(summary['models']['r4_content']['101']), map_location='cpu', weights_only=True)
-    recorded_runtime = archived['runtime']
-    conditioner_args = read(recorded_runtime['conditioner_config'])['trainer']['args']['image_cond_model']['args']
-    conditioner_args = {**conditioner_args, 'model_name': recorded_runtime['dinov3']['path']}
-    conditioner = DinoV3ProjFeatureExtractor(**conditioner_args).eval().requires_grad_(False)
-    del conditioner, archived
+    init_config = inputs / 'conditioner-initialization.json'
+    initializer = read(init_config)
+    if (initializer['schema'] != 'historical-G2-conditioner-initialization-v1'
+            or initializer['source_config']['sha256'] != runtime_spec['original_flow']['config_sha256']):
+        raise ValueError('recorded conditioner initialization config differs')
+    conditioner = DinoV3ProjFeatureExtractor(**initializer['args']).eval().requires_grad_(False)
+    del conditioner
     initializer_rng_sha = hashlib.sha256(torch.get_rng_state().numpy().tobytes()).hexdigest()
     row = next(r for r in summary['records'] if r['split'] == 'train')
     pair = to_device(torch.load(checked(row['staged']), map_location='cpu', weights_only=True))
@@ -254,6 +260,7 @@ def smoke(inputs, output, arm):
               'arm': arm, 'updates': 4, 'history': history, 'frozen_SS_gradients_absent': True,
               'initialization_order': 'seed101, flow, decoder, frozen-conditioner CPU, adapter',
               'adapter_initializer_CPU_RNG_sha256': initializer_rng_sha,
+              'conditioner_initialization': reference(init_config),
               'current_DeformNeXt_SS_gain_claim': False})
 
 
