@@ -17,7 +17,7 @@ def main():
         dir=str(a.work_root),config={'physical_gpu_allowlist':[int(g) for g in gpu_ids(a.gpus)],'data':'DeformNeXt RGB','stage':'SS64','generation_batch':8})
     receipt=a.work_root/'evaluation-logging.json';logged=set(json.loads(receipt.read_text()).get('logged',[])) if receipt.exists() else set()
     while True:
-        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation']:
+        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','retarget-native-v3/evaluations']:
             for f in (a.root/directory).glob('**/evaluation.json'):
                 key=str(f.relative_to(a.root))
                 if key in logged:continue
@@ -30,6 +30,18 @@ def main():
                 payload[name+'/GT_Pred_Diff']=wandb.Image(str(image))
                 run.log(payload);logged.add(key)
                 receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
+        comparisons=[a.root/'noise-confirmation/c1-v1-three-noise.json',
+            a.root/'role-balance-probe/validation128/paired-v1.json',
+            *(a.root/'retarget-native-v3/comparisons').glob('*.json')]
+        for f in comparisons:
+            key=str(f.relative_to(a.root))
+            if key in logged or not f.exists():continue
+            record=json.loads(f.read_text());prefix='paired/'+key.removesuffix('.json').replace('/','_')
+            payload={prefix+'/'+k:v for k,v in record.items() if isinstance(v,(int,float)) and not isinstance(v,bool)}
+            interval=record['paired_cluster_bootstrap_ci95']
+            payload.update({prefix+'/ci95_lower':interval[0],prefix+'/ci95_upper':interval[1]})
+            run.log(payload);logged.add(key)
+            receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         state_path=a.work_root/'queue-state.json'
         state=json.loads(state_path.read_text()) if state_path.exists() else {}
         run.log({'campaign/running':sum(r['status']=='running' for r in state.values()),

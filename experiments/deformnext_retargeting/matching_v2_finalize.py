@@ -91,7 +91,10 @@ def cache_row(row, model, contract, root, mirror):
         deformation[chunk]=target_context[chunk]-summary
         reliability=contract['reliability']
         p_use[chunk]=torch.sigmoid(reliability['slope']*confidence[:,0]+reliability['bias'])
-    return {'evidence_top1':top1.cpu().half().numpy(),'evidence_soft':soft.cpu().half().numpy(),
+    soft_cpu=soft.cpu()
+    if contract.get('evidence_soft_dtype','float16')=='float16':soft_cpu=soft_cpu.half()
+    elif contract['evidence_soft_dtype']!='float32':raise ValueError('unknown soft evidence precision')
+    return {'evidence_top1':top1.cpu().half().numpy(),'evidence_soft':soft_cpu.numpy(),
             'p_use':p_use.cpu().numpy(),'cached_valid':usable.cpu().numpy(),
             'deformation':deformation.cpu().half().numpy()}
 
@@ -100,11 +103,14 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--mode',choices=['select','cache','audit'],required=True);p.add_argument('--root',type=Path,required=True)
     p.add_argument('--manifest',type=Path);p.add_argument('--file4-mirror',type=Path)
+    p.add_argument('--cache-root',type=Path);p.add_argument('--receipt-root',type=Path)
     p.add_argument('--rank',type=int,default=0);p.add_argument('--world-size',type=int,default=1)
     a=p.parse_args();torch.set_num_threads(4)
     if a.mode=='select':select(a.root);return
     torch.cuda.set_device(0)
-    contract=json.loads((a.root/'matches/contract.json').read_text());digest=sha(a.root/'matches/contract.json')
+    cache=a.cache_root or a.root/'matches';receipts=a.receipt_root or a.root
+    receipts.mkdir(parents=True,exist_ok=True)
+    contract=json.loads((cache/'contract.json').read_text());digest=sha(cache/'contract.json')
     if sha(Path(contract['head']))!=contract['head_sha256']:raise ValueError('selected head changed')
     state=torch.load(contract['head'],map_location='cpu',weights_only=True)
     if state['schema']!=SCHEMA:raise ValueError('wrong head schema')
@@ -113,7 +119,7 @@ def main():
     if a.mode=='cache':
         assigned=rows[a.rank::a.world_size]
         for i,row in enumerate(assigned):
-            path=a.root/'matches'/(row['sample_id']+'.npz')
+            path=cache/(row['sample_id']+'.npz')
             if path.exists():
                 with np.load(path) as z:
                     if str(z['contract_sha256'])!=digest or str(z['conditioning_input_sha256'])!=row['conditioning_input_sha256']:raise ValueError('stale matching-v2 cache')
@@ -125,17 +131,17 @@ def main():
                 conditioning_input_sha256=row['conditioning_input_sha256'],sample_id=row['sample_id'],split=row['split'],**arrays)
             os.replace(tmp,path)
             if i%100==0:print(json.dumps({'rank':a.rank,'completed':i+1,'assigned':len(assigned)}),flush=True)
-        (a.root/f'cache-rank{a.rank}.json').write_text(json.dumps({'status':'PASS','assigned':len(assigned),'contract_sha256':digest})+'\n')
+        (receipts/f'cache-rank{a.rank}.json').write_text(json.dumps({'status':'PASS','assigned':len(assigned),'contract_sha256':digest})+'\n')
     else:
         report=[]
         for row in rows[:8]:
             expected=cache_row(row,model,contract,a.root,a.file4_mirror)
-            with np.load(a.root/'matches'/(row['sample_id']+'.npz')) as z:
+            with np.load(cache/(row['sample_id']+'.npz')) as z:
                 if str(z['contract_sha256'])!=digest:raise ValueError('cache parity contract differs')
                 differences={key:float(np.max(np.abs(z[key].astype(float)-value.astype(float)))) for key,value in expected.items()}
                 if max(differences.values())>1e-5:raise ValueError('cache/online evidence differs')
                 report.append({'sample_id':row['sample_id'],'max_errors':differences})
-        (a.root/'cache-audit.json').write_text(json.dumps({'status':'PASS','contract_sha256':digest,'samples':report},indent=2)+'\n')
+        (receipts/'cache-audit.json').write_text(json.dumps({'status':'PASS','contract_sha256':digest,'samples':report},indent=2)+'\n')
 
 
 if __name__=='__main__':main()

@@ -80,11 +80,17 @@ class DeformationAwareConditioner(nn.Module):
         freeze_q2c: bool = False,
         implementation: str = "r9-native-v5",
         score_temperature: Optional[float] = None,
+        projection_mode: str = "nearest",
     ) -> None:
         super().__init__()
         if implementation not in {"legacy-v4", "r9-native-v5"}:
             raise ValueError("unknown conditioner implementation")
         self.implementation = implementation
+        if projection_mode not in {'nearest','native-bilinear'}:
+            raise ValueError('unknown transport projection mode')
+        if projection_mode=='native-bilinear' and (implementation!='r9-native-v5' or value_dim!=1024):
+            raise ValueError('native-bilinear transport currently supports native SS only')
+        self.projection_mode=projection_mode
         self.score_temperature = (0.005 if implementation=='r9-native-v5' else 1.) if score_temperature is None else float(score_temperature)
         if self.score_temperature<=0:raise ValueError('matching temperature must be positive')
         if implementation == "r9-native-v5" and (key_dim != 1024 or topk != 64):

@@ -1108,7 +1108,7 @@ class ImageConditionedProjMixin:
             raise ValueError('deformation transport requires patch_grid or patch_ids')
         return output
 
-    def _inject_deform_transport(self, condition, transport, coords, *, source_views=3, control='normal', anchor_condition=None):
+    def _inject_deform_transport(self, condition, transport, coords, *, source_views=3, control='normal', anchor_condition=None,camera_info=None):
         module = (
             self.training_models.get('deform_conditioner', self.deform_conditioner)
             if hasattr(self, 'training_models') else self.deform_conditioner
@@ -1121,6 +1121,7 @@ class ImageConditionedProjMixin:
         evidence = output.evidence
         corrected = self.deform_conditioner.implementation in {'r9-native-v5', 'matching-v2'}
         v2 = self.deform_conditioner.implementation == 'matching-v2'
+        native_grid=getattr(self.deform_conditioner,'projection_mode','nearest')=='native-bilinear'
         if corrected:
             if anchor_condition is None:
                 raise ValueError('r9-native-v5 fusion requires both native MV and anchor conditions')
@@ -1134,7 +1135,17 @@ class ImageConditionedProjMixin:
         patch_grid = transport.get('patch_grid')
         patch_ids = transport.get('patch_ids')
 
-        if coords is None:
+        if native_grid:
+            if coords is not None or self.deform_conditioner.value_dim!=1024 or camera_info is None:
+                raise ValueError('native-bilinear transport requires dense SS and explicit camera metadata')
+            from ....modules.transport_projection import project_native_patchmap,support_weighted_projection
+            width=self.deform_conditioner.value_dim
+            source,residual=evidence[...,:width],evidence[...,width:2*width]
+            usage=output.query_valid.to(source.dtype)
+            if v2:usage=usage*output.usage_scale.to(source.dtype)
+            projected,residual,valid,usage=support_weighted_projection(
+                lambda x:project_native_patchmap(self._image_cond_module,x,camera_info),source,residual,usage)
+        elif coords is None:
             if patch_grid is None:
                 raise ValueError('dense projection requires transport_patch_grid')
             patch_grid = patch_grid.long()
@@ -1169,7 +1180,7 @@ class ImageConditionedProjMixin:
             projected = evidence[batch, patch_index]
 
         key = 'proj_semantic' if 'proj_semantic' in condition else 'proj'
-        if corrected:
+        if corrected and not native_grid:
             width = self.deform_conditioner.value_dim
             if v2:
                 projected, residual, valid, usage = projected.split((width, width, 1, 1), dim=-1)
@@ -1194,7 +1205,7 @@ class ImageConditionedProjMixin:
             # Retargeter's zero output is outside the zero semantic gate:
             # both the gate and retargeter final layer can learn on step one.
             update = gate * delta + (source_views / (source_views + 1)) * residual.to(native.dtype)
-            if v2:
+            if v2 or native_grid:
                 update = update * usage.to(native.dtype)
             condition[key] = native + torch.where(valid.bool(), update, torch.zeros_like(update))
             if v2:
@@ -1238,7 +1249,7 @@ class ImageConditionedProjMixin:
             condition[key] = anchor[key]
         condition = self._inject_deform_transport(
             condition, transport, coords, source_views=images.shape[1] - 1,
-            control=control, anchor_condition=anchor,
+            control=control, anchor_condition=anchor,camera_info=camera_info,
         )
         return condition, negative
 

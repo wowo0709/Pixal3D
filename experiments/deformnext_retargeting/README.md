@@ -344,3 +344,25 @@ failed progress status. PBR restarts from the original mixed385 checkpoint
 under local `v1-cap4`, with a separate W&B ID ending `v1-cap4`, global batch
 24 and two accumulation packs. The same bounded collator applies to all
 subsequent PBR ablation arms. SS continues its existing world-v4 run.
+
+## Native projection retargeting follow-up (2026-10-17)
+
+The old SS/PBR campaign is stopped and preserved. The raw matching-v2 ladder
+remains held by its GT transport screen. A separate retargeting follow-up
+uses the positive common-panel C1 result to test native bilinear projection
+with support-normalized fallback: P1 retains the old frozen R9 attention;
+P2 changes only the matcher bundle after fixed-final calibration selection.
+Both start independently from the original SS mixed385 base+LoRA weights.
+
+Reference R9 evidence is preaggregated in bounded chunks, with FP32 weighted
+values and an online parity audit, to remove the Top64 value expansion from
+SS batch96. `initialization_rng=r9-compatible` preserves the original
+retargeter initialization despite removing the frozen scorer from training.
+Neither cache constructor reads GT teachers. Each run repeats real native
+identity/backward and largest-microbatch two-update checks before training.
+
+See the [diagnostic protocol](../../docs/superpowers/reports/2026-10-17-native-transport-projection-audit-ko.md)
+and [follow-up learning plan](../../docs/superpowers/reports/2026-10-17-ss-native-retargeting-followup-ko.md).
+Runtime configs and caches live outside Git under the campaign's
+`retarget-native-v3/` namespace. Native bilinear is opt-in; existing
+nearest-projection recipes retain their behavior.

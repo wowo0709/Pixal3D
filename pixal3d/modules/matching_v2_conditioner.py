@@ -8,7 +8,7 @@ from .deform_conditioner import DeformationCondition, _Retargeter
 class MatchingV2Conditioner(nn.Module):
     def __init__(self, *, arm, value_dim=1024, query_dim=1024, deformation_dim=None,
                  hidden_dim=256, g_max=.25, reject=False, reject_threshold=0.,
-                 implementation='matching-v2'):
+                 implementation='matching-v2',projection_mode='nearest',initialization_rng='native'):
         super().__init__()
         if implementation!='matching-v2' or arm not in {'b2','b3','c1','c2'}:
             raise ValueError('invalid matching-v2 conditioner contract')
@@ -20,7 +20,19 @@ class MatchingV2Conditioner(nn.Module):
             raise ValueError('C1/B arms must not contain deformation channels')
         self.implementation=implementation;self.arm=arm;self.value_dim=value_dim;self.query_dim=query_dim
         self.g_max=g_max;self.reject=bool(reject);self.reject_threshold=float(reject_threshold)
+        if projection_mode not in {'nearest','native-bilinear'}:
+            raise ValueError('unknown matching-v2 projection mode')
+        self.projection_mode=projection_mode
         self.fusion_gate=nn.Parameter(torch.zeros(()))
+        if initialization_rng=='r9-compatible':
+            # Preaggregation removes the frozen scorer from the forward path.
+            # Preserve its constructor RNG consumption so the retargeter has
+            # the exact same initial parameters as the R9 reference recipe.
+            from .r9_matching import PromotedR9Matcher
+            discarded=PromotedR9Matcher()
+            del discarded
+        elif initialization_rng!='native':
+            raise ValueError('unknown retargeter initialization RNG contract')
         self.retargeter=_Retargeter(value_dim+query_dim+(2048 if arm=='c2' else 0),value_dim,hidden_dim) if arm in {'c1','c2'} else None
 
     def forward(self, *, source_values=None, source_valid=None, evidence_top1, evidence_soft,

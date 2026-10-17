@@ -114,7 +114,7 @@ def main():
         state['camera'] = camera_info
         return encode(images,camera_info,transport,**kwargs)
 
-    def wrapped_inject(self, condition, transport, coords, *, source_views, control, anchor_condition):
+    def wrapped_inject(self, condition, transport, coords, *, source_views, control, anchor_condition,camera_info=None):
         if coords is not None:
             raise ValueError('this audit is restricted to dense SS')
         camera = state['camera']; extractor=self._image_cond_module

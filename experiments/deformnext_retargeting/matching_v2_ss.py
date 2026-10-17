@@ -88,11 +88,16 @@ def native_proof(cfg,output):
     # to make a disconnected/reject-all module pass the gradient check.
     index=None
     for i,row in enumerate(ds.rows):
-        with np.load(ds.match_root/(row['sample_id']+'.npz')) as z:
-            use=z['cached_valid']
-            if cfg['trainer']['args']['deform_conditioner']['reject']:
-                use=use&(z['p_use']>=cfg['trainer']['args']['deform_conditioner']['reject_threshold'])
-            if use.any():index=i;break
+        spec=cfg['trainer']['args']['deform_conditioner']
+        if spec['implementation']=='matching-v2':
+            with np.load(ds.match_root/(row['sample_id']+'.npz')) as z:
+                use=z['cached_valid']
+                if spec['reject']:use=use&(z['p_use']>=spec['reject_threshold'])
+                if use.any():index=i;break
+        else:
+            item=ds[i]
+            if item['transport_target_valid'].any() and item['transport_source_valid'].sum()>=64:
+                index=i;break
     if index is None:raise ValueError('matching-v2 accepts no validation queries')
     with torch.device('meta'):
         md={name:getattr(models,spec['name'])(**spec['args']) for name,spec in cfg['models'].items()}

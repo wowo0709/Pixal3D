@@ -6,6 +6,9 @@ from pathlib import Path
 from experiments.deformnext_retargeting.audit_native_transport_projection import normalized_evidence, DiagnosticDataset
 from experiments.deformnext_retargeting.probe_source_target_balance import blend_projected
 from experiments.deformnext_retargeting.compare_ss_noise_panels import compare
+from pixal3d.modules.transport_projection import support_weighted_projection
+from pixal3d.modules.matching_v2_conditioner import MatchingV2Conditioner
+from pixal3d.modules.deform_conditioner import DeformationAwareConditioner
 
 
 def test_partial_support_does_not_dilute_transport_value_and_empty_support_is_finite():
@@ -61,3 +64,29 @@ def test_matched_teacher_support_preserves_learned_addresses(tmp_path):
     assert torch.equal(item['transport_semantic_indices'],indices)
     assert item['transport_target_valid'].tolist()==[True,False]
     assert item['transport_source_valid'].flatten().nonzero().flatten().tolist()==[3]
+
+
+def test_bilinear_rejection_applies_to_entire_update_including_adapter():
+    # The second patch is rejected despite a very large adapter residual.
+    values=torch.tensor([[[2.],[1000.]]]);residual=torch.tensor([[[.4],[5000.]]])
+    usage=torch.tensor([[.8,0.]])
+    project=lambda x:x.mean(1,keepdim=True)
+    source,adapter,valid,mass=support_weighted_projection(project,values,residual,usage)
+    native=torch.tensor([[[1.]]]);anchor=torch.tensor([[[3.]]]);gate=.2
+    update=(gate*((anchor+3*source)/4-native)+.75*adapter)*mass
+    expected=.5*.8*(gate*((anchor+3*2)/4-native)+.75*.4)
+    torch.testing.assert_close(update,expected)
+    assert valid.all()
+    _,_,valid,mass=support_weighted_projection(project,values,residual,usage*0)
+    assert not valid.any() and not mass.any()
+
+
+def test_reference_preaggregation_preserves_retargeter_initialization_rng():
+    torch.manual_seed(92017)
+    original=DeformationAwareConditioner(arm='c1',key_dim=1024,value_dim=1024,query_dim=1024)
+    original_rng=torch.get_rng_state()
+    torch.manual_seed(92017)
+    cached=MatchingV2Conditioner(arm='c1',initialization_rng='r9-compatible')
+    for k,v in original.retargeter.state_dict().items():
+        assert torch.equal(v,cached.retargeter.state_dict()[k])
+    assert torch.equal(original_rng,torch.get_rng_state())
