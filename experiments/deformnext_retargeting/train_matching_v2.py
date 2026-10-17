@@ -81,16 +81,19 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('panels','proposals','labels','file4-mirror','output'):
         p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--arm',choices=['h1','h2','h3'],required=True)
+    p.add_argument('--arm',choices=['h0','h1','h2','h3'],required=True)
+    p.add_argument('--topk',type=int,choices=[64,128,256])
     p.add_argument('--epochs',type=int,default=7);p.add_argument('--seed',type=int,default=42017)
     p.add_argument('--wandb',action='store_true')
     p.add_argument('--wandb-id')
     a=p.parse_args();torch.set_num_threads(4);torch.cuda.set_device(0);torch.manual_seed(a.seed)
     rng=np.random.default_rng(a.seed)
-    proposal=json.loads((a.proposals.parent/'proposal-audit.json').read_text());a.topk=proposal['selected_topk']
+    proposal=json.loads((a.proposals.parent/'proposal-audit.json').read_text());a.topk=a.topk or proposal['selected_topk']
+    if a.arm=='h0' and a.topk!=64:raise ValueError('matched H0 replay uses Top64')
+    ranking_only=a.arm in {'h0','h1'}
     train,calibration,validation=[read_rows(a.panels/(name+'.jsonl')) for name in ('head_train','head_calibration','head_validation')]
     model=MatchingV2Head().cuda()
-    if a.arm=='h1':model.confidence.requires_grad_(False)
+    if ranking_only:model.confidence.requires_grad_(False)
     optimizer=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=1e-4,weight_decay=.01)
     a.output.mkdir(parents=True,exist_ok=True)
     provenance={'schema':SCHEMA,'arm':a.arm,'seed':a.seed,'topk':a.topk,'epochs':a.epochs,
@@ -127,7 +130,7 @@ def main():
             logits,conf=model(q[chunk],source[idx[chunk]],raw[chunk],valid[chunk])
             ranking=ranking_loss(logits,positive[chunk],eligible[chunk]);loss=ranking
             null_loss=ranking.detach()*0;task_loss=null_loss
-            if a.arm!='h1':
+            if not ranking_only:
                 selected_correct=positive[chunk].gather(1,logits.detach().argmax(-1,keepdim=True))[:,0]
                 labels=torch.stack((selected_correct,vis[chunk].any(-1),eligible[chunk]),-1).float()
                 null_loss=F.binary_cross_entropy_with_logits(conf,labels);loss=loss+null_loss
@@ -144,7 +147,7 @@ def main():
                 print(json.dumps(record),flush=True)
                 if run:run.log({f'train/{k}':v for k,v in record.items() if k!='step'},step=step)
         cal=evaluate(model,calibration,a);val=evaluate(model,validation,a)
-        if a.arm=='h1':
+        if ranking_only:
             for result in (cal,val):result['confidence_untrained']=True
         epoch_record={'epoch':epoch,'step':step,'train_loss':float(np.mean(losses)),'calibration':{k:v for k,v in cal.items() if not isinstance(v,list)},'validation':{k:v for k,v in val.items() if not isinstance(v,list)},'seconds':time.monotonic()-began}
         history.append(epoch_record);print(json.dumps(epoch_record),flush=True)

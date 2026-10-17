@@ -1127,11 +1127,12 @@ class ImageConditionedProjMixin:
                 raise ValueError('r9-native-v5 fusion requires both native MV and anchor conditions')
             residual = output.retarget_residual
             residual = torch.zeros_like(evidence) if residual is None else residual
-            # Project all three using exactly the same target-to-patch map.
-            evidence = torch.cat((evidence - residual, residual,
-                                  output.query_valid[..., None].to(evidence.dtype)), dim=-1)
-            if v2:
-                evidence = torch.cat((evidence, output.usage_scale[..., None].to(evidence.dtype)), -1)
+            if not native_grid:
+                # Legacy nearest consumers share the same target-to-patch map.
+                evidence = torch.cat((evidence - residual, residual,
+                                      output.query_valid[..., None].to(evidence.dtype)), dim=-1)
+                if v2:
+                    evidence = torch.cat((evidence, output.usage_scale[..., None].to(evidence.dtype)), -1)
         patch_grid = transport.get('patch_grid')
         patch_ids = transport.get('patch_ids')
 
@@ -1140,7 +1141,7 @@ class ImageConditionedProjMixin:
                 raise ValueError('native-bilinear transport requires dense SS and explicit camera metadata')
             from ....modules.transport_projection import project_native_patchmap,support_weighted_projection
             width=self.deform_conditioner.value_dim
-            source,residual=evidence[...,:width],evidence[...,width:2*width]
+            source=output.base_evidence if output.base_evidence is not None else evidence-residual
             usage=output.query_valid.to(source.dtype)
             if v2:usage=usage*output.usage_scale.to(source.dtype)
             projected,residual,valid,usage=support_weighted_projection(

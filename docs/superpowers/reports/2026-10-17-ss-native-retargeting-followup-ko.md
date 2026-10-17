@@ -29,3 +29,7 @@ P1/P2는 모두 원본 mixed385 SS base+LoRA checkpoint에서 독립적으로 �
 - 기존 중단한 SS C2/PBR B3는 재개하지 않고 checkpoint를 보존한다.
 
 새 학습/검증 위치는 file4의 `rgb_matching_v2/retarget-native-v3/`다. Gate 또는 pilot 통과를 성능 향상으로 표현하지 않으며, final 생성 지표와 이미지가 개선돼야 채택한다. 기존 4개 quick panel은 최종 판단 기준으로 사용하지 않는다.
+
+## 후보 확대의 별도 통제
+
+기존 H0는 train/calibration 및 학습 budget이 새 H1과 달랐다. 후보 확대 효과를 더 정확히 비교하기 위해 같은 새 head 구조, split, seed42017, query sampling, optimizer와 7 epochs로 Top64 ranking-only H0를 추가 replay한다. H1은 Top256이다. Visibility/miss 정책도 동일하게 적용한다. Candidate availability에 따라 eligible query 수는 달라지므로 실제 처리 query/update 수를 함께 기록한다. 이 replay는 작은 matching head 한 개이며 SS V1을 재학습하지 않는다. H* 선택을 변경하거나 H0가 끝날 때까지 P1/P2를 지연시키지 않는 진단용 통제다.

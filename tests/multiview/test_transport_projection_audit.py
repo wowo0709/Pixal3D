@@ -90,3 +90,19 @@ def test_reference_preaggregation_preserves_retargeter_initialization_rng():
     for k,v in original.retargeter.state_dict().items():
         assert torch.equal(v,cached.retargeter.state_dict()[k])
     assert torch.equal(original_rng,torch.get_rng_state())
+
+
+def test_separate_projection_preserves_packed_value_and_gradient_math():
+    values=torch.randn(2,4,5,requires_grad=True)
+    residual=torch.randn(2,4,5,requires_grad=True)
+    usage=torch.tensor([[1.,0.,.2,.5],[0.,0.,0.,0.]])
+    project=lambda x:(x[:,:2]+x[:,2:])/2
+    packed=project(torch.cat((values*usage[...,None],residual*usage[...,None],usage[...,None]),-1))
+    mass=packed[...,-1:].clamp(0,1)
+    reference=(packed[...,:5]+packed[...,5:10])/mass.clamp_min(1e-8)*mass
+    source,adapter,_,actual_mass=support_weighted_projection(project,values,residual,usage)
+    actual=(source+adapter)*actual_mass
+    torch.testing.assert_close(actual,reference,rtol=0,atol=0)
+    expected_grad=torch.autograd.grad(reference.sum(),(values,residual),retain_graph=True)
+    actual_grad=torch.autograd.grad(actual.sum(),(values,residual))
+    for a,b in zip(actual_grad,expected_grad):torch.testing.assert_close(a,b,rtol=0,atol=0)

@@ -20,8 +20,9 @@ def support_weighted_projection(project, values, residual, usage):
     """
     if values.shape!=residual.shape or usage.shape!=values.shape[:-1]:
         raise ValueError('transport projection shapes differ')
-    packed=torch.cat((values*usage[...,None],residual*usage[...,None],usage[...,None]),-1)
-    projected=project(packed);width=values.shape[-1]
-    source,adapter,mass=projected.split((width,width,1),-1)
-    mass=mass.clamp(0,1)
+    # Project independent branches separately: frozen values then need no
+    # autograd graph, and no [B,R^3,2*C+1] intermediate remains live.
+    mass=project(usage[...,None]).clamp(0,1)
+    source=project(values*usage[...,None])
+    adapter=project(residual*usage[...,None])
     return source/mass.clamp_min(1e-8),adapter/mass.clamp_min(1e-8),mass>0,mass

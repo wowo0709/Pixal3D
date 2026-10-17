@@ -55,6 +55,7 @@ class MatchingV2Conditioner(nn.Module):
             evidence=torch.roll(evidence,1,1)
         elif control not in {'normal','shuffled-deform'}:
             raise ValueError('unknown matching-v2 control')
+        base_evidence=evidence
         if self.retargeter is not None:
             if target_query is None or target_query.shape!=evidence.shape:
                 raise ValueError('adapter requires native target query')
@@ -70,4 +71,5 @@ class MatchingV2Conditioner(nn.Module):
             evidence=evidence+residual
         result=DeformationCondition(evidence,None,None,None,None,residual,valid,torch.tanh(self.fusion_gate))
         result.usage_scale=usage*valid
+        result.base_evidence=base_evidence
         return result
