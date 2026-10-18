@@ -79,3 +79,26 @@ Query intact−joint-shuffle의 IoU는 **+0.0453pp [+0.0096,+0.0823]pp**였다. 
 근거는 `provenance/network-v3-training-checkpoints-independent-seed202.json`이다. 두 checkpoint·freeze marker·closed training log·검사 JSON 등7개 산출물 **12,999,497 bytes**의 actual-file4 SHA256·크기를 `network-v3-training-checkpoints-independent-seed202-file4.json`에서 확인했다. 검사 source는 `provenance/source-components/regional-checkpoint-audit-v3.py`에 보존했다. 새 검사를 seed101에도 적용해 기존 검사에서 기록한 모든 arm별 field가 동일함을 확인했고, source·검사·Git branch 증거까지9개 파일은 `network-v3-independent-seed101-and-branch-file4.json`에서 별도로 저장 검증했다.
 
 이는 **학습 고정 검사**이며 seed202의 calibration 품질 완료가 아니다. 두 process는 fixed-final cal32×3noise, projected-source-OFF와 query joint-shuffle 평가를 계속한다. Seed303·strict six-run 집계 및 최종 채택 판단은 그대로 남는다.
+
+## 고정 O/D query 입력의 별도 진단
+
+첫 seed에서 source 보존과 stale cleanup의 tradeoff가 관측돼, 실제 controller에 주는 O/D 예측 자체도 확인했다. 이미 고정한 calibration32의 RGB-only query cache를 그대로 읽었고 cache·학습 loss·epoch·threshold를 변경하지 않았다. O는 M0 camera8/9/10/11 네 RGB, D는 M1 camera8 한 RGB로 같은 SS4210 consumer와 같은 pair별 초기 noise에서 생성한 값이다. GT는 여기서만 실제 SS encoder-input의 regional mask를 사용했다.
+
+| 고정 query prior | Source recall32 ↑ | Stale leak32 ↓ |
+| --- | ---: | ---: |
+| O, M0 RGB4장 | 0.802326 | 0.832130 |
+| D, M1 RGB1장 | 0.718446 | 0.405455 |
+
+32 source cluster의 한 fixed query-noise pair에 대한 macro 값이다. D의 stale 점유율은 낮지만 보존할 source-positive 영역의 recall도 O보다8.388pp 낮다. 전체 source-positive 영역 중 O에는 있으나 D에는 없는 cell 비율은 평균19.91%였다. 이는 추가9채널의 입력 예측에도 source 보존 오류가 있음을 보여준다. **Continuous logit/probability/SDF를 쓰는 controller가 binary D support를 그대로 따른다는 증거는 아니며**, 이 진단으로 query 모듈의 성능 하락 원인을 확정하지 않는다. O/D의 view 수가 다르고 query-cache noise와 controller calibration noise도 다르므로 공정한 model-arm 비교로 읽지 않는다.
+
+Torch maxpool과 별개로 NumPy boolean coarsening·coordinate mask로32개 source/stale count 및192개 metric을 재계산했다. Count는 exact이고 최대 metric 차이2.947e−8은 float32 mean의 반올림 범위였다. 원본 query/GT NPZ는 모든 행에서 SHA를 대조했다. W&B의 독립 diagnostic run `ss-current-g2-query-prior-audit-v1`에서24개 macro 수치, 다운로드한32-row table의 ID·192개 값, artifact3개 파일의 bytes를 확인했다. 9개 closed 결과·source·readback 파일181,458bytes의 actual-file4 SHA256·크기도 검증했다.
+
+근거는 `predicted-prior-visibility-audit-v1.json`, `wandb-prior-visibility-readback-v1/{audit,table-readback}.json`, 상위 `provenance/predicted-prior-visibility-{independent-validation-v1,audit-v1-file4}.json`이다. 이는 GT를 모델 입력에 추가하는 작업이 아니며 남은 seed303나 기존 SS 학습의 조건을 바꾸지 않는다. Net 생성 이득과 최종 query 채택은 원래 six-run 결과로 판단한다.
+
+## No-query seed202 평가 완료와 seed303 시작
+
+Adapter-only의 두 번째 seed가128-update 학습과 native/normal/projected-source-OFF의 cal32×3noise를 완료했다. 전체 시간은 **1,802.19초(30분2초)**였다. Normal의 macro IoU는0.446520, source recall32는0.811916, stale leak32는0.539452였다. Frozen-native 세 수치는각0.445530/0.825740/0.601524로 seed101과 동일했다. 이 한 run의 수치로 query 추가 효과나 전체3seed의 개선을 판단하지 않는다.
+
+실제 완료된 job command의 W&B ID를 읽어 remote의 gate mode·arm·seed·128 updates·frozen consumer를 확인했다. 세case의18개 metric과 다운로드한3개 GT/Pred/Diff PNG가 로컬과 일치했다. GPU2에서는 seed303의 새로운 실제 process가 시작됐고, 첫8개 update의 finite loss/nonzero gradient·원본 pair/epoch/noise schedule을 확인했다. Process의 CUDA_VISIBLE_DEVICES도 실제GPU2로 제한돼 있었다. Mutable log를 저장 증거로 삼지 않고 닫힌 first8 prefix를 별도로 고정했다.
+
+No-query seed202의 완료 결과·readback, 검사 source와 seed303 시작 증거 등14개 산출물 **306,538bytes**의 actual-file4 SHA256·크기도 검증했다. 근거는 `wandb-network-readback-v3/adapter-only/seed202/audit.json`, 상위 `provenance/regional-network-NoQuery-seed303-{start,first8-prefix}-v1.json`, `provenance/regional-network-NoQuery-seed202-eval-and-seed303-start-file4.json`이다. Query seed202의 남은 평가, 두 arm의 seed303, strict six-run 집계는 계속 필요하다.
