@@ -56,6 +56,10 @@ No-score는 Top1 하나를 읽는 비교이며 uniform 평균을 쓰지 않는�
 
 최종 C2의 RAW context shuffle 진단과 현재 regional 두 arm의 3seed·source-off·joint-query shuffle을 확인한다. Full을 C2로 미리 정하지 않는다. 채택 후보의 작은 차이는 training-seed로 확인하고, SS에서 근거를 확보한 뒤 PBR 확대를 판단한다. 음의 결과도 설정·결과·미확인 가설과 함께 남긴다. 좋은 수치를 얻기 위해 arm이나 GT를 결과 확인 뒤 변경하지 않는다.
 
+기존 C1의 R9 native-v5는 새 matching-v2 evidence 형식과 다르므로 별도 scoped 진단을 구현했다. `evaluate_native_checkpoint --r9-path-control`은 동일 저장 weight에서 native 추가경로 OFF / adapter만 OFF / 다른 물체의 source value를 비교한다. Wrong-object는 각 source camera의 실제 foreground value를 recipient foreground slot에 순서대로 resample하고 recipient Omega key·candidate·score·target query·source validity를 유지한다. Native RGB/global/negative도 유지하며 donor 외형은 달라지므로 주소만의 효과로 해석하지 않는다.
+
+Common32의 실제 cache에서같은view donor를검사했고10,530개source foreground slot에zero donor vector가0개였다. R9의실제모듈을사용한CPU검증은score·validity·learned gate 보존,source value 교체,source-off와adapter-off 차이,예외후hook/weight/input 복원을확인했다. 이검증은실행경로의증명이며성능이득의증명이아니다. 생성4개와paired비교3개는별도namespace에예약하고,기존C1의성능과source 활용을함께검토한뒤추가seed/Full을판단한다. V1이나기존학습을재시작하지않는다.
+
 ## 실행·저장 근거
 
 새 일곱 SS run은 모두 480updates/약5epochs를 완료했다. 두 rank의 연속 update, micro48·accumulation1·global96, finite loss, native 시작 IoU0.4267154667, 실제 gradient, checkpoint, 여섯 번의 epoch 검증을 strict collector가 확인했다. C2의 steady compute는 약17.27초/update, rank별 peak allocated는48.134GiB였다.

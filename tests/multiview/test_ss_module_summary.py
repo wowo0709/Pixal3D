@@ -177,6 +177,10 @@ def test_complete_primary_report_covers_all_fourteen_models(complete_run,monkeyp
     write(diagnostic,value)
     with pytest.raises(ValueError,match='nonmatching final generation'):
         summarize_ss_module_study.main()
+    value.update(transport_control='normal',diagnostic_only=False,r9_path_control='wrong-object')
+    write(diagnostic,value)
+    with pytest.raises(ValueError,match='nonmatching final generation'):
+        summarize_ss_module_study.main()
 
 
 def test_final_replay_guard_detects_different_saved_weight_results(complete_run):

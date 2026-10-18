@@ -507,3 +507,13 @@ The completed [primary14 comparison](../../docs/superpowers/reports/2026-10-18-s
 uses decoded-latent GT and micro IoU. The regional pilot uses actual SS-input
 GT and macro IoU. Keep both reports separate. `matching_v2_reporter` publishes
 the primary table and the regional table after their strict collectors pass.
+
+The original C1 candidate uses R9 native-v5 source tensors. Its saved-weight
+diagnostics use `evaluate_native_checkpoint --r9-path-control
+{source-off,adapter-off,wrong-object}` instead of matching-v2 evidence controls.
+Wrong-object replaces only DINO source values at recipient foreground sites,
+within each camera, retaining recipient Omega descriptors, addresses, scores,
+query and validity. Real donor foreground must exist and contain no zero
+vectors. Native four-view conditioning stays fixed. Scoped hooks restore on
+failure; no training, checkpoint or cache is changed. These diagnostic outputs
+are excluded from the primary matrix even if their metric counts coincide.

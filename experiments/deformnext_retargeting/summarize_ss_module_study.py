@@ -173,7 +173,8 @@ def main():
         records=[read(f) for f in files]
         if any(r.get('status')!='PASS' or len(r['per_asset'])!=128 or r.get('sampling_steps')!=12 or r.get('guidance')!=3.
             or r.get('optimizer_updates_during_evaluation')!=0 or r.get('diagnostic_only')
-            or ('transport_control' in r and r['transport_control']!='normal') for r in records):
+            or ('transport_control' in r and r['transport_control']!='normal')
+            or r.get('r9_path_control','normal')!='normal' for r in records):
             raise ValueError('incomplete or nonmatching final generation evaluation: '+name)
         counts=np.array([[r['tp'],r['fp'],r['fn']] for result in records for r in result['per_asset']],dtype=np.int64).sum(0)
         tp,fp,fn=counts;results[name]={'records':records,'evaluations':[str(f) for f in files],
