@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from experiments.deformnext_retargeting.summarize_current_geometry_endpoint import cluster_contrast, audit_history, SEEDS
+from experiments.deformnext_retargeting.summarize_current_geometry_endpoint import cluster_average, cluster_contrast, audit_history, SEEDS
 from experiments.deformnext_retargeting.train_current_geometry_endpoint import training_order, condition
 
 
@@ -16,9 +16,13 @@ def test_cluster_intervals_count_sources_after_averaging_all_model_noise_repeats
     assert result['mean'] == pytest.approx(.01)
     assert result['ci95'] == pytest.approx([.01, .01])
     assert list(result['seed_means']) == ['101', '202', '303']
+    assert cluster_average(right, 'metric', ids) == {'mean': pytest.approx(.41), 'source_clusters': 2}
+    assert cluster_average(right, 'metric', ['empty']) == {'mean': None, 'source_clusters': 0}
     right[101]['source1', 2]['metric'] = None
     with pytest.raises(ValueError, match='availability'):
         cluster_contrast(left, right, 'metric', ids)
+    with pytest.raises(ValueError, match='availability'):
+        cluster_average(right, 'metric', ids)
 
 
 def test_full_audit_detects_one_mismatched_update_noise():

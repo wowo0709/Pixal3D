@@ -58,6 +58,39 @@ def main():
             run.log_artifact(artifact);run.summary['primary_report_status']=value['status']
             run.summary['primary_models']=len(value['models'])
             logged.add(report_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
+        table_key=report_key+'#final14-tables-v1'
+        if report.exists() and table_key not in logged:
+            value=json.loads(report.read_text())
+            if value['status']!='primary_matrix_complete':
+                raise ValueError('primary matrix is not complete')
+            models=wandb.Table(columns=['arm','micro_voxel_iou','voxel_f1','voxel_precision','voxel_recall'],
+                data=[[name,*(row[key] for key in ['voxel_iou','voxel_f1','voxel_precision','voxel_recall'])]
+                    for name,row in value['models'].items()])
+            paired=wandb.Table(columns=['contrast','delta_pp','ci95_lower_pp','ci95_upper_pp','source_clusters','sampling_noises'],
+                data=[[name,100*row['gain'],*(100*x for x in row['paired_cluster_bootstrap_ci95']),
+                    row['source_clusters'],row['sampling_noise_seeds']] for name,row in value['contrasts'].items()])
+            run.log({'primary14/fixed_final_models':models,'primary14/paired_contrasts':paired})
+            run.summary['primary14/training_seed_replication']=False
+            run.summary['primary14/unseen_test_evaluation']=False
+            logged.add(table_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
+        regional=a.root/'current-geometry-regions-v1/all-six-run-summary-v2.json'
+        regional_key=str(regional.relative_to(a.root))
+        if regional.exists() and regional.with_suffix('.md').exists() and regional_key not in logged:
+            value=json.loads(regional.read_text())
+            if value['status']!='PASS_COMPLETE_CURRENT_REGIONAL_PILOT' or value['training_runs']!=6:
+                raise ValueError('regional pilot has not passed the complete six-run audit')
+            artifact=wandb.Artifact('ss-current-regional-six-seed-runs-v2',type='evaluation-report')
+            artifact.add_file(str(regional));artifact.add_file(str(regional.with_suffix('.md')))
+            run.log_artifact(artifact)
+            table=wandb.Table(columns=['contrast','metric','candidate_minus_baseline','ci95_lower','ci95_upper','source_clusters',
+                'seed101','seed202','seed303'],data=[[name,metric,row['mean'],
+                    *(row['ci95'] if row['ci95'] is not None else [None,None]),row['source_clusters'],
+                    *((row['seed_means'] or {}).get(str(seed)) for seed in [101,202,303])]
+                    for name,metrics in value['contrasts'].items() for metric,row in metrics.items()])
+            run.log({'current_regional/fixed_final_contrasts':table})
+            run.summary['current_regional/status']=value['status']
+            run.summary['current_regional/production_promotion']=False
+            logged.add(regional_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         state=json.loads(state_path.read_text()) if state_path.exists() else {}
         run.log({'campaign/running':sum(r['status']=='running' for r in state.values()),
                  'campaign/completed':sum(r['status']=='completed' for r in state.values()),

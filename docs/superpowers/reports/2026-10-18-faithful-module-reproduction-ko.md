@@ -2,6 +2,8 @@
 
 사용자의 “이전에 성능 향상을 보였던 모듈들을 재현” 요청에 따른 실행 문서다. [차이 분석](2026-10-18-historical-module-transfer-gap-analysis-ko.md)의 확인된 불일치를 복구하며, 현재14개 구성의 결과를 삭제하거나 이름을 바꿔 성공한 재현으로 취급하지 않는다.
 
+2026-10-18 현재 원본 Q2C24run의 모든 학습 loss/최종 weight와 기존 G2 checkpoint의144개 평가 endpoint를 재현했다. [현재 RGB task](2026-10-18-task-rgb-matcher-transfer-ko.md)에서도 Q2C의 RGB error6.01% 감소를3seed에서 확인했다. SS 생성 효과는 별도이며, [본14개 결과](2026-10-18-ss-primary14-final-ko.md)는 완료했고 [현재9channel geometry/regional 두 arm](2026-10-18-current-geometry-endpoint-pilot-ko.md)은3seed로 학습·평가 중이다. 아래 단계별 기록의 준비/진행 상태는 당시 이력이며 최신 결론은 각 완료 결과를 따른다.
+
 ## 재현 대상
 
 | 대상 | 이전에 유효했던 정확한 비교 | 재현 계약 |

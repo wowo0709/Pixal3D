@@ -18,6 +18,59 @@ METRICS = ('voxel_iou', 'voxel_f1', 'source_recall64', 'source_recall32', 'stale
            'visible_state_acc64', 'visible_state_acc32', 'regional_bce')
 
 
+def cluster_average(view, metric, ids):
+    """Average repeats within sources and keep empty regional populations explicit."""
+    values = []
+    for sid in ids:
+        repeated = [view[seed][sid, noise][metric] for seed in SEEDS for noise in [0, 1, 2]]
+        missing = [value is None for value in repeated]
+        if any(missing) and not all(missing):
+            raise ValueError('region availability changed across model/noise repeats')
+        if not all(missing):
+            if not np.isfinite(repeated).all():
+                raise ValueError('nonfinite calibration metric')
+            values.append(float(np.mean(repeated)))
+    return {'mean': float(np.mean(values)) if values else None, 'source_clusters': len(values)}
+
+
+def render_report(result):
+    """Readable fixed-final results; rates are pp only in the difference table."""
+    lines = ['# Current SS regional controller: fixed-final seeded comparison', '',
+        'Six 128-update controller runs; TRAIN32/calibration32, three model seeds and three sampling noises.',
+        'Frozen mixed385 SS4210 base+LoRA; native12/CFG3/rescale1. No production model promotion.', '',
+        '| Method | Macro IoU | Source recall32 | Stale leak32 | Regional BCE |',
+        '| --- | ---: | ---: | ---: | ---: |']
+    def display(record):
+        return 'NA (0 clusters)' if record['mean'] is None else f"{record['mean']:.6f} (n={record['source_clusters']})"
+    for name, metrics in result['methods'].items():
+        cells = [display(metrics[key]) for key in ['voxel_iou', 'source_recall32', 'stale_leak32', 'regional_bce']]
+        lines.append('| '+name+' | '+' | '.join(cells)+' |')
+    lines += ['', '## Paired module and source-use differences', '',
+        'Candidate minus baseline. Rates use percentage points; BCE uses raw loss units.',
+        'Lower stale leak/BCE is better. Model/noise repeats stay inside each source cluster.', '',
+        '| Contrast | Metric | Difference [95% CI] | Clusters | Seed101 / 202 / 303 |',
+        '| --- | --- | ---: | ---: | --- |']
+    for name, metrics in result['contrasts'].items():
+        for key in ['voxel_iou', 'source_recall32', 'stale_leak32', 'regional_bce']:
+            row = metrics[key]
+            if row['mean'] is None:
+                value, seeds = 'NA', 'NA'
+            else:
+                scale = 1 if key == 'regional_bce' else 100
+                value = f"{row['mean']*scale:+.4f} [{row['ci95'][0]*scale:+.4f}, {row['ci95'][1]*scale:+.4f}]"
+                seeds = ' / '.join(f"{row['seed_means'][str(seed)]*scale:+.4f}" for seed in SEEDS)
+            lines.append(f"| {name} | {key} | {value} | {row['source_clusters']} | {seeds} |")
+    lines += ['', '## Interpretation limits', '',
+        'GT is the actual SS encoder input support. Macro IoU here is not the decoded-GT micro IoU in the primary14 table.',
+        'The query branch also sees predicted original geometry from four M0 RGB views, including original camera08.',
+        'Query versus adapter measures that whole branch; intact versus joint shuffle holds its input information fixed.',
+        'Projected-source OFF retains the native four-RGB global and negative conditions.',
+        'Intervals bootstrap 32 source clusters, conditional on these three training seeds. This calibration panel is not an unseen test.',
+        'All six final checkpoints, schedules, actual GT hashes and frozen native prediction hashes passed the strict audit.',
+        'These results do not select Full or authorize a claim of PBR rendering quality.', '']
+    return '\n'.join(lines)
+
+
 def cluster_contrast(baseline, candidate, metric, ids):
     """One mean per source cluster, retaining all model/noise repeats inside."""
     differences, seed_differences = [], {seed: [] for seed in SEEDS}
@@ -66,6 +119,8 @@ def audit_history(history, train_ids, seed):
 
 
 def summarize(root, conditions, labels, output):
+    if output.exists() or output.with_suffix('.md').exists():
+        raise FileExistsError('preserve the earlier regional summary')
     cache, authority = read(conditions/'summary.json'), read(labels/'summary.json')
     if cache['status'] != 'PASS' or authority['status'] != 'PASS' or cache['population'] != authority['population']:
         raise ValueError('current condition/GT population is incomplete or different')
@@ -155,6 +210,12 @@ def summarize(root, conditions, labels, output):
         'query_intact_minus_joint_shuffle': (view('adapter-query', 'shuffled-query'), view('adapter-query', 'normal'))}
     contrasts = {name: {metric: cluster_contrast(left, right, metric, ids) for metric in METRICS}
                  for name, (left, right) in definitions.items()}
+    methods = {name: {metric: cluster_average(view(arm, case), metric, ids) for metric in METRICS}
+        for name, arm, case in [('native', 'adapter-only', 'native'),
+            ('adapter', 'adapter-only', 'normal'), ('adapter-query', 'adapter-query', 'normal'),
+            ('adapter-projected-source-off', 'adapter-only', 'projected-source-off'),
+            ('query-projected-source-off', 'adapter-query', 'projected-source-off'),
+            ('query-joint-shuffle', 'adapter-query', 'shuffled-query')]}
     result = {'status': 'PASS_COMPLETE_CURRENT_REGIONAL_PILOT', 'training_runs': 6, 'model_seeds': list(SEEDS),
         'updates_per_run': 128, 'calibration_source_clusters': 32, 'calibration_noise_seeds': 3,
         'paired_training_schedule_and_initial_loss_exact': True, 'all_frozen_native_prediction_hashes_exact': True,
@@ -162,13 +223,16 @@ def summarize(root, conditions, labels, output):
         'contrast_sign': 'candidate minus baseline; negative is improvement for stale_leak and regional_bce',
         'aggregation': 'model/noise repeats averaged within unique source cluster, then source-cluster bootstrap10000 seed20260918',
         'uncertainty_scope': 'source-cluster CI conditional on these3 training seeds; seed means also reported',
-        'contrasts': contrasts, 'run_audits': audits, 'inputs': artifacts,
+        'contrasts': contrasts, 'methods': methods, 'run_audits': audits, 'inputs': artifacts,
         'condition_authority': reference(conditions/'summary.json'), 'GT_authority': reference(labels/'summary.json'),
         'query_uses_original_M0_camera08_in_addition_to_native_four_RGB': True,
         'projected_source_OFF_keeps_native_four_RGB_global_and_negative': True,
         'same_input_information_geometry_control': 'intact versus joint-tuple shuffle',
         'primary14_micro_IoU_comparison_replaced': False, 'production_promotion': False,
         'PBR_or_Full_selection_complete': False}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.with_suffix('.md').open('x') as stream:
+        stream.write(render_report(result))
     write_new(output, result)
     print(json.dumps({'status': result['status'], 'training_runs': 6,
         'source_recall32': {key: {k: v for k, v in value['source_recall32'].items() if k != 'pair_differences'}

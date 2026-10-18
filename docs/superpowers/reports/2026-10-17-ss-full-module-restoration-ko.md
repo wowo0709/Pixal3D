@@ -2,15 +2,17 @@
 
 원래 [matching v2 계획](2026-10-17-ss-matching-v2-experiment-plan-ko.md)의 핵심은 Top-1, rejection, matching-aware attention, retargeting adapter, deformation query를 분리하는 것이다. Frozen V1에서 GT feature 주입도 개선되지 않아 필수 B 세 arm이 HOLD됐고, 실행이 P1/P2와 retarget-only query 비교로 이동했다. P1/P2는 유효한 interface 진단이지만 이 다섯 비교를 대체하지 못한다. 사용자가 지적한 범위 축소를 다음과 같이 복원한다.
 
+2026-10-18 현재 **14개 구성의 final128×3 본 비교는 완료**됐다. [최종 표와 해석](2026-10-18-ss-primary14-final-ko.md)을 기준으로 사용한다. 아래 epoch별 기록은 당시의 중간 관측 이력이다. 새 다섯 arm의 rejection·attention·adapter·RAW query 추가 효과는 최종 비교에서 확인되지 않았다. 과거의 Q2C/geometry 모듈은 별도 원본 재현과 현재 데이터 이식으로 검증하며, 본 비교 완료를 Full/PBR 채택이나 전체 실험 완료로 처리하지 않는다.
+
 ## 전체 실험과 상태
 
 | 구분 | 실험 | 상태/역할 |
 | --- | --- | --- |
-| 공통 기준 | Source-only RGB 4장 / edited-RGB 1+3장 zero-shot, V1, 기존 B1/B2/B3/C1 | 공통128 noise0 완료; zero-shot/V1/B1/C1 세 noise 완료; B2/B3 추가 noise 진행; V1/C1 protocol replay 예약; V1 재학습 없음 |
+| 공통 기준 | Source-only RGB 4장 / edited-RGB 1+3장 zero-shot, V1, 기존 B1/B2/B3/C1 | 일곱 구성의 final128×3 및 V1/C1 protocol replay 완료; V1 재학습 없음 |
 | 원인 진단 | Native/current/GT 주소, semantic 경로 OFF/wrong correspondence, adapter OFF, projection 보간/support, source/target 비중 | 완료 자료 보존; GT 지원 영역과 주소의 confound를 구분 |
 | Matching head | 같은 protocol의 Top64 H0 replay, Top256 H1, confidence H2, feature-task H3 | 7 epochs 완료; train-internal calibration으로 H3/T0.1 고정 |
 | Interface 진단 | P1: R9 + native bilinear + adapter / P2: H3 + 같은 consumer | 5 epochs·final128×3 완료; P2−P1의 추가 SS 이득 미확인 |
-| SS 본 비교 | 아래의 다섯 arm | Top1/Top1-R/attention 480 updates·final128×3 완료; adapter도480 updates 완료·final 평가 예약; query 초기검증과실제5 updates 확인 |
+| SS 본 비교 | 아래의 다섯 arm | 모두480 updates/5epochs, final128×3 및 strict primary 집계 완료 |
 | 후속 | 작은 gain의 training-seed 재현, 필요한 동일 sampler 진단, SS 채택 후 PBR 확대 판단 | 최종 생성 결과에 따라 결정 |
 
 P1/P2를 포함하면 새 SS run은 총 일곱 개다. P1/P2는 사용자 중단 당시 같은 run의 저장 상태부터 재개해 완료했고, 나머지 다섯 개는 독립 원본 initialization이다. 이전 SS C2와 PBR B3는 재개하지 않는다. Retarget-only query-study의 미실행 두 학습은 아래 C1/C2로 대체하고 기존 예약·provenance를 보존한다. 별도의 두 query run을 중복 실행하지 않는다.
