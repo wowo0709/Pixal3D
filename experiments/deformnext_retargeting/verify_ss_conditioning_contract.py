@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,34 @@ def tensor_fingerprints(tree):
     if isinstance(tree,(list,tuple)): return [tensor_fingerprints(v) for v in tree]
     if tree is None or isinstance(tree,(str,int,float,bool)): return tree
     raise TypeError('unexpected conditioning-pack value: '+type(tree).__name__)
+
+
+def compare_trace_tensors(left, right, *, name):
+    """Compare scores with identical invalid masks; report finite errors only."""
+    if left.shape != right.shape:
+        raise ValueError('trace shape differs: '+name)
+    if torch.isnan(left).any() or torch.isnan(right).any():
+        raise ValueError('NaN trace tensor: '+name)
+    if name == 'matching_logits':
+        if torch.isposinf(left).any() or torch.isposinf(right).any():
+            raise ValueError('positive infinity is not an invalid matching logit')
+        masked = torch.isneginf(left)
+        if not torch.equal(masked, torch.isneginf(right)):
+            raise ValueError('matching-logit negative-infinity masks differ')
+    else:
+        if not torch.isfinite(left).all() or not torch.isfinite(right).all():
+            raise ValueError('nonfinite trace tensor: '+name)
+        masked = torch.zeros_like(left, dtype=torch.bool)
+    finite = ~masked
+    if not finite.any():
+        raise ValueError('no finite trace values: '+name)
+    # Keep the original equality assertion, including the masked infinities.
+    torch.testing.assert_close(left, right, rtol=0, atol=1e-5)
+    error = float((left.float()[finite]-right.float()[finite]).abs().max())
+    if not np.isfinite(error):
+        raise ValueError('nonfinite trace error statistic: '+name)
+    return {'max_abs_error': error, 'finite_values': int(finite.sum()),
+            'masked_negative_infinity_values': int(masked.sum())}
 
 
 def check_conditions(cached, online, train0, train1, mixed, native, mask):
@@ -127,7 +156,7 @@ def main():
     native_inputs=lambda value:{k:v for k,v in value.items() if not k.startswith('transport_')}
     if native_inputs(cached_inputs)!=native_inputs(online_inputs):
         raise ValueError('cached/online real RGB or camera input differs')
-    trace_errors={};trainer.p_uncond=0
+    trace_errors={};trace_comparisons={};trainer.p_uncond=0
     with torch.no_grad(), torch.autocast('cuda',dtype=torch.bfloat16):
         traces=[]
         for one in [cached_pack,online_pack]:
@@ -136,8 +165,8 @@ def main():
         torch.testing.assert_close(traces[0].candidate_indices,traces[1].candidate_indices,rtol=0,atol=0)
         for key in ['evidence','matching_logits','candidate_weights','view_weights','retarget_residual']:
             a,b=getattr(traces[0],key),getattr(traces[1],key)
-            torch.testing.assert_close(a,b,rtol=0,atol=1e-5)
-            trace_errors[key]=float((a-b).abs().max())
+            trace_comparisons[key]=compare_trace_tensors(a,b,name=key)
+            trace_errors[key]=trace_comparisons[key]['max_abs_error']
         if not traces[0].retarget_residual.abs().sum()>0:
             raise ValueError('actual trained retargeter is inactive on selected cases')
         cached=trainer.get_inference_cond(**cached_pack);online=trainer.get_inference_cond(**online_pack)
@@ -155,15 +184,18 @@ def main():
         finally: trainer.deform_conditioner_config=saved
         checks=check_conditions(cached,online,train0,train1,mixed,native,expected_mask)
     if len(trainer.optimizer.state): raise ValueError('conditioning check applied an optimizer update')
-    write_new(args.output/'summary.json',{'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT',
+    result={'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT',
         'amp':'bf16','sample_ids':[sid for sid,_,_ in selected],'selection':'first2 fixed-panel cases with actual target/source validity',
         'trained_denoiser':fingerprint(args.checkpoint),'trained_conditioner':fingerprint(args.conditioner_checkpoint),
         'selected_head':head_ref,'source_recipe':fingerprint(args.config),'manifest':fingerprint(manifest),
         'saved_frozen_head_exact_to_selected_checkpoint':True,'frozen_head_state_keys':sorted(frozen_head),
         'panel':fingerprint(args.panel_file),'candidate_indices_exact':True,'active_trace_max_abs_errors':trace_errors,
+        'active_trace_comparisons':trace_comparisons,'trace_nonfinite_masks_verified':True,
         'actual_cached_input_tensor_fingerprints':cached_inputs,
         'actual_online_input_tensor_fingerprints':online_inputs,'actual_four_RGB_cameras_exact':True,
-        **checks,'optimizer_updates':0,'scope':'Two actual active original C1 cases, exact selected head and trained checkpoint; conditioning contract, not quality evaluation or all-asset parity.'})
+        **checks,'optimizer_updates':0,'scope':'Two actual active original C1 cases, exact selected head and trained checkpoint; conditioning contract, not quality evaluation or all-asset parity.'}
+    json.dumps(result,allow_nan=False)
+    write_new(args.output/'summary.json',result)
 
 
 if __name__ == '__main__': main()
