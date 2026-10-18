@@ -107,3 +107,9 @@ C1의 실제 step288이 이 절차의 첫 전체 검증을 통과했다. IoU는 
 C1의 점추정치 격차는 커졌지만 CI는 여전히 0을 포함한다. V1의 2→3 epoch 점추정치는 내려갔으나 이를 구현 오류나 과적합의 확정으로 취급하지 않는다. B3·480 updates·final128×3가 남아 있으며 중간 경향으로 arm이나 학습 길이를 변경하지 않는다.
 
 두 모델 모두 실제 optimizer가 step288이고 native 시작과 GT hash·noise·source cluster가 일치한다. V1도 자동 검증을 통과해 optimizer 360개 상태가 finite이고, W&B 지표/이미지와 checkpoint를 포함한 6개 산출물의 actual-file4 SHA256·크기를 확인했다. C1의 같은 감사는 앞 절의 7개 산출물 검증을 따른다. `epoch-comparisons/epoch-03-c1-vs-v1.json`, `epoch-audits-v2/{v1,c1}/epoch03/`, 상위 `provenance/matched-seed101-third-epoch-audit.json`에 paired 지표와 서버 검증 근거를 기록했다. Full/PBR 채택은 아직 결정하지 않았다.
+
+## C1의 네 번째 epoch 검증
+
+2026-10-18 11:59 KST에 C1 step384의 실행·보관 검증을 마쳤다. 고정32의 IoU는 **0.45024880**, F1은 **0.62092629**다. C1의 epoch1~4 IoU 점추정치는 0.43633516 → 0.44060209 → 0.44362372 → 0.45024880이었다. 같은 32개 GT voxel hash·source cluster·sampling noise를 확인한 epoch3→4의 paired 차이는 **+0.663pp**, 95% source-cluster bootstrap CI **[+0.012, +1.284]pp**였다. 이는 한 noise의 중간 경향이며 반복 관측에 대한 보정이나 training-seed 모집단의 추정이 아니다. `selection_use=false`를 유지하고 fixed-final128×3를 대체하지 않는다. V1의 step384가 아직 없으므로 다른 epoch의 V1과 비교하지 않는다.
+
+두 rank의 step1~384가 연속·finite·global96/micro48/accumulation1임을 확인했다. Optimizer 366개 상태가 모두 step384이고 moment tensor도 모두 finite였다. W&B의 실제 history step384 수치를 검사하고 해당 GT/Pred/Diff 이미지를 내려받아 로컬 bytes와 SHA256을 대조했다. Checkpoint 3개와 검증 snapshot·이미지 등 7개 산출물 **2,857,601,449 bytes**도 actual-file4의 SHA256·크기와 일치했다. 근거는 `epoch-audits-v2/c1/epoch04/{audit,file4-closure}.json`과 `epoch-comparisons/trend-epoch04-vs-epoch03-c1.json`이다. 학습은 480 updates까지 진행 중이며 B3·원본 constant-gate 6개 학습도 후속 범위로 남아 있다.
