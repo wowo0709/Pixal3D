@@ -63,3 +63,5 @@ Native-spatial의 최종 구현에서는 target DINO/Omega query와 추가경로
 선정 후보는 seed202에서 SS4210부터 새로480updates를 학습하며, 동시 실행하는 Top1 seed202 기준선과 master port를 분리한다. 같은 development128/93source clusters/3noise를 재사용하므로 이는 optimization seed 재현이며 독립 test 일반화 검증이 아니다. 두 training seed의 source-cluster CI는 각각 보고하고 두 seed를 섞어 population training-seed CI를 만들지 않는다. 이 자동 연결의 완료는 cache/BF16/CFG·weight·W&B/file4 검증과 최종 모델 채택의 완료를 뜻하지 않는다.
 
 Zero-shot source-only4M0(camera08포함)와 edited1M1+3M0도 새 표에 유지한다. 기존 noise0는 일부 explicit protocol/GT hash 기록이 없어서 새 namespace에서 동일128/seed/원래SS4210을 다시 평가한다. 원래 noise0의 sample/source-cluster/seed/TP·FP·FN을 exact replay해야 하며, 새 실제 GT hash를 기존 noise1/2 및 현재 최종128의 hash와 대조한다. Legacy JSON에 누락된 hash를 채우지 않는다. 이 두 noise0 평가는 각 GPU pair의 최종 noise2가 실행될 때 남는 단일 GPU에서 병렬 실행한다.
+
+Train1790source와 validation132source의 교집합은0이다. Development128/93source와 source가 겹치지 않는 validation121개/39source를 추가 평가 패널로 사전 예약했다. 기존3noise seed map에121개 모두 존재하므로 cache 재구축은 필요 없다. 후보를128개 결과로 정한 뒤 이 추가 패널에서 V1·Top1/C1 기준 및 후보를 비교한다. 이는 같은 validation split 안의 추가 SS-generation 평가이며, 과거 matching/flow 진단까지 전혀 접근하지 않았던 독립 test dataset이라고 주장하지 않는다.
