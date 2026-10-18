@@ -9,6 +9,7 @@ from .compare_ss_noise_panels import compare
 from .extend_task_attention_search import ARMS
 from .semantic_topk_search import write_new
 from .summarize_ss_module_study import audit_training,audit_final_replay
+from .semantic_topk_zero_replay import MODES,zero_paths,validate_zero
 
 
 MODELS=['top1-reference','soft-topk',*ARMS]
@@ -65,10 +66,16 @@ def summarize(root,previous):
         label='previous-'+name
         records[label]=[json.loads((previous/'ss-seed-confirmation-v1/evaluations'/name/f'noise-{n}/evaluation.json').read_text()) for n in range(3)]
         for e in records[label]:validate_evaluation(e)
+    zero=json.loads((root/'zero-shot-replay-summary-v1.json').read_text())
+    if zero['status']!='PASS_ACTUAL_ZERO_SHOT_REPLAYS_AND_GT_HASHES':raise ValueError('zero-shot replay incomplete')
+    for name,mode in MODES.items():
+        records[name]=[json.loads(p.read_text()) for p in zero_paths(root,previous,name)]
+        for e in records[name]:validate_zero(e,mode)
     contrasts={}
     pairs=[(candidate,baseline) for candidate in MODELS for baseline in ['previous-v1','top1-reference'] if candidate!=baseline]
     pairs += [('task-full','static-c1'),('task-full','task-no-decoder'),('task-full','task-no-prior'),
               ('task-full','task-native-spatial'),('task-full','previous-c1'),('static-c1','previous-c1')]
+    pairs += [(name,baseline) for name in MODELS for baseline in MODES]
     for candidate,baseline in pairs:
         contrasts[candidate+'-vs-'+baseline]=compare([(str(n),records[baseline][n],records[candidate][n]) for n in range(3)])
     report={'status':'PASS_SEVEN_ARM_FIXED_FINAL_DEVELOPMENT_SEARCH','models':{k:aggregate(v) for k,v in records.items()},
@@ -76,6 +83,7 @@ def summarize(root,previous):
         'full_scope_complete':False,'required_remaining':['selected-model additional training seed','actual final tensor/cache/AMP/CFG audit','actual remote logging/storage readback','final interpretation and model selection'],
         'scope':'Fixed raw480,development128/93source clusters/3noises;source-cluster CI conditional on one training seed;exploratory model search without multiplicity adjustment.',
         'native_spatial_control_scope':'Natural3camera spatial candidates versus64semantic candidates. Not fixed-K address-only causality.',
+        'zero_shot_scope':zero['scope'],
         'original_results_unchanged':True,'positive_result_not_assumed':True}
     lines=['# Semantic Top-K SS fixed-final search','','| Model | Micro IoU | Micro F1 |','| --- | ---: | ---: |']
     for name,m in report['models'].items():lines.append(f"| {name} | {m['micro_voxel_iou']:.6f} | {m['micro_voxel_f1']:.6f} |")

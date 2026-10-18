@@ -37,13 +37,13 @@ def summarize(root,previous):
     seven=json.loads((root/'seven-arm-final-report.json').read_text())
     if seven['status']!='PASS_SEVEN_ARM_FIXED_FINAL_DEVELOPMENT_SEARCH':raise ValueError('seven-arm report incomplete')
     audit=audit_training(root,NAME,seven['training_audits']['static-c1']['initial_iou'])
-    names=[NAME,'static-c1','task-full','top1-reference']
+    names=[NAME,'static-c1','task-full','task-no-decoder','task-no-prior','top1-reference']
     records={name:[json.loads((root/'evaluations'/name/f'noise-{n}/evaluation.json').read_text()) for n in range(3)] for name in names}
     records['previous-c1']=[json.loads((previous/'ss-seed-confirmation-v1/evaluations/c1'/f'noise-{n}/evaluation.json').read_text()) for n in range(3)]
     for rows in records.values():
         for e in rows:validate_evaluation(e)
     audit['final128_replays_epoch32']=audit_final_replay(audit,records[NAME][0])
-    pairs=[('static-c1',NAME),('task-full',NAME),(NAME,'top1-reference'),('previous-c1',NAME)]
+    pairs=[(name,NAME) for name in ['static-c1','task-full','task-no-decoder','task-no-prior','previous-c1']]+[(NAME,'top1-reference')]
     contrasts={a+'-vs-'+b:compare([(str(n),records[b][n],records[a][n]) for n in range(3)]) for a,b in pairs}
     result={'status':'PASS_MATCHED_RETARGETER_TOP1_FIXED_FINAL','models':{k:aggregate(v) for k,v in records.items()},
         'contrasts':contrasts,'training_audit':audit,'full_scope_complete':False,
