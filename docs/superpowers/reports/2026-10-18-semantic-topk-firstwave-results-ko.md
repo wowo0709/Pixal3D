@@ -325,3 +325,27 @@ No-decoder−이전 C1은 +0.040pp, CI [−0.290,+0.396]pp, No-prior−이전 C1
 이 head는 먼저 frozen RAW FRAME cosine으로64개를 고른 뒤 decoder/score로 재순위를 매긴다. 정확한 GT patch가 pool 밖인 query는 재순위만으로 복구되지 않지만, 근처 semantic feature가 SS 생성에 유용할 가능성은 별개다. Exact Top1/patch recall을 현재 SS 모델의 채택 또는 기각 기준으로 사용하지 않는다. Scalar head의 listwise loss는 pool 안에 visible positive가 있는 query에 적용되며, logit과 attention 집중도를 보정된 correctness probability로 간주하지 않는다.
 
 검토의 actual checkpoint SHA, 이전 기록과 일치한 원래 count, source hash와 범위는 `provenance/current-head-protocol-domain-review-v1.json`에 있다. 새 matching 평가·head 재학습·후보 확대·threshold 변경을 한 것은 아니며, 현재 SS arm들의 학습과 기존 최종 선정 기준을 유지한다.
+
+
+## 제거 대조의 네 번째 에폭: Full과 다시 비슷한 수준
+
+두 모델의 raw384/epoch4 검증과 W&B 네 수치·PNG·optimizer/raw-checkpoint의 실제 file4 대조가 완료됐다. 전체 epoch 검증은 28/45개 완료됐고 두 학습은 마지막 5에폭으로 진행 중이다. 아래는 같은 32개·32source·한 noise의 동일 epoch 비교다.
+
+| 같은 32개 기준 | Epoch4 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch4 | 0.434300 | 0.605592 |
+| 이전 C1 T0.005, epoch4 | 0.450249 | 0.620926 |
+| Static-C1 T0.05, epoch4 | 0.449461 | 0.620176 |
+| Task-full, epoch4 | 0.449138 | 0.619869 |
+| Task-no-decoder, epoch4 | 0.447982 | 0.618768 |
+| Task-no-prior, epoch4 | 0.448719 | 0.619470 |
+
+Full−No-decoder는 +0.116pp, 95% source-cluster CI [−0.415,+0.682]pp, Full−No-prior는 +0.042pp, CI [−0.453,+0.662]pp였다. 두 비교 모두 0을 포함하며, 앞선 epoch2의 제거 모델 우위가 일관되게 유지된 것은 아니다. 이 결과만으로 decoder/score를 포함하거나 제거하는 최종 결정을 내리지 않는다.
+
+이전 C1 대비 No-decoder는 −0.227pp, CI [−0.581,+0.207]pp, No-prior는 −0.153pp, CI [−0.497,+0.190]pp였다. No-decoder−No-prior도 −0.074pp, CI [−0.272,+0.132]pp로 우열이 불확실하다. V1 대비 No-decoder는 +1.368pp, CI [−0.021,+2.923]pp, No-prior는 +1.442pp, CI [+0.017,+3.017]pp였다. 두 모델 간 직접 비교는 불확실하므로 V1 대조의 CI 경계가 0의 서로 다른 쪽이라는 이유만으로 No-prior가 No-decoder보다 우수하다고 해석하지 않는다.
+
+Epoch3→4 점수 변화는 No-decoder +0.396pp, CI [−0.133,+0.920]pp, No-prior +0.568pp, CI [−0.067,+1.241]pp였다. 두 temporal CI도 0을 포함한다. Joint optimization의 중간 변화이며 안정적인 수렴·best epoch·모듈 단독 기여를 입증하지 않는다.
+
+전체 11개 방법과 paired/temporal 결과는 `wave3-epoch4-comparison-v1/`에 있다. Training seed101에 조건부인 탐색 CI이며 다중 비교를 보정하지 않았다. 마지막 raw480/fixed128×3, 원래 spatial·같은 retargeter Top1 대조, 추가 seed/121개 검증과 최종 모델 선정은 남아 있다. 현재 학습 구조나 예산은 바꾸지 않았다.
