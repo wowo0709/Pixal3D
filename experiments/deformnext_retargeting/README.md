@@ -440,3 +440,70 @@ reusing the already queued normal replicas on their respective devices.
 Use the same distinct-source-cluster common32 batches as the query diagnostic.
 The input cache is not edited, and the hook is removed on generation failure.
 Every donor must contain foreground evidence; empty donors fail explicitly.
+
+## Faithful module reproduction and current-data transfer
+
+The [reproduction report](../../docs/superpowers/reports/2026-10-18-faithful-module-reproduction-ko.md)
+separates exact historical checks from current SS generation. Original
+definitions are copied with AST/hash authorities into `historical_*` modules;
+shared runners do not import the historical worktree or a runtime snapshot.
+
+- `reproduce_q2c` / `summarize_q2c_reproduction`: original RGB-task D0/D1,
+  four folds and three seeds, 24 fresh 1,200-update runs. All training losses,
+  pair/query hashes and final parameter tensors replayed exactly.
+- `reproduce_geometry_content` / `summarize_geometry_reproduction`: original
+  regional objective/gradient checks and 144 exact endpoint replays from six
+  archived adapters. This is not a fresh 128-update trajectory reproduction.
+- `train_task_rgb_transfer` / `summarize_task_rgb_transfer`: original D0/D1
+  task and optimizer on current frozen RGB descriptors, with independent
+  training/evaluator cue files. Its current task-error gain does not establish
+  SS generation improvement.
+- `cache_predicted_geometry`, `cache_current_conditions`, `cache_current_regions`
+  build current RGB-only predicted O/D9, actual native projection and regional
+  supervision. Actual SS encoder coordinates and physical mesh-cell registration
+  certify the unchanged target support. `verify_current_regional_objective`
+  gates the actual differentiable rollout and native initial-output equality.
+- `train_current_geometry_endpoint` / `summarize_current_geometry_endpoint`
+  run the [current regional two-arm experiment](../../docs/superpowers/reports/2026-10-18-current-geometry-endpoint-pilot-ko.md).
+  Adapter-only physically omits the query encoder/channels. Adapter+query adds
+  predicted geometry9. Both freeze the complete original mixed385 SS base+LoRA.
+
+The current regional pilot uses TRAIN32/calibration32, 128 controller updates,
+three model seeds and three final sampling noises. This matches the historical
+controller budget and does not change production global96 LoRA training.
+Calibration GT opens after the fixed-final checkpoint/SHA freeze. Checkpoints
+remain unpromoted until source-use and generation effects are reviewed.
+
+For an independent replay, use fresh outputs and the exact resolved inputs
+recorded by the cache summaries. Their file references include path and SHA;
+regenerate them explicitly when relocating the consumer or cached tensors.
+The following is a single run; assign a distinct permitted GPU/CPU pair to
+each parallel run and run both arms for seeds101/202/303:
+
+```bash
+CUDA_VISIBLE_DEVICES=<assigned-GPU> WANDB__DISABLE_STATS=true \
+  OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 PYTHONPATH=. \
+  python -m experiments.deformnext_retargeting.train_current_geometry_endpoint \
+    --config "$SS_CONFIG" --checkpoint "$SS_CHECKPOINT" \
+    --manifest "$TRAIN_MANIFEST" \
+    --conditions "$REGIONAL_ROOT/conditions64-v1" \
+    --regions "$REGIONAL_ROOT/pilot64-actual-SS-GT-v4" \
+    --gradient-proof "$REGIONAL_ROOT/regional-gradient-proof-actual-SS-GT-v4/summary.json" \
+    --arm adapter-only --seed 101 --generation-batch 32 \
+    --cpu-affinity <two-permitted-CPU-IDs> --output "$NEW_OUTPUT" \
+    --wandb-id <unique-run-ID>
+```
+
+`summarize_current_geometry_endpoint --root <six-run-root> --conditions <cache-dir>
+--labels <region-dir> --output <new-summary.json>` verifies all six schedules,
+optimizer steps, physical channels, GT voxel hashes and frozen native
+prediction hashes before writing JSON/Markdown. It keeps model/noise repeats
+inside source clusters, reports empty regions as NA with their population,
+and reports projected-source-off and joint-query shuffle controls. The query
+branch also uses the original M0 camera08 through O prediction; intact versus
+joint shuffle is the control that retains that input information.
+
+The completed [primary14 comparison](../../docs/superpowers/reports/2026-10-18-ss-primary14-final-ko.md)
+uses decoded-latent GT and micro IoU. The regional pilot uses actual SS-input
+GT and macro IoU. Keep both reports separate. `matching_v2_reporter` publishes
+the primary table and the regional table after their strict collectors pass.
