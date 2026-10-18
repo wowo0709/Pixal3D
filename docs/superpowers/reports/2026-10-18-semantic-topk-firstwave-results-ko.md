@@ -202,3 +202,37 @@ Full−static은 −0.125pp, 95% source-cluster CI [−0.633,+0.353]pp였다. �
 Omega7도 별도로 실제 RGB 두 사례를 다시 인코딩했다. 선택한 base/epoch7 weight의 SHA와 strict adapter load를 확인했고, 4개 view의 FRAME/GLOBAL feature를 각각 비교했다. FP16 저장 경계에서는 전체 feature와 Top64 proposal 순서가 cache와 exact였다. FP32 대비 relative RMS의 최대값은 약 0.00020773이며 저장 양자화 범위였다. 해당 두 사례에서 checkpoint·전처리·feature cache 경로의 일치를 확인한 것이며 전체 데이터 품질이나 SS 개선의 증거는 아니다.
 
 전체 9개 방법의 quick32 결과는 `wave2-epoch5-comparison-v2/`, 원격 대조는 `provenance/automatic-epoch5-summary-v1-file4.json`에 있다. Epoch 검증 20/45개와 네 모델의 최종 tensor 검증이 통과했고 오류는 없었다. 다음 단계는 static/Full의 fixed128×3 평가 완료와 나머지 제거 대조다. 최종 모델을 선정하지 않았다.
+
+
+## 네 모델의 fixed-final128×3 완료와 같은 가중치 진단
+
+Static-C1과 task-full의 마지막 raw480 checkpoint를 고정 128개·93개 source·서로 다른 3개 sampling noise로 평가했다. Source·seed·실제 64³ GT hash·GT count를 모든 방법에서 대조했으며, noise0의 해당 32개는 epoch5 quick 생성 결과와 exact였다. 아래 집계는 앞의 quick32 표를 대체하는 해당 checkpoint의 고정 최종 평가다.
+
+| 모델 / fixed128×3 | Micro IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.380711 | 0.551471 |
+| Zero edited1M1+source3M0 | 0.419275 | 0.590830 |
+| 이전 V1 | 0.432650 | 0.603986 |
+| Top1, no retargeter | 0.434529 | 0.605814 |
+| Soft TopK T0.02, no retargeter | 0.434589 | 0.605873 |
+| 이전 C1, frozen matching T0.005 + retargeter | 0.442193 | 0.613223 |
+| 새 static-C1, frozen matching T0.05 + retargeter | 0.440938 | 0.612016 |
+| Task-full, learned decoder/score/content attention + retargeter | 0.439236 | 0.610374 |
+
+| Paired 대조 | IoU 차이, pp | 95% source-cluster CI, pp |
+| --- | ---: | --- |
+| Static-C1−V1 | +0.829 | [+0.430,+1.208] |
+| Full−V1 | +0.659 | [+0.202,+1.067] |
+| Static-C1−no-R Top1 | +0.641 | [+0.250,+1.017] |
+| Full−no-R Top1 | +0.471 | [+0.038,+0.844] |
+| Static-C1−이전 C1 | −0.125 | [−0.231,−0.039] |
+| Full−이전 C1 | −0.296 | [−0.566,−0.074] |
+| Full−static-C1 | −0.170 | [−0.395,+0.011] |
+
+현재 두 새 모델 모두 V1 대비 개선됐지만 이전 C1을 넘지 못했다. Full의 추가 학습 경로가 static보다 좋다는 증거도 없다. 이 CI는 training seed101에 조건부인 탐색 결과이며 다중 비교를 보정하지 않았다. 서로 다른 training seed의 일반화나 TopK 자체의 추가 효과를 입증하지 않는다. 같은 retargeter를 유지한 Top1, No-decoder, No-prior, 원래 spatial 후보 대조가 남아 있다. 이전 C1을 포함한 실제 최고 모델을 기록하며 Full을 자동 채택하지 않는다.
+
+별도로 같은 soft raw480 가중치를 고정한 32개·한 noise 검사에서 soft TopK/Top1의 정상 gate IoU는 0.436963/0.437417이었다. Soft−Top1은 −0.045pp, CI [−0.139,+0.032]pp다. Pre-tanh fusion parameter를 4배로 바꾸면 각각 0.429815/0.428853으로 낮아졌다. Soft의 증폭 전후 차이는 −0.715pp, CI [−1.488,+0.001]pp, Top1은 −0.856pp, CI [−1.639,−0.106]pp였다. 따라서 이번 결과는 단순한 고정 fusion 증폭을 개선책으로 지지하지 않는다. 새 gate 학습률이나 다른 구조를 재학습한 검사는 아니다. 두 경우 모두 더 큰 gate에서 soft가 Top1보다 좋다는 유의한 증거도 얻지 못했다.
+
+Full의 별도 same-weight value-address 검사에서는 key·score·attention weight·후보와 support·query별 source value 집합을 그대로 두고 value 연결만 바꿨다. 실제 호출에서 valid slot 160,704개를 재배치했다. 정상 결과 0.448606과 연결 변경 결과 0.448251의 차이는 +0.036pp, CI [−0.645,+0.770]pp로 0을 포함한다. 이 32개 검사에서는 구체적인 value 연결의 품질 기여를 확인하지 못했다. 모든 semantic matching 설계가 무효라는 결론이나 원래 spatial 후보와의 동등성을 뜻하지 않는다. 정상 결과는 같은 checkpoint의 fixed128/noise0 subset과 exact였다.
+
+기계 판독 결과는 `wave2-fixed-final-v1/`, `firstwave-fusion-dose-v1/summary.json`, `task-value-address-v1/summary.json`에 있다. GPU가 비는 동안 기존에 예정한 진단 두 건의 배치만 조정했고 명령·데이터·checkpoint·결과 경로는 바꾸지 않았다. `provenance/value-address-idle-gpu-scheduling-v1.json`에 기록했다. 이어서 No-decoder를 GPU0·1, No-prior를 GPU2·3에서 시작했다. 각각 native/backward·2-update memory 검증 이후 동일한 fresh SS4210/5에폭 예산으로 학습한다. 목표와 최종 모델 선정은 계속 진행 중이다.
