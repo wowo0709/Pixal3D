@@ -2,7 +2,7 @@
 
 사용자의 “이전에 성능 향상을 보였던 모듈들을 재현” 요청에 따른 실행 문서다. [차이 분석](2026-10-18-historical-module-transfer-gap-analysis-ko.md)의 확인된 불일치를 복구하며, 현재14개 구성의 결과를 삭제하거나 이름을 바꿔 성공한 재현으로 취급하지 않는다.
 
-2026-10-18 현재 원본 Q2C24run의 모든 학습 loss/최종 weight와 기존 G2 checkpoint의144개 평가 endpoint를 재현했다. [현재 RGB task](2026-10-18-task-rgb-matcher-transfer-ko.md)에서도 Q2C의 RGB error6.01% 감소를3seed에서 확인했다. SS 생성 효과는 별도이며, [본14개 결과](2026-10-18-ss-primary14-final-ko.md)는 완료했고 [현재9channel geometry/regional 두 arm](2026-10-18-current-geometry-endpoint-pilot-ko.md)은3seed로 학습·평가 중이다. 아래 단계별 기록의 준비/진행 상태는 당시 이력이며 최신 결론은 각 완료 결과를 따른다.
+2026-10-18 현재 원본 Q2C 24개 학습의 모든 loss/최종 weight와 기존 G2 checkpoint의 144개 평가 endpoint를 재현했다. [현재 RGB task](2026-10-18-task-rgb-matcher-transfer-ko.md)에서도 Q2C의 RGB error 6.01% 감소를 3개 seed에서 확인했다. SS 생성 효과는 별도이며 [본 14개 결과](2026-10-18-ss-primary14-final-ko.md)는 완료됐다. 현재 9채널 geometry의 기존 scalar-gate 6개 학습도 완료됐지만, query 추가 이득은 확인되지 않았고 원본 optimizer parameterization과의 차이가 남았다. 이를 복구한 [원본 constant-gate network 재실험](2026-10-18-original-network-gate-reproduction-ko.md)은 GPU 검증 뒤 별도 6개 학습으로 확인한다. 기존 C1의 SS 이득은 [새 seed의 V1/B3/C1 matched 실행](2026-10-18-original-SS-seed-confirmation-ko.md)으로 확인 중이다. 아래 단계별 준비/진행 상태는 당시 이력이며 최신 결론은 각 결과 문서를 따른다.
 
 ## 재현 대상
 
@@ -78,7 +78,7 @@ G2 archived checkpoint의 runtime을 열어 추가 차이를 확인했다. 당�
 
 ## Physical No-query 구현과 원본 weight 위치 복구
 
-`GeometryContentRetargetAdapter`는 두 additive arm용 구현이다. Query-enabled는 원래 R4-CONTENT의9채널 encoder·target/mismatch/difference/xyz·zero-initialized residual을 사용한다. 원래 content mode의 gate는 geometry와 무관한 상수이므로 scalar logit으로 나타냈다. 학습된 원본 weight를 변환했을 때 출력과 입력 gradient의 일치를 검사했다. **상수 gate의 재파라미터화는 추론 함수의 동등성이고, 앞으로의 optimizer trajectory까지 같다는 주장은 아니다.**
+`GeometryContentRetargetAdapter`는 두 additive arm용 구현이다. Query-enabled는 원래 R4-CONTENT의 9채널 encoder·target/mismatch/difference/xyz·zero-initialized residual을 사용한다. 최초 pilot은 geometry와 무관한 원본 gate를 scalar logit으로 단순화했다. 출력과 입력 gradient는 같지만 **optimizer trajectory는 같지 않으므로 학습 재현에는 충분하지 않았다.** 현재 `historical-network` 모드는 원본의 371-parameter constant-gate MLP를 그대로 보존한다. 6회 연속 CPU optimizer update의 parameter가 원본 R4와 매 step bit-exact이며, 실제 GPU 검증과 학습은 별도 namespace로 실행한다. 기존 scalar 결과를 수정하거나 원본 학습의 재현 완료로 해석하지 않는다.
 
 No-query는 content encoder가 아예 없고 residual 입력 폭에서도 geometry embedding 채널을 뺀다. Geometry tensor를 전달하면 zero tensor라도 거부한다. 두 arm은 초기 projection이 native와 exact이며, 출력 layer의 gradient가 연결돼 있다. Reference old-zero arm의 수치를 production physical-No-query arm의 수치로 재사용하지 않는다.
 

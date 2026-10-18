@@ -38,6 +38,7 @@ def main():
             *(a.root/'retarget-native-v3/epoch-comparisons').glob('*.json'),
             *(a.root/'module-study-native-v4/comparisons').glob('*.json'),
             *(a.root/'module-study-native-v4/epoch-comparisons').glob('*.json'),
+            *(a.root/'ss-seed-confirmation-v1/epoch-comparisons').glob('*.json'),
             *(a.root/'retarget-native-v3/query-study/comparisons').glob('*.json')]
         for f in comparisons:
             key=str(f.relative_to(a.root))

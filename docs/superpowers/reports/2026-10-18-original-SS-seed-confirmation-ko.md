@@ -46,6 +46,8 @@ GPU0~3만사용한다. GPU0/1은현재seed202 평가·기존C1 source진단·C2 
 
 각epoch common32의voxel IoU/F1/precision/recall·GT/Pred/Diff를W&B에남긴다. Final은같은128개·93source cluster·noise3개·12steps/CFG3·generation8이다. Decoded-target SS GT와micro IoU를사용하므로기존14개표의protocol을따른다. 현재regional pilot의actual-SS-input GT/macro 집계와섞지않는다.
 
+같은 epoch에 도달한 V1/B3/C1 사이의 세 paired 대비도 별도 `epoch-comparisons/`에 기록한다. 새 실행의 seed101/world2/micro48/accumulation1, 같은 32개 target voxel hash·sample noise·source cluster를 검사한다. 이 한 noise의 중간 결과는 `selection_use=false`이며 fixed-final128×3를 대체하지 않는다. 원래 seed0의 epoch 경향과 섞지 않는다.
+
 두rank480개연속finite update·micro48/accumulation1·초기native proof·0/96/192/288/384/480 검증·실제final checkpoint를감사한다. Final128/noise0의common32 subset은동일checkpoint의epoch480 저장metric과일치해야한다. 모든새평가에target voxel hash를요구하며3noise를source cluster 안에두고C1−V1/B3−V1/C1−B3의paired CI를계산한다.
 
 기존seed0과새seed101은실행조건까지동일한두반복이아니므로독립seed 모집단CI로통합하지않는다. 새seed의matched 비교와기존관측의방향을나란히기록한다. 설정준비PASS와학습·성능PASS를구분한다. Full/PBR 채택은새결과·source활용진단·전체module 비교를검토한뒤결정하며C1으로미리확정하지않는다.

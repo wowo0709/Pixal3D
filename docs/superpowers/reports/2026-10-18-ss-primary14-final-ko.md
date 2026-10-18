@@ -76,7 +76,7 @@ Source value 교체와adapter 제거에대한민감도를확인했다. Source-of
 
 같은물체안의주소정합만추가로검사하기위해`wrong-address`를구현했다. 각source camera의foreground index를절반길이만큼순환해값을재배치한다. Camera별joint value multiset·support·Omega descriptor·candidate/score·target query·native RGB는유지한다. 실제32개·96camera의foreground 수는18~294개로모두대조가정의됐고10,530개주소와값vector가모두바뀌었다. 상대feature L2 변화는평균45.49%였다. GT/teacher와새RNG를사용하지않는다.
 
-CPU검증은whole-vector multiset·background·score·input·hook 복원을확인했다. 새정상평가와주소교란평가를동일GPU2에서실행하고기존GPU0 정상결과와도count replay를검사한다. 비는GPU2를활용하며기존SS 학습은유지한다. 이는feature-address association의고정checkpoint 민감도진단이며학습된matcher의정답률이나module training ablation을대체하지않는다. 생성결과가나오기전에는개선으로보고하지않는다. 근거는`provenance/original-R9-wrong-address-input-audit.json`이다.
+CPU 검증은 whole-vector multiset·background·score·input·hook 복원을 확인했다. 동일 GPU2의 정상/주소 교란 생성도 완료됐다. 정상 IoU 0.452509는 기존 GPU0의 같은 32개 seed·cluster·TP/FP/FN과 모두 같았고, 교란 IoU는 0.449998이었다. 정상−교란은 **+0.251pp, 95% CI [−0.261, +0.757]pp**로 주소 정합의 유용성을 확정하지 못했다. 다른 물체 value 교체에 대한 민감도와 같은 물체 안 주소 정합의 효과를 구분한다. 이는 고정 checkpoint의 feature-address association 진단이며 학습된 matcher의 정답률이나 module training ablation을 대체하지 않는다. 기존 SS 학습은 유지했다. 근거는 `provenance/original-R9-wrong-address-input-audit.json`과 `comparisons/diagnostic-original-c1-r9-wrong-address-vs-normal.json`이다.
 
 ## 실행·저장 근거
 
