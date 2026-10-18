@@ -288,3 +288,27 @@ V1 대비 No-decoder의 차이는 +1.344pp, CI [−0.177,+2.991]pp, No-prior는 
 No-decoder는 raw semantic Top64 후보와 scalar matching score/content attention·retargeter를 계속 사용한다. No-prior도 decoder context/content attention·retargeter를 유지하므로 두 결과를 semantic matching이나 matching-aware attention 전체를 제거한 것으로 해석하지 않는다. 구체적인 대응 연결의 기여는 저장 모델의 별도 value-address 진단과 원래 spatial/같은 retargeter Top1 대조로 확인한다.
 
 전체 11개 방법, paired contrast와 temporal 결과는 `wave3-epoch2-comparison-v1/`에 있다. 현재 가장 높은 중간 점수를 최종 모델로 채택하지 않았고 추가 seed/121개 평가도 아직 선택 전이다. 데이터·학습 구조·예산은 변경하지 않았다.
+
+
+## 제거 대조의 세 번째 에폭: 두 번째 에폭 우위의 불확실성
+
+두 모델의 raw288/epoch3 검증과 실제 W&B 네 수치·PNG·optimizer/raw-checkpoint file4 대조가 완료됐다. 같은 32개·32source·한 noise로 비교했으며 전체 epoch 검증은 26/45개 완료됐다. 학습은 4에폭으로 계속 진행 중이다.
+
+| 같은 32개 기준 | Epoch3 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch3 | 0.431872 | 0.603227 |
+| 이전 C1 T0.005, epoch3 | 0.443624 | 0.614597 |
+| Static-C1 T0.05, epoch3 | 0.441943 | 0.612982 |
+| Task-full, epoch3 | 0.441403 | 0.612463 |
+| Task-no-decoder, epoch3 | 0.444019 | 0.614977 |
+| Task-no-prior, epoch3 | 0.443037 | 0.614034 |
+
+Full−No-decoder는 −0.262pp, 95% source-cluster CI [−0.717,+0.182]pp, Full−No-prior는 −0.163pp, CI [−0.605,+0.268]pp였다. 두 제거 모델의 점수는 Full보다 높지만, epoch2에서 관측한 0을 제외하는 CI는 epoch3에서 유지되지 않았다. 두 시점만으로 decoder/score 경로의 보편적인 유해성이나 특정 제거 모델의 최종 우월성을 확정하지 않는다.
+
+No-decoder−이전 C1은 +0.040pp, CI [−0.290,+0.396]pp, No-prior−이전 C1은 −0.059pp, CI [−0.415,+0.295]pp였다. No-decoder−No-prior도 +0.098pp, CI [−0.126,+0.322]pp로 우열이 불확실하다. V1 대비 점수 차이는 각각 +1.215pp/+1.116pp지만 CI [−0.040,+2.719]pp/[−0.163,+2.728]pp는 모두 0을 포함한다.
+
+같은 run의 epoch2→3 변화는 No-decoder −0.386pp, CI [−0.902,+0.221]pp, No-prior −0.246pp, CI [−0.877,+0.410]pp였다. 점수 하락을 관측했지만 두 temporal CI가 0을 포함하며, 이 quick32만으로 과적합·최적 epoch·수렴 실패의 원인을 판정하지 않는다. Epoch2만 골라 최종 결과로 대체하지 않고 원래 5epoch/raw480/fixed128×3와 남은 대조를 유지한다.
+
+전체 11개 방법과 paired/temporal 결과는 `wave3-epoch3-comparison-v1/`에 있다. 이 결과는 training seed101에 조건부인 탐색 중간 근거이며 다중 비교 보정, independent test 또는 training-seed population CI가 아니다. 현재 최종 모델은 선정하지 않았다.
