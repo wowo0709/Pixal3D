@@ -75,4 +75,6 @@ Query−adapter는stale leak32 **−3.771pp,source-cluster95% CI[−5.986,−1.8
 
 Query−native는IoU −0.042pp,CI[−0.939,+0.806]pp이고source recall32는−1.636pp,CI[−2.634,−0.787]pp다. Stale 제거와source positive 손실의tradeoff가있어원래regional loss가낮아졌다는이유만으로Full에채택하지않는다. Source-only 회수의원래양의결과를재현했다고보고하지않는다. 세noise를source안에서평균한32cluster bootstrap10,000회이며세training seed나unseen test의CI가아니다.
 
-기계판독근거는`current-geometry-regions-v1/interim-s101-normal-v1.json`이다. 학습설정과미완료다섯seed/arm을변경하거나중간결과로중단하지않는다. 3seed 최종집계와source-off·joint-query shuffle을모두확인한다.
+원본목적함수는해상도64/32 각각의`0.5 × (source-positive BCE + stale BCE + balanced-visible BCE)`를합하고correction penalty0.001을더한다. 각BCE는해당영역의mean이며voxel수만으로loss지배항을단정하지않는다. IoU나source recall을직접최적화하는수식은아니므로aggregate BCE 감소가threshold0의binary recall/IoU 향상을보장하지않는다. 현재숫자는이tradeoff와양립하지만loss항별인과기여를분해한실험은아니다.
+
+기계판독근거는`current-geometry-regions-v1/interim-s101-normal-v1.json`이다. 학습설정과나머지seed/arm을변경하거나중간결과로중단하지않는다. 3seed 최종집계와source-off·joint-query shuffle을모두확인한다.
