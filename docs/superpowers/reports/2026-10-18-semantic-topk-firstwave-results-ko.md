@@ -260,3 +260,31 @@ Full−No-decoder는 −0.015pp,95% source-cluster CI [−0.635,+0.524]pp였다.
 No-decoder−V1은 +0.633pp,CI [−0.581,+1.912]pp,No-prior−V1은 +0.698pp,CI [−0.407,+1.785]pp였다. 두CI는0을포함한다. 이비교는32개·한noise의중간경향이며앞의fixed128×3/마지막epoch점수와섞지않는다. 조건부탐색CI이며다중비교보정이나training-seed population CI는아니다.
 
 전체11개방법과paired대조는 `wave3-epoch1-comparison-v1/`에있다. 원래5epoch/raw480과나머지native-spatial·같은retargeter의Top1·추가seed/121개검증기준을유지한다. 기존에완료된여섯모델의noise0 첫8개GT–Pred그림도 `wave2-fixed-final-v1/visual-review-first8-v1/`에보관했다. 첫8개는원래순서이며성능으로고르지않았다. 전체128개의실제GT pixel/source/noise/3D hash를대조했고투영도가비슷해도실제3D IoU는다를수있으므로그림만으로품질이나실패원인을판정하지않는다.
+
+
+## 제거 대조의 두 번째 에폭: Full 대비 개선
+
+두 모델의 raw192/epoch2 검증, 실제 W&B 네 수치·PNG와 optimizer/raw-checkpoint file4 대조가 완료됐다. 같은 32개·32source·한 noise로 이전 모델의 동일 epoch와 비교했다. 전체 epoch 검증은 24/45개 완료됐고 두 학습은 3에폭으로 계속 진행 중이다.
+
+| 같은 32개 기준 | Epoch2 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch2 | 0.434444 | 0.605731 |
+| 이전 C1 T0.005, epoch2 | 0.440602 | 0.611692 |
+| Static-C1 T0.05, epoch2 | 0.440030 | 0.611140 |
+| Task-full, epoch2 | 0.440274 | 0.611375 |
+| Task-no-decoder, epoch2 | 0.447879 | 0.618669 |
+| Task-no-prior, epoch2 | 0.445496 | 0.616392 |
+
+모듈을 더한 방향인 Full−No-decoder는 −0.761pp, 95% source-cluster CI [−1.505,−0.109]pp였다. Full−No-prior는 −0.522pp, CI [−1.065,−0.006]pp였다. 이 epoch의 조건부 quick32에서는 두 경로를 각각 제거한 결과가 Full보다 좋았다. 두 번째 대조의 경계는 0에 가깝다. 다중 비교를 보정하지 않은 중간 탐색 CI이므로 보편적인 decoder/score 유해성이나 최종 우열로 확대하지 않는다.
+
+No-decoder−이전 C1은 +0.728pp, CI [+0.169,+1.322]pp, No-prior−이전 C1은 +0.489pp, CI [+0.061,+0.897]pp였다. No-decoder−No-prior는 +0.238pp지만 CI [−0.004,+0.522]pp는 0을 포함한다. 현재 32개 점수는 No-decoder가 가장 높지만 두 제거 모델 사이의 우열도 아직 확정하지 않는다.
+
+V1 대비 No-decoder의 차이는 +1.344pp, CI [−0.177,+2.991]pp, No-prior는 +1.105pp, CI [−0.320,+2.577]pp였다. 두 CI는 0을 포함한다. Full/C1 대조보다 V1 대조의 CI가 넓은 것은 서로 다른 paired 오차 분포를 반영하며, 다른 대조의 CI를 대신 적용하지 않는다. 최종 V1·두 Top1 대조의 선정 기준은 그대로다.
+
+같은 run의 epoch1→2 변화는 No-decoder +0.940pp, CI [−0.522,+2.347]pp, No-prior +0.636pp, CI [−0.817,+2.073]pp였다. 점수 상승은 관측했지만 두 temporal CI도 0을 포함한다. 추가 joint optimization의 변화이며 모듈 단독 효과나 best-epoch 선택의 근거로 쓰지 않는다. 앞서 Full의 초기 C1 대비 우위가 마지막 epoch까지 유지되지 않았던 점도 고려해, 계획한 5epoch/raw480/fixed128×3를 유지한다.
+
+No-decoder는 raw semantic Top64 후보와 scalar matching score/content attention·retargeter를 계속 사용한다. No-prior도 decoder context/content attention·retargeter를 유지하므로 두 결과를 semantic matching이나 matching-aware attention 전체를 제거한 것으로 해석하지 않는다. 구체적인 대응 연결의 기여는 저장 모델의 별도 value-address 진단과 원래 spatial/같은 retargeter Top1 대조로 확인한다.
+
+전체 11개 방법, paired contrast와 temporal 결과는 `wave3-epoch2-comparison-v1/`에 있다. 현재 가장 높은 중간 점수를 최종 모델로 채택하지 않았고 추가 seed/121개 평가도 아직 선택 전이다. 데이터·학습 구조·예산은 변경하지 않았다.
