@@ -6,6 +6,8 @@
 
 2026-10-18 현재 원본 Q2C 24개 학습의 모든 loss/최종 weight와 기존 G2 checkpoint의 144개 평가 endpoint를 재현했다. [현재 RGB task](2026-10-18-task-rgb-matcher-transfer-ko.md)에서도 Q2C의 RGB error 6.01% 감소를 3개 seed에서 확인했다. SS 생성 효과는 별도이며 [본 14개 결과](2026-10-18-ss-primary14-final-ko.md)는 완료됐다. 현재 9채널 geometry의 기존 scalar-gate 6개 학습도 완료됐지만, query 추가 이득은 확인되지 않았고 원본 optimizer parameterization과의 차이가 남았다. 이를 복구한 [원본 constant-gate network 재실험](2026-10-18-original-network-gate-reproduction-ko.md)은 실제 GPU native/gradient 검증과 seed101 두 arm의128-update·calibration 평가를 마쳤고, seed202가 진행 중이다. 첫 seed에는 stale cleanup 개선과 source recall 하락이 함께 있어 나머지 seed를 확인한다. [새 seed의 V1/B3/C1 matched 실행](2026-10-18-original-SS-seed-confirmation-ko.md)에서는 V1/C1의480-update final128×3가 완료돼 C1−V1 IoU **+0.954pp,95% CI[+0.542,+1.350]pp**를 확인했다. 이는 C1 전체 경로의 추가 이득이며, retargeter 분리를 위한 B3·원본 network-gate6개 전체·최종 conditioning 검사·sampler 진단과 Full/PBR 판단은 남아 있다. 아래 단계별 준비/진행 상태는 당시 이력이며 최신 결론은 각 결과 문서를 따른다.
 
+05:02 UTC 진행 갱신: 원본 network-gate는 seed101/202의 두 arm·총4개 run이 평가까지 완료됐고, seed303 두 arm이 실제GPU2/3에서 학습 중이다. Seed202 query는 matched training loss와 calibration IoU 모두 불리했으며 seed101과 source/stale 변화 방향도 달랐다. 실제 trained weight/input의 CPU BF16 local-module parity와672개 actual-input GT hash·remote metric/image·actual-file4 closure를 확인했다. 이 검사로 CUDA 전체 trajectory나 모듈 성능을 PASS로 바꾸지 않으며, 남은 seed와 B3·QA·sampler 및 최종 판단을 계속 진행한다.
+
 ## 재현 대상
 
 | 대상 | 이전에 유효했던 정확한 비교 | 재현 계약 |

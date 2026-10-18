@@ -102,3 +102,32 @@ Adapter-only의 두 번째 seed가128-update 학습과 native/normal/projected-s
 실제 완료된 job command의 W&B ID를 읽어 remote의 gate mode·arm·seed·128 updates·frozen consumer를 확인했다. 세case의18개 metric과 다운로드한3개 GT/Pred/Diff PNG가 로컬과 일치했다. GPU2에서는 seed303의 새로운 실제 process가 시작됐고, 첫8개 update의 finite loss/nonzero gradient·원본 pair/epoch/noise schedule을 확인했다. Process의 CUDA_VISIBLE_DEVICES도 실제GPU2로 제한돼 있었다. Mutable log를 저장 증거로 삼지 않고 닫힌 first8 prefix를 별도로 고정했다.
 
 No-query seed202의 완료 결과·readback, 검사 source와 seed303 시작 증거 등14개 산출물 **306,538bytes**의 actual-file4 SHA256·크기도 검증했다. 근거는 `wandb-network-readback-v3/adapter-only/seed202/audit.json`, 상위 `provenance/regional-network-NoQuery-seed303-{start,first8-prefix}-v1.json`, `provenance/regional-network-NoQuery-seed202-eval-and-seed303-start-file4.json`이다. Query seed202의 남은 평가, 두 arm의 seed303, strict six-run 집계는 계속 필요하다.
+
+## Seed202 두 arm 평가 완료: query의 seed 간 불안정성
+
+Query seed202도 전체128-update 학습·네calibration case를 완료했다. 전체 시간은 **1,998.26초(33분18초)**였다. 이제6개 중4개 run이 완료됐으며, GPU2/3에서 seed303의 두 실제 process가 모두 학습 중이다.
+
+| Seed202, cal32×3noise | Macro IoU | Source recall32 ↑ | Stale leak32 ↓ | Regional BCE ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| Frozen native | 0.445530 | 0.825740 | 0.601524 | 95.616471 |
+| Adapter-only | 0.446520 | 0.811916 | 0.539452 | 91.989813 |
+| Adapter+query | 0.432891 | 0.836455 | 0.652164 | 100.633080 |
+
+Query−adapter의 IoU 점추정치는 **−1.363pp**였다. 첫 seed에서는 query가 stale을 줄이면서 source recall도 낮췄지만, seed202에서는 source recall과 stale leak가 함께 높아졌다. 따라서 첫 seed의 cleanup/보존 tradeoff나 고정 D prior의 source 누락만으로 query 실패를 설명할 수 없다. 이 표의 차이는 단일 model seed의 점추정치이며,3seed 전체의 paired CI와 최종 결론을 대신하지 않는다.
+
+같은32 TRAIN pair와 같은 noise를 사용한 각 pass의 평균 training loss는 아래와 같았다. Epoch 간 noise는 바뀌지만 같은 pass의 두 arm은 정확히 짝지어진다.
+
+| TRAIN pass | Adapter-only | Adapter+query |
+| --- | ---: | ---: |
+| 1 | 80.443 | 82.436 |
+| 2 | 81.637 | 83.669 |
+| 3 | 80.167 | 89.861 |
+| 4 | 82.464 | 93.673 |
+
+Seed202 query는 calibration뿐 아니라 matched training loss도 불리했다. 이 경우를 validation 과적합만으로 설명할 수 없다. 원본 LR/objective가 현재 consumer에서도 안정적으로 작동한다는 보장은 없지만, 이 관측 하나로 최적화 문제나 구현 오류를 확정하지 않는다. Seed303의 recipe·budget은 변경하지 않는다.
+
+두 arm의7개case·672개 GT/source 기록을 실제 SS-input label에서 독립 재구성한32개 occupancy hash와 대조했다. 두 frozen-native96개 예측도 seed101과 exact였고, 저장된 macro metric을 실제96개 row에서 재계산했다. Query202의24개 W&B metric과4개 다운로드 PNG도 로컬과 일치했다. 두303 process의 실제 GPU2/3 제한·first8 sample/epoch/noise 순서·finite loss/gradient와 최초 native loss의 arm 간 exact를 확인했다.
+
+추가 정밀도 검사에서는 **실제 query202 trained weight와 고정된 실제 calibration 입력1개**를 원본 R4-CONTENT에 매핑했다. CPU BF16 autocast에서 active projection·correction·고정 upstream vector-Jacobian loss와18개 parameter gradient가 모두 bit-exact였다. 이는 앞선6-update CPU optimizer 검사에 추가한 local-module 증거이며, CUDA 전체 rollout/128-update trajectory 동등성을 입증하는 검사는 아니다. 검사 때문에 학습 source나 weight를 바꾸지 않았다.
+
+Query202 완료 결과·remote readback,672-row 검사·training 통계, 두303 시작 prefix, active BF16 검사와 source 등19개 파일 **414,950bytes**의 actual-file4 SHA256·크기를 검증했다. 근거는 `wandb-network-readback-v3/adapter-query/seed202/audit.json`, 상위 `provenance/regional-network-seed202-complete-data-audit-v1.json`, `regional-network-both-seed303-{start,first8-prefix}-v1.json`, `current-regional-trained-BF16-reference-parity-v1.json`, `regional-network-seed202-complete-and-both303-start-file4.json`이다. Seed303·strict six-run과 Full/PBR 판단은 계속 남아 있다.
