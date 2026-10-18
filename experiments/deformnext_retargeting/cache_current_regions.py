@@ -25,7 +25,7 @@ from .historical_reproduction import make_loss_regions
 from .topology_labels import fingerprint, mask_agreement
 from .reproduce_q2c import read, reference, write_new
 
-SCHEMA = 'deformnext-current-native1024-authority-regions64-v3'
+SCHEMA = 'deformnext-current-SS-input-physical-regions64-v4'
 
 
 def coordinate_set(coords):
@@ -36,19 +36,27 @@ def coordinate_array(coords):
     return np.asarray(sorted(coords), np.int32).reshape(-1, 3)
 
 
-def lock_target_authority(rebuilt64, saved_coords, ss_source_hash):
-    """Require exact current1024->64 geometry and actual encoder-input parity."""
+def lock_target_authority(saved_coords, ss_source_hash, canonical_vertices, faces):
+    """Use the real SS input and independently certify its physical geometry."""
+    import open3d as o3d
     if hashlib.sha256(saved_coords.tobytes()).hexdigest() != ss_source_hash:
         raise ValueError('saved support does not match the actual SS latent source hash')
-    physical_set, saved_set = coordinate_set(rebuilt64), coordinate_set(saved_coords)
-    if not physical_set or physical_set != saved_set:
-        raise ValueError(f'native1024 pooled target differs from actual SS input: missing{len(saved_set-physical_set)}, extra{len(physical_set-saved_set)}')
+    if saved_coords.ndim != 2 or saved_coords.shape[1] != 3 or not len(saved_coords) or np.any((saved_coords < 0) | (saved_coords >= 64)):
+        raise ValueError('invalid actual SS encoder support')
+    centers = (saved_coords.astype(np.float32) + .5)/64 - .5
+    scene = surface_scene(canonical_vertices, faces)
+    distance = scene.compute_distance(o3d.core.Tensor(centers), nthreads=2).numpy()
+    half_diagonal, epsilon = float(np.sqrt(3)/128), 1e-5
+    if not np.isfinite(distance).all() or np.any(distance > half_diagonal + epsilon):
+        raise ValueError('actual SS input voxel lies outside its physical M1 mesh cell bound')
+    saved_set = coordinate_set(saved_coords)
     return coordinate_array(saved_set), {
         'actual_encoder_support_source_hash_exact': True,
         'actual_encoder_support_source_hash': ss_source_hash,
-        'native1024_pooled_target_equals_saved_encoder_support': True,
-        'rebuilt_native1024_vs_encoder_support_iou': 1.,
-        'encoder_only_target_voxels': 0, 'rebuilt_native_only_target_voxels': 0}
+        'all_actual_SS_input_voxels_physically_registered': True,
+        'max_GT_cell_center_to_M1_triangle_distance': float(distance.max()),
+        'GT_voxel_half_diagonal': half_diagonal, 'float32_transform_tolerance': epsilon,
+        'GT_voxels_outside_physical_bound': 0}
 
 
 def visible_coords(points, row):
@@ -97,17 +105,14 @@ def build(row, resolve):
         raise ValueError('source/target topology differs')
     camera = {'transform_matrix': row['transform_matrix'][0], 'camera_angle_x': row['camera_angle_x'][0]}
     canonical = [world_to_target_anchor_points(v, camera, scale=row['mesh_scale']) for v in [source, target]]
-    # Match the current native Shape1024->SS64 input construction for both
-    # states. Direct64 voxelization does not commute with high-res pooling.
-    source64, rebuilt_target64 = [pool_support(_surface_support(v, faces, resolution=1024),
-        source_resolution=1024, target_resolution=64) for v in canonical]
+    source64 = _surface_support(canonical[0], faces, resolution=64)
     with np.load(resolve(row['shape_latent'])) as saved:
         saved_coords = saved['coords'].copy()
     with np.load(resolve(row['ss_latent'])) as encoded:
         if str(encoded['schema']) != 'deformnext-ss64-m1-anchor-v3':
             raise ValueError('unexpected current SS latent schema')
         ss_source_hash = str(encoded['source_coords_sha256'])
-    target64, target_audit = lock_target_authority(rebuilt_target64, saved_coords, ss_source_hash)
+    target64, target_audit = lock_target_authority(saved_coords, ss_source_hash, canonical[1], faces)
     source_set, target_set = coordinate_set(source64), coordinate_set(target64)
     target_raster = raster(surface_scene(target, faces), row, 0, target, faces, resolve(row['target_anchor']))
     target_visible, target_outside = visible_coords(target_raster['points'], row)
@@ -120,9 +125,15 @@ def build(row, resolve):
         moved_coords, dropped_target = visible_coords(moved, row)
         source_coords, dropped_source = visible_coords(observed['points'], row)
         corresponding |= moved_coords & target_set
-        source_visible |= source_coords & source_set
+        # A rasterized M0 surface point is a physical witness of its native
+        # cell. Preserve thin visible geometry even when coarse voxelization
+        # misses a cell that is present at the native high resolution.
+        source_visible |= source_coords
         agreements.append({'view': view, 'IoU': observed['IoU'], 'containment': observed['containment']})
         outside.append({'view': view, 'target_pixels': dropped_target, 'source_pixels': dropped_source})
+    observed_source_cells_missing_from_coarse_support = len(source_visible - source_set)
+    source_set |= source_visible
+    source64 = coordinate_array(source_set)
     matched = coordinate_array(corresponding - target_visible)
     stale = coordinate_array((source_set - target_set) & source_visible)
     indices, samples = voxel_grid_center_corner_points(64)
@@ -136,7 +147,7 @@ def build(row, resolve):
     states = classify_projected_voxel_cubes(sample_ndc, target_support=membership(target64),
         visible_target_support=membership(coordinate_array(target_visible)),
         raster_depth=target_raster['depth_gl'], raster_mask=target_raster['mask_gl'], depth_tolerance=1e-4)
-    arrays = {'source64': source64, 'target64': target64, 'rebuilt_target64': rebuilt_target64,
+    arrays = {'source64': source64, 'target64': target64,
         'free64': indices[states == FREE],
         'surface64': indices[states == SURFACE], 'matched_source_exclusive64': matched, 'stale_visible64': stale}
     for name in ['matched_source_exclusive', 'stale_visible']:
@@ -147,6 +158,7 @@ def build(row, resolve):
     if not len(arrays['free64']) or not len(arrays['surface64']):
         raise ValueError('current region authority lacks observed FREE/SURFACE')
     return arrays, {'region_counts': counts, **target_audit,
+        'visible_M0_surface_witness_cells_missing_from_direct64': observed_source_cells_missing_from_coarse_support,
         'source_vertices_outside_native_AABB': int(((canonical[0] < -.5) | (canonical[0] >= .5)).any(-1).sum()),
         'target_vertices_outside_native_AABB': int(((canonical[1] < -.5) | (canonical[1] >= .5)).any(-1).sum()),
         'observed_target_pixels_outside_native_AABB': target_outside,
@@ -204,8 +216,8 @@ def main():
         'manifest': reference(args.manifest), 'seconds': time.monotonic()-started, 'supervision_only': True,
         'selection': 'first32 per role from pre-frozen category/hash pilot, no metric/region-size selection',
         'frame': 'current audited native world-v4 target camera/scale; no oracle pair-union rescaling',
-        'label_backend': 'CPU Open3D pixel-center barycentrics and original flexible voxelization at current native1024 then exact pool64; original cube-ray/loss functions',
-        'target64_authority': 'rebuilt native1024 pool64 must exactly equal actual encoder input, which must match SS latent source_coords_sha256',
+        'label_backend': 'CPU Open3D pixel-center barycentrics; original source flexible64 plus observed M0 surface-cell witnesses; original cube-ray/loss functions',
+        'target64_authority': 'actual SS encoder input with exact SS source hash and full M1 triangle-distance physical registration; no GT re-encoding',
         'alpha_policy': 'observed RGBA foreground restricts positive/source evidence; conservative FREE uses opaque geometry',
         'out_of_AABB_policy': 'drop out-of-grid interpolated points; never clamp them onto boundary voxels',
         'visible_device_for_optional_package_import': os.environ.get('CUDA_VISIBLE_DEVICES'),

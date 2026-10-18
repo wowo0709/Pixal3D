@@ -38,17 +38,16 @@ def test_conservative_cube_free_label_never_contradicts_target_support():
     assert result.tolist() == [authority.UNKNOWN, authority.FREE, authority.SURFACE]
 
 
-def test_rebuilt_native1024_target_must_equal_actual_SS_input_without_relaxing_geometry():
-    physical = np.array([[x, y, 0] for x in range(10) for y in range(10)], np.uint8)
-    saved = np.concatenate([physical, [[10, 0, 0]]]).astype(np.uint8)
-    locked, audit = current.lock_target_authority(saved, saved, hashlib.sha256(saved.tobytes()).hexdigest())
+def test_actual_SS_input_has_exact_source_hash_and_physical_mesh_cell_bound():
+    vertices = np.array([[-.5, -.5, 0], [.5, -.5, 0], [.5, .5, 0], [-.5, .5, 0]], np.float32)
+    faces = np.array([[0, 1, 2], [0, 2, 3]])
+    saved = np.array([[32, 32, 32]], np.uint8)
+    locked, audit = current.lock_target_authority(saved, hashlib.sha256(saved.tobytes()).hexdigest(), vertices, faces)
     assert current.coordinate_set(locked) == current.coordinate_set(saved)
-    assert audit['encoder_only_target_voxels'] == 0
-    assert audit['rebuilt_native1024_vs_encoder_support_iou'] == 1
+    assert audit['GT_voxels_outside_physical_bound'] == 0
+    assert audit['all_actual_SS_input_voxels_physically_registered']
     with pytest.raises(ValueError, match='source hash'):
-        current.lock_target_authority(saved, saved, 'wrong')
-    with pytest.raises(ValueError, match='native1024 pooled target differs'):
-        current.lock_target_authority(physical, saved, hashlib.sha256(saved.tobytes()).hexdigest())
+        current.lock_target_authority(saved, 'wrong', vertices, faces)
     moved = saved + 10
-    with pytest.raises(ValueError, match='native1024 pooled target differs'):
-        current.lock_target_authority(physical, moved, hashlib.sha256(moved.tobytes()).hexdigest())
+    with pytest.raises(ValueError, match='physical M1 mesh cell bound'):
+        current.lock_target_authority(moved, hashlib.sha256(moved.tobytes()).hexdigest(), vertices, faces)

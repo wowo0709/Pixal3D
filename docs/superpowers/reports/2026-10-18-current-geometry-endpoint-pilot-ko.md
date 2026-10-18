@@ -1,41 +1,50 @@
-# 원본 regional objective를 현재 SS consumer로 이식하는 검증
+# 현재 SS에서 원본 regional objective를 재현하는 실험
 
-Q2C 원본24-run과G2 기존checkpoint의144개 endpoint는재현됐다. 그러나현재dataset에서geometry module의이득을검증하려면입력9채널뿐아니라학습objective도맞춰야한다. 현재flow-matching loss의2-update gradient PASS는이효과검증을대체하지않는다.
+원본 Q2C 24개 학습과 G2 기존 checkpoint의 144개 endpoint는 재현됐다. 현재 데이터에서 geometry 모듈의 효과를 확인하기 위해 입력 표현·native projection·loss를 맞춘 frozen-controller 실험을 진행한다. 이 실험은 기존 14개 본 비교와 별도이며, 본 SS LoRA 학습의 global96/DDP micro48/5epoch 설정을 바꾸지 않는다.
 
-## 고정 범위
+## 고정 비교와 데이터
 
-기존320개RGB task population의role별앞32개를사용한다. Category/hash selection은성능을보기전에고정됐으며source cluster가겹치지않는다. Source-exclusive/stale 영역의크기나현재metric으로asset을고르지않는다. Train32·calibration32의GT label과cached native input condition을별도로준비한다. Validation508의이미지/label을이pilot의학습에사용하지않는다.
+| Arm | Projection 입력 | Deformation query |
+| --- | --- | --- |
+| G0: adapter | target / native multiview / 차이 / xyz | encoder와 채널 자체가 없음 |
+| G1: adapter+query | 동일 | frozen SS의 predicted O/D logit·occupancy·SDF 9채널 |
 
-두arm만비교한다: retargeting adapter, 같은adapter에predicted O/D9채널query를추가한구조다. No-query는encoder와입력채널이물리적으로없다. Source-projection OFF·query tuple shuffle·native는동일checkpoint의진단control이며별도2×2학습을하지않는다. Query는frozen mixed385 SS의source4-view O /target1-view D 예측이다. GT labels는query 입력으로전달하지않는다.
+두 additive arm만 학습한다. Matching은 native spatial 경로를 유지하며 geometry 모듈의 효과를 분리한다. Semantic Q2C의 현재 RGB task 결과와 이 결과를 합쳐 하나의 Full 성능이라고 부르지 않는다. Query는 변형 전 source RGB 4장으로 예측한 O와 target RGB 1장으로 예측한 D에서 만든다. GT geometry는 query/condition 입력에 사용하지 않는다.
 
-원래의frozen SS12-step differentiable rollout→raw decoder logits64→동일SS64/32 regional BCE와0.001 correction penalty를사용한다. 원본과같은128update·pair/epoch hash order·AdamW LR1e-4/WD0.01·clip1을기준으로한다. Consumer는사용자가지정한mixed385 complete base+LoRA step4210이며frozen이다. 현재native의12step/CFG3/time rescale1을명시적으로고정하고,과거full-FT20k/CFG7.5 consumer의수치와합쳐집계하지않는다. Physical No-query의구조도과거zero-input R2와구분한다.
+성능을 보기 전에 고정한 320개 pilot population에서 role별 앞 32개를 사용한다. Train32/calibration32의 source cluster는 겹치지 않는다. 영역 크기·metric으로 asset을 교체하지 않는다. Validation508의 이미지/label을 이 pilot 학습에 사용하지 않는다.
 
-이것은이전frozen-controller 실험의transfer pilot이다. 본SS LoRA fine-tuning의global96·DDP rank micro48·accumulation1·5epoch를변경하거나V1을재학습하는것이아니다. 실제native loss/gradient preflight후짧은동일protocol의효과를검증하고,그근거로full-data 학습과추가seed 확인을결정한다. Calibration은fixed-final checkpoint freeze뒤에만평가하며best-epoch선택을하지않는다. 다른데이터/목적의작은실험으로현재14개본비교를대체하지않는다.
+## 학습과 평가
 
-## GT region의정합과보존
+사용자가 지정한 mixed385 SS complete base+LoRA step4210을 frozen consumer로 사용한다. 원본의 12-step differentiable rollout → raw SS64 decoder → 같은 SS64/SS32 regional BCE와 correction penalty 0.001을 사용한다. Consumer의 native12/CFG3/time-rescale1을 고정하며 과거 full-FT20k/CFG7.5 결과와 구분한다.
 
-`historical_region_authority.py`에원본native flexible64 voxelization·center+8corner cube-ray 분류·projection·pooling·validator7개함수를AST 그대로이식했다. SHA authority와입력검증을포함한CPU3개검증을통과했다. 현재mesh를기존world-v4 camera/mesh scale로변환한다. Target64의authority는현재실제SS encoder입력support이며SS latent에기록된source_coords_sha256과정확히일치해야한다. Source/target 모두현재native1024 voxelization→integer pool64로재구축하고target은실제encoder입력과좌표set까지exact여야한다. 직접64 voxelization의근접도임계값으로대체하지않는다. 원래CAGE의GT pair-union scale로현재frame을바꾸지않는다.
+Seed101/202/303에서 각각 128 updates를 실행한다. 원본과 같은 epoch별 pair hash order·noise hash·AdamW LR1e-4/WD0.01·clip1을 사용하고, train32를 네 번 순회한다. Controller asset batch1은 이전 frozen-controller 프로토콜이다. 본 LoRA 학습의 batch96을 바꾸거나 V1을 재학습하는 것이 아니다.
 
-Source-state visible face barycentric을M1의동일triangle에적용해matched source-exclusive label을만든다. Target 관측RGBAforeground는visible-positive를,sourceRGBAforeground는source evidence를제한한다. Conservative FREE는원래cube-ray 함수와opaque geometry z-buffer로계산하고GT target support를항상제외한다. Open3D의top-down pixel 배열을raw OpenGL bottom-up 순서로변환해원래classifier의y축과맞춘다. Current frame밖source point는boundary로clip하지않고제외·기록한다. Empty source/stale label도성능을보고대체하지않고count와함께보존한다.
+Final checkpoint/SHA freeze 뒤에만 calibration GT를 연다. 같은 cal32와 sampling noise3개에서 native / normal / projected-source-off를 비교하고, query arm에는 joint-tuple shuffle을 추가한다. Source projection OFF는 네 RGB의 native global/negative를 유지한다. No-query loader는 query 파일 자체를 열지 않는다. Training loader는 calibration role을 파일 개방 전에 거부한다.
 
-실제첫train asset의physical64는encoder 입력support2179개와좌표까지정확히일치했다. Full-region preflight에서SS64 source-positive1022/stale162/visible-positive829/free239996, SS32 source-positive330/stale14/visible-positive266/free29250이확인됐다. Native target/mismatch projection·loss 초기값은두actual GPU모듈모두exact이고query encoder의두번째update gradient L1은0.0001064372였다.
+Regional recall/stale/visible/BCE, TP/FP/FN과 GT/prediction voxel SHA, 고정 첫4개 asset의 Y voxel-projection GT/Pred/Diff를 W&B에 저장한다. Empty source/stale metric은 None으로 남기고 유효 population을 함께 집계한다. 이 실험의 GT는 실제 SS encoder input support, IoU는 macro asset/noise 평균이다. 본 14개 표의 decoded-latent GT/micro IoU와 직접 합쳐 비교하지 않는다.
 
-Native voxelization은CPUkernel을사용하고Open3D/BLAS도2core/1thread로제한한다. 설치된`o_voxel`의상위package import가CUDA metadata를조회하므로허용된GPU3이보이는환경에서실행한다. 계산은CPU이며다른GPU를찾거나조회하지않는다. 첫full-region asset은로딩이후2.94초였다. 최초CPU-only import실패와pooling validator 누락실패는보존하고,의존함수까지복구한`preflight-assigned3-v2`를새로통과시켰다.
+첫 seed의 두 arm은 GPU2/3에서 실행한다. 본 14개 최종 report가 끝나면 seed202는 GPU0/1을 사용하고, seed303은 첫 seed가 끝난 GPU2/3을 사용한다. Full/PBR 판단에는 본 비교·source-use control·필요한 training-seed 확인을 함께 사용한다.
 
-파일은file4의`rgb_matching_v2/current-geometry-regions-v1`에저장한다. 이문서의준비/연결PASS는새module의학습완료·regional metric 향상·최종Full채택을뜻하지않는다.
+## 현재 실행 계약: V4의 GT authority
 
-`train_current_geometry_endpoint`는위의128-update 학습과fixed-final 평가를실행한다. Seed101/202/303에서두additive arm을같은pair/noise hash schedule로각각학습한다. Train32는epoch마다한번씩사용하고총4회순회한다. Native flow/decoder/LoRA는frozen이고controller만최적화한다. Native/current/projected-source-off와query arm의joint-tuple shuffle을같은32개calibration cluster·3noise에서평가한다. Projected-source-off는native4RGB global/negative를유지한다.
+Target64는 기존에 실제 사용한 Shape encoder input support를 그대로 사용하고 SS latent에 기록된 `source_coords_sha256`과 exact 일치를 요구한다. Camera/scale은 현재 world-v4의 native target-anchor frame을 그대로 유지한다. Oracle pair-union scale로 바꾸지 않는다.
 
-No-query는query 파일자체를열지않고training loader는calibration role을파일개방전에거부한다. Final checkpoint/SHA freeze후calibration GT를연다. Empty source/stale metric은0으로채우지않고None과유효population을보존한다. GT encoder support/predicted voxel SHA와TP/FP/FN, regional recall/stale/visible/BCE, first4 고정asset의Y voxel-projection GT/Pred/Diff를W&B에기록한다. 여기의macro asset/noise IoU·GT encoder support와본14개표의micro IoU·decoded-latent GT는같은표로직접합치지않는다. Evaluation batch32는같은cal32의native 설정으로고정한다.
+독립적인 물리적 정합 검사는 모든 GT voxel 중심과 실제 M1 triangle의 거리를 계산한다. Mesh surface를 포함하는 SS64 cell의 중심은 해당 triangle에서 cell half diagonal `sqrt(3)/128` 이내에 있어야 한다. Float32 변환 수치 오차 1e-5를 명시한다. 고정64개 전체를 검사했고 범위를 넘은 cell은 0개, SS source hash는 모두 exact였다. 관측64개는 수치 허용분을 쓰지 않아도 원래 half diagonal 안에 있었다. 실측 1.17초이며 GT cell을 제거하거나 교체하지 않았다.
 
-자원은첫seed의두arm을GPU2/3에각각배치한다. 본14개구성의최종report가완료되면seed202는GPU0/1을사용하고,seed303은첫seed가끝난GPU2/3에서실행한다. 최종Full/PBR판단은본비교와이source-use/geometry 결과및필요한training-seed 확인을함께사용한다.
+Source64는 원본 native flexible64 support와 실제 source RGB에서 관측된 M0 surface point의 voxel witness를 합친다. 관측된 surface point가 cell 안에 있으면 그 cell이 실제 M0 surface를 포함한다는 직접적인 근거다. 이를 통해 coarse voxelizer가 놓친 얇은 visible 구조를 보존한다. 같은 source triangle의 barycentric을 M1에 적용해 matched source-exclusive label을 만들고, stale은 source-visible support에서 실제 target GT를 뺀다. 이 current-domain visibility 확장을 과거 CAGE label의 bitwise 재생으로 부르지 않는다.
 
-## 전체검사에서확인한target authority 차이
+원본 conservative cube-ray FREE/SURFACE와 원본 SS64/32 loss 함수는 그대로 사용한다. Open3D top-down raster를 raw OpenGL bottom-up 순서로 변환한다. RGBA foreground는 positive/source evidence를 제한하고 FREE는 opaque geometry z-buffer로 보수적으로 계산한다. Frame 밖 point는 boundary로 clip하지 않고 제외·기록한다. Empty region도 성능을 보고 대체하지 않는다.
 
-두번째train asset에서직접flexible64는8395개, 실제SS encoder입력은8400개였다. 추가5개는모두인접1voxel이내이고IoU0.99940476이다. 실제encoder입력의byte hash는SS latent의source_coords_sha256과exact다. 차이의상세root cause를확정한것은아니며한asset의100%일치를전체로확대하지않는다. Region label은이미학습한GT를지키도록실제encoder support를authority로사용한다. 두support와차이통계·GTfile SHA·frame contract를모두보존한다. V1의strict-equality실패출력은보존하고`deformnext-current-encoder-authority-regions64-v2` schema/새namespace로검증한다. 입력RGB·query·기존latent를고쳐PASS시키지않는다.
+## 실제 검증과 보존
 
-## Native1024→64의exact authority로복구
+원본 support/projection/cube-ray/pooling/validator 7개 함수를 AST 그대로 이식했다. CPU 검증은 AST, 실제 pooling 호출, frame 밖 point의 false boundary label 방지, target/FREE 모순 금지, 실제 SS hash와 physical mesh-cell bound를 포함한다.
 
-V2의24번째asset에서직접64는6382개, 실제encoder입력은6433개였고거리3cell 예외가확인됐다. 같은mesh/camera/scale로native1024 voxelization→pool64를수행하면6433개와정확히일치했다. 직접64 voxelization과고해상voxelization후pooling은같은연산이아니다. 이것을확인한뒤source와target 모두실제1024 pipeline으로맞췄다. V3는`deformnext-current-native1024-authority-regions64-v3`이며target set exact·SS source_coords hash exact를모두요구한다. 1/3cell 거리로허용범위를넓혀통과시키지않는다. V1/V2의실패와관측provenance는보존한다.
+Native RGB condition64 cache는 완료됐다. 실제 네 view projection의 mean과 first target projection을 고정했으며 로딩 이후 15.4초였다. GT geometry/latent 값은 condition 구축에 열지 않았다. V3의 실제 full regional gradient proof는 두 모듈의 초기 loss55.82744598이 native와 exact이고, frozen SS/decoder에는 gradient가 없었다. Query encoder의 두 번째 gradient L1은0.00546829, GPU peak는 약5.23GiB였다. V4 label에서도 별도 preflight를 수행하고 학습 gate로 사용한다.
 
-현재native condition64 cache도완료됐다. 실제4-view projection mean과target first projection을고정했고로딩이후15.4초였다. GT geometry/latent 값을condition 구축에열지않았다. V2 one-pair full regional gradient proof도초기native regional loss55.82744598 exact, 두모듈2update·frozen SS/decoder gradient없음을통과했다. Query encoder의두번째gradient L1은0.004031518이었다. 새native1024 label의V3 preflight와본64개구축은별도로판정한다.
+Voxel/visibility label 계산은 CPU2core로 제한한다. 설치된 `o_voxel` package가 import 때 CUDA metadata를 조회하므로 허용된 GPU3이 보이는 환경에서 실행한다. 다른 GPU를 찾거나 조회하지 않는다. 데이터/결과는 file4의 `rgb_matching_v2/current-geometry-regions-v1`에 저장한다.
+
+## 정합 검사에서 발견한 차이
+
+V1 direct64와 실제 SS input 사이에5cell 차이가 발견됐다. V2의 근접도 검사와 V3 native1024 pooling 검사도 보존했다. 한 사례는 direct64 6382개와 실제6433개가 달랐지만 native1024 pooling에서는6433개가 exact였다. 다른 사례에는 equivalent transform의 연산 순서 등에 따른 missing1/extra1 차이가 남아 원인을 확정하지 않았다.
+
+재voxelization 결과를 기존 GT와 같게 만드는 것을 최종 정합 정의로 삼지 않았다. 실제 encoder input hash와 모든 cell의 실제 M1 triangle 정합을 검증한 V4를 사용한다. 중복되고 비싼 exact-dump high-resolution 재구축 probe는 명시적으로 종료했고 그 관측·종료 이유를 남겼다. 기존 SS/SLAT GT, RGB, predicted query, 진행 중인 본 SS 학습은 수정하지 않았다. 근거는 `current-region-physical-encoder-input-registration64.json` 및 각 version의 실패/검증 기록이다.
