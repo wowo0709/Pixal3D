@@ -123,3 +123,9 @@ Geometry content의 상대 개선과 query를 섞으면 악화되는 경향은 �
 현재 DeformNeXt에서 원본RGB task objective로 학습한 Q2C의 추가 대조도 완료됐다. 251 train/61 calibration query-eligible asset, D0/D1×3seed에서RGB error가0.09008583→0.08467440으로 감소했다. Paired CI는양수지만 DINO teacher error·exact-patch 정확도의 추가 개선 CI는0을 포함한다. 자세한 protocol/수치는 [현재 dataset task 대조](2026-10-18-task-rgb-matcher-transfer-ko.md)에 기록한다. 이 결과와 과거63-pair OOF 수치를 합쳐 집계하지 않으며, 현재SS 생성 효과는 별도 gate다.
 
 사용자 데이터/결과의 실제 file4 저장도 확인했다. `faithful-inputs-and-bridge-file4.json`은224개 immutable input·bridge output·source 파일(약9.52GB)의 local/actual-file4 SHA256 일치를 기록한다. Q2C/geometry reference와 현재14개 production 비교는 namespace·성능 주장 모두 분리한다. GPU0/1의 C2는 계속 진행하며, reference 작업은GPU2/3을 사용한다.
+
+## 현재 dataset의 실제 regional 학습으로 전환
+
+RGB-only predicted O/D9채널은pilot320+common32 총352개에서완료·재계산exact·actual-file4 SHA까지통과했다. Common32 O의occupied count도기존source-only baseline과모두같다. 현재native condition64와actual SS-input/physical-cell authority64를구축했다. 실제full-rollout regional gradient gate를통과한뒤native adapter /adapter+query 두arm의seed101 학습을GPU2/3에서시작했다. Seed202/303도같은128-update·fixed-final3noise protocol로등록했다. 자세한입력정보량·GTauthority·학습/eval·자원·실패보존범위는 [현재regional transfer실험](2026-10-18-current-geometry-endpoint-pilot-ko.md)에기록한다.
+
+본14개표의C2-RAW2048과새9채널frozen-controller 실험을구분한다. Query/no-query의실제차원3075/3107·initial loss exact·query gradient연결을검증했다. 새regional 실험의향상과source-use는최종calibration 뒤판정하며아직Full/PBR채택완료로표현하지않는다.

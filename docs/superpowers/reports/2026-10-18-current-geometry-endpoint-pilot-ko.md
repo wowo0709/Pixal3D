@@ -11,6 +11,8 @@
 
 두 additive arm만 학습한다. Matching은 native spatial 경로를 유지하며 geometry 모듈의 효과를 분리한다. Semantic Q2C의 현재 RGB task 결과와 이 결과를 합쳐 하나의 Full 성능이라고 부르지 않는다. Query는 변형 전 source RGB 4장으로 예측한 O와 target RGB 1장으로 예측한 D에서 만든다. GT geometry는 query/condition 입력에 사용하지 않는다.
 
+O branch에는 원래 M0 camera08도 들어가므로 query 모듈은 native의 네 RGB 외에 원래 target-view RGB의 정보도 사용한다. G1−G0를 같은 네 RGB에서 encoding만 바꾼 효과로 해석하지 않는다. Intact−joint-shuffle control은 같은 O/D 값과 입력 정보량을 유지하며 query의 공간적 정합을 검사한다.
+
 성능을 보기 전에 고정한 320개 pilot population에서 role별 앞 32개를 사용한다. Train32/calibration32의 source cluster는 겹치지 않는다. 영역 크기·metric으로 asset을 교체하지 않는다. Validation508의 이미지/label을 이 pilot 학습에 사용하지 않는다.
 
 ## 학습과 평가
@@ -48,3 +50,9 @@ Voxel/visibility label 계산은 CPU2core로 제한한다. 설치된 `o_voxel` p
 V1 direct64와 실제 SS input 사이에5cell 차이가 발견됐다. V2의 근접도 검사와 V3 native1024 pooling 검사도 보존했다. 한 사례는 direct64 6382개와 실제6433개가 달랐지만 native1024 pooling에서는6433개가 exact였다. 다른 사례에는 equivalent transform의 연산 순서 등에 따른 missing1/extra1 차이가 남아 원인을 확정하지 않았다.
 
 재voxelization 결과를 기존 GT와 같게 만드는 것을 최종 정합 정의로 삼지 않았다. 실제 encoder input hash와 모든 cell의 실제 M1 triangle 정합을 검증한 V4를 사용한다. 중복되고 비싼 exact-dump high-resolution 재구축 probe는 명시적으로 종료했고 그 관측·종료 이유를 남겼다. 기존 SS/SLAT GT, RGB, predicted query, 진행 중인 본 SS 학습은 수정하지 않았다. 근거는 `current-region-physical-encoder-input-registration64.json` 및 각 version의 실패/검증 기록이다.
+
+## 실제 학습 시작
+
+V4의64개 label은68.66초에 모두 완료됐다. 실제 SS hash/physical registration을 모두 통과했고 source witness·관측 visibility·보수적 ray label의 각 count를 보존했다. V4 full-rollout GPU gate도 두 모듈 모두 통과했다.
+
+`runs-v2`의seed101 두 run이GPU2/3에서 실제 update를 시작했다. 첫 pair/noise가 같고 initial endpoint loss는둘다58.80086517, correction0이다. 첫 update peak는adapter6.726GiB /query6.732GiB였다. 이것은 학습 시작과 초기 정합 증명이며128-update 완료/일반화 개선을 뜻하지 않는다. 이전`runs-v1` 큐는GT검사 실패에 따른HELD 이력으로 남기고 실제학습결과로 집계하지 않는다.
