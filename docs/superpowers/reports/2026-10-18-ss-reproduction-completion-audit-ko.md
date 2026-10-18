@@ -1,12 +1,12 @@
 # SS matching·원본 모듈 재현의 완료 확인표
 
-2026-10-18 04:41 UTC 최초 작성 이후 **진행 중**이다. 후속 완료 상태는 마지막 절을 따른다. 본 문서는 [원래 SS 계획](2026-10-17-ss-matching-v2-experiment-plan-ko.md), [복원한 전체 모듈 비교](2026-10-17-ss-full-module-restoration-ko.md), [원본 재현 계약](2026-10-18-faithful-module-reproduction-ko.md)의 범위를 함께 확인한다. 큐의 성공 개수나 일부 양의 결과만으로 전체 완료를 선언하지 않는다.
+본 SS 실험의 전체 행렬·재현·matched 최종 평가·모델 선정과 PBR 확대 여부 판단을 완료했다. [통합 최종 결과](2026-10-18-SS-module-reproduction-final-ko.md)와 아래 항목별 실제 증거를 기준으로 한다. [원래 SS 계획](2026-10-17-ss-matching-v2-experiment-plan-ko.md), [전체 모듈 비교](2026-10-17-ss-full-module-restoration-ko.md), [원본 재현 계약](2026-10-18-faithful-module-reproduction-ko.md)의 범위를 축소하지 않는다. 하단의 시점별 진행 기록은 당시 상태다. 최종 source·storage·운영 상태의 검증 기록은 `provenance/final-campaign-requirements-audit-v1.json`을 따른다.
 
 아래 runtime 경로의 기준은 실제 file4의 `/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/`다. 로컬 mirror의 존재와 실제 file4 SHA256·크기 검증은 구분한다. 각 단계의 PASS는 표에 적힌 범위에 한정한다.
 
 | 요구사항 | 현재 증거와 유효 범위 | 완료 상태 |
 | --- | --- | --- |
-| 초기 모델·데이터·입력 | Dev-jaehyeok 계열 SS4210의 complete base+LoRA continuation, DeformNeXt world-v4 train9149/val508. Clean80k는 초기 모델의 학습 이력이다. Source-only는 M0 RGB4장, edited 입력은 M1 camera08와 M0 camera09/10/11이며 동일 M1 GT로 평가한다. Actual config/native proof와 strict primary·matched 검사가 이 계약을 확인한다. | 본 비교 완료. 진행 중 run도 같은 계약 유지 필요 |
+| 초기 모델·데이터·입력 | 실제 사용자가 제공한file4 SS4210의 checkpoint SHA·models/LoRA config가현재사용본과같았다. 세모델의701 frozen-base tensor가원본과exact다. DeformNeXt world-v4 train9149/val508,Clean80k는초기학습이력이다. Source-only M0 RGB4장,edited M1 camera08+M0 camera09/10/11을같은M1 GT로비교했다. | 완료 |
 | 전체 SS 모듈 비교 | `module-study-native-v4/final-primary-report.json`의 `primary_matrix_complete`: 14개 구성, final128×3. 새 Top1 → rejection → score-weighted attention → adapter → RAW query의 다섯 arm을 모두 실제480 updates 학습했다. P1/P2만으로 대체하지 않았다. | 완료. 모듈의 양의 효과를 뜻하지 않음 |
 | Arm의 정확한 의미 | No-score는 Top1 선택, native V1은 spatial 기준. Query가 없는 adapter는 입력 채널 자체가 없으며 RAW2048 또는 geometry9 query arm과 구분한다. Retargeter/query의 추가 두 arm을 쓰고2×2로 확대하지 않는다. Actual native/gradient proof와 원본 network6개 actual final weight3075/3107·371gate를 확인했다. | 완료 |
 | Matcher·cache 계약 | H0 replay/H1/H2/H3의7-epoch head 실험, train-internal calibration, 고정 H3/T0.1/rejection과 실제 head/cache fingerprint를 본 표에 기록했다. 원본 R9/T0.005/head `4f8771f2…`의 matched 비교와 H3 `066738c9…`를 혼합하지 않는다. H2/H3의38044개 trustworthy-query precision/coverage 전체 curve·같은확률 tie 처리·frozen GPU operating point와 W&B/actual-file4 검증도 완료했다. | 완료. C1 직접 cache/AMP/CFG도 아래 별도 범위로 완료 |
@@ -14,14 +14,14 @@
 | 과거 geometry 결과 재현 | `faithful-reproduction-v1/geometry-exact-reproduction-summary.json`: 기존6개 checkpoint의144개 endpoint에서 metric 최대 차이0. Full128-update GPU trajectory 재현은 아니다. 원본에서도 projected-source OFF가 더 좋은 한계를 보존한다. | Endpoint 재현 완료. 유용한 source retargeting 성공으로 확대하지 않음 |
 | 현재 RGB task 이식 | `task-rgb-transfer-v1/matched-six-run-summary.json`: D0/D1×3seed, 원본 task loss의 RGB error 감소를 확인했다. Teacher exact-patch/feature 개선과 SS 생성 개선은 별도다. | 완료 |
 | 현재 per-view 주소의 headroom | Native source를 보존한 GT/wrong bridge에서 동일 support·source value multiset과 actual native ProjGrid를 검사했다. GT−native의 양의 차이는 diagnostic-only다. | GT 진단 완료. 학습된 per-view WHERE의 개선 증거로 대체하지 않음 |
-| C1 전체 이득과 retargeter 분리 | `ss-seed-confirmation-v1/c1-vs-v1-final128-audit.json`은 동일 seed101/DDP2/micro48/accumulation1의 V1/C1 final128×3를 확인한다. C1−V1 IoU+0.954pp [95% CI+0.542,+1.350]pp. B3는384 update 검증 뒤 마지막 epoch를 진행한다. | **미완료:** B3 학습·final128×3·strict three-arm 집계 |
+| C1 전체 이득과 retargeter 분리 | 세fresh480-update와final128×3 strict 집계가완료됐다. 같은seed101/DDP2/micro48/accumulation1에서C1−V1+0.954pp[+0.542,+1.350],C1−B3+0.769pp[+0.386,+1.144],B3−V1+0.185pp[+0.010,+0.362]다. 실제세noise에서방향도같았다. | 완료. 한training seed에조건부인source-cluster CI |
 | 원본371-parameter gate의 현재 학습 | Scalar pilot을 별도 보존하고 원본 constant-gate MLP를 복구했다.6개 실제128-update checkpoint·90optimizer state finite·physical width와 paired schedule,21case/2016개 prediction·strict summary를 확인했다. Query−adapter macro IoU−0.955pp로 현재 추가 효과는 실패했다. | **완료:** 전체 실제 W&B/actual-file4 closure 포함. Module gain/PBR 채택을 뜻하지 않음 |
 | 현재 C1의 active-path cache/AMP/CFG | [직접 검증 결과](2026-10-18-ss-conditioning-contract-ko.md)의실제 trained C1 두 사례·BF16·cache/online·CFG p0/p1/mixed 검사가 완료됐다. v1은 assertion 통과 뒤 NaN 통계 표시 문제였고 verifier만 수정한v2는 finite 값·동일mask를 기록했다. CPU12개 회귀 PASS와 W&B22개 지표/4개 artifact 실제 download·file4 receipt가 있다. | **완료:** `conditioning-contract-v2/summary.json`·`independent-audit.json`. 두-case 계약 범위 |
 | Sampler 민감도 | [실제8개 진단](2026-10-18-ss-sampler-sensitivity-ko.md)과 strict 집계가 끝났다. 네 fresh12가 primary count를exact 재현했고50−12 IoU는모두−1.1~−1.4pp였다. W&B32개 metric·8개 PNG·4행 table·11개 artifact 실제 download와 actual-file458개 산출물을 검증했다. | 완료. Primary12-step/final128×3 유지 |
-| 빠른 평가·자원·로그 | SS는 voxel metric과 GT/Pred/Diff를 사용한다. GPU0~3만 배정했고 새 본 학습은 global96/DDP2/micro48/accumulation1이다. 완료 산출물의 W&B metric/image download와 actual-file4 SHA receipt가 있다. B3 epoch2 이후와 후속 run의 closure는 계속 필요하다. | 완료된 부분만 검증됨 |
-| Git·소스 보존 | 실제 local/remote `wowo0709/feature-retargeting`과 기존 remote `feature-retargeting`에verifier 수정9bb2643까지 push했다. Source archive+patch를 실제 임시 checkout에 적용해9bb2643의17개 변경 파일과 byte 일치를 확인했다. | 해당 snapshot 완료. 최종 문서 commit의 push/readback은 계속 필요 |
-| 과거 FAILED/HELD 처리 | 원래8개 FAILED log와 완료된 후속을 SHA로 재검토해8 resolved/0 unresolved였다.59개 HELD의 원래 JSON state도 모두 그대로이고,17/14/22/6개 군의 required replacement가 모두 완료됐다. 마지막6개군도 network-gate6개 실제 학습/평가/remote/file4 closure를 확인했다. | 해당 replacement 검토 완료. 전체 campaign 최종 상태에서 재확인 필요 |
-| 최종 SS 구성·Full/PBR 판단 | 기존14개, matched V1/B3/C1, 원본 geometry3seed, source/address control, QA 및 sampler 진단을 함께 보고 채택/보류와 남은 한계를 명시해야 한다. | **미완료:** 최종 판정·통합 보고 |
+| 빠른 평가·자원·로그 | SS voxel metric/GT-Pred를사용하고GPU0~3,global96/DDP2/micro48/accumulation1을지켰다. 세모델의epoch0~5 전체18회validation72개scalar·18PNG와final9개metric/image를actual W&B에서대조했다. 새C1/V1/B3의모든epoch optimizer/file4 checkpoint closure와시간·메모리,고정128 전체16페이지비교를보존했다. | 완료 |
+| Git·소스 보존 | 실제요청branch `wowo0709/feature-retargeting`에source/직접검사/리포트를보존한다. 실제base archive+최종cumulative patch의임시checkout 재구성,tracked변경파일byte일치와actual remote ref를검증한다. | 최종 `final-source-publication-v1.json`과actual-file4 receipt로확인 |
+| 과거 FAILED/HELD 처리 | 실제317개가모두terminal이고250 completed/59원래HELD/8원래FAILED다.17/14/22/6개군의required replacement는모두완료됐고원래HELD state를바꾸지않았다.8개failure의log/hash/완료후속을재검토해unresolved0이다. | 완료. 원래실패·중단기록보존 |
+| 최종 SS 구성·Full/PBR 판단 | 기존14개·matched3개·geometry3seed·source/address control·QA/sampler를합쳐C1을SS작업recipe로선택했다. 새query/rejection은채택하지않고PBR전체ladder는보류한다. C1의정밀WHERE나PBR향상·unique-best/untouched-test는주장하지않는다. | 완료. `final-reproduction-v1/summary.json`·`selected-SS-model.json` |
 
 ## 최종 판정에서 구분할 내용
 
@@ -33,7 +33,7 @@ Geometry controller의 macro IoU/actual SS-input GT, source recall/stale leak와
 
 Full을 C2로 미리 확정하지 않는다. SS에서 확인된 추가 이득과 재현 범위를 근거로 구조를 선택하고 PBR 확대 또는 보류 이유를 명시한다. 이 SS 실험은 논문의 rendering10개 metric/PBR 평가를 수행했다는 증거가 아니다. Negative 결과도 보존하며, 미완료 검증을 생략하거나 추가 epoch/loss 변경으로 양의 결과를 강제하지 않는다.
 
-## 현재 큐와 남은 실행
+## 진행 이력: 아래는 각 시점의 당시 상태
 
 실제 큐316개 가운데 completed228/running3/pending18/HELD59/FAILED8이었다. Running은 matched B3와 regional seed202의 두 arm이다. Pending18개에는 B3 final3·three-arm 집계, regional seed303 두 arm·six-run 집계, current C1 QA, sampler8개·집계·publication이 모두 들어 있다. 이 숫자는 당시 snapshot이며 raw59/8개를 미해결 실패 수로 읽지 않는다. 최종 완료에는 큐 밖의 실제 checkpoint/logging/storage 확인과 위의 통합 판단도 필요하다.
 

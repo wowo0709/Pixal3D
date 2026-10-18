@@ -1,5 +1,7 @@
 # 기존 SS 향상 경로의 실행 조건을 맞춘 추가 seed 확인
 
+**최종 완료:** 세 fresh480-update 학습과 final128×3의 strict 비교를 마쳤다. V1/B3/C1 IoU는0.432650/0.434499/0.442193이다. C1−B3는+0.769pp,95% source-cluster CI[+0.386,+1.144]pp이고 세 sampling noise 모두 양수다. C1 전체 이득과 retargeter 추가 효과가 이 조건에서 확인됐다. 아래는 실행 이력이며 최종 해석·모델 선택은 [통합 결과](2026-10-18-SS-module-reproduction-final-ko.md)를 따른다.
+
 본14개 비교와원본Q2C/G2 재현뒤의확인실험이다. 이전에관측한성능향상이새seed와같은실행조건에서도유지되는지확인한다. 기존모든arm을반복하거나현재regional 두arm·3seed를대체하지않는다.
 
 ## 추가 확인이 필요한 근거
@@ -225,3 +227,13 @@ B3−V1은 **+0.277pp,95% CI[+0.016,+0.531]pp**, C1−B3는 **+0.899pp,95% CI[�
 최종128×3 평가의 대기 배치도 조정했다. Noise0은 학습rank0과 같은GPU0, noise1은GPU1을 유지하고, noise2는GPU0에서 noise0 뒤에 실행하던 대신 **GPU2의 sampler 진단이 끝난 뒤GPU2에서 병렬 실행**한다. 네 장 모두 실제로 같은 RTX PRO6000 Blackwell Server Edition·97887MiB임을 확인했다. 기존316개job의 수와 다른job을 유지했고, pending noise2의 GPU와 자원 의존성만 변경했다. 전체 DAG가 acyclic이며 config·checkpoint·panel·noise map·generation batch8·sampler12/CFG3 command는 그대로다. 진행 중인 학습 process는 중단하지 않았다.
 
 이는 최종 평가 한 pass를 serial 대기에서 제거하는 배치 변경이며 실제 시간 절감이나 sampling 완료는 아직 측정되지 않았다. Before/after 전체 queue와 변경 증거3개 파일 **1,164,458bytes**의 actual-file4 저장을 확인했다. `provenance/B3-final-noise2-GPU2-backfill-v1.json`과 `B3-final-noise2-GPU2-backfill-file4.json`을 따른다. Strict three-arm final 집계와 그 뒤 Full/PBR 판단은 계속 필수다.
+
+## 세 모델의 fixed-final 완료와 retargeter 효과
+
+B3도480 updates를 정상 종료했고 마지막quick32 IoU0.438354,final128×3 micro IoU0.434499/F1 0.605785였다. B3−V1은+0.185pp,CI[+0.010,+0.362]pp이고 C1−B3는+0.769pp,CI[+0.386,+1.144]pp였다. C1−V1은+0.954pp,CI[+0.542,+1.350]pp다. 세 contrast의 point estimate는각 sampling noise에서도 모두 양수였다. 정확한 correspondence 주소의 독립 효과나 training-seed 모집단의 CI는 아니다.
+
+모든3×3 평가의 actual GT voxel hash·same-source/noise 계약과 noise0의epoch480 common32 replay를 통과했다. 세 raw denoiser의 tensor가 모두finite였고 각각701 frozen-base tensor가 실제 SS4210과 dtype/shape/value exact,360LoRA tensor가 모두 갱신됐다. B3/C1 frozen Q2C24개 tensor도 같았다. 실제file4 사용자가 제공한 original checkpoint SHA·models config·LoRA16/alpha16/dropout0.0도 직접 대조해 모두 일치했다.
+
+W&B는 최종9개 평가의45개 scalar·9개 다운로드PNG·3행 contrast table·2개 final-report artifact를 실제 서버에서 대조했다. 별도로 세 training run의step0/96/192/288/384/480 전체18개 validation,72개 scalar·18개PNG를 actual remote에서 검증했다. `all-three-final-weight-audit-v1.json`, `wandb-all-three-final-readback-v1/audit.json`, `final-reproduction-v1/all-epoch-training-readback/audit.json`과 actual-file4 receipt가 근거다.
+
+선택한SS recipe는 기존R9 topology head/T0.005/Top64를 쓰는C1이며,추가deformation query나rejection은없다. 이 head의실제objective는topology-visible-listwise-v1이고과거controlled RGB-cue weight와같지않다. PBR전체ladder는현재추가효과·정밀주소utility근거가없어보류한다. 선택·재평가command·config/weightSHA와시간·메모리는 `final-reproduction-v1/`에보존했다. 같은128개를원래순서로비교한16페이지PDF도추가했으며미완료였던최종학습·평가를이제완료로구분한다.

@@ -17,6 +17,8 @@ Canonical 산출물은 file4 `rgb_matching_v2/head-audit/confidence-curves-v1/`�
 
 H3는22,893개 중21,326개에서 후보에 정답이 있지만 선택이 맞은 것은5,428개였다. 따라서 현재 candidate miss만이 유일한 병목은 아니다. 후보 확대 이후 선택과 consumer에 유용한 evidence 전달이 남는다. Near1 정확도가 exact보다 높고 Q2C RGB task 개선도 별도로 존재하므로 exact Top1 하나로 soft evidence의 유용성을 판정하지 않는다. H2 confidence loss는 ranking branch에 detach돼 있으므로 H2−H1의 Top1 변화도 inference rejection의 인과 효과로 해석하지 않는다.
 
+위 네 head는 같은 train8,570/cal573·seed42017·58,653 updates의 통제된 head study다. 현재 SS C1/B3가 쓰는 기존 `d1-topology-final.pt`는 별도의 topology-trained R9 head로 train9,143·62,545 updates이며 같은 validation의 Top1은21.1899%였다. `H0 replay`를 이 기존 weight/전체 training trajectory의 정확한 재현으로 표현하지 않는다. 과거 controlled RGB-cue D0/D1 수치 재현도 이 head table과 별도다. [원인 분석](2026-10-18-module-reproduction-cause-analysis-ko.md)의 checkpoint lineage 구분을 따른다.
+
 ## Confidence 곡선의 분모와 실제 operating point
 
 이 곡선의 분모는 양쪽 모두38,044개의 **trustworthy foreground query**다. 가시 query의 proposal miss와 certified-unobservable query를 포함한다. Positive label은 선택한 Top1의 exact correctness다. 위22,893개 visible-query 정확도나 SS inference cache의38,366 foreground와 다른 분모다. 본 곡선으로 기존 cache의 실제acceptance11.33%를 대체하지 않는다. H0/H1은 confidence를 학습 목표로 사용하지 않아 같은 의미의 곡선을 만들지 않았다.

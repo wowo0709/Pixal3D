@@ -65,6 +65,8 @@ Query−adapter IoU는 seed101/202/303에서−0.074/−1.363/−1.428pp였다. 
 
 ## 성공 원인과 지금 적용한 재현 조건
 
+**Checkpoint 출처를 구분한다.** SS의 기존 R9 C1/B3에 실제로 사용한 `4f8771f2…`는 과거 controlled RGB-cue weight가 아니라, 현재 DeformNeXt의 `topology-visible-listwise-v1`로 학습한7-epoch/62,545-update head다. 선언된 train9,143/validation508,Top64다. 새 H0/H1/H2/H3는 fresh head로 train8,570/cal573에서 각각7-epoch/58,653 updates를 학습했다. H0-replay도 이 새 통제 split에서의 Top64 재학습이지 기존62,545-update weight의 bitwise training replay가 아니다. 따라서 현재 C1의 SS 이득을 “RGB task loss를 복원했기 때문”이라고 설명하지 않는다. RGB-cue Q2C 재현과 현재 topology-head C1 전체 이득은 별도 결과다. 기존 R9 대 새 H3의 head 비교에는 후보·temperature·rejection·objective 외에 head train split/budget도 달라 단일 원인 효과로 해석할 수 없다. 근거는 실제 checkpoint metadata를 대조한 `provenance/r9-topology-and-current-head-lineage-v1.json`이다.
+
 아래는 같은128개·93 source cluster·3sampling noise·decoded aligned GT/micro 집계의 기준점이다. 첫 두 행은 같은 multi-view 모델의 입력만 바꾼 zero-shot이며, 뒤 두 행은 같은 seed101/480-update 학습이다.
 
 | 같은 SS 평가 기준 | Voxel IoU |
