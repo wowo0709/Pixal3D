@@ -138,3 +138,27 @@ Strict training audit로 두 rank의 step1~480 연속 update·finite loss·globa
 Step480 optimizer 366개 상태도 전부 step480·finite였으며 W&B의 실제 step480 metric과 다운로드한 GT/Pred/Diff 이미지를 검증했다. Final checkpoint·snapshot·이미지 7개 **2,857,836,515 bytes**는 actual-file4 SHA256·크기와 일치했다. 근거는 `epoch-audits-v2/c1/epoch05/`, `epoch-comparisons/trend-epoch05-vs-epoch04-c1.json`, 상위 `provenance/matched-C1-five-epoch-training-{audit,file4}.json`이다.
 
 학습 정상 종료 뒤 GPU0/1에서 final128 noise0/1의 실제 두 process가 시작됐고 각40개 생성까지 확인했다. Noise2와 후속 matched B3는 선행 평가 완료 후 같은 GPU를 사용한다. V1 학습, B3, 원본 constant-gate 두 arm·3개 seed와 [계획된 sampler 진단](2026-10-18-ss-sampler-sensitivity-ko.md)이 남아 있다. Full/PBR 채택이나 전체 실험 완료로 표시하지 않는다.
+
+## C1의 fixed-final128×3 완료
+
+C1의 세 final 평가가 모두 정상 종료됐다. 같은128개·93 source cluster·서로 다른 세 sampling noise의 TP/FP/FN을 합친 micro IoU는 **0.44219276**, F1 **0.61322283**, precision **0.57371706**, recall **0.65857163**이다. Noise0/1/2의 개별 IoU는 0.43999677 / 0.43886045 / 0.44774685다. 세 반복을 독립 asset384개로 취급하지 않는다.
+
+Actual GT voxel hash128개가 세 반복에서 일치하고 sample별 noise seed가 재사용되지 않았음을 검사했다. Sampler12/CFG3/generation8·raw step480·optimizer update0·네 RGB 카메라 입력·실제 conditioner checkpoint도 확인했다. Noise0의 공통32 TP/FP/FN은 epoch480 검증을 정확히 재현한다. 따라서 앞 절의 고정32 IoU0.45384906과 이128개 집계가 다른 것을 같은 샘플의 생성 결과 하락으로 해석하지 않는다.
+
+기존 C1의 primary128×3 IoU0.44221352와 새 절대 점추정치는 비슷하다. 그러나 기존 run과 training seed·world/accumulation이 다르고, 새 V1/B3의128×3도 아직 없으므로 이를 matched module 이득의 재현 완료로 표현하지 않는다. 원본 matcher·retargeter 경로의 새 반복 결과로 보존한다.
+
+`c1-final128-audit.json`은 완료된 C1만의 검사이며 `V1_B3_matched_comparison_complete=false`다. 세 평가 JSON·GT/Pred/Diff·실제 RGB 입력 contact와 saved recipe 등11개 산출물 **758,262 bytes**를 actual-file4와 SHA256·크기 대조했다. W&B 원격의 세 metric set과 세 PNG도 직접 내려받아 원본 bytes와 일치함을 확인했고, C1 epoch4→5 paired 수치·CI도 원격에서 대조했다. 근거는 `wandb-final-readback/c1/audit.json`, 상위 `provenance/matched-C1-fixed-final128-{file4,remote-file4}.json`이다.
+
+## 동일한 5 epoch 비교와 B3 본 학습 시작
+
+V1도480 updates를 정상 종료했고 strict training audit 및 실제 step480 optimizer·W&B 이미지·file4 검증을 통과했다. 두 rank steady compute 중앙값은16.665/16.669초, peak allocated는 각각45.620GiB다. 아래는 여전히 고정32·한 sampling noise의 탐색적 중간 비교다.
+
+| Final training step | V1 voxel IoU | C1 voxel IoU | C1−V1, pp [95% CI] |
+| --- | ---: | ---: | --- |
+| 480 | 0.43483711 | 0.45384906 | +1.901 [+0.432, +3.405] |
+
+두 optimizer 상태는 V1 360개/C1 366개가 모두 step480·finite이고, 실제 target hash·source cluster·noise가 일치한다. Paired 수치와 CI도 W&B 원격에서 확인했다. `provenance/matched-seed101-fifth-epoch-{audit,wandb-remote,file4}.json`에 검사와 두 checkpoint closure를 연결했다. V1의 final128 noise0/1은 GPU2/3에서 실제 실행 중이다. 이 표를 fixed-final128×3의 matched 효과로 대체하지 않는다.
+
+C1의 세 final 평가가 끝난 뒤 GPU0/1의 B3가 초기 native 출력 차이0·LoRA gradient L1 195.1511·fusion gate gradient0.02443을 통과했다. 실제 두 rank의 memory probe는 micro48/accumulation1/global96으로2 update씩 수행했고 peak allocated는 각각47.093GiB였다. Probe optimizer361개가 전부 step2·finite임을 확인했다. `provenance/matched-B3-startup-native-memory-{audit,file4}.json`에 실제 proof·runtime·probe optimizer를 보관했다.
+
+이후 B3 본 학습의 초기 고정32 IoU도 **0.42671546671444294**로 V1/C1과 정확히 같았다. Memory bench와 다른 본 실행 디렉터리에서 양rank의첫3 update가 연속·finite·micro48/accumulation1임을 확인했다. `provenance/matched-B3-main-start-v1.json`의 immutable prefix는 초기 검증이며 B3의480-update 완료를 뜻하지 않는다. B3, V1의 최종 평가, 원본 constant-gate6개와 sampler 진단, 최종 SS/Full·PBR 판단은 계속 남아 있다.
