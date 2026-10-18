@@ -113,3 +113,24 @@ Weighting은 실제로 넓어졌고 value도 변했다. 방향이 비슷하다�
 `firstwave-wandb-v1/presentation/`에는원래평가순서128개전체를8개씩담은16페이지PDF와첫8개의PNG가있다. 모든방법에서sample ID·seed·source cluster·3D GT hash/shape와실제GT projection pixel이같은지검사했다. 그림은기존SSoccupancy의2D max-projection을그대로표시하며새추론이나새3D metric이아니다. 물리적projection axis이름을추정하지않았고성능에따라사례를고르지않았다.
 
 같은폴더의PDF를실제reader로열어16페이지와첫/마지막사례1·128의경계를확인했고PNG도시각적으로검토했다. 독립W&B대조는 `firstwave-wandb-v1/remote-readback/audit.json`에있다. 이게시작업은CPU에서수행하고GPU/system metadata수집을비활성화했으며모델checkpoint binary는W&B에올리지않았다. Data·checkpoint의canonical 저장소는file4다.
+
+## 진행 중인 두 번째 에폭과 같은32개 zero-shot
+
+Raw192/epoch2도같은quick32·한noise로비교했다. Zero-shot은완료된noise0/fixed128의같은32개를원래순서대로뽑아count를합친값이다. 새추론을한것은아니다. Edited-RGB zero-shot의32개전체count·seed·source·3D GT hash는일곱fine-tuning모델의native초기32개와exact였다. 아래zero-shot은위final128×3의다른집계값과혼용하지않는다.
+
+| 모델 / 같은32개 기준 | Epoch2 또는zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1,epoch2 | 0.434444 | 0.605731 |
+| 이전 C1,T0.005,epoch2 | 0.440602 | 0.611692 |
+| Static-C1,T0.05,epoch2 | 0.440030 | 0.611140 |
+| Task-full,T0.05,epoch2 | 0.440274 | 0.611375 |
+
+Full−static-C1은+0.024pp,CI[−0.197,+0.271]pp였다. Full−이전C1은−0.033pp,CI[−0.295,+0.267]pp로현재둘의우열도불명확하다. Epoch1에서보였던이전C1대비점수우위가epoch2에서는유지되지않았다. 이두시점만으로과적합이나학습실패의원인을확정하지않으며,계획한5epoch/last-raw480을유지한다.
+
+Full의epoch1→2 점수는43.833%→44.027%,static은43.805%→44.003%로올랐다. 그러나같은32source의temporal CI도0을포함한다. 적은quick panel에서의상승을일반적인개선이나best-epoch선택의증거로쓰지않는다. Extra learned attention 경로의기여는아직확인되지않았다.
+
+Zero edited−zero source는같은desired M1 GT에서+3.172pp,CI[+1.111,+5.505]pp였다. Source-only는camera08을포함한deformation전RGB4장이고edited는targetRGB1장과sourceRGB3장이다. 이비교는target변형단서가도움이됨을보여주지만source M0재구성평가는아니다. Full−V1과Full−zero edited의현재점수차이는각각+0.583pp/+1.356pp이며,이quick32에서두CI는모두0을포함한다.
+
+두새모델epoch2의actual W&B수치/image 및raw192 checkpoint file4 SHA/크기검사를완료했다. 이단계결과와모든9개방법의전체표는 `wave2-epoch2-comparison-v2/`에있다. Portable compiler는 `experiments/deformnext_retargeting/summarize_semantic_epoch.py --root <search-root> --epoch 2`다. Source/seed/actualGT32검사·같은epoch강제·micro count집계후새결과만쓰며,기존epoch1보고서를덮어쓰지않는다.
