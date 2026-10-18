@@ -429,3 +429,31 @@ Native-spatial−V1은 +0.747pp, CI [−0.261,+1.653]pp, Static-Top1+C1−V1은 
 두 대조군은 원래 SS4210/seed101에서 새로 시작했고, 실제32개 초기 생성 record와 두 rank의 첫 minibatch loss dictionary가 기존 C1의 초기 상태와 정확히 같았다. Global96/DDP2/micro48/accumulation1의 별도2update memory probe를 통과한 뒤 benchmark optimizer를 재사용하지 않고 본 학습을 시작했다. Native 경로의 step11·51에서 decoder/score/content-attention gradient가 두 rank 모두 양수이며, 두 모델의 retargeter 출력도 활성이다. 이는 경로 사용의 근거이며 성능 기여 증거와 구분한다.
 
 전체13개 방법·paired contrast·선택된 epoch record/recipe hash·실제 file4 closure는 `wave4-epoch1-comparison-v1/`에 있다. 첫 epoch를 기준으로 arm을 중단하거나 후보를 선정하지 않는다. 두 모델 모두5epoch/raw480 및 fixed128×3까지 진행하고, 기존 C1을 포함한6후보의 동일 Top1+C1 대조 기준과 추가 seed/121개 검증을 유지한다.
+
+
+## 원래 spatial·동일 retargeter Top1 대조의 두 번째 에폭
+
+두 새 대조군의 raw192/epoch2 validation과 실제 W&B 네 수치·PNG·optimizer/raw-checkpoint file4 대조가 완료됐다. 전체 epoch 검증은34/45개 완료됐고 두 모델은3에폭을 학습 중이다. 아래는 같은32개·32source·한 noise의 동일 epoch 비교이며, fixed-final128×3와 구분한다.
+
+| 같은 32개 기준 | Epoch2 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch2 | 0.434444 | 0.605731 |
+| 이전 C1 T0.005, epoch2 | 0.440602 | 0.611692 |
+| Static-C1 T0.05, epoch2 | 0.440030 | 0.611140 |
+| Task-full, epoch2 | 0.440274 | 0.611375 |
+| Task-no-decoder, epoch2 | 0.447879 | 0.618669 |
+| Task-no-prior, epoch2 | 0.445496 | 0.616392 |
+| Task-native-spatial, epoch2 | 0.444871 | 0.615793 |
+| Static-Top1+C1, epoch2 | 0.440365 | 0.611463 |
+
+Full−native-spatial은 −0.460pp, 95% source-cluster CI [−1.010,+0.040]pp였다. Native 쪽 점수가 높지만 이 CI도0을 포함하며 semantic 대응의 추가 이득이 입증된 것은 아니다. Native3개 camera sample과 semantic64개 patch의 자연스러운 후보 수 차이를 명시한다.
+
+Static-C1−Static-Top1+C1은 −0.033pp, CI [−0.153,+0.072]pp, 기존 C1 T0.005−Static-Top1+C1은 +0.024pp, CI [−0.035,+0.075]pp였다. Full−Static-Top1+C1도 −0.009pp, CI [−0.291,+0.319]pp로 불확실하다. 첫 epoch에서 기존 C1이 Top1+C1보다 낮았던 작은 차이가 같은 방향으로 유지된 것도 아니다. 고정 score의 soft evidence가 같은 retargeter의 Top1보다 추가로 좋다는 근거는 아직 없다.
+
+No-decoder−Static-Top1+C1은 +0.751pp, CI [+0.183,+1.361]pp, No-prior−Static-Top1+C1은 +0.513pp, CI [+0.065,+0.932]pp였다. 이 epoch의 조건부 quick32에서는 두 제거 모델이 같은 retargeter의 Top1보다 높았다. 이 결과를 마지막 epoch나 추가 training seed의 재현으로 확대하지 않는다. 같은 두 모델의 마지막 raw480 평가와 혼동하거나 epoch2만 골라 최종 대조를 대체하지 않는다.
+
+Native-spatial−V1은 +1.043pp, CI [−0.352,+2.498]pp, Static-Top1+C1−V1은 +0.592pp, CI [−0.579,+1.890]pp로 모두0을 포함했다. 같은 run의 epoch1→2 변화도 native-spatial +0.525pp, CI [−0.885,+1.840]pp, Static-Top1+C1 +0.318pp, CI [−1.220,+1.822]pp였다. 점수 상승을 관측했지만 두 temporal CI는0을 포함하며, 이는 joint optimization의 변화이지 특정 모듈의 단독 효과가 아니다.
+
+전체13개 방법·paired/temporal 결과와 실제 입력은 `wave4-epoch2-comparison-v1/`에 있다. 집계기에 같은 run의 이전 epoch 비교를 추가했고, 첫 epoch 당시 source는 원래 file4 archive에 보존했다. 모든 CI는 training seed101·한 sampling noise에 조건부인 탐색 결과이며 다중 비교를 보정하지 않았다. 원래5epoch/raw480·전체128×3·6후보 선정·추가 seed/121개 검증을 유지한다. 모델·학습률·데이터·microbatch를 변경하지 않았다.
