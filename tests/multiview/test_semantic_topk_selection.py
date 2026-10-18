@@ -1,8 +1,10 @@
 import copy
+import json
+from types import SimpleNamespace
 
 import pytest
 
-from experiments.deformnext_retargeting.semantic_topk_selection import CANDIDATES,selection,supported
+from experiments.deformnext_retargeting.semantic_topk_selection import CANDIDATES,SELECT_JOB,selection,supported,queue_candidate
 
 
 def contrast(gain=.01,low=.001,noises=None):
@@ -57,3 +59,26 @@ def test_best_control_cannot_be_hidden_by_semantic_candidate_selection():
 def test_inconsistent_fixed_final_reports_are_rejected():
     a,b=reports();b['models']['static-c1']['micro_voxel_iou']+=.01
     with pytest.raises(ValueError,match='disagree'):selection(a,b)
+
+
+def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_baseline(tmp_path,monkeypatch):
+    root=tmp_path/'result';work=tmp_path/'work';root.mkdir();work.mkdir();(root/'configs').mkdir()
+    a,b=reports()
+    for filename,value in [('seven-arm-final-report.json',a),('matched-retargeter-top1-report.json',b)]:
+        (root/filename).write_text(json.dumps(value))
+    original={'trainer':{'args':{'max_steps':480,'batch_size_per_gpu':48,'batch_split':1,
+        'continuation_ckpt':{'denoiser':'SS4210'}}},'training_seed':101,'num_gpus':2,'experiment':{'arm':'task-full'}}
+    (root/'configs/task-full.json').write_text(json.dumps(original))
+    baseline=root/'seed-confirmation-v1/configs/top1-reference.json';baseline.parent.mkdir(parents=True)
+    baseline.write_text(json.dumps({'master_port':'30440'}));baseline_bytes=baseline.read_bytes()
+    jobs=[{'name':SELECT_JOB},*[{'name':f'confirm-seed202-final-top1-reference-noise{n}'} for n in range(3)]]
+    (work/'queue-jobs.json').write_text(json.dumps(jobs))
+    monkeypatch.setattr('experiments.deformnext_retargeting.semantic_topk_selection.subprocess.check_output',lambda *args,**kw:'test-source\n')
+    queue_candidate(SimpleNamespace(root=root,work_root=work,previous_work=tmp_path/'panels',gpus='0,1'))
+    cfg=json.loads((root/'seed-confirmation-v1/configs/task-full.json').read_text())
+    assert cfg['training_seed']==202 and cfg['trainer']==original['trainer'] and cfg['num_gpus']==2
+    assert cfg['master_port']=='30441' and baseline.read_bytes()==baseline_bytes
+    actual=json.loads((work/'queue-jobs.json').read_text());new=actual[len(jobs):]
+    assert len(new)==5 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
+    assert not any('resume' in j['command'] for j in new)
+    assert json.loads((root/'candidate-selection-v1.json').read_text())['selected_candidate']=='task-full'

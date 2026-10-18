@@ -90,7 +90,7 @@ def summarize(root,previous):
     lines+=['','| Contrast | Gain IoU,pp | 95% source-cluster CI,pp |','| --- | ---: | --- |']
     for name,c in contrasts.items():
         lo,hi=c['paired_cluster_bootstrap_ci95'];lines.append(f"| {name} | {100*c['gain']:+.3f} | [{100*lo:+.3f},{100*hi:+.3f}] |")
-    lines+=['',report['scope'],'',report['native_spatial_control_scope'],'','This is not completion of seed confirmation or model selection.']
+    lines+=['',report['scope'],'',report['native_spatial_control_scope'],'',report['zero_shot_scope'],'','This is not completion of seed confirmation or model selection.']
     path=root/'seven-arm-final-report.json'
     if path.exists() or path.with_suffix('.md').exists():raise FileExistsError('preserve fixed-final report')
     write_new(path,report)

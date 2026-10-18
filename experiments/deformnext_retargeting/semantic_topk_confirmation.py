@@ -14,6 +14,7 @@ from .semantic_topk_search import write_new
 def seed_config(source,folder,name,seed):
     cfg=copy.deepcopy(source);recipe=folder/'configs'/(name+'.json');run=folder/'runs_ss64'/name
     cfg.update(config=str(recipe),output_dir=str(run),default_output_dir=str(run),training_seed=seed,
+        load_dir='',ckpt='none',
         master_port='30440',wandb_id=f'ss-semantic-topk-v1-seed{seed}-'+name,
         wandb_name=f'SS semantic TopK seed{seed} '+name)
     cfg['experiment'].update(training_seed=seed,recipe_path=str(recipe),arm=name,
