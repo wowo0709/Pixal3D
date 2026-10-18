@@ -131,3 +131,11 @@ Seed202 query는 calibration뿐 아니라 matched training loss도 불리했다.
 추가 정밀도 검사에서는 **실제 query202 trained weight와 고정된 실제 calibration 입력1개**를 원본 R4-CONTENT에 매핑했다. CPU BF16 autocast에서 active projection·correction·고정 upstream vector-Jacobian loss와18개 parameter gradient가 모두 bit-exact였다. 이는 앞선6-update CPU optimizer 검사에 추가한 local-module 증거이며, CUDA 전체 rollout/128-update trajectory 동등성을 입증하는 검사는 아니다. 검사 때문에 학습 source나 weight를 바꾸지 않았다.
 
 Query202 완료 결과·remote readback,672-row 검사·training 통계, 두303 시작 prefix, active BF16 검사와 source 등19개 파일 **414,950bytes**의 actual-file4 SHA256·크기를 검증했다. 근거는 `wandb-network-readback-v3/adapter-query/seed202/audit.json`, 상위 `provenance/regional-network-seed202-complete-data-audit-v1.json`, `regional-network-both-seed303-{start,first8-prefix}-v1.json`, `current-regional-trained-BF16-reference-parity-v1.json`, `regional-network-seed202-complete-and-both303-start-file4.json`이다. Seed303·strict six-run과 Full/PBR 판단은 계속 남아 있다.
+
+## 원본 network-gate6개 학습의 실제 고정·저장 검사 완료
+
+Seed303도 두 arm의128-update 학습을 완료했다. Train loop는 No-query **1,149.25초**, query **1,146.36초**였으며, 두 checkpoint와90개 전체 optimizer state를 포함한6개 run의 학습 고정 검사가 모두 끝났다. 각 run의 실제12/18개 optimizer 상태는 전부 step128·finite였고 trained parameter도 모두 finite였다. 세 seed 각각128개 pair/epoch/noise 순서와 최초 native loss가 두 arm 사이에서 일치했다. 모든 weight는 원본371-parameter gate와 No-query/query의3075/3107 입력 폭을 보존했다.
+
+Seed303의 checkpoint·freeze marker·closed training log·독립 검사7개 파일 **12,999,373bytes**의 actual-file4 SHA256·크기도 확인했다. 세 seed의 독립 검사와 저장 receipt를 묶은7개 파일22,947bytes 역시 별도로 저장 검증했다. 근거는 `provenance/network-v3-training-checkpoints-independent-seed303{,-file4}.json`, `regional-network-all-six-training-only-closure-v1.json`, `regional-network-all-six-training-only-closure-file4.json`이다.
+
+집계 상태는 **PASS_ALL_SIX_FROZEN_TRAINING_ONLY_NOT_CALIBRATION**이다. 합계768개 single-asset endpoint update와90개 optimizer tensor state에 대한 검사이며, 여섯 개의 global96 production-LoRA 학습을 추가했다는 뜻이 아니다. Seed303 두 process는 고정된 weight로 normal/source-OFF/native 및 query shuffle 평가를 계속하고 있다. Six-run calibration/statistics와 Full/PBR 판정은 아직 완료되지 않았다.
