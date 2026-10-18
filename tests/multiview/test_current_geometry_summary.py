@@ -50,6 +50,7 @@ def test_source_off_and_query_shuffle_keep_global_negative_and_information_contr
                 geometry=torch.arange(4096*9).reshape(1, 4096, 9).float())
     off, _ = condition(pair, adapter, source_off=True)
     assert adapter.source is pair['target_proj']
+    assert adapter.geometry is pair['geometry']
     assert off['cond']['global'] is native['cond']['global']
     assert off['neg_cond'] is native['neg_cond']
     assert native['cond']['proj'].eq(1).all()

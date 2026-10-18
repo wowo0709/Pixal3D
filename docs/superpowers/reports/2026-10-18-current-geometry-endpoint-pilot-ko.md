@@ -21,7 +21,7 @@ O branch에는 원래 M0 camera08도 들어가므로 query 모듈은 native의 �
 
 Seed101/202/303에서 각각 128 updates를 실행한다. 원본과 같은 epoch별 pair hash order·noise hash·AdamW LR1e-4/WD0.01·clip1을 사용하고, train32를 네 번 순회한다. Controller asset batch1은 이전 frozen-controller 프로토콜이다. 본 LoRA 학습의 batch96을 바꾸거나 V1을 재학습하는 것이 아니다.
 
-Final checkpoint/SHA freeze 뒤에만 calibration GT를 연다. 같은 cal32와 sampling noise3개에서 native / normal / projected-source-off를 비교하고, query arm에는 joint-tuple shuffle을 추가한다. Source projection OFF는 네 RGB의 native global/negative를 유지한다. No-query loader는 query 파일 자체를 열지 않는다. Training loader는 calibration role을 파일 개방 전에 거부한다.
+Final checkpoint/SHA freeze 뒤에만 calibration GT를 연다. 같은 cal32와 sampling noise3개에서 native / normal / projected-source-off를 비교하고, query arm에는 joint-tuple shuffle을 추가한다. Source projection OFF는 네 RGB의 native global/negative와query arm의predicted O/D query를그대로유지한다. Query에들어있는source geometry까지제거하는대조가아니며같은query 아래projected source value의추가기여를검사한다. No-query loader는 query 파일 자체를 열지 않는다. Training loader는 calibration role을 파일 개방 전에 거부한다.
 
 Regional recall/stale/visible/BCE, TP/FP/FN과 GT/prediction voxel SHA, 고정 첫4개 asset의 Y voxel-projection GT/Pred/Diff를 W&B에 저장한다. Empty source/stale metric은 None으로 남기고 유효 population을 함께 집계한다. 이 실험의 GT는 실제 SS encoder input support, IoU는 macro asset/noise 평균이다. 본 14개 표의 decoded-latent GT/micro IoU와 직접 합쳐 비교하지 않는다.
 

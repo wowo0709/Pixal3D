@@ -64,7 +64,8 @@ def render_report(result):
         'GT is the actual SS encoder input support. Macro IoU here is not the decoded-GT micro IoU in the primary14 table.',
         'The query branch also sees predicted original geometry from four M0 RGB views, including original camera08.',
         'Query versus adapter measures that whole branch; intact versus joint shuffle holds its input information fixed.',
-        'Projected-source OFF retains the native four-RGB global and negative conditions.',
+        'Projected-source OFF retains the native four-RGB global/negative conditions and the same predicted O/D query when present.',
+        'It isolates projected-source values conditional on that query, rather than removing all source-derived information.',
         'Intervals bootstrap 32 source clusters, conditional on these three training seeds. This calibration panel is not an unseen test.',
         'All six final checkpoints, schedules, actual GT hashes and frozen native prediction hashes passed the strict audit.',
         'These results do not select Full or authorize a claim of PBR rendering quality.', '']
@@ -227,6 +228,7 @@ def summarize(root, conditions, labels, output):
         'condition_authority': reference(conditions/'summary.json'), 'GT_authority': reference(labels/'summary.json'),
         'query_uses_original_M0_camera08_in_addition_to_native_four_RGB': True,
         'projected_source_OFF_keeps_native_four_RGB_global_and_negative': True,
+        'projected_source_OFF_keeps_same_predicted_O_D_query_when_present': True,
         'same_input_information_geometry_control': 'intact versus joint-tuple shuffle',
         'primary14_micro_IoU_comparison_replaced': False, 'production_promotion': False,
         'PBR_or_Full_selection_complete': False}
