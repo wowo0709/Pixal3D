@@ -19,7 +19,7 @@ def main():
     while True:
         from .summarize_ss_epoch_trends import record_epoch_contrasts
         record_epoch_contrasts(a.root)
-        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','baseline-noise-confirmation','retarget-native-v3/evaluations','retarget-native-v3/noise-confirmation','retarget-native-v3/query-study/evaluations','retarget-native-v3/query-study/noise-confirmation','module-study-native-v4/evaluations','module-study-native-v4/noise-confirmation']:
+        for directory in ['screening','evaluations','calibration-oracle','oracle-verified','retargeting-oracle','projection-audit','role-balance-probe','noise-confirmation','baseline-noise-confirmation','retarget-native-v3/evaluations','retarget-native-v3/noise-confirmation','retarget-native-v3/query-study/evaluations','retarget-native-v3/query-study/noise-confirmation','module-study-native-v4/evaluations','module-study-native-v4/noise-confirmation','ss-seed-confirmation-v1/evaluations']:
             for f in (a.root/directory).glob('**/evaluation.json'):
                 key=str(f.relative_to(a.root))
                 if key in logged:continue
@@ -91,6 +91,21 @@ def main():
             run.summary['current_regional/status']=value['status']
             run.summary['current_regional/production_promotion']=False
             logged.add(regional_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
+        confirmation=a.root/'ss-seed-confirmation-v1/final-seed101-report.json'
+        confirmation_key=str(confirmation.relative_to(a.root))
+        if confirmation.exists() and confirmation.with_suffix('.md').exists() and confirmation_key not in logged:
+            value=json.loads(confirmation.read_text())
+            if value['status']!='PASS_MATCHED_SS_SEED101_CONFIRMATION' or value['arms']!=['v1','b3','c1']:
+                raise ValueError('matched original SS confirmation is incomplete')
+            artifact=wandb.Artifact('ss-original-matched-seed101-confirmation',type='evaluation-report')
+            artifact.add_file(str(confirmation));artifact.add_file(str(confirmation.with_suffix('.md')))
+            run.log_artifact(artifact)
+            table=wandb.Table(columns=['contrast','IoU_delta_pp','ci95_lower_pp','ci95_upper_pp'],
+                data=[[name,100*row['gain'],*(100*x for x in row['paired_cluster_bootstrap_ci95'])]
+                    for name,row in value['contrasts'].items()])
+            run.log({'seed101/final_matched_contrasts':table})
+            run.summary['seed101/status']=value['status'];run.summary['seed101/production_promotion']=False
+            logged.add(confirmation_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         state=json.loads(state_path.read_text()) if state_path.exists() else {}
         run.log({'campaign/running':sum(r['status']=='running' for r in state.values()),
                  'campaign/completed':sum(r['status']=='completed' for r in state.values()),

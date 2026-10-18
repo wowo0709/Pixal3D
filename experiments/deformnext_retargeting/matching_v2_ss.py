@@ -83,12 +83,16 @@ def native_proof(cfg,output):
     from pixal3d import datasets,models,trainers
     from pixal3d.utils.data_utils import recursive_to_device
     torch.set_num_threads(4);torch.cuda.set_device(0)
+    from train import setup_rng
+    setup_rng(0,cfg.get('training_seed',0))
     ds=getattr(datasets,cfg['dataset']['name'])(cfg['validation']['roots_file'],**cfg['validation']['dataset_args'])
     # Select an actually accepted inference query; do not fabricate confidence
     # to make a disconnected/reject-all module pass the gradient check.
     index=None
     for i,row in enumerate(ds.rows):
         spec=cfg['trainer']['args']['deform_conditioner']
+        if spec is None:
+            index=i;break
         if spec['implementation']=='matching-v2':
             with np.load(ds.match_root/(row['sample_id']+'.npz')) as z:
                 use=z['cached_valid']
@@ -114,7 +118,18 @@ def native_proof(cfg,output):
     errors={k:float((actual[k]-native[k]).abs().max()) for k in actual}
     if max(errors.values())!=0:raise ValueError('matching-v2 initial native condition differs')
     with torch.autocast('cuda',dtype=trainer.mix_precision_dtype):loss,_=trainer.training_losses(x_0=target,**pack)
-    loss['loss'].backward();gate=float(trainer.deform_conditioner.fusion_gate.grad.abs())
+    loss['loss'].backward()
+    lora_gradient=sum(float(parameter.grad.float().abs().sum()) for name,parameter in
+        trainer.models['denoiser'].named_parameters() if 'lora_' in name and parameter.grad is not None)
+    if not np.isfinite(lora_gradient) or lora_gradient<=0:
+        raise ValueError('native-start proof has no finite LoRA gradient')
+    if trainer.deform_conditioner is None:
+        write(output/'native-proof.json',{'status':'PASS','sample_id':ds.rows[index]['sample_id'],
+            'condition_max_abs_errors':errors,'lora_gradient_l1':lora_gradient,
+            'fusion_gate_gradient':None,'adapter_output_gradient_l1':None,
+            'head_sha256':None,'optimizer_updates':0,'query_channels':None})
+        return
+    gate=float(trainer.deform_conditioner.fusion_gate.grad.abs())
     adapter=trainer.deform_conditioner.retargeter
     gradient=float(adapter.net[-1].weight.grad.abs().sum()) if adapter is not None else None
     if not gate>0 or (gradient is not None and not gradient>0):raise ValueError('matching-v2 has no first-step gradient')
@@ -140,6 +155,7 @@ def native_proof(cfg,output):
             with torch.no_grad():last.weight.copy_(saved_weight)
     write(output/'native-proof.json',{'status':'PASS','sample_id':ds.rows[index]['sample_id'],
         'condition_max_abs_errors':errors,'fusion_gate_gradient':gate,'adapter_output_gradient_l1':gradient,
+        'lora_gradient_l1':lora_gradient,
         'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0,'query_channels':query_proof})
 
 
@@ -158,7 +174,11 @@ def train(a):
              '--mode','proof','--root',str(a.root),'--config',str(a.config)]
     with (proof/'proof.log').open('ab') as log:subprocess.run(command,cwd=repo,stdout=log,stderr=subprocess.STDOUT,check=True)
     selected=None
-    for split in [d for d in [1,2,3,4,6,8,12,16,24,48,96] if per_rank%d==0]:
+    required=cfg['experiment'].get('required_microbatch_per_gpu')
+    if required is not None and (required<=0 or per_rank%required):
+        raise ValueError('required matched microbatch must divide the per-rank batch')
+    splits=[per_rank//required] if required is not None else [d for d in [1,2,3,4,6,8,12,16,24,48,96] if per_rank%d==0]
+    for split in splits:
         bench=copy.deepcopy(cfg);directory=a.root/'memory-bench'/name/f'split{split}';directory.mkdir(parents=True,exist_ok=True)
         bench.update(default_output_dir=str(directory),use_wandb=False)
         bench['trainer']['args'].update(max_steps=2,batch_split=split,num_workers=0,i_save=2,max_checkpoints=1,i_log=1)

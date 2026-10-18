@@ -35,8 +35,11 @@ def main():
     from PIL import Image
     torch.set_num_threads(4);torch.cuda.set_device(0)
     cfg=json.loads((args.arm_config or (args.config_root/f'{args.stage}-v1.json')).read_text())
-    if args.arm_config and not args.conditioner_checkpoint:
+    semantic=cfg['trainer']['args'].get('deform_conditioner') is not None
+    if semantic and not args.conditioner_checkpoint:
         raise ValueError('semantic checkpoint evaluation requires its trained conditioner')
+    if not semantic and args.conditioner_checkpoint:
+        raise ValueError('native V1 has no conditioner checkpoint')
     ds=getattr(datasets,cfg['dataset']['name'])(cfg['validation']['roots_file'],**cfg['validation']['dataset_args'])
     if args.conditioning_mode!='edited-rgb':
         from .conditioning_controls import ConditioningControl

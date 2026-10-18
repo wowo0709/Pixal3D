@@ -4,6 +4,8 @@
 
 2026-10-18 현재 **14개 구성의 final128×3 본 비교는 완료**됐다. [최종 표와 해석](2026-10-18-ss-primary14-final-ko.md)을 기준으로 사용한다. 아래 epoch별 기록은 당시의 중간 관측 이력이다. 새 다섯 arm의 rejection·attention·adapter·RAW query 추가 효과는 최종 비교에서 확인되지 않았다. 과거의 Q2C/geometry 모듈은 별도 원본 재현과 현재 데이터 이식으로 검증하며, 본 비교 완료를 Full/PBR 채택이나 전체 실험 완료로 처리하지 않는다.
 
+기존C1의양의결과에는B3/V1과다른microbatch/accumulation 실행이있었다. [새seed101의V1/B3/C1 matched 확인](2026-10-18-original-SS-seed-confirmation-ko.md)으로이부분을확인하며현재regional 두arm·3seed와기존checkpoint source진단은계속진행한다.
+
 ## 전체 실험과 상태
 
 | 구분 | 실험 | 상태/역할 |

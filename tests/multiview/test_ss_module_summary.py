@@ -191,3 +191,15 @@ def test_final_replay_guard_detects_different_saved_weight_results(complete_run)
     final['per_asset'][0]['tp']-=1;final['per_asset'][0]['fn']+=1
     with pytest.raises(ValueError,match='same-checkpoint'):
         audit_final_replay(audit,final)
+
+
+def test_native_seed_confirmation_requires_LoRA_gradient_and_no_fake_conditioner(complete_run):
+    study,run=complete_run
+    p=study/'configs/model.json';cfg=json.loads(p.read_text());cfg['trainer']['args']['deform_conditioner']=None
+    cfg['experiment']['head_sha256']=None;write(p,cfg)
+    p=study/'verification/model/native-proof.json';proof=json.loads(p.read_text())
+    proof.update(fusion_gate_gradient=None,adapter_output_gradient_l1=None,lora_gradient_l1=.1);write(p,proof)
+    (run/'ckpts/deform_conditioner_step0000480.pt').unlink()
+    assert audit_training(study,'model',.42)['physical_query_channels']==0
+    proof['lora_gradient_l1']=0;write(p,proof)
+    with pytest.raises(ValueError,match='LoRA backward'):audit_training(study,'model',.42)

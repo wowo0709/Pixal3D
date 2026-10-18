@@ -517,3 +517,15 @@ query and validity. Real donor foreground must exist and contain no zero
 vectors. Native four-view conditioning stays fixed. Scoped hooks restore on
 failure; no training, checkpoint or cache is changed. These diagnostic outputs
 are excluded from the primary matrix even if their metric counts coincide.
+
+The [matched seed confirmation](../../docs/superpowers/reports/2026-10-18-original-SS-seed-confirmation-ko.md)
+repeats original V1/B3/C1 at seed101 under the same global96/DDP2/micro48/
+accumulation1 execution. The prior positive C1 comparison used different
+microbatch/accumulation settings. `prepare_ss_seed_confirmation --mode prepare`
+reads the saved original configs and checks matched model/data/optimization;
+`--mode queue` appends three fresh training runs and their nine fixed-final
+evaluations after current work releases the assigned pairs. `--mode summarize`
+requires both ranks' full480 updates, native/gradient proof, six epoch checks,
+checkpoint presence and exact final128-to-epoch32 replay. A native V1 has no
+conditioner checkpoint. Required micro48 cannot silently fall back to a
+different accumulation setting. Full/PBR promotion is a separate decision.

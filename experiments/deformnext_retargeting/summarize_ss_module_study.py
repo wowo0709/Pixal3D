@@ -70,11 +70,13 @@ def audit_training(study,arm,initial_iou):
     proof=read(study/'verification'/arm/'native-proof.json')
     if proof['status']!='PASS' or any(x!=0 for x in proof['condition_max_abs_errors'].values()):
         raise ValueError('native initialization differs: '+arm)
-    if not proof['fusion_gate_gradient']>0:raise ValueError('disconnected conditioner: '+arm)
     spec=cfg['trainer']['args']['deform_conditioner']
-    if spec['arm'] in {'c1','c2'} and not proof.get('adapter_output_gradient_l1',0)>0:
+    if spec is None:
+        if not proof.get('lora_gradient_l1',0)>0:raise ValueError('native LoRA backward proof missing: '+arm)
+    elif not proof['fusion_gate_gradient']>0:raise ValueError('disconnected conditioner: '+arm)
+    if spec is not None and spec['arm'] in {'c1','c2'} and not proof.get('adapter_output_gradient_l1',0)>0:
         raise ValueError('adapter backward proof missing: '+arm)
-    if spec['arm']=='c2' and (not proof.get('query_channels') or proof['query_channels']['extra_channels']!=2048
+    if spec is not None and spec['arm']=='c2' and (not proof.get('query_channels') or proof['query_channels']['extra_channels']!=2048
         or not proof['query_channels']['query_weight_gradient_l1']>0):raise ValueError('physical query proof missing: '+arm)
     validation=[json.loads(x) for x in (run/'validation.jsonl').read_text().splitlines()]
     if [r['step'] for r in validation]!=[0,96,192,288,384,480]:raise ValueError('epoch validations incomplete: '+arm)
@@ -92,13 +94,13 @@ def audit_training(study,arm,initial_iou):
         rank_records.append({'rank':rank,'updates':len(records),
             'steady_compute_seconds_median':float(np.median([r['compute_seconds'] for r in records[1:]])),
             'peak_allocated_gib':max(r['peak_allocated_gib'] for r in records)})
-    for prefix in ['denoiser','deform_conditioner','misc']:
+    for prefix in ['denoiser','misc']+(['deform_conditioner'] if spec is not None else []):
         path=run/'ckpts'/f'{prefix}_step0000480.pt'
         if not path.is_file() or not path.stat().st_size:raise ValueError('final checkpoint missing: '+arm)
     return {'completed':done,'initial_iou':initial_iou,'validation':validation,'rank_runtime':rank_records,
         'validation_panel_ids':panel,'validation_noise_and_target_counts_fixed':True,
         'head_sha256':cfg['experiment']['head_sha256'],'omega_checkpoint':cfg['experiment']['omega_checkpoint'],
-        'physical_query_channels':2048 if spec['arm']=='c2' else 0,'config':str(study/'configs'/(arm+'.json'))}
+        'physical_query_channels':2048 if spec is not None and spec['arm']=='c2' else 0,'config':str(study/'configs'/(arm+'.json'))}
 
 
 def result_contrasts(results):
