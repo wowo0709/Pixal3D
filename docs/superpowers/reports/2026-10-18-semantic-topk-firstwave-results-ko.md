@@ -76,3 +76,32 @@ Weighting은 실제로 넓어졌고 value도 변했다. 방향이 비슷하다�
 현재 근거는 **soft feature가 전혀 변하지 않은 구현 오류**보다 **유사한 후보 feature의 작은 전달 차이와 사례별 손익의 상쇄**에 부합한다. 생성에 유용한 후보를 고르는 learned attention이 필요한지,또는 작은 fusion 강도가 병목인지의 단독 원인은 아직 분리하지 못했다. 같은 저장 soft denoiser/head에서 Top1 feature 대 soft,원래 gate 대 pre-tanh parameter4배를 common32/한noise로 재평가하도록 추가했다. 실제 tanh gate 값을 기록하며새 학습은 없다. Normal이 원래 final128의 같은32개를 exact replay해야 한다. 이 진단은 본 모델 선택이나 fixed-final128×3를 대체하지 않는다.
 
 실제 진단 JSON과 전체128개 산점도·분포 그림은 공통 file4 경로의 `firstwave-static-value-diagnosis-v1/`에 있다. 생성 counterfactual의 대기열과 결과는 `firstwave-fusion-dose-v1/`에 기록한다. 후자는 아직 계획된 진단이며 현재 성능 향상 증거가 아니다.
+
+## 진행 중인 static-C1 / task-full의 첫 에폭
+
+두 후속 모델도 같은SS4210·seed101·global96/DDP2/micro48/accumulation1에서 시작했다. 초기32개 전체 per-asset count와 metric은native참조와exact였고,이전C1/새static-C1/task-full의두rank 첫actual training loss dictionary도같았다. 이는현재 초기성능하락이나첫 minibatch의RNG손상을시사하지않으며,전체학습trajectory가bit-exact라는주장은아니다.
+
+아래는**같은epoch1/raw96·32개·한noise**다. 위의final128×3 표와섞어순위를비교하지않는다.
+
+| 모델 | Epoch1 quick IoU | Quick F1 |
+| --- | ---: | ---: |
+| 이전 V1 | 0.432148 | 0.603496 |
+| 이전 B3,T0.005 | 0.434742 | 0.606022 |
+| 이전 C1,T0.005 | 0.436335 | 0.607567 |
+| 새 Top1 | 0.435134 | 0.606402 |
+| 새 soft,T0.02 | 0.434979 | 0.606251 |
+| Static-C1,T0.05 | 0.438047 | 0.609225 |
+| Task-full,T0.05 | 0.438333 | 0.609501 |
+
+| Epoch1 비교 | IoU 차이,pp | 95% source-cluster CI,pp |
+| --- | ---: | --- |
+| Task-full−static-C1 | +0.029 | [-0.057,+0.117] |
+| Task-full−이전C1 | +0.200 | [+0.060,+0.376] |
+| Static-C1−이전C1 | +0.171 | [+0.042,+0.320] |
+| Task-full−V1 | +0.619 | [-0.293,+1.457] |
+
+일곱모델의동일32source·seed·GT hash·target voxel count를대조했다. 새두모델은초기보다개선됐지만,task-full의추가경로가static-C1보다좋다는증거는아직불충분하다. 이전C1대비양의차이도현재quick panel/epoch에조건부인exploratory 결과이며,temperature의단독일반화효과나마지막epoch의우월성을뜻하지않는다. 성능에따라epoch를다시고르거나Full을미리채택하지않는다.
+
+실제SS 본학습update11과51에서는두rank의matching decoder·scalar score·task attention gradient가모두양수였다. Native/backward preflight의임시retargeter출력perturbation과달리본학습로그에서확인한값이다. 초기step1의이세gradient가0인것은native출력을보존하는zero fusion/output 초기화에따르며이후정상활성화됐다. 이관측은학습사용의증거이며각모듈의품질기여는No-decoder/No-prior/native-spatial 및선정모델진단으로추가검증한다.
+
+새두모델epoch1의실제W&B수치/image와raw checkpoint의file4 SHA/크기검사를완료했다. 중간비교JSON/Markdown은공통경로의 `wave2-epoch1-comparison-v1/`에있다. 전체5epoch·fixed-final128×3·추가seed/평가패널·최종채택검증은아직남아있다.
