@@ -408,6 +408,7 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
         match_root: Optional[str] = None,
         projection_root: Optional[str] = None,
         expected_ss_schema: Optional[str] = None,
+        task_matching_features: bool = False,
         transport_implementation: str = "legacy-v4",
         expected_q2c_sha256: Optional[str] = None,
         deformation_root: Optional[str] = None,
@@ -432,6 +433,12 @@ class DeformNeXtSS64(SparseStructureLatentVisMixin, _DeformNeXtBase):
             transport_implementation=transport_implementation, expected_q2c_sha256=expected_q2c_sha256,
             deformation_root=deformation_root,
         )
+        if task_matching_features:
+            if transport_implementation != 'r9-native-v5' or transport_arm != 'c1' or match_root is None:
+                raise ValueError('task matching features require cached R9 C1 SS inputs')
+            self.transport_keys = tuple(dict.fromkeys((*self.transport_keys,'target_keys','source_keys','target_query')))
+            if 'spatial_indices' in self.transport_keys:
+                raise ValueError('task matching must not load GT-depth spatial indices')
         if self.expected_ss_schema is not None:
             for row in self.rows:
                 if row.get('ss_latent_schema') != self.expected_ss_schema:

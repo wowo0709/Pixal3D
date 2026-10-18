@@ -82,6 +82,8 @@ class DeformationAwareConditioner(nn.Module):
         implementation: str = "r9-native-v5",
         score_temperature: Optional[float] = None,
         projection_mode: str = "nearest",
+        task_attention: Optional[dict] = None,
+        correspondence_mode: str = 'semantic',
     ) -> None:
         super().__init__()
         if implementation not in {"legacy-v4", "r9-native-v5"}:
@@ -154,6 +156,33 @@ class DeformationAwareConditioner(nn.Module):
             self.retargeter = _Retargeter(
                 value_dim + query_dim + int(deformation_dim), value_dim, hidden_dim
             )
+
+        self.task_attention = None
+        self.task_attention_config = None
+        self.correspondence_mode = correspondence_mode
+        if correspondence_mode not in {'semantic','native-spatial'} or (correspondence_mode=='native-spatial' and task_attention is None):
+            raise ValueError('native-spatial candidate attention requires an explicit task module')
+        if task_attention is not None:
+            if implementation != 'r9-native-v5' or arm != 'c1' or value_dim != 1024 or query_dim != 1024:
+                raise ValueError('task candidate attention supports explicit SS C1 only')
+            if set(task_attention) != {'decoder', 'score_prior', 'chunk_size'}:
+                raise ValueError('task attention requires explicit decoder/score/chunk contract')
+            if (not isinstance(task_attention['decoder'],bool) or not isinstance(task_attention['score_prior'],bool)
+                    or not isinstance(task_attention['chunk_size'],int) or task_attention['chunk_size']<1):
+                raise ValueError('invalid task attention switches or chunk size')
+            from .task_matching_attention import TaskCandidateAttention
+            from .r9_matching import RegionDecoder
+            self.task_attention_config = dict(task_attention)
+            if not task_attention['decoder']:
+                self.q2c.decoder = RegionDecoder('D0-PAIRWISE')
+                self.q2c.decoder_arm = 'D0-PAIRWISE'
+            self.q2c.decoder.requires_grad_(True)
+            self.q2c.fusion_head.requires_grad_(task_attention['score_prior'])
+            # Equal task-layer initialization across physical decoder ablations;
+            # do not alter the caller's denoiser/retargeter RNG consumption.
+            with torch.random.fork_rng(devices=[]):
+                torch.manual_seed(20261018)
+                self.task_attention = TaskCandidateAttention()
 
     def _validate(
         self,
@@ -266,10 +295,20 @@ class DeformationAwareConditioner(nn.Module):
         target_valid: Optional[torch.Tensor] = None,
         target_context: Optional[torch.Tensor] = None,
         source_context: Optional[torch.Tensor] = None,
+        native_candidate_keys: Optional[torch.Tensor] = None,
+        native_candidate_values: Optional[torch.Tensor] = None,
         control: Control = "normal",
     ) -> DeformationCondition:
         if control not in self.CONTROLS:
             raise ValueError(f"unknown causal control: {control}")
+        if native_candidate_values is not None:
+            if self.correspondence_mode!='native-spatial' or self.task_attention is None or control!='normal':
+                raise ValueError('native spatial candidates require the explicit unperturbed spatial task arm')
+            from .task_matching_attention import native_spatial_evidence
+            return native_spatial_evidence(self,target_keys=target_keys,target_query=target_query,
+                keys=native_candidate_keys,values=native_candidate_values,target_valid=target_valid)
+        if self.correspondence_mode=='native-spatial':
+            raise ValueError('native-spatial arm must receive original projected camera candidates')
         if self.arm != 'c2' and (target_context is not None or source_context is not None):
             raise ValueError('raw deformation context channels exist only in c2')
         if source_values.ndim != 4 or source_values.shape[-1] != self.value_dim:
@@ -337,8 +376,15 @@ class DeformationAwareConditioner(nn.Module):
             complete_support = source_valid.flatten(1).sum(-1) >= 64
             valid = valid & target_valid[..., None] & complete_support[:, None, None]
         query_valid = valid.any(-1)
-        candidate_values = self._gather(flat_values, indices)
         view_index = torch.div(indices, sites, rounding_mode="floor")
+
+        if self.task_attention is not None:
+            from .task_matching_attention import task_evidence
+            return task_evidence(self,target_keys=target_keys,source_keys=source_keys,
+                source_values=source_values,target_query=target_query,indices=indices,
+                valid=valid,view_index=view_index,views=views)
+
+        candidate_values = self._gather(flat_values, indices)
 
         if self.arm == "b1":
             evidence = candidate_values[:, :, 0] * valid[:, :, 0, None]

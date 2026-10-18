@@ -25,3 +25,25 @@ Frozen score의 soft weighting 이후에는 생성 loss를 통해 후보의 유�
 고정 결과에서 vanilla V1 및 matched Top1 대비 source-cluster CI와 noise별 방향을 확인하고, 개선 후보는 추가 training seed로 재검증한다. 후보를 선택한 development panel의 효과와 독립 seed의 재현을 구분한다. 작은 quick32 개선이나 attention이 넓어졌다는 사실만으로 모델을 채택하지 않는다. 음의 결과도 보존하고 효과를 강제로 양수로 만들지 않는다. SS에서 근거를 얻기 전에는 PBR 전체 ladder로 확대하지 않는다.
 
 이 문서의 작성·config 생성은 학습 완료를 뜻하지 않는다. 첫 두 run만 완료해도 decoder/score/correspondence 전체 검증과 최종 모델 탐색이 끝난 것은 아니다.
+
+## 구현한 후속 구조와 고정 비교
+
+새 task attention은 원래 R9 D1-Q2C decoder와 scalar matching head를 `4f8771f2…`에서 초기화한다. Omega backbone/descriptor와 처음 검색한64개 후보 주소는 고정하고, decoder 및 score head는 생성 loss로 학습한다. Native DINO target query와 contextual Omega query를 각각128차원으로 projection하고 합친 query로 source DINO candidate의 content attention을 구한다. Matching score/temperature를 attention-logit prior로 더하며, native DINO value만 가중합한다. 기존 zero-output C1 retargeter와 fusion gate를 사용해 초기 native 출력을 보존한다. Extra deformation-query channel과 exact-match rejection은 없다.
+
+| Arm | Context decoder | Matching-score prior | Value 후보 / Retargeter |
+| --- | --- | --- | --- |
+| top1-reference | Frozen D1 | Argmax 선택 | Semantic64 중1개 / 없음 |
+| soft-topk | Frozen D1 | Frozen soft weighting | 같은 Semantic64 / 없음 |
+| static-c1 | Frozen D1 | Frozen soft weighting | 같은 Semantic64 / C1 |
+| task-full | 생성 loss로 학습하는 D1 | 생성 loss로 학습하는 scalar score | 같은 Semantic64 / C1 |
+| task-no-decoder | 물리적 D0, context block 없음 | 같은 초기 scalar head를 학습 | 같은 Semantic64 / C1 |
+| task-no-prior | 같은 학습 D1 유지 | 사용하지 않음, scalar head freeze | 같은 Semantic64 / C1 |
+| task-native-spatial | 같은 학습 D1 block | 같은 scalar head를 학습 | **원래 native ProjGrid의 source camera3개** / C1 |
+
+`task-no-prior`에서도 decoder output이 content-attention query에 들어가므로 decoder ON/OFF와 혼동하지 않는다. 이 arm은 사용자 정의의 Top1 No-score와 다른 prior ablation이다. Decoder 제거 시 나머지 attention/retargeter 초기 weight는 같고 context block 자체가 없다. Task 학습에서는 cached matching logit 대신 현재 decoder/head의 score를 계산하며, cache는 고정 semantic proposal 주소와 validity에 사용한다.
+
+첫 wave soft temperature는 calibration 실효K4에 가장 가까운 grid 값, 후속 static/task 공통 temperature는 실효K8에 가장 가까운 grid 값이다. 두 선택 모두 GT/validation SS 성능을 쓰지 않는다. Static-C1→task-full이 learned attention 경로의 전체 추가 효과이고, task-full→no-decoder/no-prior가 각각의 기여다.
+
+Native-spatial arm은 같은 카메라 행렬·native anchor 변환·ProjGrid로 각 source view의 실제 DINO/Omega feature를3D voxel에 sample한다. Target RGB alpha만 추가 경로의 support에 사용하며 target-depth spatial_indices는 로드하지 않는다. Uniform view weight와 zero retargeter에서는 원래 native4view 평균을 복원하는 수치 검사를 둔다. Native control은 자연스러운3개 spatial view 후보와64개 semantic patch 후보를 비교하므로 고정K 주소 하나만의 인과 비교라고 표현하지 않는다. 같은 candidate/support를 보존하는 주소 교란은 별도 진단으로 이 한계를 보완한다.
+
+모든 새 task arm은 동일한5epoch 조건을 먼저 실제 native/backward/memory proof로 검사한 뒤 학습한다. Decoder·score·task projection의 실제 gradient, attention 집중도·실효K를 기록한다. Decoder/score/correspondence 각각의 효과와 모델 채택은 fixed-final 생성 결과를 얻은 뒤 판단한다. 개선 후보의 추가 seed 확인과 실제 W&B/file4 대조는 여전히 필수 후속이다.

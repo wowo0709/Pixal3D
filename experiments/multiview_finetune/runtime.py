@@ -75,6 +75,15 @@ def run_step(self, packs):
             diagnostics['condition_native_rms_strided_last_pack']=self._last_deform_native_rms
         if last is not None and last.retarget_residual is not None:
             diagnostics['retarget_residual_rms_last_pack']=float(last.retarget_residual.detach().float().square().mean().sqrt())
+        if getattr(module,'task_attention',None) is not None and self.step%10==0:
+            if last is not None and last.candidate_weights is not None and last.query_valid is not None:
+                weights=last.candidate_weights.detach().float()[last.query_valid]
+                if len(weights):
+                    entropy=-(weights*weights.clamp_min(1e-30).log()).sum(-1)
+                    diagnostics['attention_mean_effective_K']=float(entropy.exp().mean())
+                    diagnostics['attention_mean_max_weight']=float(weights.max(-1).values.mean())
+            for name,submodule in [('matching_decoder',module.q2c.decoder),('matching_score',module.q2c.fusion_head),('task_attention',module.task_attention)]:
+                diagnostics[name+'_gradient_L1']=sum(float(p.grad.detach().float().abs().sum()) for p in submodule.parameters() if p.grad is not None)
         result['conditioner']=diagnostics
     peak = torch.cuda.max_memory_allocated() / 2**30
     if controller is not None:

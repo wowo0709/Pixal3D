@@ -1113,6 +1113,14 @@ class ImageConditionedProjMixin:
             self.training_models.get('deform_conditioner', self.deform_conditioner)
             if hasattr(self, 'training_models') else self.deform_conditioner
         )
+        if getattr(self.deform_conditioner,'correspondence_mode','semantic')=='native-spatial':
+            if coords is not None or camera_info is None or anchor_condition is None or control!='normal':
+                raise ValueError('native spatial task attention requires denseSS camera metadata and normal input')
+            from ....modules.task_matching_attention import inject_native_spatial_task
+            condition,output=inject_native_spatial_task(self.deform_conditioner,module,self._image_cond_module,
+                condition,anchor_condition,transport,camera_info)
+            self._last_deform_condition=output
+            return condition
         call = {
             key: value for key, value in transport.items()
             if key not in {'patch_grid', 'patch_ids'}
