@@ -23,7 +23,7 @@ def main():
     p.add_argument('--r9-path-control',choices=('normal',*R9_DEFINITIONS),default='normal',
                    help='Saved-weight control for original R9 candidate; separate from matching-v2 evidence controls')
     p.add_argument('--task-value-control',choices=['normal','wrong-address'],default='normal',
-                   help='Permute only task-attention values; preserve candidate keys, learned weights and scores')
+                   help='Permute only retrieved attention values; preserve candidate keys, frozen/learned weights and scores')
     p.add_argument('--panel-size',type=int)
     p.add_argument('--panel-file',type=Path)
     p.add_argument('--seed-map-file',type=Path)

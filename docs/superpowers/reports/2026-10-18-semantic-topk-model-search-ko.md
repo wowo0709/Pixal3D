@@ -69,3 +69,7 @@ Train1790source와 validation132source의 교집합은0이다. Development128/93
 추가121 평가는 seed101의8개 비교군과 V1/이전C1/두zero-shot,seed202의선정후보/Top1기준선(총14개 saved-model 조건)을3noise로 평가한다. 추가 학습은 없다. 우선순위를 학습과 원래 final128보다 낮게 두고 남는 허용 GPU에 배치한다. Micro voxel IoU/F1을 유지하고 case macro IoU는 보조로만 보고한다. 후보 선택을 변경하지 않은 상태에서39source의 CI를 별도로 계산하며, raw checkpoint·실제GT hash·source·seed·4RGB입력·optimizer0update를 검사한다.
 
 Saved-weight 정합 검사는 원래C1뿐 아니라Top1/soft및새task/no-decoder/no-prior/native-spatial에 적용한다. 각 model의 fixed128 첫2개 active 사례에서 실제 public camera/ProjGrid 경로의cached 대 online proposal/current head,BF16,train/eval및CFG p0/p1/mixed를 확인한다. Task에서는예전cached logit을바꿔도현재학습head가그대로사용되는지,spatial에서는semantic cache주소를바꿔도원래투영경로가유지되는지검사한다. 초기head 전체가frozen이라고잘못가정하지않고실제로고정된state만비교한다. 별도로실제4RGB의FP32DINO를다시인코딩해FP16저장native token과비교한다(relativeRMS≤0.005,mean cosine≥0.9999). 이검사는0SGD의2case정합검사이며전체asset성능증거로대체하지않는다.
+
+Full 이외의 후보가 선택되어도 그 saved model에서 value-address 진단을 수행한다. Frozen soft/static-C1도 원래 attention weight 계산을 마친 aggregation 경계에서 각 query의 유효 candidate value만 순환한다. 따라서 후보 주소·key·score·weight·support뿐 아니라 query마다 검색된 value의 multiset도 보존한다. 전체 source feature map을 먼저 교란하는 기존 R9 진단과 다르며 두 개입을 혼용하지 않는다. Normal common32가 해당 모델의 final128/noise0에서 같은 사례·GT hash·voxel count를 exact replay해야 하고, 잘못 연결한 value와의 paired source-cluster CI를 보고한다. CI가0을 포함하면 semantic 후보 검색 전체가 무효라고 해석하지 않는다.
+
+선정이task-full이면 이미 계획한 동일 raw480/common32 value-address 평가를 재사용한다. 다른semantic 후보면 남는 허용 GPU에서 두 평가를 추가하며 학습을 다시 하지 않는다. 추가 seed 보고서는 선정 모델의 이 진단까지 완료된 뒤 생성한다. 진단의 실행 여부와 성능 기여 여부를 별도로 기록하고, positive 효과를 미리 가정하지 않는다.
