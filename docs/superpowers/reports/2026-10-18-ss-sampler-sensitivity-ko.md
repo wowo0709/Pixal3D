@@ -1,5 +1,7 @@
 # SS 고정 checkpoint의 sampling 민감도 진단
 
+**완료:** 네 fixed checkpoint×12/50steps의8개 평가와 strict 집계·W&B 실제 readback·actual-file4 저장 검증을 마쳤다. 아래 계획은 실행 이력이며 최종 결과는 마지막 절을 따른다. 어느 model에서도50steps가12steps보다 개선되지 않았다.
+
 [최초 실험 계획](2026-10-17-ss-matching-v2-experiment-plan-ko.md)의 8.1은 flow loss와 12-step 생성 경향이 엇갈리면 대표 checkpoint에 같은 더 긴 sampling을 적용하도록 정했다. 이 조건을 실제 본 비교에서 확인해 후속 진단을 추가한다. 기존 학습과 fixed-final128×3의 primary protocol은 유지한다.
 
 ## 실제 실행 근거
@@ -19,3 +21,20 @@
 현재 C1/V1 및 후속 B3 학습은 유지한다. **GPU2/3**에서 네 평가씩 순차 실행하고 GPU0/1의 B3와 병행한다. 최초 queue는 양쪽 regional6개 집계 뒤 시작하도록 했지만, seed101 실측에서 adapter-only가 약3.5분 먼저 끝나 자원별 대기를 줄였다. 이 campaign의 GPU2는 adapter-only 세 seed와 [C1 conditioning 검사](2026-10-18-ss-conditioning-contract-ko.md) 뒤 sampler를 시작하며, GPU3는 query 세 seed를 포함한 regional6개 집계 뒤 시작한다. 입력·weights·8개 비교와 학습/평가 내용은 그대로다. 변경 전후 pending dependency와316-job graph 검사는 `provenance/gpu2-postregional-pipeline-schedule-v1.json`에 있다. 허용 장치는 계속0~3뿐이다. 진단 여덟 개, strict CPU 집계, W&B publication을 모두 완료해야 한다. Source는 `sampler_sensitivity.py`, canonical 결과는 file4의 `rgb_matching_v2/sampler-sensitivity-v1/`이다.
 
 결과의 source-cluster bootstrap CI는 한 sampling noise·저장된 특정 checkpoint에 조건부인 탐색적 결과다. 반복 비교에 대한 보정이나 training-seed 모집단 CI는 아니다. `selection_use=false`, `production_sampler_changed=false`를 유지하며 primary final128×3를 덮어쓰거나 각 arm에 유리한 sampler를 골라 본 표를 만들지 않는다. W&B에는 수치·GT/Pred/Diff 여덟 이미지·paired 표·source fingerprint와 summary artifact를 기록한다.
+
+## 실제8개 진단 완료
+
+새12-step 평가 네 개가 각각 primary noise0의 공통32 TP/FP/FN·sampling seed·source cluster를 exact 재현했다. 여덟 평가의 checkpoint/conditioner·같은32개 actual GT occupancy hash·네 RGB/camera·CFG3·batch8·optimizer update0도 strict collector가 검사했다. 이 네 모델은 **기존 primary14의 checkpoint**이고 새 matched seed101 V1/B3/C1을50steps로 평가한 것이 아니다.
+
+| Fixed checkpoint | IoU12 | IoU50 | 50−12,pp [95% CI] |
+| --- | ---: | ---: | --- |
+| V1 | 0.437100 | 0.423169 | −1.393 [−2.591,−0.375] |
+| Original R9 C1 | 0.452509 | 0.438686 | −1.382 [−2.337,−0.460] |
+| H3 B3-attention-R | 0.433638 | 0.422274 | −1.136 [−2.167,−0.403] |
+| H3 C2-query-R | 0.437637 | 0.423522 | −1.411 [−2.554,−0.428] |
+
+모든50−12 차이의 CI가0보다 낮았다. 같은 weight의 generation 경향을 단순히12steps의 부족으로 설명할 근거는 얻지 못했다. 이 결과가 모든 sampler/CFG의 전역 최적값을 증명하는 것은 아니다. 원본 C1−V1 point estimate는12steps+1.541pp,50steps+1.552pp로 비슷했지만,32개·1noise의 해당 CI는 양쪽 모두0을 포함한다. 이를 final128×3의 확정 효과나 새 training seed 재현으로 바꾸지 않는다.
+
+실제 queue 기준32개 평가 시간은12steps가각90.11~90.13초,50steps가310.44~320.45초였다. 초기화/저장과 queue polling granularity를 포함한 wall time이며 약3.4~3.6배 느렸다. GPU2가 먼저 반환된 뒤 pending C2의12/50 pair를 함께GPU2로 옮겨GPU3의 serial 대기를 줄였다. Command/weight/panel·전체317개DAG는 그대로였고 main B3 학습은 중단하지 않았다. 근거는 `provenance/C2-sampler-GPU2-backfill-v1{,-file4}.json`이다.
+
+W&B `ss-sampler-sensitivity-v1`의 finished/PASS,32개 numeric field·8개 다운로드 PNG·4행 table의20개 numeric field와11개 artifact 파일을 실제 서버에서 대조했다. `sampler-sensitivity-v1/independent-remote-readback/audit.json`에 결과가 있다. `provenance/sampler-diagnostic-completed-and-remote-v1-file4.json`은58개 산출물1,205,026bytes의 actual-file4 SHA256/크기 일치다. Primary sampler12/CFG3·final128×3와 checkpoint 선택은 변경하지 않는다.

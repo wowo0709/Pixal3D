@@ -84,6 +84,8 @@ Edited 입력의 개선+3.856pp,그 위 V1 fine-tuning의+1.337pp,C1−V1의+0.9
 
 ## 재현 가능한 코드와 다음 판정
 
+후속 [sampler8개 진단](2026-10-18-ss-sampler-sensitivity-ko.md)도 완료됐다. 같은 네 checkpoint에서50−12 IoU는모두−1.1~−1.4pp였다. 이 모델들의 낮은 효과를 sampling12steps 부족으로 설명할 근거는 없었다. [Confidence 곡선](2026-10-18-matcher-confidence-coverage-ko.md)은 기존 fixed head의 실제 값을 재계산했고 threshold를 다시 선택하지 않았다. H3의 후보 recall93.16%와 Top1 23.71%의 차이, frozen operating point의 precision33.16%/coverage11.41%를 확인해 candidate miss와 reranking/utility bottleneck을 구분했다. 해당 confidence 분모38,044와 SS cache foreground38,366은 합치지 않는다.
+
 원본 Q2C는 `historical_q2c_training.py`/`reproduce_q2c.py`,원본 G2 수식과 endpoint는 `historical_reproduction.py`/`historical_geometry_runtime.py`/`reproduce_geometry_content.py`,현재 physical query는 `geometry_content_adapter.py`/`train_current_geometry_endpoint.py`에 구현돼 있다. Source AST authority·실제 입력/weight SHA·실행 command는 각 runtime proof에 고정돼 있으며 과거 worktree를 실행 중 import하지 않는다. Source archive+patch는 실제 임시 checkout에 적용해 재구성했고 현재 verifier source까지 byte 일치 검사를 남겼다.
 
 1. 완료된 원본 수치 재현과 현재 task 개선을 보존한다. 기존14개와 scalar pilot도 삭제하거나 양의 결과로 다시 표시하지 않는다.
