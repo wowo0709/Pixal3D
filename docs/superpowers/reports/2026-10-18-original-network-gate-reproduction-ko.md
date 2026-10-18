@@ -41,3 +41,13 @@ V1의 final128×3가 끝난 뒤 GPU2에서 `historical-network` proof가 정상 
 GPU2/3에서 adapter-only와 adapter-query의 seed101 본 학습이 시작됐다. 두 실제 train log의 첫8 update가 연속·finite이고 sample ID·noise seed·epoch 순서가 정확히 같음을 확인했다. 이후 update10까지 실제 진행했으며 train peak allocated는 약6.730/6.736GiB였다. 같은 sample/noise에서 두 loss가 다른 것은 모듈의 학습 상태 차이이며, calibration 품질의 우열로 해석하지 않는다.
 
 실제 GPU proof와 immutable first8 main-update prefix를 `provenance/current-regional-original-network-GPU-start-v3.json`에 보존했다. `current-regional-original-network-GPU-start-v3-file4.json`은 두 closed artifact의 local/actual-file4 SHA256·크기 검증을 기록한다. 128 updates, checkpoint freeze 후 cal32×3noise와 source-OFF/joint-query-shuffle 평가, seed202/303 및 strict six-run 집계는 계속 남아 있다. Main SS B3는 GPU0/1에서 global96/DDP2/micro48/accumulation1 학습을 병행한다.
+
+## Seed101 두 checkpoint의 실제128-update 고정
+
+두 arm의 학습128 updates가 완료돼 calibration GT를 연 뒤 평가하기 전에 각각 checkpoint를 고정했다. Train loop 시간은 No-query **1,147.87초**, query **1,145.68초**였다. 이 약19분은 후속 cal32×3noise·control 평가를 포함한 run 전체 시간이 아니다.
+
+실제 checkpoint의 optimizer 상태는 No-query12개/query18개가 모두 step128이고 모든 weight·moment tensor가 finite였다. Scalar `gate_logit`은 없고 두 weight 모두 원본 constant-gate MLP의371개 parameter를 포함한다. No-query는 content encoder 자체가 없고 residual LayerNorm 폭3075, query arm은 content encoder와 폭3107을 가졌다. 고정32 train population, 조건/actual-SS-GT-v4 hash도 대조했다. 두 actual train log의128개 전체 sample ID·epoch·noise seed 순서가 정확히 같았다.
+
+고정된 두 checkpoint·optimizer, freeze marker, 닫힌128-update log와 검사 기록 등7개 산출물 **12,998,909 bytes**의 actual-file4 SHA256·크기를 확인했다. `provenance/current-regional-original-network-seed101-train-freeze-v3.json`은 이 학습 고정 검사이며 `calibration_quality_complete=false`, `all_six_runs_complete=false`다. 각 freeze marker의 checkpoint hash도 실제 파일과 일치한다. 저장 검증은 같은 이름의 `*-file4.json` receipt에 있다.
+
+현재 두 process는 fixed checkpoint의 cal32×3noise와 source-OFF/joint-query-shuffle 평가를 진행한다. 성능 차이는 해당 평가가 끝나야 계산하며 seed202/303까지 완료한 뒤 원본 network-gate의 전체 추가 효과를 판정한다. 같은32/3noise라도 primary14의 decoded-GT micro metric과 이 regional actual-SS-input GT/macro metric은 합쳐 집계하지 않는다.

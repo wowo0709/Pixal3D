@@ -183,3 +183,19 @@ Zero-shot은 본14개 비교에서 완료한 frozen SS4210 baseline을 재사용
 새 paired JSON, 검사 기록, V1의 세 평가 JSON·GT/Pred/Diff·실제 입력 contact·recipe 등12개 산출물 **763,513 bytes**를 actual-file4와 SHA256·크기 대조했다. W&B에서는 세 V1 metric set과 PNG를 직접 다운로드해 대조하고, 별도 final128 paired gain·CI·128 asset/93 cluster/3noise/384 hash-check 수치도 원격에서 일치함을 확인했다. 근거는 `comparisons/c1-vs-v1-final128-three-noise.json`, `wandb-final-readback/v1/audit.json`, 상위 `provenance/matched-C1-V1-fixed-final128-{file4,remote-file4}.json`이다.
 
 이 paired CPU job은 B3가 끝날 때까지 기다리지 않고 이미 완료된 C1/V1 대비를 노출하기 위해 추가했다. Reporter에 해당 comparison directory를 연결했고, 실제 CPU reporter만 idle 시점에 갱신했다. B3 training PID는 유지됐으며 source/입력목록/queue/갱신 기록은 `provenance/seed101-finalpair-source-logging-file4.json`에서 actual-file4 검증을 통과했다. B3 및 원본 network-gate6개·sampler 진단과 최종 채택 판단은 계속 진행한다.
+
+## B3 첫 epoch의 세 arm 비교
+
+B3도 step96 검증을 마쳤다. 세 run 모두 seed101·global96/DDP2/micro48/accumulation1·같은32 GT/source/noise를 사용했다. 아래는 동일한 첫 epoch의 한 noise 결과이며 fixed-final128×3와 구분한다.
+
+| Arm | Step96 IoU |
+| --- | ---: |
+| V1 | 0.43214776 |
+| B3, 원래 R9 matching/attention | 0.43474238 |
+| C1, B3 + retargeter | 0.43633516 |
+
+B3−V1은 **+0.259pp,95% CI[+0.061,+0.499]pp**이고 C1−B3는 **+0.159pp,95% CI[−0.854,+1.103]pp**였다. 이 시점의 B3 전체 matching/fusion 경로 점추정치는 양수지만, 독립적인 score-attention 효과를 뜻하지 않는다. Retargeter 추가 효과도 아직 확인되지 않았다. 반복 관측에 대한 보정이 없는 중간32 비교이며 B3의480-update와 final128×3를 계속 수행한다.
+
+B3의 optimizer361개 상태가 전부 step96·finite이고 초기32 GT hash·source cluster·noise가 일치했다. 실제 W&B step96 metric·다운로드 이미지와 checkpoint 등7개 산출물 **2,847,426,704 bytes**의 actual-file4 SHA256·크기 검증도 통과했다. 두 paired 비교의 수치·CI는 공통 W&B reporter에서 직접 확인했다. `epoch-audits-v2/b3/epoch01/`, 상위 `provenance/matched-B3-first-epoch-{audit,paired-wandb-remote,file4}.json`에 근거를 보존했다.
+
+완료 전 [현재 C1의 cache·BF16·CFG 계약 검사](2026-10-18-ss-conditioning-contract-ko.md)도 원본 network-gate6개 뒤 GPU2의 별도 검증으로 연결했다. 모델 학습·primary sampler를 바꾸는 작업이 아니며, 현재 최종 head/weight·실제 입력을 명시해 기존 parity 기록의 fingerprint 한계를 보완한다. Source 재구성과 actual-file4 검증은 `provenance/current-C1-conditioning-contract-source-file4.json`에 있으며 실제 GPU 결과는 아직 대기 중이다.
