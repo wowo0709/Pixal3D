@@ -2,6 +2,8 @@
 
 사용자의 “이전에 성능 향상을 보였던 모듈들을 재현” 요청에 따른 실행 문서다. [차이 분석](2026-10-18-historical-module-transfer-gap-analysis-ko.md)의 확인된 불일치를 복구하며, 현재14개 구성의 결과를 삭제하거나 이름을 바꿔 성공한 재현으로 취급하지 않는다.
 
+전체 범위의 완료 여부는 [요구사항별 확인표](2026-10-18-ss-reproduction-completion-audit-ko.md)로 추적한다. 원본 수치 재현, 현재 task 이식, 생성 효과와 Full/PBR 채택을 구분하며 아직 남은 검증을 완료로 간주하지 않는다.
+
 2026-10-18 현재 원본 Q2C 24개 학습의 모든 loss/최종 weight와 기존 G2 checkpoint의 144개 평가 endpoint를 재현했다. [현재 RGB task](2026-10-18-task-rgb-matcher-transfer-ko.md)에서도 Q2C의 RGB error 6.01% 감소를 3개 seed에서 확인했다. SS 생성 효과는 별도이며 [본 14개 결과](2026-10-18-ss-primary14-final-ko.md)는 완료됐다. 현재 9채널 geometry의 기존 scalar-gate 6개 학습도 완료됐지만, query 추가 이득은 확인되지 않았고 원본 optimizer parameterization과의 차이가 남았다. 이를 복구한 [원본 constant-gate network 재실험](2026-10-18-original-network-gate-reproduction-ko.md)은 실제 GPU native/gradient 검증과 seed101 두 arm의128-update·calibration 평가를 마쳤고, seed202가 진행 중이다. 첫 seed에는 stale cleanup 개선과 source recall 하락이 함께 있어 나머지 seed를 확인한다. [새 seed의 V1/B3/C1 matched 실행](2026-10-18-original-SS-seed-confirmation-ko.md)에서는 V1/C1의480-update final128×3가 완료돼 C1−V1 IoU **+0.954pp,95% CI[+0.542,+1.350]pp**를 확인했다. 이는 C1 전체 경로의 추가 이득이며, retargeter 분리를 위한 B3·원본 network-gate6개 전체·최종 conditioning 검사·sampler 진단과 Full/PBR 판단은 남아 있다. 아래 단계별 준비/진행 상태는 당시 이력이며 최신 결론은 각 결과 문서를 따른다.
 
 ## 재현 대상

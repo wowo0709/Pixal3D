@@ -199,3 +199,11 @@ B3−V1은 **+0.259pp,95% CI[+0.061,+0.499]pp**이고 C1−B3는 **+0.159pp,95% 
 B3의 optimizer361개 상태가 전부 step96·finite이고 초기32 GT hash·source cluster·noise가 일치했다. 실제 W&B step96 metric·다운로드 이미지와 checkpoint 등7개 산출물 **2,847,426,704 bytes**의 actual-file4 SHA256·크기 검증도 통과했다. 두 paired 비교의 수치·CI는 공통 W&B reporter에서 직접 확인했다. `epoch-audits-v2/b3/epoch01/`, 상위 `provenance/matched-B3-first-epoch-{audit,paired-wandb-remote,file4}.json`에 근거를 보존했다.
 
 완료 전 [현재 C1의 cache·BF16·CFG 계약 검사](2026-10-18-ss-conditioning-contract-ko.md)도 GPU2의 별도 검증으로 연결했다. 최초 전체 regional6개 대기는 각 GPU 실측에 따라 GPU2 adapter-only 세 seed 완료 뒤로 조정해 GPU3 query 평가와 병행한다. 모든6개 regional 비교는 계속 필수다. 모델 학습·primary sampler를 바꾸는 작업이 아니며, 현재 최종 head/weight·실제 입력을 명시해 기존 parity 기록의 fingerprint 한계를 보완한다. Source 재구성과 actual-file4 검증은 `provenance/current-C1-conditioning-contract-source-file4.json`, 대기 순서 변경은 `provenance/gpu2-postregional-pipeline-schedule-v1.json`에 있으며 실제 GPU 결과는 아직 대기 중이다.
+
+## B3 두 번째 epoch의 동일 조건 비교
+
+B3가 step192 검증을 완료했다. 같은32개·32 source cluster·한 noise의 V1/B3/C1 IoU는 각각 **0.43444352 / 0.43305909 / 0.44060209**였다. B3−V1은 **−0.138pp,95% CI[−0.514,+0.266]pp**, C1−B3는 **+0.754pp,95% CI[−0.543,+2.044]pp**였다. 두 대비 모두0을 포함한다. 첫 epoch의 B3 점추정치 개선이 계속된다고 보기 어렵고, retargeter의 독립 개선도 이 중간 패널로 확정하지 않는다. 새로운 C1/V1의 fixed-final128×3 전체 경로 이득과 이 epoch2의32개 대비를 합쳐 집계하지 않는다.
+
+두rank의1~192 연속 update는 global96·micro48·accumulation1·finite loss를 유지했고, optimizer361개 상태가 모두 step192·finite였다. 실제 W&B history step192의 IoU와 다운로드한 GT/Pred/Diff PNG를 대조했다. Checkpoint와 snapshot 등7개 산출물 **2,847,648,606 bytes**의 actual-file4 SHA256·크기가 일치했다. 두 paired 비교의36개 numeric field도 공통 W&B run에서 일치했다. Closed 비교·remote readback·요약 검사4개 파일6,821bytes도 실제 file4 저장 검증을 마쳤다.
+
+근거는 `epoch-audits-v2/b3/epoch02/{audit,file4-closure}.json`, `epoch-comparisons/epoch-02-{b3-vs-v1,c1-vs-b3}.json`, 상위 `provenance/matched-B3-second-epoch-{audit,paired-wandb-remote,file4}.json`이다. 이미지에서는 전반적인 투영 silhouette가 유지되지만 경계·얇은 구조 오차가 있다. Y-projection의 유사성이3D occupancy 정합을 입증하지는 않는다. B3 학습과 final128×3를 계속 진행하며 early stopping이나 budget 변경에 사용하지 않는다.

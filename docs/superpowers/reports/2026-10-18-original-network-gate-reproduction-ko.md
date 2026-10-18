@@ -69,3 +69,13 @@ Query intact−joint-shuffle의 IoU는 **+0.0453pp [+0.0096,+0.0823]pp**였다. 
 7개 case마다32 source cluster·3noise의96개 기록, 원본128-update pair/noise schedule, 실제 SS encoder-input GT voxel hash, 두 frozen-native prediction hash 일치를 검사했다. GT hash는 actual SS-input label authority에서 독립 재구성해 대조했다. W&B의 두 run 설정·7개 metric set과7개 PNG도 서버에서 내려받아 대조했다. 이 CI는 한 model seed에 조건부이며 반복 비교 보정이나 model-seed 모집단 추정이 아니다. `selection_use=false`다.
 
 근거는 `seed101-network-gate-interim-v3.json`, `wandb-seed101-readback-v3/audit.json`, 상위 `provenance/regional-network-seed101-{complete,remote}-file4.json`이다. Closed 결과/이미지/one-seed 검사와 대기 스케줄 변경18개 산출물765,154bytes, 원격 readback8개 산출물의 actual-file4 SHA256·크기 검증을 완료했다. Seed202/303와 strict six-run 집계 뒤 재현성과 최종 채택을 판단한다. 이 첫 결과로 학습 budget이나 loss를 변경하지 않는다.
+
+## Seed202의128-update 학습 고정 검사
+
+두 번째 seed도 두 arm의128-update 학습을 완료했다. Adapter-only의 train loop는 **1,163.27초**, query는 **1,148.23초**였고 peak allocated는 각각6.730/6.736GiB였다. 전체 calibration·control 평가 시간은 포함하지 않는다. GPU0/1의 B3와 병행하는 GPU2/3의 실제 실행이며, 새 OOM이나 학습 재시작은 없었다.
+
+독립 CPU 검사에서 두 실제 checkpoint의 constant-gate371 parameter, scalar logit 부재, 물리적인 residual 입력 폭3075/3107과 content encoder의 유무를 확인했다. Optimizer12/18개 상태는 모두 step128이었고 weight·moment tensor가 모두 finite였다. 저장된 consumer·condition·actual-SS-input region authority·TRAIN32와128개 actual pair/epoch/noise 순서도 일치했다. 두 arm의 최초 native regional loss도 exact였다. Freeze marker의 calibration GT 미공개 상태와 실제 checkpoint SHA를 대조했다.
+
+근거는 `provenance/network-v3-training-checkpoints-independent-seed202.json`이다. 두 checkpoint·freeze marker·closed training log·검사 JSON 등7개 산출물 **12,999,497 bytes**의 actual-file4 SHA256·크기를 `network-v3-training-checkpoints-independent-seed202-file4.json`에서 확인했다. 검사 source는 `provenance/source-components/regional-checkpoint-audit-v3.py`에 보존했다. 새 검사를 seed101에도 적용해 기존 검사에서 기록한 모든 arm별 field가 동일함을 확인했고, source·검사·Git branch 증거까지9개 파일은 `network-v3-independent-seed101-and-branch-file4.json`에서 별도로 저장 검증했다.
+
+이는 **학습 고정 검사**이며 seed202의 calibration 품질 완료가 아니다. 두 process는 fixed-final cal32×3noise, projected-source-OFF와 query joint-shuffle 평가를 계속한다. Seed303·strict six-run 집계 및 최종 채택 판단은 그대로 남는다.
