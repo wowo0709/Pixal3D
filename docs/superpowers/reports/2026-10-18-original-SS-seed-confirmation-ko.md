@@ -53,3 +53,20 @@ GPU0~3만사용한다. GPU0/1은현재seed202 평가·기존C1 source진단·C2 
 기존seed0과새seed101은실행조건까지동일한두반복이아니므로독립seed 모집단CI로통합하지않는다. 새seed의matched 비교와기존관측의방향을나란히기록한다. 설정준비PASS와학습·성능PASS를구분한다. Full/PBR 채택은새결과·source활용진단·전체module 비교를검토한뒤결정하며C1으로미리확정하지않는다.
 
 `prepare_ss_seed_confirmation --mode prepare/queue/summarize`가설정생성·queue 등록·strict 최종집계를담당한다. Canonical file4 namespace는`rgb_matching_v2/ss-seed-confirmation-v1`이며source만Git에저장한다. W&B는기존`youngwoojeon-unist/pixal3d-deformnext-retargeting`의개별training run과공통evaluation reporter를사용한다.
+
+## 첫 epoch의 실제 matched 비교
+
+2026-10-18 10:46 KST에 V1의 step96 검증도 완료돼 C1과 같은 epoch를 비교했다. 두 모델 모두 native 시작 IoU는 0.42671546671444294였으며, 아래는 같은 32개 source cluster·한 sampling noise의 중간 결과다.
+
+| Arm | Step96 voxel IoU | 학습 전 대비, pp |
+| --- | ---: | ---: |
+| V1 | 0.43214776 | +0.543 |
+| C1 | 0.43633516 | +0.962 |
+
+C1−V1은 +0.419pp, paired source-cluster 95% CI [−0.583, +1.320]pp다. 점추정치는 양수지만 추가 효과를 확정하지 못했다. Sample noise·source cluster·GT voxel hash 32개가 모두 일치했다. B3와 fixed-final128×3가 아직 남아 있으므로 초기 개선만으로 기존 C1의 이득이 새 seed에서도 재현됐다고 결론내리지 않는다.
+
+각 rank의 step1~96이 연속이며 finite loss·global96/micro48/accumulation1임을 확인했다. 실제 step96 checkpoint의 optimizer 상태는 V1 360개, C1 366개가 모두 step96이고 모든 moment tensor가 finite였다. W&B 원격 history에서도 step0/96의 IoU와 paired gain/CI가 로컬 기록과 일치했다. 두 GT/Pred/Diff 이미지도 서버에서 내려받아 로컬과 SHA256 일치를 확인했다. 그림은 SS occupancy projection이며 rendering-level 품질 평가를 뜻하지 않는다.
+
+근거는 `epoch-comparisons/epoch-01-c1-vs-v1.json`, `epoch-snapshots/epoch-01-{v1,c1}-{runtime,validation}.json`, `figures/epoch-01-{v1,c1}-GT-Pred-Diff.png`, 상위 `provenance/matched-seed101-first-epoch-{audit,wandb-remote}.json`이다. 학습은 480 updates까지 계속하며 중간 snapshot을 final 결과로 대체하지 않는다.
+
+두 모델의 step96 checkpoint와 위 snapshot·이미지·source delta 등 17개 산출물 약 5.70GB는 실제 file4와 local의 SHA256·크기가 모두 같았다. `provenance/matched-seed101-first-epoch-file4.json`에 기록했다. 아직 쓰고 있는 runtime/validation 전체 파일을 immutable 파일로 해시한 것은 아니다.
