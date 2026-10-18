@@ -31,6 +31,15 @@ LABELS = dict(zip(FIRST_ORDER, ['Zero source4', 'Zero edited+3', 'V1', 'Top1',
 LABELS.update({'static-top1-c1':'Top1+C1', 'static-c1':'Static C1 T0.05',
                'task-full':'Task full', 'task-no-decoder':'Task no decoder',
                'task-no-prior':'Task no score prior', 'task-native-spatial':'Task native spatial'})
+COMPONENTS = {
+    'TopK weighting / no retargeter':'soft-topk-vs-top1-reference',
+    'TopK weighting / same C1 retargeter':'static-c1-vs-static-top1-c1',
+    'Learned matching path / same C1 retargeter':'task-full-vs-static-c1',
+    'Matching decoder / physical D0 control':'task-full-vs-task-no-decoder',
+    'Scalar score prior / decoder retained':'task-full-vs-task-no-prior',
+    'Semantic64 versus native spatial3 / different candidate counts':'task-full-vs-task-native-spatial',
+    'Previous C1 T0.005 versus matched Top1+C1':'previous-c1-vs-static-top1-c1',
+}
 
 
 def require(path, status, files):
@@ -163,6 +172,11 @@ def collect(root):
                                'PASS_SELECTED_MODEL_SAME_POOL_VALUE_ADDRESS_DIAGNOSTIC',files)
         if additional['candidate_selection_SHA256']!=sha(decision_path):raise ValueError('additional model selection changed')
         proof_files(root,'confirm-seed202-train-'+candidate,candidate,202,files)
+    markdown=[root/'firstwave-fixed-final-v1/report.md',root/'seven-arm-final-report.md']
+    if candidate is not None:markdown += [seedroot/'final-confirmation-report.md',root/'additional-validation-v1/final-report.md']
+    for path in markdown:
+        if not path.is_file():raise FileNotFoundError(path)
+        files.append(path)
     scope=conditional_scope(candidate,confirmation,additional,correspondence)
     sets={'development128':{'models':models,'contrasts':{**seven['contrasts'],**matched['contrasts']}}}
     galleries={'development128':{'records':records,'images':images,'ids':ids,
@@ -189,13 +203,15 @@ def collect(root):
             actual=aggregate(extra[name]);reported=additional['models'][name]
             if any(reported[k]!=v for k,v in actual.items()):raise ValueError('additional121 counts differ')
         extraids=validate_noise_identity(extra,121,39)
+        if len(extra)!=14:raise ValueError('all fourteen additional-panel methods required')
         if {r['source_cluster_id'] for r in next(iter(extra.values()))[0]['per_asset']} & {r['source_cluster_id'] for r in records['top1-reference'][0]['per_asset']}:
             raise ValueError('additional source clusters overlap development')
         sets['additional121']={'models':additional['models'],'contrasts':additional['contrasts']}
         names=list(extra)
         galleries['additional121']={'records':extra,'images':extraimages,'ids':extraids,
             'groups':[names[:7],names[7:]],'scope':'Source-disjoint additional121 / noise0. Fixed selected model;validation,not an independent test.'}
-    sets['same-weight-fusion-dose']={'models':{},'contrasts':dose['contrasts']}
+    sets['same-weight-fusion-dose']={'models':{name:{'micro_voxel_iou':m['micro_IoU'],
+        'micro_voxel_f1':m['micro_F1']} for name,m in dose['models'].items()},'contrasts':dose['contrasts']}
     sets['task-full-value-address']={'models':{},'contrasts':{'normal-vs-wrong-address':value['normal_minus_wrong_address']}}
     if correspondence is not None:
         sets['selected-value-address']={'models':{},'contrasts':{'normal-vs-wrong-address':correspondence['normal_minus_wrong_address']}}
@@ -292,6 +308,11 @@ def payload(root):
                 metrics[f'{name}/contrasts/{label}/{key}']=value
         if rows:tables[name+'/models']={'columns':['method','micro_IoU','micro_F1'],'data':rows}
         if contrasts:tables[name+'/contrasts']={'columns':['contrast','gain_IoU','ci95_lower','ci95_upper'],'data':contrasts}
+    components=[]
+    for label,key in COMPONENTS.items():
+        c=data['sets']['development128']['contrasts'][key]
+        components.append([label,c['gain'],*c['paired_cluster_bootstrap_ci95']])
+    tables['development128/component_effects']={'columns':['comparison_scope','gain_IoU','ci95_lower','ci95_upper'],'data':components}
     files=data['files']+[p for p in folder.iterdir() if p.is_file()]
     if any(p.suffix=='.pt' for p in files):raise ValueError('model binaries belong on canonical file4')
     return {'metrics':metrics,'tables':tables,'images':{p.stem:str(p) for p in folder.glob('*.png')},
@@ -369,6 +390,7 @@ def readback(root):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,required=True)
     p.add_argument('--mode',choices=['render','publish','readback'],required=True);a=p.parse_args()
+    os.environ['CUDA_VISIBLE_DEVICES']=''
     available=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,available[-2:])
     {'render':render,'publish':publish,'readback':readback}[a.mode](a.root)
 
