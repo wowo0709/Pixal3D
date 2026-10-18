@@ -531,3 +531,28 @@ Initializer prior 대비 trained prior의 argmax 불일치율은45.32%, 가중�
 저장된 decoder만 trained weight로 바꾼 대조의 initializer 대비 argmax 불일치율은48.41%, value 차이는13.39%였다. Scalar head만 trained weight로 바꾼 대조는21.68%,10.14%였다. 두 component가 모두 가중합을 바꾸며, 둘을 함께 바꾼 수치는 단독 변화의 합이 아니다. 이 hybrid들은 **원래/학습된 저장 component를 추론 시 교체한 진단**으로, 각각을 독립 학습한 ablation이나 SS 품질의 인과 효과로 해석하지 않는다.
 
 결과는 `matching-prior-drift-panel128-v1/summary.json`과 `matching-prior-drift-panel128-hybrid-v1/summary.json`에 있다. Hybrid 계산은 기존128 진단의 원래5분포·5대조 통계를 최대 차이0으로 재현했다. 실제 file4의 initializer·saved-conditioner·manifest·128개 RGB/feature/proposal 입력387파일(약3.86GB)을 별도로 SHA256 대조했고, hybrid가 완전히 같은 입력/weight를 사용했는지도 연결한다. 전체 panel에서의 matching-prior drift가 확인됐지만, 현재 최종 모델 채택이나 학습의 유해성 판정은 여전히 별도의 생성 평가·대조군·추가 seed 근거를 요구한다.
+
+## 원래 spatial·동일 retargeter Top1 대조의 네 번째 에폭
+
+두 대조군의 raw384/epoch4 validation과 실제 W&B 네 수치·PNG·optimizer/raw-checkpoint file4 대조가 완료됐다. 전체 epoch 검증은38/45개 완료됐고 두 모델은 마지막5에폭을 학습 중이다. 검증기가 W&B에 epoch row가 반영되기 전에 조회해 일시적으로 `StopIteration`을 기록했지만, 같은 run/checkpoint를 다시 조회해 두 epoch 모두 통과했다. 학습·checkpoint를 재시작하거나 결과를 재업로드하지 않았다.
+
+| 같은32개·32source·한 noise | Epoch4 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch4 | 0.434300 | 0.605592 |
+| 이전 C1 T0.005, epoch4 | 0.450249 | 0.620926 |
+| Static-C1 T0.05, epoch4 | 0.449461 | 0.620176 |
+| Task-full, epoch4 | 0.449138 | 0.619869 |
+| Task-no-decoder, epoch4 | 0.447982 | 0.618768 |
+| Task-no-prior, epoch4 | 0.448719 | 0.619470 |
+| Task-native-spatial, epoch4 | 0.442147 | 0.613179 |
+| Static-Top1+C1, epoch4 | 0.449885 | 0.620581 |
+
+기존 C1 T0.005−Static-Top1+C1은 +0.036pp, 95% source-cluster CI [−0.038,+0.113]pp였다. 세 번째 에폭의 양수 CI가 네 번째 에폭에서도 유지된 것은 아니다. Static-C1 T0.05−Static-Top1+C1은 −0.042pp, CI [−0.192,+0.106]pp, Full−Static-Top1+C1은 −0.075pp, CI [−0.541,+0.482]pp였다. No-decoder와 No-prior도 같은 Top1+C1보다 각각 −0.190pp [−0.556,+0.249],−0.117pp [−0.482,+0.247]로 불확실했다. 이 epoch에서 weighted multi-candidate evidence의 추가 이득을 확정하지 않는다.
+
+Full−native-spatial은 +0.699pp, CI [−0.029,+1.574]pp로 semantic 쪽 point estimate가 높지만0을 포함했다. Native3개 camera sample 대 semantic64개 patch라는 자연스러운 후보 수 차이를 유지하며, 주소만의 인과 효과라고 부르지 않는다. Static-Top1+C1−V1은 +1.559pp, CI [+0.093,+3.095]pp였다. 그러나 Top1+C1−retargeter 없는 Top1은 +1.359pp, CI [−0.136,+2.904]pp로, 앞 대조의 양수 CI를 retargeter 단독 효과로 옮겨 해석하지 않는다. Native-spatial−V1은 +0.785pp, CI [−0.637,+2.337]pp였다.
+
+같은 run의 epoch3→4 변화는 native-spatial +0.067pp, CI [−0.337,+0.529]pp, Static-Top1+C1 +0.810pp, CI [+0.119,+1.473]pp였다. Top1+C1의 이 구간 개선은 관측되지만 joint optimization의 변화이며 특정 모듈의 단독 효과나5에폭 최종 수렴을 입증하지 않는다.
+
+전체13개 방법·paired/temporal 결과와 실제 입력은 `wave4-epoch4-comparison-v1/`에 있다. 한 training seed·한 sampling noise에 조건부이고 다중 비교를 보정하지 않은 중간 결과다. 모델·데이터·학습률·microbatch·원래5에폭 budget을 변경하지 않았으며 fixed128×3,6후보 선정,추가 seed/121개 검증과 최종 채택은 계속 남아 있다.
