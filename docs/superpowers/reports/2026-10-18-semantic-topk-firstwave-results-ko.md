@@ -134,3 +134,26 @@ Full의epoch1→2 점수는43.833%→44.027%,static은43.805%→44.003%로올랐
 Zero edited−zero source는같은desired M1 GT에서+3.172pp,CI[+1.111,+5.505]pp였다. Source-only는camera08을포함한deformation전RGB4장이고edited는targetRGB1장과sourceRGB3장이다. 이비교는target변형단서가도움이됨을보여주지만source M0재구성평가는아니다. Full−V1과Full−zero edited의현재점수차이는각각+0.583pp/+1.356pp이며,이quick32에서두CI는모두0을포함한다.
 
 두새모델epoch2의actual W&B수치/image 및raw192 checkpoint file4 SHA/크기검사를완료했다. 이단계결과와모든9개방법의전체표는 `wave2-epoch2-comparison-v2/`에있다. Portable compiler는 `experiments/deformnext_retargeting/summarize_semantic_epoch.py --root <search-root> --epoch 2`다. Source/seed/actualGT32검사·같은epoch강제·micro count집계후새결과만쓰며,기존epoch1보고서를덮어쓰지않는다.
+
+## 세 번째 에폭: learned matching 경로의 추가 이득은 아직 불명확
+
+Raw288/epoch3에서도같은32개·한noise·SS64 GT를사용했다. Source·seed·GT hash와native초기/edited-zero참조의일치를다시검사했다. 아래는중간quick평가이며첫표의final128×3집계와별개다.
+
+| 같은32개 기준 | Epoch3 또는zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1,epoch3 | 0.431872 | 0.603227 |
+| 이전 C1,T0.005,epoch3 | 0.443624 | 0.614597 |
+| Static-C1,T0.05,epoch3 | 0.441943 | 0.612982 |
+| Task-full,T0.05,epoch3 | 0.441403 | 0.612463 |
+
+Full−static은−0.054pp,95% source-cluster CI[−0.386,+0.241]pp였다. Full−이전C1은−0.222pp,CI[−0.594,+0.168]pp다. Full의초기보존과실제gradient활성화는확인됐지만,현재세에폭에서learned matching 경로의추가품질기여는확인되지않았다. Epoch2→3의점수상승폭은Full+0.113pp/static+0.191pp이며두temporal CI도0을포함한다.
+
+Full−V1의현재점수차이는+0.953pp,CI[−0.238,+2.345]pp다. 이차이는Full의상승과V1의quick점수변동을함께반영하므로Full단독의학습효율개선으로해석하지않는다. 마지막raw480/fixed128×3와같은retargeter의Top1,decoder/score/native-spatial제거대조를유지한다.
+
+두모델epoch3의actual W&B수치/image와raw288 checkpoint file4 SHA/크기대조가모두완료됐다. Epochaudit는이시점16/45개PASS,errors=[]였다. 기계판독전체9개방법/대조/temporal 결과는 `wave2-epoch3-comparison-v2/`에있다. 학습은계속진행중이며최종모델은선정하지않았다.
+
+추가로기존128개descriptor/projection진단에서semantic 경로의공유정도를집계했다. 현재nearest-projection구조에서는9,882개active 2D query가125,770개native16³ conditioning cell에전달돼query당평균12.727개cell이feature/attention/retargeter출력을공유한다. 이는occupied GT voxel의개수가아니며최종native+semantic조건전체가같다는뜻도아니다. 원래native multiview와anchor조건은계속변한다.
+
+이관측은2D semantic query가3D위치별단서를충분히사용하는지확인할근거이며실패원인의인과증거는아니다. 계획한비교에서추가이득을얻지못하면같은semantic64후보·decoder·score·retargeter를고정하고native-voxel RGB query만바꾸는후속검사를고려한다. 현재새arm을추가한것은아니다. 원래spatial3후보대조는후보자체와개수도달라query만의효과를분리하지못한다. 세부derived관측은 `provenance/semantic-query-reuse-diagnosis-v1.json`에보관했다.
