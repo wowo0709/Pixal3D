@@ -93,3 +93,17 @@ C1−V1은 +0.419pp, paired source-cluster 95% CI [−0.583, +1.320]pp다. 점�
 C1의 실제 step288이 이 절차의 첫 전체 검증을 통과했다. IoU는 **0.44362372**로 epoch1/2/3의 점추정치가 0.43633516 → 0.44060209 → 0.44362372였다. Epoch2→3은 +0.302pp, paired 95% CI [−0.167, +0.827]pp로 0을 포함한다. V1의 epoch3가 아직 없으므로 다른 epoch의 V1과 비교하지 않고 예정한 480 updates를 유지한다.
 
 두 rank의 step1~288은 모두 연속·finite·global96/micro48/accumulation1이고, optimizer 366개 상태가 모두 step288·finite였다. GT hash·noise·source identity 32개가 native 시작과 일치한다. W&B의 실제 step288 지표·이미지를 내려받아 대조했고, checkpoint 등 7개 산출물 약 2.86GB의 local/actual-file4 SHA256·크기도 일치했다. 근거는 `epoch-audits-v2/c1/epoch03/{audit,file4-closure}.json`, 같은 폴더의 validation/runtime snapshot·이미지, `epoch-comparisons/trend-epoch03-vs-epoch02-c1.json`이다. 이 namespace의 PASS는 해당 epoch의 실행·보관 검증이며 fixed-final128×3 성능 채택을 뜻하지 않는다.
+
+## 세 번째 epoch의 동일 조건 비교
+
+2026-10-18 11:43 KST에 V1의 step288 검증도 완료됐다. 아래는 seed101·고정32 source cluster·한 sampling noise의 같은 epoch 비교다.
+
+| Epoch / step | V1 voxel IoU | C1 voxel IoU | C1−V1, pp [95% CI] |
+| --- | ---: | ---: | --- |
+| 1 / 96 | 0.43214776 | 0.43633516 | +0.419 [−0.583, +1.320] |
+| 2 / 192 | 0.43444352 | 0.44060209 | +0.616 [−0.541, +1.900] |
+| 3 / 288 | 0.43187184 | 0.44362372 | +1.175 [−0.051, +2.641] |
+
+C1의 점추정치 격차는 커졌지만 CI는 여전히 0을 포함한다. V1의 2→3 epoch 점추정치는 내려갔으나 이를 구현 오류나 과적합의 확정으로 취급하지 않는다. B3·480 updates·final128×3가 남아 있으며 중간 경향으로 arm이나 학습 길이를 변경하지 않는다.
+
+두 모델 모두 실제 optimizer가 step288이고 native 시작과 GT hash·noise·source cluster가 일치한다. V1도 자동 검증을 통과해 optimizer 360개 상태가 finite이고, W&B 지표/이미지와 checkpoint를 포함한 6개 산출물의 actual-file4 SHA256·크기를 확인했다. C1의 같은 감사는 앞 절의 7개 산출물 검증을 따른다. `epoch-comparisons/epoch-03-c1-vs-v1.json`, `epoch-audits-v2/{v1,c1}/epoch03/`, 상위 `provenance/matched-seed101-third-epoch-audit.json`에 paired 지표와 서버 검증 근거를 기록했다. Full/PBR 채택은 아직 결정하지 않았다.
