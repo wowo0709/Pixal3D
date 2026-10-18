@@ -40,6 +40,8 @@ GPU0~3만사용한다. GPU0/1은현재seed202 평가·기존C1 source진단·C2 
 
 기존같은SS/DDP48 실행은steady 약17초/update였다. Run당compute 약2시간18분이며setup/validation/final generation이추가된다. 세run은두wave여서학습wave만약5시간규모이고현재남은작업과겹쳐실행한다. 정확한시간·peak는새실제probe/runtime로갱신한다. 조건을바꾸어좋은수치를얻기위한장기epoch 연장은하지않는다.
 
+실제C1 native proof는global/proj 차이0,LoRA gradient L1 248.4244,fusion-gate gradient0.03636,adapter-output gradient L1 10.0385로PASS였다. 두GPU의실제2-update probe도각micro48/global96/accumulation1·finite loss를통과했다. 양rank peak allocated는47.999GiB였고step2 compute는17.83/17.23초였다. Main 초기common32 IoU도0.4267154667과exact였다. 이는실행·초기정합증명이며학습후성능향상은아직판단하지않는다.
+
 ## 평가·완료 조건
 
 각epoch common32의voxel IoU/F1/precision/recall·GT/Pred/Diff를W&B에남긴다. Final은같은128개·93source cluster·noise3개·12steps/CFG3·generation8이다. Decoded-target SS GT와micro IoU를사용하므로기존14개표의protocol을따른다. 현재regional pilot의actual-SS-input GT/macro 집계와섞지않는다.

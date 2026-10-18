@@ -60,6 +60,20 @@ No-score는 Top1 하나를 읽는 비교이며 uniform 평균을 쓰지 않는�
 
 Common32의 실제 cache에서같은view donor를검사했고10,530개source foreground slot에zero donor vector가0개였다. R9의실제모듈을사용한CPU검증은score·validity·learned gate 보존,source value 교체,source-off와adapter-off 차이,예외후hook/weight/input 복원을확인했다. 이검증은실행경로의증명이며성능이득의증명이아니다. 생성4개와paired비교3개는별도namespace에예약하고,기존C1의성능과source 활용을함께검토한뒤추가seed/Full을판단한다. V1이나기존학습을재시작하지않는다.
 
+### 기존 C1과 최종 C2의 실제 경로 진단 완료
+
+기존C1의common32/noise0 정상평가IoU는0.452509였다. 이전128개평가에있는같은32개의seed·cluster·TP/FP/FN과모두exact였다. 네진단은같은GPU0·checkpoint·sampler12/CFG3·generation8을사용했다.
+
+| 제거/교체 | 정상−개입 IoU차,pp [95% CI] |
+| --- | --- |
+| 추가transport/adapter 전체OFF | +1.686 [−0.170,+3.603] |
+| Adapter만OFF | +1.661 [+0.010,+3.329] |
+| 같은camera의다른물체DINO source value | +0.459 [+0.136,+0.816] |
+
+Source value 교체와adapter 제거에대한민감도를확인했다. Source-off의CI는0을포함하며path 미사용이나동등성을뜻하지않는다. 각개입은현재checkpoint에대한대조로학습arm간순수인과효과를대체하지않고,wrong-object는외형/identity도바꾼다. 새matched seed의V1/B3/C1을함께확인한다.
+
+새C2의intact−shuffled RAW context는+0.093pp,CI[−0.099,+0.270]pp였다. 이진단에서도RAW query의추가생성이득은확정되지않았다. 이결과를predicted geometry9 query 실험과같은표현/대조로취급하지않는다. 근거는`module-study-native-v4/comparisons/diagnostic-{original-c1-r9-*,c2-query-r-shuffled-deform-vs-normal}.json`이다.
+
 ## 실행·저장 근거
 
 새 일곱 SS run은 모두 480updates/약5epochs를 완료했다. 두 rank의 연속 update, micro48·accumulation1·global96, finite loss, native 시작 IoU0.4267154667, 실제 gradient, checkpoint, 여섯 번의 epoch 검증을 strict collector가 확인했다. C2의 steady compute는 약17.27초/update, rank별 peak allocated는48.134GiB였다.

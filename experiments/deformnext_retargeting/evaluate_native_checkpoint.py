@@ -65,6 +65,8 @@ def main():
             torch.no_grad(),torch.autocast('cuda',dtype=trainer.mix_precision_dtype):
         metrics,panel,ids=evaluate_quick(trainer,ds,cfg['validation'])
     result={'status':'PASS','stage':args.stage,'step':args.step,'weights':'raw','checkpoint':str(args.checkpoint),
+            'conditioner_checkpoint':str(args.conditioner_checkpoint) if args.conditioner_checkpoint else None,
+            'arm_config':str(args.arm_config or (args.config_root/f'{args.stage}-v1.json')),
             'arm':cfg['experiment']['arm'],
             'quick_metrics':metrics,'quick_panel_ids':ids,'ao_sampling_seed':0,'optimizer_updates':0,
             'optimizer_updates_during_evaluation':0,'per_asset':getattr(trainer,'_quick_per_asset',[]),

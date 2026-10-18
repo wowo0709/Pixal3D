@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from experiments.deformnext_retargeting.prepare_ss_seed_confirmation import ARMS,make_config,check_matched,build_jobs
+from experiments.deformnext_retargeting.matching_v2_ss import audit_memory_probe
 
 
 def recipes(root,work):
@@ -59,3 +60,15 @@ def test_confirmation_jobs_preserve_GPU_pairs_and_all_nine_final_evaluations(tmp
         assert ('--conditioner-checkpoint' in job['command'])==(arm!='v1')
         assert '--generation-batch' in job['command']
     assert len(names['summarize-original-SS-seed101-confirmation']['depends_on'])==9
+
+
+def test_microbatch_gate_rejects_wrong_effective_batch_and_nonfinite_training():
+    rows=[[dict(step=step,world_size=2,effective_batch_size=96,microbatch_assets=[48],
+        accumulation_packs=1,loss={'loss':.1},peak_allocated_gib=48.) for step in [1,2]] for rank in [0,1]]
+    assert audit_memory_probe(rows,48,2,1)
+    changed=copy.deepcopy(rows);changed[1][1]['loss']['loss']=float('nan')
+    with pytest.raises(ValueError,match='nonfinite'):audit_memory_probe(changed,48,2,1)
+    changed=copy.deepcopy(rows);changed[1][0]['microbatch_assets']=[24,24]
+    with pytest.raises(ValueError,match='micro/global'):audit_memory_probe(changed,48,2,1)
+    changed=copy.deepcopy(rows);changed[1][0]['peak_allocated_gib']=92.
+    assert not audit_memory_probe(changed,48,2,1)

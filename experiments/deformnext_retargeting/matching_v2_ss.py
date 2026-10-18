@@ -159,6 +159,17 @@ def native_proof(cfg,output):
         'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0,'query_channels':query_proof})
 
 
+def audit_memory_probe(byrank,per_rank,world,split):
+    if len(byrank)!=world:raise ValueError('memory probe lacks a rank')
+    for records in byrank:
+        if [r['step'] for r in records]!=[1,2]:raise ValueError('memory probe requires two distinct updates per rank')
+        if any(r['world_size']!=world or r['effective_batch_size']!=per_rank*world
+            or r['microbatch_assets']!=[per_rank//split]*split or r['accumulation_packs']!=split for r in records):
+            raise ValueError('memory probe execution differs from the declared micro/global batch')
+        if any(not np.isfinite(r['loss']['loss']) for r in records):raise ValueError('memory probe has nonfinite loss')
+    return max(r['peak_allocated_gib'] for records in byrank for r in records)<=91
+
+
 def train(a):
     allowed=os.environ.get('CUDA_VISIBLE_DEVICES','').split(',')
     authorized=os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(',')
@@ -192,7 +203,7 @@ def train(a):
             if 'out of memory' in text.lower():continue
             raise RuntimeError('SS memory probe failed; see '+str(logpath))
         byrank=[[json.loads(l) for l in (directory/('runtime_batch.jsonl' if rank==0 else f'runtime_batch.rank{rank}.jsonl')).read_text().splitlines()] for rank in range(world)]
-        if any(len(rows)!=2 for rows in byrank) or max(r['peak_allocated_gib'] for rows in byrank for r in rows)>91:continue
+        if not audit_memory_probe(byrank,per_rank,world,split):continue
         selected=split;break
     if selected is None:raise RuntimeError('no verified SS microbatch')
     cfg['trainer']['args']['batch_split']=selected;cfg['experiment']['microbatch_per_gpu']=per_rank//selected
