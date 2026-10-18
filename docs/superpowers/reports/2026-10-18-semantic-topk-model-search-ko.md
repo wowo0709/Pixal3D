@@ -47,3 +47,5 @@ Frozen score의 soft weighting 이후에는 생성 loss를 통해 후보의 유�
 Native-spatial arm은 같은 카메라 행렬·native anchor 변환·ProjGrid로 각 source view의 실제 DINO/Omega feature를3D voxel에 sample한다. Target RGB alpha만 추가 경로의 support에 사용하며 target-depth spatial_indices는 로드하지 않는다. Uniform view weight와 zero retargeter에서는 원래 native4view 평균을 복원하는 수치 검사를 둔다. Native control은 자연스러운3개 spatial view 후보와64개 semantic patch 후보를 비교하므로 고정K 주소 하나만의 인과 비교라고 표현하지 않는다. 같은 candidate/support를 보존하는 주소 교란은 별도 진단으로 이 한계를 보완한다.
 
 모든 새 task arm은 동일한5epoch 조건을 먼저 실제 native/backward/memory proof로 검사한 뒤 학습한다. Decoder·score·task projection의 실제 gradient, attention 집중도·실효K를 기록한다. Decoder/score/correspondence 각각의 효과와 모델 채택은 fixed-final 생성 결과를 얻은 뒤 판단한다. 개선 후보의 추가 seed 확인과 실제 W&B/file4 대조는 여전히 필수 후속이다.
+
+Task attention의 주소 대조는 attention forward의 **key·score·이미 계산한 weight를 유지하고 value만** 각 query의 유효 후보 안에서 절반 길이 순환한다. Full 모델의 동일 saved weight/common32/한 noise로 normal과 value-address 교란을 비교하고 normal이 final128의 같은 사례 count/seed/GT hash를 exact 재현하는지 검사한다. Native spatial 대조를 대체하지 않으며, candidate key도 함께 바꾸는 input-roll과 구분한다. Hook은 예외에서도 제거하고 원본 weight/input을 수정하지 않는다.

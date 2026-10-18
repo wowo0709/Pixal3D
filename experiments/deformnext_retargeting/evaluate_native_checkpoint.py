@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 from .conditioning_controls import TransportControl, transport_diagnostic_context
 from .r9_diagnostic_context import DEFINITIONS as R9_DEFINITIONS, r9_diagnostic_context
+from .task_attention_controls import task_value_context
 
 
 def main():
@@ -21,6 +22,8 @@ def main():
                    help='Diagnostic-only transport perturbation; retains the edited-RGB four-view input')
     p.add_argument('--r9-path-control',choices=('normal',*R9_DEFINITIONS),default='normal',
                    help='Saved-weight control for original R9 candidate; separate from matching-v2 evidence controls')
+    p.add_argument('--task-value-control',choices=['normal','wrong-address'],default='normal',
+                   help='Permute only task-attention values; preserve candidate keys, learned weights and scores')
     p.add_argument('--panel-size',type=int)
     p.add_argument('--panel-file',type=Path)
     p.add_argument('--seed-map-file',type=Path)
@@ -30,6 +33,8 @@ def main():
         raise ValueError('transport diagnostics retain the edited-RGB input; do not combine input controls')
     if args.r9_path_control!='normal' and (args.transport_control!='normal' or args.conditioning_mode!='edited-rgb'):
         raise ValueError('R9 diagnostics retain the edited-RGB input and cannot be combined with other controls')
+    if args.task_value_control!='normal' and (args.transport_control!='normal' or args.r9_path_control!='normal' or args.conditioning_mode!='edited-rgb'):
+        raise ValueError('task value diagnostic retains edited RGB and cannot combine other controls')
     from pixal3d import datasets,models,trainers
     from .quick_metrics import evaluate_quick
     from PIL import Image
@@ -59,9 +64,10 @@ def main():
     if args.conditioner_checkpoint:
         trainer.deform_conditioner.load_state_dict(torch.load(args.conditioner_checkpoint,map_location='cpu',weights_only=True),strict=True)
     trainer.models['denoiser'].eval();trainer.p_uncond=0
-    r9_events=[]
+    r9_events=[];task_events=[]
     with transport_diagnostic_context(trainer.deform_conditioner,args.transport_control), \
             r9_diagnostic_context(trainer.deform_conditioner,args.r9_path_control,r9_events), \
+            task_value_context(trainer.deform_conditioner,args.task_value_control,task_events), \
             torch.no_grad(),torch.autocast('cuda',dtype=trainer.mix_precision_dtype):
         metrics,panel,ids=evaluate_quick(trainer,ds,cfg['validation'])
     result={'status':'PASS','stage':args.stage,'step':args.step,'weights':'raw','checkpoint':str(args.checkpoint),
@@ -75,10 +81,11 @@ def main():
             'panel_file':str(args.panel_file) if args.panel_file else None,
             'seed_map_file':str(args.seed_map_file) if args.seed_map_file else None}
     result.update(conditioning_mode=args.conditioning_mode,target_modality='rgb',
-                  transport_control=args.transport_control,diagnostic_only=args.transport_control!='normal' or args.r9_path_control!='normal',
+                  transport_control=args.transport_control,diagnostic_only=args.transport_control!='normal' or args.r9_path_control!='normal' or args.task_value_control!='normal',
                   transport_control_definition=TransportControl.DEFINITIONS.get(args.transport_control),
                   r9_path_control=args.r9_path_control,r9_path_control_definition=R9_DEFINITIONS.get(args.r9_path_control),
                   r9_path_control_events=r9_events,
+                  task_value_control=args.task_value_control,task_value_control_events=task_events,
                   pbr_geometry='GT_target_shape_fixed' if args.stage=='pbr1024' else None,
                   input_states=['M0']*4 if args.conditioning_mode=='source-only' else ['M1','M0','M0','M0'],
                   input_view_count=4,
