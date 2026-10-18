@@ -16,6 +16,6 @@
 
 ## 실행과 해석 범위
 
-현재 C1/V1 및 후속 B3 학습은 유지한다. 원본 constant-gate 두 arm·3개 seed의 집계가 끝난 뒤 비는 **GPU2/3**에서 네 평가씩 순차 실행한다. GPU0/1의 B3와 병행할 수 있으며 허용 장치는 계속 0~3뿐이다. 진단 여덟 개, strict CPU 집계, W&B publication을 큐에 추가한다. Source는 `sampler_sensitivity.py`, canonical 결과는 file4의 `rgb_matching_v2/sampler-sensitivity-v1/`이다.
+현재 C1/V1 및 후속 B3 학습은 유지한다. **GPU2/3**에서 네 평가씩 순차 실행하고 GPU0/1의 B3와 병행한다. 최초 queue는 양쪽 regional6개 집계 뒤 시작하도록 했지만, seed101 실측에서 adapter-only가 약3.5분 먼저 끝나 자원별 대기를 줄였다. 이 campaign의 GPU2는 adapter-only 세 seed와 [C1 conditioning 검사](2026-10-18-ss-conditioning-contract-ko.md) 뒤 sampler를 시작하며, GPU3는 query 세 seed를 포함한 regional6개 집계 뒤 시작한다. 입력·weights·8개 비교와 학습/평가 내용은 그대로다. 변경 전후 pending dependency와316-job graph 검사는 `provenance/gpu2-postregional-pipeline-schedule-v1.json`에 있다. 허용 장치는 계속0~3뿐이다. 진단 여덟 개, strict CPU 집계, W&B publication을 모두 완료해야 한다. Source는 `sampler_sensitivity.py`, canonical 결과는 file4의 `rgb_matching_v2/sampler-sensitivity-v1/`이다.
 
 결과의 source-cluster bootstrap CI는 한 sampling noise·저장된 특정 checkpoint에 조건부인 탐색적 결과다. 반복 비교에 대한 보정이나 training-seed 모집단 CI는 아니다. `selection_use=false`, `production_sampler_changed=false`를 유지하며 primary final128×3를 덮어쓰거나 각 arm에 유리한 sampler를 골라 본 표를 만들지 않는다. W&B에는 수치·GT/Pred/Diff 여덟 이미지·paired 표·source fingerprint와 summary artifact를 기록한다.

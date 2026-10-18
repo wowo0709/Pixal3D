@@ -51,3 +51,21 @@ GPU2/3에서 adapter-only와 adapter-query의 seed101 본 학습이 시작됐다
 고정된 두 checkpoint·optimizer, freeze marker, 닫힌128-update log와 검사 기록 등7개 산출물 **12,998,909 bytes**의 actual-file4 SHA256·크기를 확인했다. `provenance/current-regional-original-network-seed101-train-freeze-v3.json`은 이 학습 고정 검사이며 `calibration_quality_complete=false`, `all_six_runs_complete=false`다. 각 freeze marker의 checkpoint hash도 실제 파일과 일치한다. 저장 검증은 같은 이름의 `*-file4.json` receipt에 있다.
 
 현재 두 process는 fixed checkpoint의 cal32×3noise와 source-OFF/joint-query-shuffle 평가를 진행한다. 성능 차이는 해당 평가가 끝나야 계산하며 seed202/303까지 완료한 뒤 원본 network-gate의 전체 추가 효과를 판정한다. 같은32/3noise라도 primary14의 decoded-GT micro metric과 이 regional actual-SS-input GT/macro metric은 합쳐 집계하지 않는다.
+
+## Seed101 평가 완료: cleanup과 source 보존의 tradeoff
+
+첫 seed의 두 run이 학습·고정 checkpoint·평가를 모두 마쳐 총6개 중2개가 완료됐다. 전체 시간은 adapter-only **1,786.88초(29분47초)**, query **1,996.44초(33분16초)**였다. GPU2/3에서 각seed202가 이어서 시작했다. 아래는 한 training seed의 cal32·3 sampling noise 결과이며 아직 전체 재현 판정이 아니다.
+
+| Method | Macro IoU | Source recall32 ↑ | Stale leak32 ↓ | Regional BCE ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| Frozen native | 0.445530 | 0.825740 | 0.601524 | 95.616471 |
+| Original-network adapter-only | 0.446752 | 0.823651 | 0.584793 | 94.315253 |
+| Original-network adapter+query | 0.446010 | 0.789958 | 0.469601 | 88.252432 |
+
+Query−adapter의 macro IoU 차이는 **−0.074pp,95% CI[−1.123,+1.041]pp**로 추가 개선을 확인하지 못했다. 반면 stale leak는 **−11.519pp [−15.051,−8.376]pp**로 줄었고 source recall도 **−3.369pp [−4.632,−2.276]pp** 낮아졌다. Regional BCE는−6.063 [−9.922,−2.584]로 개선됐지만, 이를 source 보존을 포함한 생성 품질 개선으로 읽을 수 없다. 첫 seed에서는 잘못 남은 geometry 제거와 유지해야 할 source 영역의 손실이 함께 나타났다.
+
+Query intact−joint-shuffle의 IoU는 **+0.0453pp [+0.0096,+0.0823]pp**였다. 같은 input 정보를 유지한 공간 정렬 control에서 작은 신호가 있으나, 이것이 query−No-query의 전체 개선을 뜻하지 않는다. Projection-source OFF 대비 ON의 IoU 차이는 두 arm 모두 약+8.5pp였다. 이 OFF는 native source projection도 제거하므로 learned adapter만의 source-use 효과로 해석하지 않는다. Query branch의 원래 camera08 추가 정보와 macro/GT 정의의 한계도 유지한다.
+
+7개 case마다32 source cluster·3noise의96개 기록, 원본128-update pair/noise schedule, 실제 SS encoder-input GT voxel hash, 두 frozen-native prediction hash 일치를 검사했다. GT hash는 actual SS-input label authority에서 독립 재구성해 대조했다. W&B의 두 run 설정·7개 metric set과7개 PNG도 서버에서 내려받아 대조했다. 이 CI는 한 model seed에 조건부이며 반복 비교 보정이나 model-seed 모집단 추정이 아니다. `selection_use=false`다.
+
+근거는 `seed101-network-gate-interim-v3.json`, `wandb-seed101-readback-v3/audit.json`, 상위 `provenance/regional-network-seed101-{complete,remote}-file4.json`이다. Closed 결과/이미지/one-seed 검사와 대기 스케줄 변경18개 산출물765,154bytes, 원격 readback8개 산출물의 actual-file4 SHA256·크기 검증을 완료했다. Seed202/303와 strict six-run 집계 뒤 재현성과 최종 채택을 판단한다. 이 첫 결과로 학습 budget이나 loss를 변경하지 않는다.

@@ -6,4 +6,6 @@
 
 BF16에서 candidate index exact, evidence/logit/weight/residual·최종 condition의 cached/online 일치를 검사한다. 이어서 실제 `get_cond`의 CFG 확률0과1, seed를 고정한 확률0.5의 sample별 mask를 확인한다. Global과 projection에 같은 mask가 적용돼야 하고 확률1에서는 모든 추가 조건도 완전히0이어야 한다. 같은 입력의 training p0/inference condition도 일치해야 한다. 실제 LoRA·base·conditioner를 고정한 no-grad 검사이며 optimizer state/update는0이다. 생성 품질 평가나 전체9149개 cache의 GPU parity 검사는 아니다.
 
-CPU 검증5개는 활성 경로 누락, online/cache 차이, CFG 뒤 semantic projection 누출, mixed mask의 branch 불일치를 거부한다. 실제 GPU proof는 원본 network-gate6개가 끝난 GPU2에서 실행한다. GPU3의 후속 sampler 진단은 병행할 수 있고, GPU2의 sampler는 이 검사가 끝난 뒤 시작한다. 현재 GPU0/1 B3 학습과 완료된 V1/C1 weight는 유지한다. Canonical 결과는 file4 `rgb_matching_v2/conditioning-contract-v1/summary.json`이다. 설정/CPU 검증을 실제 GPU PASS로 표시하지 않는다.
+CPU 검증5개는 활성 경로 누락, online/cache 차이, CFG 뒤 semantic projection 누출, mixed mask의 branch 불일치를 거부한다. 실제 GPU proof는 GPU2의 adapter-only 세 seed가 모두 끝나 해당 GPU를 반환한 뒤 실행한다. GPU3의 query arm 세 seed는 병행할 수 있고, GPU2 sampler는 이 검사 뒤 시작한다. 최초의 전체6개 완료 대기는 아래 실제 실행 시간에 근거해 자원별 dependency로 조정했다. 현재 GPU0/1 B3 학습과 완료된 V1/C1 weight는 유지한다. Canonical 결과는 file4 `rgb_matching_v2/conditioning-contract-v1/summary.json`이다. 설정/CPU 검증을 실제 GPU PASS로 표시하지 않는다.
+
+Seed101 실제 전체 시간은 adapter-only1,786.88초, query1,996.44초였다. Query 쪽은 control 하나를 더 평가하므로 GPU2가 먼저 끝난다. Pending QA와 GPU2 첫 sampler 두 dependency만 변경하고316개 job graph의 비순환성을 검사했다. 세 wave에서 약10.5분의 GPU2 대기를 줄일 수 있다는 첫 실측 기반 예상이며 전체 완료 시각의 확약은 아니다. 모든6개 regional run·strict 집계는 여전히 필수다. 원래 정의와 변경된 job은 `provenance/gpu2-postregional-pipeline-schedule-v1.json`에 남겼고 기존 학습·평가는 중단하지 않았다.
