@@ -56,3 +56,7 @@ V1 direct64와 실제 SS input 사이에5cell 차이가 발견됐다. V2의 근�
 V4의64개 label은68.66초에 모두 완료됐다. 실제 SS hash/physical registration을 모두 통과했고 source witness·관측 visibility·보수적 ray label의 각 count를 보존했다. V4 full-rollout GPU gate도 두 모듈 모두 통과했다.
 
 `runs-v2`의seed101 두 run이GPU2/3에서 실제 update를 시작했다. 첫 pair/noise가 같고 initial endpoint loss는둘다58.80086517, correction0이다. 첫 update peak는adapter6.726GiB /query6.732GiB였다. 이것은 학습 시작과 초기 정합 증명이며128-update 완료/일반화 개선을 뜻하지 않는다. 이전`runs-v1` 큐는GT검사 실패에 따른HELD 이력으로 남기고 실제학습결과로 집계하지 않는다.
+
+본14개 최종 집계가 완료된 뒤 seed202가GPU0/1에서 시작했다. 네 controller가 동일한CPU94/95에 몰리면서 update 공급이 느려지는 것을 확인해 각 process의모든 thread를두CPU씩다르게배치했다(GPU0:88/89,1:90/91,2:92/93,3:94/95). 총8core이며process별2core 제한은유지했다. 실행중optimizer·data·noise·step을변경하거나재시작하지않았다. Pending seed303에는명시적`--cpu-affinity`를넣고GPU선택과독립적으로기록한다. 근거는`provenance/current-regional-cpu-affinity-distribution.json`이다.
+
+최종6run은schedule·optimizer128step·GT/native voxel hash·같은32cluster/3noise를엄격히검사한뒤`all-six-run-summary-v2.json`과동명Markdown으로집계한다. Noise/model repeat를독립표본으로늘리지않고source안에서평균한다. Empty region의None과유효cluster수도그대로표시한다. 완료된14개본비교표와이regional표는각기다른GT/macro정의로구분해W&B에자동저장한다.

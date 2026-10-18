@@ -155,10 +155,15 @@ def main():
     parser.add_argument('--seed', type=int, choices=[101, 202, 303], required=True)
     parser.add_argument('--generation-batch', type=int, default=32)
     parser.add_argument('--wandb-id')
+    parser.add_argument('--cpu-affinity', help='Explicit comma-separated permitted CPU cores; defaults to the last two inherited cores')
     args = parser.parse_args()
-    torch.set_num_threads(2); torch.cuda.set_device(0)
     if hasattr(os, 'sched_getaffinity'):
-        os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[-2:])
+        available = os.sched_getaffinity(0)
+        assigned = [int(value) for value in args.cpu_affinity.split(',')] if args.cpu_affinity else sorted(available)[-2:]
+        if len(assigned) != 2 or len(set(assigned)) != 2 or not set(assigned) <= available:
+            raise ValueError('controller requires two distinct permitted CPU cores')
+        os.sched_setaffinity(0, assigned)
+    torch.set_num_threads(2); torch.cuda.set_device(0)
     args.output.mkdir(parents=True, exist_ok=True)
     if any((args.output/name).exists() for name in ['summary.json', 'checkpoint-final.pt', 'train-log.jsonl']):
         raise FileExistsError('preserve the earlier controller attempt')
@@ -194,6 +199,7 @@ def main():
                 'arm': args.arm, 'seed': args.seed, 'updates': 128, 'controller_asset_batch': 1,
                 'production_global96_recipe_changed': False, 'V1_retrained': False,
                 'consumer': consumer, 'sampler': 'native12 CFG3 rescale1', 'LoRA_consumer_frozen': True,
+                'cpu_affinity': sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None,
                 'calibration_open_after_fixed_final_freeze': True})
     with (args.output/'train-log.jsonl').open('x') as stream:
         for update in range(128):
