@@ -1,6 +1,7 @@
 """Gate, configure, verify and run independent SS matching-v2 arms."""
 import argparse
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -79,6 +80,14 @@ def configure(a):
 
 
 def native_proof(cfg,output):
+    repo=Path(__file__).resolve().parents[2]
+    code_paths=[Path(__file__).resolve(),repo/'pixal3d/modules/deform_conditioner.py',
+        repo/'pixal3d/modules/task_matching_attention.py',repo/'pixal3d/datasets/deformnext.py',
+        repo/'pixal3d/trainers/flow_matching/mixins/image_conditioned_proj.py',
+        repo/'experiments/multiview_finetune/runtime.py']
+    code_hashes={str(p.relative_to(repo)):hashlib.sha256(p.read_bytes()).hexdigest() for p in code_paths}
+    proof_source={'commit_at_entry':subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip(),
+                  'actual_component_SHA256':code_hashes}
     import torch
     from pixal3d import datasets,models,trainers
     from pixal3d.utils.data_utils import recursive_to_device
@@ -119,6 +128,8 @@ def native_proof(cfg,output):
     if max(errors.values())!=0:raise ValueError('matching-v2 initial native condition differs')
     with torch.autocast('cuda',dtype=trainer.mix_precision_dtype):loss,_=trainer.training_losses(x_0=target,**pack)
     loss['loss'].backward()
+    if code_hashes!={str(p.relative_to(repo)):hashlib.sha256(p.read_bytes()).hexdigest() for p in code_paths}:
+        raise RuntimeError('native proof source changed while the contract was executing')
     lora_gradient=sum(float(parameter.grad.float().abs().sum()) for name,parameter in
         trainer.models['denoiser'].named_parameters() if 'lora_' in name and parameter.grad is not None)
     if not np.isfinite(lora_gradient) or lora_gradient<=0:
@@ -127,7 +138,7 @@ def native_proof(cfg,output):
         write(output/'native-proof.json',{'status':'PASS','sample_id':ds.rows[index]['sample_id'],
             'condition_max_abs_errors':errors,'lora_gradient_l1':lora_gradient,
             'fusion_gate_gradient':None,'adapter_output_gradient_l1':None,
-            'head_sha256':None,'optimizer_updates':0,'query_channels':None})
+            'head_sha256':None,'optimizer_updates':0,'query_channels':None,'actual_source':proof_source})
         return
     gate=float(trainer.deform_conditioner.fusion_gate.grad.abs())
     adapter=trainer.deform_conditioner.retargeter
@@ -156,7 +167,8 @@ def native_proof(cfg,output):
     write(output/'native-proof.json',{'status':'PASS','sample_id':ds.rows[index]['sample_id'],
         'condition_max_abs_errors':errors,'fusion_gate_gradient':gate,'adapter_output_gradient_l1':gradient,
         'lora_gradient_l1':lora_gradient,
-        'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0,'query_channels':query_proof})
+        'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0,'query_channels':query_proof,
+        'actual_source':proof_source})
 
 
 def audit_memory_probe(byrank,per_rank,world,split):
