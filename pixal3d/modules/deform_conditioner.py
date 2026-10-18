@@ -84,8 +84,14 @@ class DeformationAwareConditioner(nn.Module):
         projection_mode: str = "nearest",
         task_attention: Optional[dict] = None,
         correspondence_mode: str = 'semantic',
+        candidate_aggregation: str = 'weighted',
     ) -> None:
         super().__init__()
+        if candidate_aggregation not in {'weighted','top1'}:
+            raise ValueError('unknown candidate aggregation')
+        if candidate_aggregation=='top1' and (arm!='c1' or implementation!='r9-native-v5' or task_attention is not None):
+            raise ValueError('matched Top1 retargeter control requires static R9 C1')
+        self.candidate_aggregation=candidate_aggregation
         if implementation not in {"legacy-v4", "r9-native-v5"}:
             raise ValueError("unknown conditioner implementation")
         self.implementation = implementation
@@ -147,6 +153,8 @@ class DeformationAwareConditioner(nn.Module):
                 if implementation == "legacy-v4":
                     self.q2c.load_state_dict(checkpoint, strict=True)
             if freeze_q2c:
+                self.q2c.requires_grad_(False)
+            if candidate_aggregation=='top1':
                 self.q2c.requires_grad_(False)
 
         self.retargeter = None
@@ -413,9 +421,17 @@ class DeformationAwareConditioner(nn.Module):
             chosen = torch.gather(indices, 2, selected)
             return DeformationCondition(evidence, chosen, logits, None, None, None, query_valid, fusion_scale)
 
-        evidence, candidate_weights, view_weights = self._attention(
-            logits, candidate_values, valid, view_index, views
-        )
+        if self.candidate_aggregation=='top1':
+            # Keep the same C1 retargeter and original matching-score argmax.
+            # No uniform weighting, extra query channels or learned soft path.
+            selected=logits.argmax(-1,keepdim=True)
+            candidate_weights=torch.zeros_like(logits).scatter(2,selected,1.)*query_valid[...,None]
+            evidence=(candidate_weights[...,None]*candidate_values).sum(2)
+            view_weights=logits.new_zeros(batch,queries,views).scatter_add(2,view_index,candidate_weights)
+        else:
+            evidence, candidate_weights, view_weights = self._attention(
+                logits, candidate_values, valid, view_index, views
+            )
         residual = None
         if self.retargeter is not None:
             if target_query is None or target_query.shape != (batch, queries, self.query_dim):

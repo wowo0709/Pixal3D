@@ -22,8 +22,9 @@ def seed_config(source,folder,name,seed):
     return cfg
 
 
-def make_jobs(folder,work,name,devices,dependencies,seed):
-    cfg=folder/'configs'/(name+'.json');run=folder/'runs_ss64'/name;prefix=f'confirm-seed{seed}-'
+def make_jobs(folder,work,name,devices,dependencies,seed,*,prefix=None):
+    cfg=folder/'configs'/(name+'.json');run=folder/'runs_ss64'/name
+    if prefix is None:prefix=f'confirm-seed{seed}-'
     training=prefix+'train-'+name
     jobs=[{'name':training,'resource':'exclusive','gpus':devices,'priority':2,'depends_on':dependencies,
         'requires':[str(cfg)],'outputs':[str(run/'completed.json')],
