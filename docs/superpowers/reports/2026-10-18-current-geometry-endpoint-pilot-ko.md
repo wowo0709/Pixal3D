@@ -78,3 +78,13 @@ Query−native는IoU −0.042pp,CI[−0.939,+0.806]pp이고source recall32는−
 원본목적함수는해상도64/32 각각의`0.5 × (source-positive BCE + stale BCE + balanced-visible BCE)`를합하고correction penalty0.001을더한다. 각BCE는해당영역의mean이며voxel수만으로loss지배항을단정하지않는다. IoU나source recall을직접최적화하는수식은아니므로aggregate BCE 감소가threshold0의binary recall/IoU 향상을보장하지않는다. 현재숫자는이tradeoff와양립하지만loss항별인과기여를분해한실험은아니다.
 
 기계판독근거는`current-geometry-regions-v1/interim-s101-normal-v1.json`이다. 학습설정과나머지seed/arm을변경하거나중간결과로중단하지않는다. 3seed 최종집계와source-off·joint-query shuffle을모두확인한다.
+
+## Seed101의 전체 control 완료
+
+Seed101 두run은모든평가와W&B 저장까지PASS로끝났다. 이후GPU2/3에서는seed303이시작했고seed202는최종평가를진행한다. 두arm의128개실제update와같은cal32×3noise를유지했다.
+
+Query intact−joint-shuffle의macro IoU는**+0.075pp,source-cluster95% CI[+0.012,+0.146]pp**였다. 같은입력정보량을유지한공간적배열대조에서이seed의작은양의차이가관측됐다. Source recall32는+0.012pp,CI[−0.040,+0.065]pp이고stale leak32는−0.024pp,CI[−0.151,+0.088]pp로0을포함한다. 한seed·반복관찰·여러metric의탐색결과이며source 회수나전체seed 재현성의증명이아니다.
+
+Query arm의projected source ON−OFF는IoU +8.237pp,CI[+4.798,+11.817]pp였다. OFF는native의source projection도target projection으로바꾸므로이큰차이를학습된adapter/query의추가효과로해석하지않는다. Native global/negative·predicted O/D는그대로남는다. 추가module 효과는normal G1−G0와native 대비결과로확인한다.
+
+전체첫seed의closure·정상평가·source대조·joint-shuffle 근거는`interim-s101-complete-v1.json`과`interim-s101-projected-source-controls-v1.json`에보존했다. 현재기존C1의[실행조건을맞춘seed101 확인](2026-10-18-original-SS-seed-confirmation-ko.md)도다음GPU wave에예약했으며본regional 실험의네나머지run을대체하지않는다.
