@@ -317,8 +317,16 @@ def collect(root):
             if not math.isfinite(scale):raise ValueError('nonfinite actual attention scale')
             attention_metrics[f'attention_QA/{name}/content_attention_scale']=scale
     scope['attention_statistics_scope']='Two identical saved-model cases;native has3 spatial candidates versus64 semantic patches. Descriptive statistics,not dataset coverage or quality evidence.'
+    from .semantic_topk_matching_drift import collect_matching_drift
+    drift=collect_matching_drift(root,records['task-full'][0]['per_asset'],
+        read(root/'attention-statistics-v1/task-full/summary.json'))
+    diagnostic_tables={}
+    if drift is not None:
+        files.extend(drift['files']);attention_metrics.update(drift['metrics'])
+        diagnostic_tables.update(drift['tables']);scope['matching_prior_drift_scope']=drift['scope']
     return {'sets':sets,'galleries':galleries,'scope':scope,'files':list(dict.fromkeys(files)),
-            'backbone_metrics':backbone_metrics,'attention_metrics':attention_metrics}
+            'backbone_metrics':backbone_metrics,'attention_metrics':attention_metrics,
+            'diagnostic_tables':diagnostic_tables}
 
 
 def publication_jobs(root, candidate, selection_job):
@@ -402,7 +410,8 @@ def payload(root):
     if summary['status']!='PASS_COMPLETED_CAMPAIGN_PRESENTATION' or summary['scope']!=data['scope']:
         raise ValueError('completed matching presentation required')
     if summary['input_SHA256']!={str(p):sha(p) for p in data['files']}:raise ValueError('actual presentation inputs changed')
-    metrics={**data['backbone_metrics'],**data.get('attention_metrics',{})};tables={}
+    metrics={**data['backbone_metrics'],**data.get('attention_metrics',{})}
+    tables=dict(data.get('diagnostic_tables',{}))
     for name,values in data['sets'].items():
         rows=[];contrasts=[]
         for method,model in values['models'].items():

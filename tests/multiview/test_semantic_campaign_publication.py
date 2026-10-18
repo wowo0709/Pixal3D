@@ -111,7 +111,9 @@ def test_publication_preserves_panel_prefixes_and_all_named_module_comparisons(t
         'additional121':{'models':{'method':{'micro_voxel_iou':.3,'micro_voxel_f1':.46}},'contrasts':{}},
     },'scope':conditional_scope('task-full',*selected_reports()),'files':[],
         'backbone_metrics':{'backbone_QA/case0/view0/FRAME/relative_RMS':.0002},
-        'attention_metrics':{'attention_QA/task-full/mean_effective_candidates':3.5}}
+        'attention_metrics':{'attention_QA/task-full/mean_effective_candidates':3.5},
+        'diagnostic_tables':{'diagnostics/matching_prior_drift/development128/component_swaps':{
+            'columns':['inference_swap','argmax_disagreement_fraction'], 'data':[['saved-only',.45]]}}}
     folder=tmp_path/'campaign-wandb-v1/presentation';folder.mkdir(parents=True)
     (folder/'summary.json').write_text(json.dumps({'status':'PASS_COMPLETED_CAMPAIGN_PRESENTATION',
         'scope':data['scope'],'input_SHA256':{}}))
@@ -121,6 +123,7 @@ def test_publication_preserves_panel_prefixes_and_all_named_module_comparisons(t
     assert spec['metrics']['additional121/method/micro_voxel_iou']==.3
     assert spec['metrics']['backbone_QA/case0/view0/FRAME/relative_RMS']==.0002
     assert spec['metrics']['attention_QA/task-full/mean_effective_candidates']==3.5
+    assert spec['tables']['diagnostics/matching_prior_drift/development128/component_swaps']==data['diagnostic_tables']['diagnostics/matching_prior_drift/development128/component_swaps']
     rows=spec['tables']['development128/component_effects']['data']
     assert [r[0] for r in rows]==list(COMPONENTS)
     assert all(r[2]<0 for r in rows)  # Negative bounds are retained, never reformatted as improvement.

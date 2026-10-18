@@ -115,3 +115,11 @@ W&B에서는숫자·표·PNG와결과artifact를기록하고,별도빈download c
 Saved-model 정합 검사에서 실제 candidate weight의 최대값·entropy·entropy 실효K를 기록한다. Invalid query의 zero row는 제외하고 FP32에서 row-normalize해 통계를 계산하며, 원래 row 합의 오차도 기록한다. 첫 두 실제 active 사례에 대한 설명 통계이며, 전체 데이터 coverage나 성능 기여 증거로 해석하지 않는다. Native spatial의3개 후보와 semantic64개의 실효K를 같은 후보 수의 비교라고 부르지 않는다.
 
 이미 정합 검사가 끝난 static-C1과 task-full만 별도 `attention-statistics-v1` 경로에 저장 weight를 다시 검사한다. 기존 QA 결과는 덮어쓰지 않는다. 현재 두 학습이 끝나고 final generation에 사용하지 않는 허용 GPU가 생기면 우선순위2로 실행하며, SGD나 모델별 학습 예산을 추가하지 않는다. No-decoder/no-prior/native의 이후 정합 검사에는 같은 통계가 함께 저장된다. 전체 W&B 게시도 이 실제 통계가 준비된 뒤 실행한다.
+
+## 완료된 고정128 matching-prior 진단의 W&B 연결
+
+별도로 완료한 `matching-prior-drift-panel128-v1`과 `matching-prior-drift-panel128-hybrid-v1`도 최종 게시물에 포함한다. `semantic_topk_matching_drift.py`가 실제 Full saved-QA의 initializer/conditioner/recipe, 원래128개·93source의 순서,9,883개 active query,FP32 CPU/0 optimizer update와 원래 통계 replay를 검사한다. 실제 file4 closure의17개 결과·source artifact SHA/크기 및 원본387개 canonical input receipt도 연결한다. 입력 manifest가 지칭한 edited RGB/feature/proposal 경로와 conditioning hash까지 대조한다. 추론 시 저장 component를 바꾼 진단이며 독립 학습 ablation이나 SS 생성 품질로 해석하지 않는다.
+
+66개 scalar와7행 attention 분포·9행 component-swap 표를 `diagnostics/matching_prior_drift/development128` prefix에 기록한다. 기존8행 module-effect/IoU·CI 표와 모델 선택 기준은 유지한다. 현재 namespace에서는 이미 완료한 진단을 수집하고, 진단이 없는 이전 namespace는 원래 결과를 게시할 수 있다. 한쪽 진단만 있거나 identity/실제 file4 근거가 충돌하면 생략하지 않고 실패시킨다. 모델 binary는 W&B artifact에 넣지 않는다.
+
+관련 CPU guard38개와 실제128개 결과·18개 artifact의 수집 preflight가 통과했다. 이 preflight는 게시 payload에 연결할 진단을 검증한 것으로, 아직 모든 arm을 묶은 W&B 게시·fresh-download readback을 실행했다는 뜻은 아니다. 같은 원래3개 reporting job이 나머지 학습·평가·실제 검증을 기다린다. 새 GPU job이나 학습 budget을 추가하지 않는다.
