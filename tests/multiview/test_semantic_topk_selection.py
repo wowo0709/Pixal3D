@@ -25,6 +25,17 @@ def reports():
     return seven,matched
 
 
+def prerequisite_jobs():
+    names=[SELECT_JOB,'confirm-seed202-train-top1-reference',
+        'summarize-seven-arm-semantic-topk-search','summarize-matched-retargeter-top1',
+        'summarize-zero-shot-replay-for-topk','summarize-task-value-address-diagnostic',
+        'summarize-firstwave-fusion-dose','functional-QA-s202-top1-reference']
+    names += ['functional-QA-s101-'+name for name in ['top1-reference','soft-topk','static-c1',
+        'task-full','task-no-decoder','task-no-prior','task-native-spatial','static-top1-c1']]
+    names += [f'confirm-seed202-final-top1-reference-noise{n}' for n in range(3)]
+    return [{'name':name} for name in names]
+
+
 def test_selects_observed_best_only_after_both_complete_reports():
     a,b=reports();r=selection(a,b)
     assert r['selected_candidate']=='task-full' and r['full_goal_complete'] is False
@@ -95,7 +106,7 @@ def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_bas
         'seed_maps':{str(n):{'path':str(tmp_path/f'noise{n}.json')} for n in range(3)}}))
     baseline=root/'seed-confirmation-v1/configs/top1-reference.json';baseline.parent.mkdir(parents=True)
     baseline.write_text(json.dumps({'master_port':'30440'}));baseline_bytes=baseline.read_bytes()
-    jobs=[{'name':SELECT_JOB},*[{'name':f'confirm-seed202-final-top1-reference-noise{n}'} for n in range(3)]]
+    jobs=prerequisite_jobs()
     (work/'queue-jobs.json').write_text(json.dumps(jobs))
     monkeypatch.setattr('experiments.deformnext_retargeting.semantic_topk_selection.subprocess.check_output',lambda *args,**kw:'test-source\n')
     queue_candidate(SimpleNamespace(root=root,work_root=work,previous_work=tmp_path/'panels',gpus='0,1'))
@@ -103,10 +114,29 @@ def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_bas
     assert cfg['training_seed']==202 and cfg['trainer']==original['trainer'] and cfg['num_gpus']==2
     assert cfg['master_port']=='30441' and baseline.read_bytes()==baseline_bytes
     actual=json.loads((work/'queue-jobs.json').read_text());new=actual[len(jobs):]
-    assert len(new)==50 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
+    assert len(new)==53 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
     assert any(j['name']=='summarize-selected-model-correspondence' for j in new)
     assert json.loads((root/'selected-correspondence-v1/contract.json').read_text())['candidate']=='task-full'
     extra_jobs=[j for j in new if j['name'].startswith('additional121-')]
     assert len(extra_jobs)==42 and all('gpu' not in j and 'gpus' not in j for j in extra_jobs)
     assert not any('resume' in j['command'] for j in new)
     assert json.loads((root/'candidate-selection-v1.json').read_text())['selected_candidate']=='task-full'
+    all_names={j['name'] for j in actual}
+    assert all(set(j.get('depends_on',[]))<=all_names for j in new)
+    assert [j['name'] for j in new[-3:]]==['campaign-report-render','campaign-report-publish','campaign-report-readback']
+
+
+def test_negative_selection_queues_reporting_without_fabricating_a_candidate_or_seed_run(tmp_path,monkeypatch):
+    root=tmp_path/'result';work=tmp_path/'work';root.mkdir();work.mkdir();a,b=reports()
+    for name in CANDIDATES:a['contrasts'][name+'-vs-top1-reference']=contrast(low=-.001)
+    for filename,value in [('seven-arm-final-report.json',a),('matched-retargeter-top1-report.json',b)]:
+        (root/filename).write_text(json.dumps(value))
+    jobs=prerequisite_jobs();(work/'queue-jobs.json').write_text(json.dumps(jobs))
+    monkeypatch.setattr('experiments.deformnext_retargeting.semantic_topk_selection.subprocess.check_output',lambda *args,**kw:'test-source\n')
+    queue_candidate(SimpleNamespace(root=root,work_root=work,previous_work=tmp_path/'panels',gpus='0,1'))
+    actual=json.loads((work/'queue-jobs.json').read_text());new=actual[len(jobs):]
+    assert len(new)==3 and all(j['resource']=='cpu' for j in new)
+    assert not (root/'seed-confirmation-v1').exists()
+    decision=json.loads((root/'candidate-selection-v1.json').read_text())
+    assert decision['status']=='NO_PROMISING_COMBINATION_YET' and decision['selected_candidate'] is None
+    assert decision['full_goal_complete'] is False and decision['queued_reporting_jobs']==3

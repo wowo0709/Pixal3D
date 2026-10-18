@@ -67,6 +67,17 @@ def queue_candidate(a):
     output=a.root/'candidate-selection-v1.json'
     if output.exists():raise FileExistsError('preserve actual selection')
     if name is None:
+        from .semantic_topk_campaign_wandb import publication_jobs
+        path=a.work_root/'queue-jobs.json';old=path.read_bytes();existing=json.loads(old)
+        jobs=publication_jobs(a.root,None,SELECT_JOB)
+        if {j['name'] for j in jobs}&{j['name'] for j in existing}:raise FileExistsError('campaign publication already queued')
+        if any(dep not in {j['name'] for j in existing+jobs} for j in jobs for dep in j['depends_on']):
+            raise ValueError('campaign publication dependency missing')
+        source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+        for job in jobs:job['source_commit']=source
+        with (a.work_root/'queue-jobs-before-negative-search-publication.json').open('xb') as f:f.write(old)
+        temp=path.with_suffix('.publication.tmp');temp.write_text(json.dumps(existing+jobs,indent=2)+'\n');os.replace(temp,path)
+        result.update(queued_reporting_jobs=len(jobs),source_commit=source)
         write_new(output,result);print(json.dumps(result),flush=True);return
     devices=a.gpus.split(',')
     if len(devices)!=2 or len(set(devices))!=2 or any(not x.isdigit() for x in devices):raise ValueError('explicit assigned GPU pair required')
@@ -92,7 +103,11 @@ def queue_candidate(a):
     extra_jobs,extra_contract=jobs_and_contract(a.root,a.root.parent,name,json.loads(reservation_path.read_text()),SELECT_JOB)
     extra_contract['reservation_SHA256']=hashlib.sha256(reservation_path.read_bytes()).hexdigest()
     jobs.extend(extra_jobs)
+    from .semantic_topk_campaign_wandb import publication_jobs
+    jobs.extend(publication_jobs(a.root,name,SELECT_JOB))
     if {j['name'] for j in jobs}&{j['name'] for j in existing}:raise FileExistsError('candidate seed202 already queued')
+    if any(dep not in {j['name'] for j in existing+jobs} for j in jobs for dep in j.get('depends_on',[])):
+        raise ValueError('candidate/publication dependency missing')
     if not any(j['name']==SELECT_JOB for j in existing):raise ValueError('selection job missing from queue')
     source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
     for job in jobs:job['source_commit']=source

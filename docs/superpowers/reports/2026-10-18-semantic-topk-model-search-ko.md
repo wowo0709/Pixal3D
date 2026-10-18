@@ -76,4 +76,14 @@ Full 이외의 후보가 선택되어도 그 saved model에서 value-address 진
 
 첫 Top1/soft fixed-final 이후에는 frozen value가 실제로 다른지와 작은 fusion 강도 가설도 진단한다. 같은128개에서 descriptor/observed-alpha/native-projection index만 읽는 post-hoc CPU 분석이며,추가121개나 hidden depth를 사용하지 않는다. 별도로 같은 soft raw480 denoiser·conditioner에서 원래soft/score-argmax Top1과 원래gate/pre-tanh parameter4배를 common32/한noise로 생성한다. Normal은final128의같은사례count·seed·source·GT hash를exact replay해야 하고,전부0SGD다. Diagnostic parameter/arm은예외에서도복원하며checkpoint를쓰지않는다. Task module/retargeter가있는모델에는이static-B3진단을적용하지않는다.
 
+## 전체 결과의 W&B 게시
+
+`semantic_topk_campaign_wandb.py`는8개development arm·기존V1/B3/C1·두zero-shot을같은128개/3noise로묶는다. 후보가선정되면해당모델의추가training seed와reserved121의모든14개조건까지기다린다. 후보가없으면음성결과를보존하며추가candidate학습을만들지않는다. 이게시가모델탐색목표의완료나모델채택을뜻하지않는다.
+
+후보선정job이`render→publish→readback`의CPU job3개를추가한다. 실제saved-weight/cache/CFG검사와모든epoch의W&B/file4 closure가준비돼야실행한다. 따라서현재59개queue는선정결과에따라62개(후보없음),112개(Full선정),114개(다른후보선정)가된다. 추가되는것은보고작업이며모델학습횟수와비교budget은같다.
+
+Development128과additional121의표·metric prefix·전체사례PDF를분리한다. 그림은noise0의기존저장결과를원래순서대로사용하며새추론을하지않는다. 모든방법의실제GT pixel·3D hash·source·sampling seed를대조한다. 각PDF는8사례당두방법그룹을보여주며마지막121개panel의빈칸에는다른사례를채우지않는다.
+
+W&B에서는숫자·표·PNG와결과artifact를기록하고,별도빈download cache에서다시내려받아대조한다. Checkpoint binary는canonical file4에보관한다. `full_campaign_complete=false`와`model_adopted=false`를유지하며,각training seed의조건부CI와같은retargeter의Top1비교가seed101에만있다는범위를명시한다. 게시준비코드와CPU검사의통과는실제모든arm의완료나성능향상증거가아니다.
+
 네 생성 평가와CPU summary는학습완료후남는허용GPU를사용하는낮은우선순위의evaluation resource다. Exclusive training과겹쳐메모리를소비하지않고새training arm도추가하지않는다. 결과는원인분석과후속가설에사용하며,기존개발128선정기준이나추가121의예약을변경하지않는다. 양의inference-dose결과도새모델의학습·fixed-final 검증없이채택하지않는다.
