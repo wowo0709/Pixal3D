@@ -156,3 +156,13 @@ def test_native_spatial_larger_query_chunks_preserve_values_and_gradients():
         assert name==other
         if x.grad is None:assert y.grad is None
         else:torch.testing.assert_close(x.grad,y.grad,rtol=3e-3,atol=2e-6)
+
+
+def test_task_layer_initialization_preserves_rank_CUDA_rng_and_parent_CPU_rng(monkeypatch):
+    common=dict(arm='c1',key_dim=1024,value_dim=1024,query_dim=1024)
+    torch.manual_seed(91);DeformationAwareConditioner(**common);expected=torch.get_rng_state()
+    torch.manual_seed(91);calls=[]
+    monkeypatch.setattr(torch.cuda,'manual_seed_all',lambda seed:calls.append(seed))
+    DeformationAwareConditioner(**common,task_attention={'decoder':True,'score_prior':True,'chunk_size':64})
+    assert calls==[]
+    assert torch.equal(torch.get_rng_state(),expected)

@@ -181,7 +181,10 @@ class DeformationAwareConditioner(nn.Module):
             # Equal task-layer initialization across physical decoder ablations;
             # do not alter the caller's denoiser/retargeter RNG consumption.
             with torch.random.fork_rng(devices=[]):
-                torch.manual_seed(20261018)
+                # torch.manual_seed also resets every visible CUDA generator;
+                # fork_rng(devices=[]) restores only CPU state. Seed the CPU
+                # generator directly so DDP ranks retain their own RNG.
+                torch.random.default_generator.manual_seed(20261018)
                 self.task_attention = TaskCandidateAttention()
 
     def _validate(

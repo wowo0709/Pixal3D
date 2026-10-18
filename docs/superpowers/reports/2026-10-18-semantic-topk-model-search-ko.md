@@ -51,3 +51,5 @@ Native-spatial arm은 같은 카메라 행렬·native anchor 변환·ProjGrid로
 Task attention의 주소 대조는 attention forward의 **key·score·이미 계산한 weight를 유지하고 value만** 각 query의 유효 후보 안에서 절반 길이 순환한다. Full 모델의 동일 saved weight/common32/한 noise로 normal과 value-address 교란을 비교하고 normal이 final128의 같은 사례 count/seed/GT hash를 exact 재현하는지 검사한다. Native spatial 대조를 대체하지 않으며, candidate key도 함께 바꾸는 input-roll과 구분한다. Hook은 예외에서도 제거하고 원본 weight/input을 수정하지 않는다.
 
 Native spatial의3개 후보는 semantic64와 같은 candidate tensor budget을 기준으로 query chunk를 확대한다. `chunk_size64`의 semantic 처리는64query×64candidate,spatial 처리는최대1365query×3candidate다. 작은 CUDA kernel을 반복 실행하는 비용을 줄이는 변경이며, 출력·gradient의 chunk 동등성을 별도로 검사한다. 실제 GPU 속도·memory PASS는 각 arm 실행 전2update probe에서 확인한다.
+
+새 attention projection의 공통 초기화는 CPU generator만 사용하고 CPU RNG를 복원한다. `torch.manual_seed`로 CUDA rank별 RNG까지 다시 초기화하지 않으며, 부모 CPU 상태와 CUDA seed 함수 비호출을 검사한다. 이 검사는 task arm의 실제 학습 시작 전에 적용했다. 서로 다른 구조의 전체 stochastic training trajectory가 bit-exact라는 주장은 하지 않는다.
