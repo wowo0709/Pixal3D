@@ -488,14 +488,15 @@ CUDA_VISIBLE_DEVICES=<assigned-GPU> WANDB__DISABLE_STATS=true \
     --manifest "$TRAIN_MANIFEST" \
     --conditions "$REGIONAL_ROOT/conditions64-v1" \
     --regions "$REGIONAL_ROOT/pilot64-actual-SS-GT-v4" \
-    --gradient-proof "$REGIONAL_ROOT/regional-gradient-proof-actual-SS-GT-v4/summary.json" \
+    --gradient-proof "$REGIONAL_ROOT/regional-gradient-proof-network-gate-v3/summary.json" \
+    --gate-parameterization historical-network \
     --arm adapter-only --seed 101 --generation-batch 32 \
     --cpu-affinity <two-permitted-CPU-IDs> --output "$NEW_OUTPUT" \
     --wandb-id <unique-run-ID>
 ```
 
 `summarize_current_geometry_endpoint --root <six-run-root> --conditions <cache-dir>
---labels <region-dir> --output <new-summary.json>` verifies all six schedules,
+--labels <region-dir> --output <new-summary.json> --gate-parameterization historical-network` verifies all six schedules,
 optimizer steps, physical channels, GT voxel hashes and frozen native
 prediction hashes before writing JSON/Markdown. It keeps model/noise repeats
 inside source clusters, reports empty regions as NA with their population,
@@ -507,6 +508,17 @@ The completed [primary14 comparison](../../docs/superpowers/reports/2026-10-18-s
 uses decoded-latent GT and micro IoU. The regional pilot uses actual SS-input
 GT and macro IoU. Keep both reports separate. `matching_v2_reporter` publishes
 the primary table and the regional table after their strict collectors pass.
+
+The earlier `runs-v2` geometry pilot used a learned scalar gate. The
+[original-network correction](../../docs/superpowers/reports/2026-10-18-original-network-gate-reproduction-ko.md)
+retains the complete constant gate MLP and its AdamW parameterization.
+Six consecutive CPU optimization steps match the vendored original R4
+parameter-for-parameter; functional scalar conversion alone does not.
+Both corrected arms share reference common initialization and physically
+remove the No-query content branch. Pass the explicit gate flag to both
+the real GPU gradient proof and training; mixed proof/checkpoint modes fail.
+The scalar option remains only for replaying the preserved pilot, not as an
+equivalent training reproduction. Existing data/queries/GT are reused.
 
 The original C1 candidate uses R9 native-v5 source tensors. Its saved-weight
 diagnostics use `evaluate_native_checkpoint --r9-path-control

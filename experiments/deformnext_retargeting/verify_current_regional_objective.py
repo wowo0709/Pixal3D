@@ -23,6 +23,7 @@ def main():
     for name in ['config', 'checkpoint', 'manifest', 'conditions', 'region-preflight', 'output']:
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--wandb-id')
+    parser.add_argument('--gate-parameterization',choices=['scalar','historical-network'],default='scalar')
     args = parser.parse_args()
     torch.set_num_threads(2)
     torch.cuda.set_device(0)
@@ -72,12 +73,14 @@ def main():
         run_log = wandb.init(project='pixal3d-deformnext-retargeting', entity='youngwoojeon-unist',
             id=args.wandb_id, resume='never', dir=str(args.output), config={
                 'scope': 'one TRAIN pair original regional objective actual GPU proof',
+                'gate_parameterization':args.gate_parameterization,
                 'sampler': 'current native12steps CFG3 rescale1', 'SS_consumer': reference(args.checkpoint),
                 'sample_id': row['sample_id'], 'query_GT_geometry': False,
                 'production_global96_recipe_changed': False})
     for with_query in [False, True]:
         torch.manual_seed(101)
-        adapter = GeometryContentRetargetAdapter(with_query=with_query).cuda().train()
+        adapter = GeometryContentRetargetAdapter.for_training(with_query=with_query,
+            gate_parameterization=args.gate_parameterization).cuda().train()
         optimizer = torch.optim.AdamW(adapter.parameters(), lr=.0001, weight_decay=.01)
         history, started = [], time.monotonic()
         for update in range(2):
@@ -106,9 +109,14 @@ def main():
                 raise ValueError('frozen SS/decoder acquired parameter gradients')
             query_gradient = (sum(float(p.grad.abs().sum()) for p in adapter.content_encoder.parameters()
                 if p.grad is not None) if with_query else None)
+            constant_gate_gradient=(sum(float(p.grad.abs().sum()) for p in adapter.constant_gate_network.parameters()
+                if p.grad is not None) if adapter.constant_gate_network is not None else None)
+            if args.gate_parameterization=='historical-network' and update==1 and not constant_gate_gradient>0:
+                raise ValueError('original constant gate network is disconnected from regional objective')
             if with_query and update == 1 and not query_gradient > 0:
                 raise ValueError('predicted query disconnected from full native regional loss')
             record = {'update': update+1, 'regional_endpoint_loss': float(endpoint.detach()),
+                'constant_gate_gradient_l1':constant_gate_gradient,
                 'correction_penalty_unweighted': float(correction.detach()), 'loss': float(loss.detach()),
                 'gradient_norm_before_clip': gradient, 'query_encoder_gradient_L1_after_clip': query_gradient,
                 'initial_native_regional_loss_exact': torch.equal(endpoint, baseline) if update == 0 else None,
@@ -120,6 +128,7 @@ def main():
         cases.append({'with_query': with_query, 'raw_query_channels': 9 if with_query else 0,
             'residual_input_channels': adapter.residual[0].normalized_shape[0], 'history': history})
     write_new(args.output/'summary.json', {'status': 'PASS', 'scope': 'actual original regional objective transfer gradient proof',
+        'gate_parameterization':args.gate_parameterization,
         'sample_id': row['sample_id'], 'cases': cases, 'native_baseline_regional_loss': float(baseline),
         'consumer': reference(args.checkpoint), 'condition': reference(args.conditions/'summary.json'),
         'region_preflight': reference(args.region_preflight), 'frozen_SS_and_decoder_gradients_absent': True,

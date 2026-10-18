@@ -73,6 +73,14 @@ def main():
             run.summary['primary14/training_seed_replication']=False
             run.summary['primary14/unseen_test_evaluation']=False
             logged.add(table_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
+        correction=a.root/'current-geometry-regions-v1/scalar-gate-pilot-scope-correction.json'
+        correction_key=str(correction.relative_to(a.root))
+        if correction.exists() and correction_key not in logged:
+            artifact=wandb.Artifact('ss-regional-scalar-gate-methodology-correction',type='methodology-note')
+            artifact.add_file(str(correction));run.log_artifact(artifact)
+            run.summary['current_regional/gate_parameterization']='scalar'
+            run.summary['current_regional/original_optimizer_reproduction']=False
+            logged.add(correction_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         regional=a.root/'current-geometry-regions-v1/all-six-run-summary-v2.json'
         regional_key=str(regional.relative_to(a.root))
         if regional.exists() and regional.with_suffix('.md').exists() and regional_key not in logged:
@@ -91,6 +99,26 @@ def main():
             run.summary['current_regional/status']=value['status']
             run.summary['current_regional/production_promotion']=False
             logged.add(regional_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
+        network=a.root/'current-geometry-regions-v1/all-six-network-gate-summary-v3.json'
+        network_key=str(network.relative_to(a.root))
+        if network.exists() and network.with_suffix('.md').exists() and network_key not in logged:
+            value=json.loads(network.read_text())
+            if (value['status']!='PASS_COMPLETE_CURRENT_REGIONAL_PILOT' or value['training_runs']!=6
+                    or value['gate_parameterization']!='historical-network'):
+                raise ValueError('original-network regional study has not passed its six-run audit')
+            artifact=wandb.Artifact('ss-current-regional-original-network-six-runs-v3',type='evaluation-report')
+            artifact.add_file(str(network));artifact.add_file(str(network.with_suffix('.md')))
+            run.log_artifact(artifact)
+            table=wandb.Table(columns=['contrast','metric','candidate_minus_baseline','ci95_lower','ci95_upper','source_clusters',
+                'seed101','seed202','seed303'],data=[[name,metric,row['mean'],
+                    *(row['ci95'] if row['ci95'] is not None else [None,None]),row['source_clusters'],
+                    *((row['seed_means'] or {}).get(str(seed)) for seed in [101,202,303])]
+                    for name,metrics in value['contrasts'].items() for metric,row in metrics.items()])
+            run.log({'current_regional_network/fixed_final_contrasts':table})
+            run.summary['current_regional_network/status']=value['status']
+            run.summary['current_regional_network/gate_parameterization']='historical-network'
+            run.summary['current_regional_network/production_promotion']=False
+            logged.add(network_key);receipt.write_text(json.dumps({'logged':sorted(logged),'time':time.time()},indent=2)+'\n')
         confirmation=a.root/'ss-seed-confirmation-v1/final-seed101-report.json'
         confirmation_key=str(confirmation.relative_to(a.root))
         if confirmation.exists() and confirmation.with_suffix('.md').exists() and confirmation_key not in logged:

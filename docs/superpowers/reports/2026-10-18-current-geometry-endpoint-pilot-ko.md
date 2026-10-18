@@ -2,6 +2,8 @@
 
 원본 Q2C 24개 학습과 G2 기존 checkpoint의 144개 endpoint는 재현됐다. 현재 데이터에서 geometry 모듈의 효과를 확인하기 위해 입력 표현·native projection·loss를 맞춘 frozen-controller 실험을 진행한다. 이 실험은 기존 14개 본 비교와 별도이며, 본 SS LoRA 학습의 global96/DDP micro48/5epoch 설정을 바꾸지 않는다.
 
+`runs-v2`의 6개 학습은 완료됐으나 학습 가능한 scalar gate를 쓴 pilot이다. 원본 constant-gate network와 optimizer parameterization이 같지 않았으므로 [원본 network 보존 검증](2026-10-18-original-network-gate-reproduction-ko.md)을 추가한다. 아래 첫 seed의 양의 차이는 3개 seed 집계에서 재현되지 않았다. Scalar 결과는 보존하며 원본 모듈의 학습 재현 완료로 해석하지 않는다.
+
 ## 고정 비교와 데이터
 
 | Arm | Projection 입력 | Deformation query |

@@ -37,7 +37,8 @@ def render_report(result):
     """Readable fixed-final results; rates are pp only in the difference table."""
     lines = ['# Current SS regional controller: fixed-final seeded comparison', '',
         'Six 128-update controller runs; TRAIN32/calibration32, three model seeds and three sampling noises.',
-        'Frozen mixed385 SS4210 base+LoRA; native12/CFG3/rescale1. No production model promotion.', '',
+        'Frozen mixed385 SS4210 base+LoRA; native12/CFG3/rescale1. No production model promotion.',
+        'Gate parameterization: '+result.get('gate_parameterization','scalar')+'.', '',
         '| Method | Macro IoU | Source recall32 | Stale leak32 | Regional BCE |',
         '| --- | ---: | ---: | ---: | ---: |']
     def display(record):
@@ -119,7 +120,7 @@ def audit_history(history, train_ids, seed):
             raise ValueError('nonfinite or disconnected regional training')
 
 
-def summarize(root, conditions, labels, output):
+def summarize(root, conditions, labels, output, gate_parameterization='scalar'):
     if output.exists() or output.with_suffix('.md').exists():
         raise FileExistsError('preserve the earlier regional summary')
     cache, authority = read(conditions/'summary.json'), read(labels/'summary.json')
@@ -142,6 +143,8 @@ def summarize(root, conditions, labels, output):
         for seed in SEEDS:
             folder = root/arm/f'seed{seed}'
             result = read(folder/'summary.json')
+            if result.get('gate_parameterization','scalar')!=gate_parameterization:
+                raise ValueError('do not mix scalar-gate pilots with original-network training')
             if (result['status'] != 'PASS' or (result['arm'], result['seed'], result['updates']) != (arm, seed, 128)
                     or result['calibration_clusters'] != 32 or result['calibration_noise_seeds'] != 3
                     or result['production_promotion'] or result['production_global96_recipe_changed']):
@@ -150,11 +153,16 @@ def summarize(root, conditions, labels, output):
             if freeze['checkpoint'] != result['checkpoint'] or freeze['calibration_GT_values_opened'] or freeze['completed_updates'] != 128:
                 raise ValueError('calibration was not frozen behind fixed-final checkpoint')
             saved = torch.load(checked(result['checkpoint']), map_location='cpu', weights_only=True)
+            if saved.get('gate_parameterization','scalar')!=gate_parameterization:
+                raise ValueError('checkpoint gate parameterization differs from the selected study')
             if (saved['consumer'] != cache['consumer'] or saved['conditions'] != reference(conditions/'summary.json')
                     or saved['regions'] != reference(labels/'summary.json') or saved['updates'] != 128
                     or saved['arm'] != arm or saved['seed'] != seed or saved['train_pairs'] != sorted(train_ids)):
                 raise ValueError('checkpoint consumer, supervised split or inputs differ')
             weights = saved['adapter']
+            network_keys=any(k.startswith('constant_gate_network.') for k in weights)
+            if network_keys!=(gate_parameterization=='historical-network') or ('gate_logit' in weights)==network_keys:
+                raise ValueError('actual trained gate weights differ from declared parameterization')
             width = 3075 if arm == 'adapter-only' else 3107
             if (tuple(weights['residual.0.weight'].shape) != (width,)
                     or any(k.startswith('content_encoder.') for k in weights) != (arm == 'adapter-query')
@@ -218,6 +226,7 @@ def summarize(root, conditions, labels, output):
             ('query-projected-source-off', 'adapter-query', 'projected-source-off'),
             ('query-joint-shuffle', 'adapter-query', 'shuffled-query')]}
     result = {'status': 'PASS_COMPLETE_CURRENT_REGIONAL_PILOT', 'training_runs': 6, 'model_seeds': list(SEEDS),
+        'gate_parameterization':gate_parameterization,
         'updates_per_run': 128, 'calibration_source_clusters': 32, 'calibration_noise_seeds': 3,
         'paired_training_schedule_and_initial_loss_exact': True, 'all_frozen_native_prediction_hashes_exact': True,
         'all_GT_hashes_exact_and_verified_against_actual_SS_input': True,
@@ -245,9 +254,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['root', 'conditions', 'labels', 'output']:
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--gate-parameterization',choices=['scalar','historical-network'],default='scalar')
     args = parser.parse_args()
     torch.set_num_threads(2)
-    summarize(args.root, args.conditions, args.labels, args.output)
+    summarize(args.root, args.conditions, args.labels, args.output,args.gate_parameterization)
 
 
 if __name__ == '__main__':

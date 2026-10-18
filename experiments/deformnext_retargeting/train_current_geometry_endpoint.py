@@ -155,6 +155,7 @@ def main():
     parser.add_argument('--seed', type=int, choices=[101, 202, 303], required=True)
     parser.add_argument('--generation-batch', type=int, default=32)
     parser.add_argument('--wandb-id')
+    parser.add_argument('--gate-parameterization',choices=['scalar','historical-network'],default='scalar')
     parser.add_argument('--cpu-affinity', help='Explicit comma-separated permitted CPU cores; defaults to the last two inherited cores')
     args = parser.parse_args()
     if hasattr(os, 'sched_getaffinity'):
@@ -168,6 +169,8 @@ def main():
     if any((args.output/name).exists() for name in ['summary.json', 'checkpoint-final.pt', 'train-log.jsonl']):
         raise FileExistsError('preserve the earlier controller attempt')
     proof, cache, labels = read(args.gradient_proof), read(args.conditions/'summary.json'), read(args.regions/'summary.json')
+    if proof.get('gate_parameterization','scalar')!=args.gate_parameterization:
+        raise ValueError('GPU gradient proof used another gate parameterization')
     consumer = reference(args.checkpoint)
     if (proof['status'] != 'PASS' or proof['consumer'] != consumer or cache['status'] != 'PASS'
             or labels['status'] != 'PASS' or labels['schema'] != SCHEMA
@@ -186,7 +189,8 @@ def main():
     trainer, dataset = load_current_trainer(read(args.config), args.checkpoint, args.manifest, args.output/'runtime')
     dataset._loading_ss_dec(); decoder = dataset.ss_dec.eval().requires_grad_(False)
     flow, sampler = trainer.models['denoiser'], trainer.get_sampler()
-    adapter = GeometryContentRetargetAdapter(with_query=args.arm == 'adapter-query').cuda().train()
+    adapter = GeometryContentRetargetAdapter.for_training(with_query=args.arm == 'adapter-query',
+        gate_parameterization=args.gate_parameterization).cuda().train()
     optimizer = torch.optim.AdamW(adapter.parameters(), lr=.0001, weight_decay=.01)
     pairs = {row['sample_id']: load_pair(row, label_rows[row['sample_id']], role='train',
         with_query=adapter.with_query, consumer=consumer, device='cuda:0') for row in training}
@@ -197,6 +201,7 @@ def main():
             id=args.wandb_id, resume='never', dir=str(args.output), config={
                 'scope': 'current TRAIN32 frozen-controller original regional loss transfer pilot',
                 'arm': args.arm, 'seed': args.seed, 'updates': 128, 'controller_asset_batch': 1,
+                'gate_parameterization':args.gate_parameterization,
                 'production_global96_recipe_changed': False, 'V1_retrained': False,
                 'consumer': consumer, 'sampler': 'native12 CFG3 rescale1', 'LoRA_consumer_frozen': True,
                 'cpu_affinity': sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None,
@@ -227,6 +232,7 @@ def main():
                 raise ValueError('frozen current SS consumer acquired gradients')
             optimizer.step()
             record = {'update': update+1, 'epoch': epoch, 'sample_id': row['sample_id'], 'noise_seed': noise_seed,
+                'constant_gate_mean':float(trace['constant_gate'].detach().float().mean()),
                 'loss': float(loss.detach()), 'endpoint_loss': float(endpoint.detach()),
                 'correction_loss': float(correction.detach()), 'gradient_norm': gradient,
                 'seconds': time.monotonic()-started, 'peak_GPU_allocated_gib': torch.cuda.max_memory_allocated()/1024**3}
@@ -236,6 +242,7 @@ def main():
                 if run: run.log({'train/'+key: value for key, value in record.items() if isinstance(value, (int, float))})
     checkpoint = args.output/'checkpoint-final.pt'
     torch.save({'adapter': adapter.state_dict(), 'optimizer': optimizer.state_dict(), 'arm': args.arm,
+        'gate_parameterization':args.gate_parameterization,
         'seed': args.seed, 'updates': 128, 'train_pairs': sorted(pairs), 'consumer': consumer,
         'conditions': reference(args.conditions/'summary.json'), 'regions': reference(args.regions/'summary.json'),
         'scope': 'unpromoted current frozen regional controller, not a production LoRA checkpoint'}, checkpoint)
@@ -248,6 +255,7 @@ def main():
     metrics = evaluate(heldout, adapter, flow, decoder, sampler, trainer.mix_precision_dtype,
         args.output, run, args.generation_batch)
     write_new(args.output/'summary.json', {'status': 'PASS', 'scope': 'current frozen-controller regional pilot',
+        'gate_parameterization':args.gate_parameterization,
         'arm': args.arm, 'seed': args.seed, 'updates': 128, 'checkpoint': reference(checkpoint),
         'train_clusters': 32, 'calibration_clusters': 32, 'calibration_noise_seeds': 3,
         'metrics': metrics, 'seconds': time.monotonic()-started, 'production_promotion': False,
