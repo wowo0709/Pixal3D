@@ -373,3 +373,31 @@ No-decoder−이전 V1은 +1.100pp, CI [−0.430,+2.890]pp, No-prior−이전 V1
 두 저장 모델의 실제 RGB/cache·BF16·train/eval·CFG 정합 검사도 통과했다. 같은 첫 두 active 사례의 150개 유효 query에서 No-decoder의 평균 최대 weight는0.25757, entropy는2.67659nats, 평균 entropy 실효K는16.3902였다. No-prior는 각각0.03490,4.05895nats,58.2368이었다. 두 경로 모두 Top1으로 붕괴하지 않고 여러 source candidate value를 실제 사용한다. Invalid zero row는 제외했으며 전체 데이터 coverage나 생성 성능 기여를 뜻하지 않는다.
 
 두 모델은 decoder 유무도 다르므로 이 통계 차이를 scalar-prior 단독 효과라고 해석하지 않는다. Full/static-C1의 동일 사례 저장-weight 통계는 별도 검사로 보완한다. No-prior는 사용자 정의의 Top1 No-score 대조군이 아니며, 그 대조는 예정된 `static-top1-c1` 학습이다. 남은 native spatial·동일 retargeter Top1·추가 seed/121개와 최종 선정 기준은 유지한다.
+
+
+## 여섯 모델의 fixed-final128×3 비교
+
+No-decoder/No-prior의 마지막 raw480·128개/93source·서로 다른3개 sampling noise 평가까지 완료됐다. 여섯 모델 모두 실제2-rank/480update·같은 native 초기 출력·매 epoch 검증·마지막 quick32의 final128 재현을 확인했다. 실제 최종 tensor/optimizer와 30개 epoch의 W&B/file4 대조도 통과했다. 아래는 quick32가 아닌 고정 최종128×3의 SS voxel metric이다.
+
+| Model | Micro IoU | Micro F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.380711 | 0.551471 |
+| Zero edited1M1+source3M0 | 0.419275 | 0.590830 |
+| 이전 V1 | 0.432650 | 0.603986 |
+| 이전 C1 T0.005 | 0.442193 | 0.613223 |
+| Static-C1 T0.05 | 0.440938 | 0.612016 |
+| Task-full | 0.439236 | 0.610374 |
+| Task-no-decoder | 0.441023 | 0.612097 |
+| Task-no-prior | 0.440340 | 0.611439 |
+
+No-decoder−V1는 +0.837pp, 95% source-cluster CI [+0.405,+1.276]pp, No-prior−V1는 +0.769pp, CI [+0.361,+1.183]pp였다. 둘 다3noise에서 V1보다 높았다. Retargeter 없는 Top1 대비도 각각 +0.649pp, CI [+0.236,+1.074]pp와 +0.581pp, CI [+0.203,+0.971]pp였다. 같은 retargeter의 Top1 결과는 아직 없으므로 이 개선을 Top-K만의 효과라고 분리하지 않는다.
+
+Full−No-decoder는 −0.179pp, CI [−0.498,+0.109]pp, Full−No-prior는 −0.110pp, CI [−0.398,+0.121]pp였다. Full에 decoder 또는 scalar-prior를 더한 성능 이득은 이번 fixed-final에서도 확인되지 않았다. Decoder 제거 쪽이3noise 모두 높은 점수를 냈지만 CI가0을 포함하므로 decoder의 보편적 유해성이나 제거 모델의 확정 우월성을 주장하지 않는다.
+
+현재 최고점은 기존 C1이다. No-decoder−기존 C1은 −0.117pp, CI [−0.339,+0.119]pp, No-prior−기존 C1은 −0.185pp, CI [−0.432,+0.043]pp로 두 차이는 불확실하다. No-decoder와 static-C1의 차이도 +0.008pp, CI [−0.223,+0.263]pp였다. 새 학습 모듈이 늘어났다는 이유로 Full을 채택하거나, 점수 차이가 불확실한 후보를 승자로 확정하지 않는다.
+
+같은 두 실제 active RGB 사례/150query의 저장 attention 검사는 네 모델 모두 통과했다. 평균 최대 weight/entropy 실효K는 static-C1 0.5398/5.5745, Full 0.3641/12.1724, No-decoder 0.2576/16.3902, No-prior 0.0349/58.2368이었다. 실제 matching score/content attention이 여러 후보에 가중치를 부여해 value를 전달하는 경로는 작동한다. 이 두 사례의 집중도와 성능 순서를 연결해 분포 확산을 실패 원인으로 단정하지 않는다. 세부 entropy·case별 값·현재 content scale과 recipe/checkpoint hash는 실제 QA 및 비교 JSON에 있다.
+
+첫8개 사례의 GT–Pred도 원래 순서/noise0에서 V1·기존 C1·static-C1·Full·두 제거 모델을 나란히 생성해 직접 확인했다. 예를 들어 case3은 기존 C1 0.660 대 No-decoder/No-prior 0.647/0.629, case5는 기존 C1 0.415 대0.432/0.439, case8은 Full 0.551 대0.531/0.531이었다. 모델별 개선 방향이 사례마다 다르다. 실제GT pixel·source·noise·3D hash는128개 모두 같았고, 투영 그림이 비슷해도 실제3D IoU 차이를 대신 설명하지 못한다. 새 추론이나 좋은 사례 선택은 하지 않았다.
+
+전체11개 방법·paired CI·학습 감사·입력 hash는 `wave3-fixed-final-v1/report.json`과 `report.md`, 원래 첫8개 비교는 같은 경로의 `visual-review-first8-v1/`에 보관한다. 이는 한 training seed에 조건부인 exploratory development 결과이며 다중 비교 보정이나 independent test 결과가 아니다. 원래 spatial correspondence 및 같은 retargeter Top1 대조가 이제 실제 학습을 시작했다. 두 결과와 기존 C1을 포함한6후보의 고정 선정 기준, 이후 seed202·reserved121·실제 W&B 게시/재검증은 남아 있다. 아직 최종 모델을 채택하지 않았다.
