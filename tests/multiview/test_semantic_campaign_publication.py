@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from experiments.deformnext_retargeting.semantic_topk_campaign_wandb import (
-    conditional_scope, validate_noise_identity, publication_jobs, payload, COMPONENTS,
+    conditional_scope, validate_noise_identity, publication_jobs, payload, COMPONENTS, validate_saved_qa,
 )
 
 
@@ -121,3 +121,18 @@ def test_publication_preserves_panel_prefixes_and_all_named_module_comparisons(t
     assert [r[0] for r in rows]==list(COMPONENTS)
     assert all(r[2]<0 for r in rows)  # Negative bounds are retained, never reformatted as improvement.
     assert not spec['scope']['full_campaign_complete'] and not spec['scope']['model_adopted']
+
+
+@pytest.mark.parametrize('aggregation',['soft','top1'])
+def test_frozen_c1_uses_its_actual_completed_qa_schema(aggregation):
+    qa={'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT','optimizer_updates':0,
+        'actual_four_RGB_cameras_exact':True,'p1_all_branches_exact_zero':True,'sample_ids':['one','two']}
+    validate_saved_qa(qa,{'arm':'c1','candidate_aggregation':aggregation})
+
+
+def test_legacy_frozen_matcher_qa_cannot_certify_a_task_trainable_matching_head():
+    qa={'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT','optimizer_updates':0,
+        'actual_four_RGB_cameras_exact':True,'p1_all_branches_exact_zero':True,'sample_ids':['one','two']}
+    spec={'arm':'c1','task_attention':{'decoder':True,'score_prior':True}}
+    with pytest.raises(ValueError,match='schema'):validate_saved_qa(qa,spec)
+    qa['status']='PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT';validate_saved_qa(qa,spec)

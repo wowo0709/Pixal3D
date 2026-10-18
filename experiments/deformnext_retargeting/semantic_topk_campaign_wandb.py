@@ -103,16 +103,24 @@ def conditional_scope(candidate, confirmation=None, additional=None, corresponde
             'full_campaign_complete':False, 'model_adopted':False}
 
 
-def proof_files(root, job, name, seed, files):
-    qa = require(root/'functional-QA-v1'/f's{seed}-{name}'/'summary.json',
-                 'PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT', files)
+def validate_saved_qa(qa,spec):
+    expected=('PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT' if not spec.get('task_attention') and spec['arm']=='c1'
+              else 'PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT')
+    if qa.get('status')!=expected:
+        raise ValueError('saved-model QA schema differs from actual conditioner recipe')
     if (qa['optimizer_updates'] != 0 or not qa['actual_four_RGB_cameras_exact']
         or not qa['p1_all_branches_exact_zero'] or len(qa['sample_ids']) != 2):
         raise ValueError('actual trained RGB/cache/CFG evidence differs')
+
+
+def proof_files(root, job, name, seed, files):
+    recipe = root/'final-weight-audits-v1'/job/'final-recipe-snapshot.json'
+    cfg=read(recipe)
+    qapath=root/'functional-QA-v1'/f's{seed}-{name}'/'summary.json'
+    validate_saved_qa(read(qapath),cfg['trainer']['args']['deform_conditioner']);files.append(qapath)
     weights = require(root/'final-weight-audits-v1'/job/'audit.json',
                       'PASS_ACTUAL_FINAL_TENSORS_AND_OPTIMIZER', files)
-    recipe = root/'final-weight-audits-v1'/job/'final-recipe-snapshot.json'
-    if read(recipe)['training_seed'] != seed:
+    if cfg['training_seed'] != seed:
         raise ValueError('actual optimizer training seed differs')
     files.append(recipe)
     if (not weights['all1061_denoiser_tensors_finite'] or weights['frozen_base_tensors_exact'] != 701

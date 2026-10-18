@@ -178,3 +178,27 @@ Full−V1은+1.484pp,CI[+0.190,+2.835]pp,static−V1은+1.516pp,CI[+0.122,+2.960
 Epoch3→4는static+0.752pp,CI[+0.005,+1.456]pp,Full+0.773pp,CI[+0.021,+1.606]pp였다. 같은run의최적화가진행되는증거이며모듈단독효과나best-epoch선택의근거는아니다. Fixed raw480/final128×3와남은ablation을유지한다.
 
 전체9개방법·paired검사·temporal결과는 `wave2-epoch4-comparison-v2/`에있다. 원격대조는 `provenance/automatic-epoch4-summary-v1-file4.json`의5개파일/282,687bytes와일치했다. Epochaudit는18/45개PASS,errors=[]였다. 아직최종모델을선정하지않았다.
+
+
+## 다섯 번째 에폭 완료: 추가 학습 경로의 이득은 아직 확인되지 않음
+
+두 모델 모두 계획한 raw480/5에폭을 완료했다. 같은 32개·한 noise의 마지막 quick 평가와 실제 W&B/image/raw-checkpoint의 file4 대조까지 완료했다. 아래 표는 final128×3 결과와 별개다.
+
+| 같은 32개 기준 | Epoch5 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch5 | 0.434837 | 0.606114 |
+| 이전 C1, T0.005, epoch5 | 0.453849 | 0.624341 |
+| Static-C1, T0.05, epoch5 | 0.449857 | 0.620554 |
+| Task-full, T0.05, epoch5 | 0.448606 | 0.619362 |
+
+Full−static은 −0.125pp, 95% source-cluster CI [−0.633,+0.353]pp였다. 이전 C1 대비 static은 −0.399pp, CI [−0.649,−0.167]pp, Full은 −0.524pp, CI [−1.089,−0.001]pp였다. 이 quick panel에서 temperature 완화와 task 학습 경로가 이전 C1을 개선했다고 볼 수 없다. Full−V1은 +1.377pp지만 CI [−0.065,+2.859]pp는 0을 포함한다. 마지막 epoch와 평가 프로토콜을 유지하며, 중간에 좋았던 epoch를 골라 결과를 교체하지 않는다.
+
+실제 final checkpoint에서는 두 모델 모두 frozen base 701개 tensor가 시작점과 같고 LoRA 360개가 갱신됐으며 모든 model/optimizer tensor가 finite였다. Static은 decoder 18개와 score 6개가 그대로였고, Full은 decoder 18개·score 6개·task attention 4개가 모두 갱신됐다. 이는 구현이 실제 학습에 사용됐다는 증거다. 품질 기여는 별도의 No-decoder/No-prior/원래 spatial/같은 retargeter Top1 대조로 확인한다. 두 모델의 입력 채널은 2048이며 deformation-query 추가 채널은 없다.
+
+저장 모델의 실제 RGB/cache/BF16/CFG 검증은 각각 두 사례에서 통과했다. Static-C1의 기존 QA 상태 이름은 `PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT`, task 모델은 `PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT`다. 최종 게시 도구가 실제 recipe에 따라 해당 상태를 엄격히 구분하도록 수정했다. 이 수정은 보고 경로에만 적용되며 학습과 checkpoint는 바꾸지 않는다.
+
+Omega7도 별도로 실제 RGB 두 사례를 다시 인코딩했다. 선택한 base/epoch7 weight의 SHA와 strict adapter load를 확인했고, 4개 view의 FRAME/GLOBAL feature를 각각 비교했다. FP16 저장 경계에서는 전체 feature와 Top64 proposal 순서가 cache와 exact였다. FP32 대비 relative RMS의 최대값은 약 0.00020773이며 저장 양자화 범위였다. 해당 두 사례에서 checkpoint·전처리·feature cache 경로의 일치를 확인한 것이며 전체 데이터 품질이나 SS 개선의 증거는 아니다.
+
+전체 9개 방법의 quick32 결과는 `wave2-epoch5-comparison-v2/`, 원격 대조는 `provenance/automatic-epoch5-summary-v1-file4.json`에 있다. Epoch 검증 20/45개와 네 모델의 최종 tensor 검증이 통과했고 오류는 없었다. 다음 단계는 static/Full의 fixed128×3 평가 완료와 나머지 제거 대조다. 최종 모델을 선정하지 않았다.
