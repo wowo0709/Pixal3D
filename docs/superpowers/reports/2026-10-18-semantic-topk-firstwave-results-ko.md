@@ -312,3 +312,16 @@ No-decoder−이전 C1은 +0.040pp, CI [−0.290,+0.396]pp, No-prior−이전 C1
 같은 run의 epoch2→3 변화는 No-decoder −0.386pp, CI [−0.902,+0.221]pp, No-prior −0.246pp, CI [−0.877,+0.410]pp였다. 점수 하락을 관측했지만 두 temporal CI가 0을 포함하며, 이 quick32만으로 과적합·최적 epoch·수렴 실패의 원인을 판정하지 않는다. Epoch2만 골라 최종 결과로 대체하지 않고 원래 5epoch/raw480/fixed128×3와 남은 대조를 유지한다.
 
 전체 11개 방법과 paired/temporal 결과는 `wave3-epoch3-comparison-v1/`에 있다. 이 결과는 training seed101에 조건부인 탐색 중간 근거이며 다중 비교 보정, independent test 또는 training-seed population CI가 아니다. 현재 최종 모델은 선정하지 않았다.
+
+
+## Matching head의 입력 상태와 저장된 matching 지표의 범위
+
+진행 중인 학습을 변경하지 않고 현재 initializer `4f8771f2…`의 실제 metadata와 기존 lineage 기록·source를 대조했다. `P0-RAW/M0-L12/D1-Q2C`에서 `M0-L12`는 layer12 하나의 score를 쓰는 multi-layer ablation 이름이다. 물체 상태 M0의 RGB만으로 학습했다는 뜻이 아니다. Cache producer는 `target_anchor`와 source RGB3장을 넣고, topology teacher는 M1을 rasterize한 barycentric attribute로 M0 rest point를 얻어 source M0 view에 투영한다. 따라서 단순한 “M0-only training→M1 inference” 설명을 현재 head의 실패 원인으로 단정하지 않는다.
+
+실제 initializer는 topology-visible-listwise-v1, 7epoch/62,545 optimizer updates, 선언된 train9,143/validation508이다. 저장된 마지막 원래 matching validation에서는 visible query22,893개 중 Top64에 GT positive가 하나 이상 있는 query가14,619개, proposal miss가8,274개였다. 해당 protocol의 exact-patch Top64 query recall은63.858%다. Raw cosine Top1은529/22,893=2.311%, 학습한 Q2C/scalar head의 Top1은4,851/22,893=21.190%였다.
+
+이는 원래 initializer의 저장 기록이며 현재 SS joint-training 이후 decoder/score의 matching 성능을 새로 측정한 값이 아니다. H3의 Top256/calibration 지표와 head·budget·평가 분모가 다르므로 대체하거나 순수 K 효과로 비교하지 않는다. Top1 개선에는 학습한 decoder와 scalar head가 함께 바뀌었으므로 그 차이를 decoder 단독 효과라고 부르지도 않는다.
+
+이 head는 먼저 frozen RAW FRAME cosine으로64개를 고른 뒤 decoder/score로 재순위를 매긴다. 정확한 GT patch가 pool 밖인 query는 재순위만으로 복구되지 않지만, 근처 semantic feature가 SS 생성에 유용할 가능성은 별개다. Exact Top1/patch recall을 현재 SS 모델의 채택 또는 기각 기준으로 사용하지 않는다. Scalar head의 listwise loss는 pool 안에 visible positive가 있는 query에 적용되며, logit과 attention 집중도를 보정된 correctness probability로 간주하지 않는다.
+
+검토의 actual checkpoint SHA, 이전 기록과 일치한 원래 count, source hash와 범위는 `provenance/current-head-protocol-domain-review-v1.json`에 있다. 새 matching 평가·head 재학습·후보 확대·threshold 변경을 한 것은 아니며, 현재 SS arm들의 학습과 기존 최종 선정 기준을 유지한다.
