@@ -78,6 +78,11 @@ def queue_candidate(a):
         'outputs':[str(folder/'final-confirmation-report.json'),str(folder/'final-confirmation-report.md')],
         'command':[sys.executable,'-u','-m','experiments.deformnext_retargeting.semantic_topk_selection',
                    '--mode','summarize','--root',str(a.root)]})
+    from .semantic_topk_additional_validation import jobs_and_contract
+    reservation_path=a.root/'additional-validation-v1/panel-contract.json'
+    extra_jobs,extra_contract=jobs_and_contract(a.root,a.root.parent,name,json.loads(reservation_path.read_text()),SELECT_JOB)
+    extra_contract['reservation_SHA256']=hashlib.sha256(reservation_path.read_bytes()).hexdigest()
+    jobs.extend(extra_jobs)
     if {j['name'] for j in jobs}&{j['name'] for j in existing}:raise FileExistsError('candidate seed202 already queued')
     if not any(j['name']==SELECT_JOB for j in existing):raise ValueError('selection job missing from queue')
     source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
@@ -86,6 +91,7 @@ def queue_candidate(a):
     write_new(folder/'candidate-contract.json',{'status':'CONFIGURED_NOT_TRAINED','candidate':name,'training_seed':202,
         'source_commit':source,'master_port':30441,'fresh_original_SS4210':True,'fixed_final_report_SHA256':result['actual_fixed_final_report_SHA256'],
         'scope':'Additional optimization-seed confirmation on same development panel,no test-generalization claim.'})
+    write_new(a.root/'additional-validation-v1/evaluation-contract.json',extra_contract)
     with (a.work_root/'queue-jobs-before-selected-candidate202.json').open('xb') as f:f.write(old)
     temp=path.with_suffix('.selected-candidate.tmp');temp.write_text(json.dumps(existing+jobs,indent=2)+'\n');os.replace(temp,path)
     result.update(queued_jobs=len(jobs),source_commit=source)
@@ -119,7 +125,7 @@ def summarize(root):
         'positive_CI_and_all_noise_direction_at_both_seeds':supported(first) and supported(second),
         'descriptive_mean_gain_over_training_seeds':(first['gain']+second['gain'])/2,
         'training_seed_population_CI':None,'full_goal_complete':False,
-        'required_remaining':['trained cache/BF16/CFG functional audit','actual final logging/storage/source closure','module-effect interpretation and final adoption'],
+        'required_remaining':['reserved source-disjoint additional121 evaluation','trained cache/BF16/CFG functional audit','actual final logging/storage/source closure','module-effect interpretation and final adoption'],
         'scope':'Two training seeds evaluated on the same fixed development128/93source clusters/3noises. CIs remain separate conditional source-cluster intervals;no held-out-test or training-seed-population CI claim.'}
     lines=['# Semantic Top-K additional training-seed confirmation','',f'Candidate: {name}','','| Training seed | Gain IoU vs matched Top1,pp | 95% source-cluster CI,pp |','| --- | ---: | --- |']
     for seed,c in report['per_training_seed_contrast'].items():

@@ -69,6 +69,11 @@ def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_bas
     original={'trainer':{'args':{'max_steps':480,'batch_size_per_gpu':48,'batch_split':1,
         'continuation_ckpt':{'denoiser':'SS4210'}}},'training_seed':101,'num_gpus':2,'experiment':{'arm':'task-full'}}
     (root/'configs/task-full.json').write_text(json.dumps(original))
+    (root/'configs/zero-shot-reference.json').write_text(json.dumps(original))
+    extra=root/'additional-validation-v1';extra.mkdir()
+    (extra/'panel-contract.json').write_text(json.dumps({'status':'RESERVED_NOT_EVALUATED',
+        'additional_assets':121,'additional_source_clusters':39,'panel_SHA256':'reserved-panel',
+        'seed_maps':{str(n):{'path':str(tmp_path/f'noise{n}.json')} for n in range(3)}}))
     baseline=root/'seed-confirmation-v1/configs/top1-reference.json';baseline.parent.mkdir(parents=True)
     baseline.write_text(json.dumps({'master_port':'30440'}));baseline_bytes=baseline.read_bytes()
     jobs=[{'name':SELECT_JOB},*[{'name':f'confirm-seed202-final-top1-reference-noise{n}'} for n in range(3)]]
@@ -79,6 +84,8 @@ def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_bas
     assert cfg['training_seed']==202 and cfg['trainer']==original['trainer'] and cfg['num_gpus']==2
     assert cfg['master_port']=='30441' and baseline.read_bytes()==baseline_bytes
     actual=json.loads((work/'queue-jobs.json').read_text());new=actual[len(jobs):]
-    assert len(new)==5 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
+    assert len(new)==48 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
+    extra_jobs=[j for j in new if j['name'].startswith('additional121-')]
+    assert len(extra_jobs)==42 and all('gpu' not in j and 'gpus' not in j for j in extra_jobs)
     assert not any('resume' in j['command'] for j in new)
     assert json.loads((root/'candidate-selection-v1.json').read_text())['selected_candidate']=='task-full'
