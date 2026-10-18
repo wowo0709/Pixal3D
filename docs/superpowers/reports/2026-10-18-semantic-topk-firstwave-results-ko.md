@@ -512,3 +512,22 @@ Trained prior와 initializer prior의 argmax는42.67% query에서 달랐다. 이
 Cached frozen score와 initializer의 fresh score로 만든 value 가중합의 relative RMS 차이는2.61e-7이었다. 실제 consumer는 source value를 FP32로 올린 뒤 logit을 cast하므로 cached score도 FP32로 비교했다. 앞선 BF16 GPU parity 검사를 이 CPU 계산으로 대체하지 않는다. FP32 total-attention 실효K12.17337과 기존 BF16 saved-QA의12.17240도 서로 다른 계산 경계의 기술통계다.
 
 정확한 입력/weight/source hash와 결과는 `matching-prior-drift-two-case-v2/summary.json`에 있다. 분석 초안v1의 불필요한 cached-logit FP16 cast는 별도 superseded 기록으로 보존하고 보고에는v2만 사용한다. 실제 학습 코드·cache·checkpoint는 바꾸지 않았다. 모든 현재 fixed-final 비교가 끝난 뒤에도 유효한 후보가 없으면, matcher를 고정한 채 content-attention만 학습하는 분리를 다음 설계의 우선 가설로 둔다. 이 가설을 아직 구현·학습·검증된 모델로 부르거나 현재8arm/선정 기준을 변경하지 않는다.
+
+## 같은 prior 진단의 고정128 전체 확인과 saved-component 대조
+
+위 두 사례 진단을 원래 순서의128개·93source·9,883개 active query 전체로 확장했다. CPU84/85 두 코어에서 FP32 saved-weight inference만 실행했고, GPU 학습·원래8arm·추가121개 패널은 바꾸지 않았다. Feature 가중합의 오차/기준 제곱합을 case별로 누적해 큰 candidate-value tensor를 전체 panel에 대해 보관하지 않았다. 첫 두 사례 통계는 기존 직접 계산과 최대2.21e-7 차이로 재현했다.
+
+| 고정128의 active-query 평균 | 실효 후보 수 | 최대 가중치 |
+| --- | ---: | ---: |
+| Frozen initializer prior, T0.005 | 1.23147 | 0.93332 |
+| Frozen initializer prior, T0.05 | 4.67355 | 0.56625 |
+| Trained decoder + initializer scalar head, T0.05 | 7.40808 | 0.52135 |
+| Initializer decoder + trained scalar head, T0.05 | 7.44122 | 0.53820 |
+| Trained decoder + trained scalar head, T0.05 | 10.66050 | 0.39080 |
+| 같은 trained prior + trained content-attention | 10.40178 | 0.39436 |
+
+Initializer prior 대비 trained prior의 argmax 불일치율은45.32%, 가중합 DINO value의 relative RMS 차이는12.35%였다. 같은 trained prior에 content-attention을 더한 대조는 각각15.68%,3.66%였다. 전체 Full attention과 frozen T0.05의 value 차이는13.28%다. 이는 score/feature 사용의 변화이며 matching accuracy나 SS 성능 차이가 아니다. Cached score와 fresh initializer score의 value 차이는3.41e-7로, 이 panel에서 old cached matcher와 initializer 불일치를 큰 변화의 설명으로 삼을 근거는 없다.
+
+저장된 decoder만 trained weight로 바꾼 대조의 initializer 대비 argmax 불일치율은48.41%, value 차이는13.39%였다. Scalar head만 trained weight로 바꾼 대조는21.68%,10.14%였다. 두 component가 모두 가중합을 바꾸며, 둘을 함께 바꾼 수치는 단독 변화의 합이 아니다. 이 hybrid들은 **원래/학습된 저장 component를 추론 시 교체한 진단**으로, 각각을 독립 학습한 ablation이나 SS 품질의 인과 효과로 해석하지 않는다.
+
+결과는 `matching-prior-drift-panel128-v1/summary.json`과 `matching-prior-drift-panel128-hybrid-v1/summary.json`에 있다. Hybrid 계산은 기존128 진단의 원래5분포·5대조 통계를 최대 차이0으로 재현했다. 실제 file4의 initializer·saved-conditioner·manifest·128개 RGB/feature/proposal 입력387파일(약3.86GB)을 별도로 SHA256 대조했고, hybrid가 완전히 같은 입력/weight를 사용했는지도 연결한다. 전체 panel에서의 matching-prior drift가 확인됐지만, 현재 최종 모델 채택이나 학습의 유해성 판정은 여전히 별도의 생성 평가·대조군·추가 seed 근거를 요구한다.
