@@ -142,3 +142,17 @@ def test_decoder_removal_keeps_other_initial_weights_identical_and_score_off_kee
     p=inputs();baseline=no_prior(**p).evidence
     no_prior.q2c.decoder.blocks[0].attention_gate.data.zero_()
     assert (no_prior(**p).evidence-baseline).abs().max()>0
+
+
+def test_native_spatial_larger_query_chunks_preserve_values_and_gradients():
+    from pixal3d.modules.task_matching_attention import native_spatial_evidence
+    a=make(chunk=1);b=copy.deepcopy(a);b.task_attention_config['chunk_size']=4
+    torch.manual_seed(28);args=dict(target_keys=torch.randn(1,35,1024),target_query=torch.randn(1,35,1024),
+        keys=torch.randn(1,35,3,1024),values=torch.randn(1,35,3,1024),target_valid=torch.ones(1,35,dtype=torch.bool))
+    left=native_spatial_evidence(a,**args);right=native_spatial_evidence(b,**args)
+    torch.testing.assert_close(left.evidence,right.evidence,rtol=3e-5,atol=3e-6)
+    left.evidence.square().mean().backward();right.evidence.square().mean().backward()
+    for (name,x),(other,y) in zip(a.named_parameters(),b.named_parameters()):
+        assert name==other
+        if x.grad is None:assert y.grad is None
+        else:torch.testing.assert_close(x.grad,y.grad,rtol=3e-3,atol=2e-6)

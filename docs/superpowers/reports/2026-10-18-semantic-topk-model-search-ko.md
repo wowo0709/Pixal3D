@@ -49,3 +49,5 @@ Native-spatial arm은 같은 카메라 행렬·native anchor 변환·ProjGrid로
 모든 새 task arm은 동일한5epoch 조건을 먼저 실제 native/backward/memory proof로 검사한 뒤 학습한다. Decoder·score·task projection의 실제 gradient, attention 집중도·실효K를 기록한다. Decoder/score/correspondence 각각의 효과와 모델 채택은 fixed-final 생성 결과를 얻은 뒤 판단한다. 개선 후보의 추가 seed 확인과 실제 W&B/file4 대조는 여전히 필수 후속이다.
 
 Task attention의 주소 대조는 attention forward의 **key·score·이미 계산한 weight를 유지하고 value만** 각 query의 유효 후보 안에서 절반 길이 순환한다. Full 모델의 동일 saved weight/common32/한 noise로 normal과 value-address 교란을 비교하고 normal이 final128의 같은 사례 count/seed/GT hash를 exact 재현하는지 검사한다. Native spatial 대조를 대체하지 않으며, candidate key도 함께 바꾸는 input-roll과 구분한다. Hook은 예외에서도 제거하고 원본 weight/input을 수정하지 않는다.
+
+Native spatial의3개 후보는 semantic64와 같은 candidate tensor budget을 기준으로 query chunk를 확대한다. `chunk_size64`의 semantic 처리는64query×64candidate,spatial 처리는최대1365query×3candidate다. 작은 CUDA kernel을 반복 실행하는 비용을 줄이는 변경이며, 출력·gradient의 chunk 동등성을 별도로 검사한다. 실제 GPU 속도·memory PASS는 각 arm 실행 전2update probe에서 확인한다.

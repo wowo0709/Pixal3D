@@ -137,8 +137,12 @@ def native_spatial_evidence(module, *, target_keys, target_query, keys, values, 
     e=values.new_zeros(b*q,d,dtype=torch.float32);w=values.new_zeros(b*q,k,dtype=torch.float32)
     logits=values.new_full((b*q,k),-torch.inf,dtype=torch.float32)
     out_e=[];out_w=[];out_l=[]
-    for start in range(0,len(selected),module.task_attention_config['chunk_size']):
-        ix=selected[start:start+module.task_attention_config['chunk_size']]
+    # Bound candidate tensors by the same budget as64 semantic candidates.
+    # Native spatial has only3 per voxel; processing64 queries at a time
+    # would launch thousands of tiny CUDA kernels for one training pack.
+    query_chunk=max(1,module.task_attention_config['chunk_size']*64//k)
+    for start in range(0,len(selected),query_chunk):
+        ix=selected[start:start+query_chunk]
         omega=target_keys.reshape(-1,d)[ix].float();ck=keys.reshape(-1,k,d)[ix].float()
         cv=values.reshape(-1,k,d)[ix];active=torch.ones(len(ix),k,dtype=torch.bool,device=values.device)
         with torch.autocast(device_type=values.device.type,enabled=False):

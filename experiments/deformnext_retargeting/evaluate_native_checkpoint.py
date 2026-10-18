@@ -63,6 +63,7 @@ def main():
     trainer=getattr(trainers,cfg['trainer']['name'])(md,ds,**kw,output_dir=str(args.output),load_dir=None,step=None,wandb_run=None)
     if args.conditioner_checkpoint:
         trainer.deform_conditioner.load_state_dict(torch.load(args.conditioner_checkpoint,map_location='cpu',weights_only=True),strict=True)
+        trainer.deform_conditioner.eval()
     trainer.models['denoiser'].eval();trainer.p_uncond=0
     r9_events=[];task_events=[]
     with transport_diagnostic_context(trainer.deform_conditioner,args.transport_control), \
