@@ -73,3 +73,7 @@ Saved-weight 정합 검사는 원래C1뿐 아니라Top1/soft및새task/no-decode
 Full 이외의 후보가 선택되어도 그 saved model에서 value-address 진단을 수행한다. Frozen soft/static-C1도 원래 attention weight 계산을 마친 aggregation 경계에서 각 query의 유효 candidate value만 순환한다. 따라서 후보 주소·key·score·weight·support뿐 아니라 query마다 검색된 value의 multiset도 보존한다. 전체 source feature map을 먼저 교란하는 기존 R9 진단과 다르며 두 개입을 혼용하지 않는다. Normal common32가 해당 모델의 final128/noise0에서 같은 사례·GT hash·voxel count를 exact replay해야 하고, 잘못 연결한 value와의 paired source-cluster CI를 보고한다. CI가0을 포함하면 semantic 후보 검색 전체가 무효라고 해석하지 않는다.
 
 선정이task-full이면 이미 계획한 동일 raw480/common32 value-address 평가를 재사용한다. 다른semantic 후보면 남는 허용 GPU에서 두 평가를 추가하며 학습을 다시 하지 않는다. 추가 seed 보고서는 선정 모델의 이 진단까지 완료된 뒤 생성한다. 진단의 실행 여부와 성능 기여 여부를 별도로 기록하고, positive 효과를 미리 가정하지 않는다.
+
+첫 Top1/soft fixed-final 이후에는 frozen value가 실제로 다른지와 작은 fusion 강도 가설도 진단한다. 같은128개에서 descriptor/observed-alpha/native-projection index만 읽는 post-hoc CPU 분석이며,추가121개나 hidden depth를 사용하지 않는다. 별도로 같은 soft raw480 denoiser·conditioner에서 원래soft/score-argmax Top1과 원래gate/pre-tanh parameter4배를 common32/한noise로 생성한다. Normal은final128의같은사례count·seed·source·GT hash를exact replay해야 하고,전부0SGD다. Diagnostic parameter/arm은예외에서도복원하며checkpoint를쓰지않는다. Task module/retargeter가있는모델에는이static-B3진단을적용하지않는다.
+
+네 생성 평가와CPU summary는학습완료후남는허용GPU를사용하는낮은우선순위의evaluation resource다. Exclusive training과겹쳐메모리를소비하지않고새training arm도추가하지않는다. 결과는원인분석과후속가설에사용하며,기존개발128선정기준이나추가121의예약을변경하지않는다. 양의inference-dose결과도새모델의학습·fixed-final 검증없이채택하지않는다.

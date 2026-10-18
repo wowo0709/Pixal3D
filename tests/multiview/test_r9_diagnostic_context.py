@@ -105,3 +105,35 @@ def test_r9_wrong_address_preserves_each_joint_camera_distribution_and_scores():
     assert not model._forward_pre_hooks
     for key,value in original.items():torch.testing.assert_close(data[key],value)
     torch.testing.assert_close(model(**data).evidence,normal.evidence)
+
+
+@pytest.mark.parametrize('mode,top1,multiplier',[
+    ('top1-feature',True,1),('fusion-x4',False,4),('top1-feature-fusion-x4',True,4)])
+def test_saved_soft_top1_and_gate_dose_change_only_requested_values_and_restore(mode,top1,multiplier):
+    model,data=example();model.arm='b3';model.retargeter=None
+    before={k:v.clone() for k,v in model.state_dict().items()};normal=model(**data);events=[]
+    with r9_diagnostic_context(model,mode,events):
+        changed=model(**data)
+        assert model.arm==('b2' if top1 else 'b3')
+        torch.testing.assert_close(changed.fusion_scale,(before['fusion_gate']*multiplier).tanh())
+    if top1:
+        chosen=normal.matching_logits.argmax(-1)
+        ids=data['semantic_indices'].gather(2,chosen[...,None]).squeeze(-1)
+        expected=data['source_values'].flatten(1,2).gather(1,ids[...,None].expand(-1,-1,4))
+        torch.testing.assert_close(changed.evidence,expected)
+        assert changed.candidate_indices.shape[-1]==1
+    else:torch.testing.assert_close(changed.evidence,normal.evidence,rtol=0,atol=0)
+    assert events[0]['pre_tanh_fusion_multiplier']==multiplier and events[0]['selected_feature_count']==(1 if top1 else 64)
+    assert model.arm=='b3' and not model._forward_hooks
+    for key,value in before.items():torch.testing.assert_close(model.state_dict()[key],value,rtol=0,atol=0)
+    with pytest.raises(RuntimeError):
+        with r9_diagnostic_context(model,mode,[]):raise RuntimeError('interrupted generation')
+    assert model.arm=='b3' and not model._forward_hooks
+    for key,value in before.items():torch.testing.assert_close(model.state_dict()[key],value,rtol=0,atol=0)
+
+
+def test_dose_diagnostic_cannot_silently_change_trained_retargeter_or_task_model():
+    model,_=example()
+    with pytest.raises(ValueError,match='without a retargeter'):
+        with r9_diagnostic_context(model,'fusion-x4',[]):pass
+    assert not model._forward_hooks and model.arm=='c1'

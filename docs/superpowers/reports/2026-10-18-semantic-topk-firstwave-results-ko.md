@@ -59,3 +59,20 @@ Static-C1과 task-full은 GPU0/1·2/3에서 각각 native/backward 및 micro48 m
   provenance/firstwave-trained-QA-v1-file4.json
   zero-shot-replay-summary-v1.json
 ```
+
+## 첫128개에서 확인한 feature 진단
+
+완료된 같은128개의 target RGB alpha·native DINO value·고정 matching score와 원래 projection index만 CPU에서 읽었다. Depth·topology label·SS latent·추가121개는 열지 않았으며 학습이나 새 생성 update도 없다. Training 내부 calibration과 validation의 분포는 구분한다. 아래는 validation의9,883개 유효 query를 사용한 관측이다.
+
+| Temperature | 평균 최대 weight | Entropy 실효K | Top1 대비 native value relative RMS | Top1 대비 evidence cosine |
+| --- | ---: | ---: | ---: | ---: |
+| 0.005 | 0.9333 | 1.231 | 3.59% | 0.99936 |
+| 0.02 | 0.7614 | 2.208 | 7.33% | 0.99731 |
+
+Weighting은 실제로 넓어졌고 value도 변했다. 방향이 비슷하다는 사실을 feature가 동일하다는 주장으로 확대하지 않는다. Native16³ voxel에서 alpha/support가 활성인 비율은23.99%이고,고정된 실제 soft gate0.04321에서 `0.75*g*(E_soft−E_top1)`의 전체 voxel/channel RMS는0.001158이었다. 이는 같은 gate와 native feature를 가정한 analytic 차이이며,따로 학습한 두 모델의 전체 condition 차이 또는 생성 품질 효과가 아니다. BF16 양자화가 원인이라는 인과 주장도 아직 하지 않는다.
+
+세 noise의 count를 사례별로 합친 IoU에서는70개가 좋아지고58개가 나빠졌다. 중앙값 차이는+0.0145pp,10~90분위는−0.206~+0.214pp였다. Projected value 변화량과 사례별 gain의 descriptive Spearman은−0.047로,변화가 클수록 좋아지는 뚜렷한 관계를 관측하지 못했다. Shared-source 사례를 독립 표본의 유의성 검사로 취급하지 않았다.
+
+현재 근거는 **soft feature가 전혀 변하지 않은 구현 오류**보다 **유사한 후보 feature의 작은 전달 차이와 사례별 손익의 상쇄**에 부합한다. 생성에 유용한 후보를 고르는 learned attention이 필요한지,또는 작은 fusion 강도가 병목인지의 단독 원인은 아직 분리하지 못했다. 같은 저장 soft denoiser/head에서 Top1 feature 대 soft,원래 gate 대 pre-tanh parameter4배를 common32/한noise로 재평가하도록 추가했다. 실제 tanh gate 값을 기록하며새 학습은 없다. Normal이 원래 final128의 같은32개를 exact replay해야 한다. 이 진단은 본 모델 선택이나 fixed-final128×3를 대체하지 않는다.
+
+실제 진단 JSON과 전체128개 산점도·분포 그림은 공통 file4 경로의 `firstwave-static-value-diagnosis-v1/`에 있다. 생성 counterfactual의 대기열과 결과는 `firstwave-fusion-dose-v1/`에 기록한다. 후자는 아직 계획된 진단이며 현재 성능 향상 증거가 아니다.

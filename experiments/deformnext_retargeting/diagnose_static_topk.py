@@ -119,7 +119,7 @@ def main():
         raise ValueError('diagnosis requires the completed same128/3noise final panel')
     rows={r['sample_id']:r for r in [json.loads(s) for s in Path(cfg['validation']['roots_file']).read_text().splitlines()]}
     path=a.root/'runs_ss64/soft-topk/ckpts/deform_conditioner_step0000480.pt'
-    gate=float(torch.load(path,map_location='cpu',weights_only=True)['fusion_gate'].tanh())
+    gate=float(torch.load(path,map_location='cpu',weights_only=True)['fusion_gate'].detach().tanh())
     temperatures=[.005,float(cfg['trainer']['args']['deform_conditioner']['score_temperature'])]
     if len(set(temperatures))!=2:raise ValueError('expected original and broadened static temperatures')
     records={t:[] for t in temperatures};case_rows=[]

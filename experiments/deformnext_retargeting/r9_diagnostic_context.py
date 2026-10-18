@@ -13,6 +13,9 @@ DEFINITIONS = {
     'adapter-off': 'Remove only the learned retargeter output; keep semantic evidence, scores, gate and native RGB.',
     'wrong-object': 'Cycle donor DINO source values within each camera onto recipient foreground sites by ordinal resampling; retain recipient validity, Omega keys, target query, candidates and scores.',
     'wrong-address': 'Derange foreground DINO values within the same object and source camera; retain joint per-view value multisets, support, Omega keys, target query, candidates and scores.',
+    'top1-feature': 'Same saved static B3 weights and candidate scores; select the matching-score argmax feature instead of soft weighting, retaining the trained fusion gate.',
+    'fusion-x4': 'Same saved static B3 soft evidence; multiply only the pre-tanh fusion parameter by4. Record the actual tanh gate; no optimizer updates.',
+    'top1-feature-fusion-x4': 'Same saved static B3 weights; select the score argmax feature and multiply only the pre-tanh fusion parameter by4.',
 }
 
 
@@ -23,6 +26,30 @@ def r9_diagnostic_context(conditioner, mode, events):
         return
     if mode not in DEFINITIONS or getattr(conditioner, 'implementation', None) != 'r9-native-v5':
         raise ValueError('R9 diagnostics require the original r9-native-v5 conditioner')
+    if mode in {'top1-feature','fusion-x4','top1-feature-fusion-x4'}:
+        if (conditioner.arm!='b3' or conditioner.retargeter is not None
+                or getattr(conditioner,'task_attention',None) is not None):
+            raise ValueError('dose/Top1 controls require static B3 without a retargeter')
+        previous_arm=conditioner.arm;saved=conditioner.fusion_gate.detach().clone();hook=None
+        before=float(saved.tanh());top1=mode.startswith('top1-feature')
+        try:
+            with torch.no_grad():
+                if mode.endswith('x4'):conditioner.fusion_gate.mul_(4)
+            if top1:conditioner.arm='b2'
+            after=float(conditioner.fusion_gate.detach().tanh())
+            def observe(module,inputs,output):
+                events.append({'mode':mode,'original_fusion_gate':before,'actual_fusion_gate':after,
+                    'pre_tanh_fusion_multiplier':4 if mode.endswith('x4') else 1,
+                    'actual_module_arm':module.arm,'selected_feature_count':1 if top1 else 64,
+                    'inference_valid_queries':int(output.query_valid.sum()),
+                    'saved_weights_not_written':True,'optimizer_updates':0})
+            hook=conditioner.register_forward_hook(observe)
+            yield
+        finally:
+            if hook is not None:hook.remove()
+            conditioner.arm=previous_arm
+            with torch.no_grad():conditioner.fusion_gate.copy_(saved)
+        return
     if mode == 'adapter-off':
         if conditioner.retargeter is None:
             raise ValueError('adapter-off requires the original R9 retargeter')
