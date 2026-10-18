@@ -35,6 +35,7 @@ LABELS.update({'static-top1-c1':'Top1+C1', 'static-c1':'Static C1 T0.05',
                'task-no-prior':'Task no score prior', 'task-native-spatial':'Task native spatial'})
 COMPONENTS = {
     'TopK weighting / no retargeter':'soft-topk-vs-top1-reference',
+    'C1 retargeter / matching-score Top1 held fixed':'static-top1-c1-vs-top1-reference',
     'TopK weighting / same C1 retargeter':'static-c1-vs-static-top1-c1',
     'Learned matching path / same C1 retargeter':'task-full-vs-static-c1',
     'Matching decoder / physical D0 control':'task-full-vs-task-no-decoder',

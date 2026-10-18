@@ -81,6 +81,8 @@ Full 이외의 후보가 선택되어도 그 saved model에서 value-address 진
 
 `semantic_topk_campaign_wandb.py`는8개development arm·기존V1/B3/C1·두zero-shot을같은128개/3noise로묶는다. 후보가선정되면해당모델의추가training seed와reserved121의모든14개조건까지기다린다. 후보가없으면음성결과를보존하며추가candidate학습을만들지않는다. 이게시가모델탐색목표의완료나모델채택을뜻하지않는다.
 
+모듈 요약표에는 이미 matched-Top1 보고서에서 계산하는 `Top1+C1−Top1(no retargeter)`도 별도 행으로 표시한다. 같은 frozen matcher·score-argmax evidence를 유지한 retargeter 대조이며, `soft TopK+C1−Top1+C1`의 multi-candidate evidence 대조와 구분한다. 두 모델의 초기32개 생성은 같지만 실제 첫 training loss와 timestep-bin key는 두 rank 모두 달랐다. 따라서 이 retargeter/no-retargeter 대조의 training noise가 bit-exact라고 주장하지 않으며 한 training seed의 조건부 결과로 해석한다. 새 학습·새 생성 평가나 선정 기준 변경은 없다.
+
 후보선정job이`render→publish→readback`의CPU job3개를추가한다. 실제saved-weight/cache/CFG검사와모든epoch의W&B/file4 closure가준비돼야실행한다. Epoch4/5의중간집계CPU job2개·fresh Omega7검사·완료된두모델의attention 통계검사를포함한64개queue는선정결과에따라67개(후보없음),117개(Full선정),119개(다른후보선정)가된다. 추가되는것은검증·보고작업이며모델학습횟수와비교budget은같다.
 
 Static-C1/task-full의epoch4·5 quick32비교는각각두모델의actual W&B/raw-checkpoint file4 closure가생긴뒤자동실행한다. 기존portable compiler와source hash를고정한CPU driver가같은case·noise·GT를집계하고새JSON/Markdown의actual file4 SHA도대조한다. 전체128×3 fixed-final비교와구분하며,학습을마치기전에best epoch를고르는데사용하지않는다. 기계별driver와실행계약은ignored results의`provenance/automatic-wave2-epoch-summaries-v1-contract.json`에보관한다.
