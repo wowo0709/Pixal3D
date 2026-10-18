@@ -115,6 +115,7 @@ def test_native_spatial_candidates_are_actual_camera_projection_not_semantic_or_
     torch.manual_seed(81)
     transport={'source_values':torch.randn(1,3,1024,1024),'source_keys':torch.randn(1,3,1024,1024),
         'target_keys':torch.randn(1,1024,1024),'target_valid':torch.ones(1,1024,dtype=torch.bool),
+        'target_query':torch.randn(1,1024,1024),'patch_grid':torch.zeros(1,2,2,2,dtype=torch.long),
         'source_valid':torch.ones(1,3,1024,dtype=torch.bool)}
     camera={'transform_matrix':torch.eye(4).reshape(1,1,4,4).repeat(1,4,1,1),
         'distance':torch.full((1,4),2.5),'camera_angle_x':torch.full((1,4),.7),'mesh_scale':torch.ones(1)}
@@ -131,6 +132,31 @@ def test_native_spatial_candidates_are_actual_camera_projection_not_semantic_or_
     torch.testing.assert_close(trace.base_evidence,sources.mean(2),rtol=1e-6,atol=1e-6)
     assert trace.candidate_weights.shape==(1,8,3)
     with pytest.raises(ValueError,match='original projected'):m(**inputs())
+
+
+def test_native_correspondence_keeps_semantic_target_query_and_support():
+    from types import SimpleNamespace
+    from pixal3d.modules.task_matching_attention import inject_native_spatial_task
+    from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import ProjGrid
+    grid=ProjGrid(2,512);extractor=SimpleNamespace(proj_grid=grid,fixed_projection_transform=grid.front_view_transform_matrix)
+    torch.manual_seed(47)
+    ids=torch.arange(8).reshape(1,2,2,2)
+    transport={'source_values':torch.randn(1,3,1024,1024),'source_keys':torch.randn(1,3,1024,1024),
+        'target_keys':torch.randn(1,1024,1024),'target_query':torch.randn(1,1024,1024),
+        'target_valid':torch.arange(1024).remainder(2).bool()[None],
+        'source_valid':torch.ones(1,3,1024,dtype=torch.bool),'patch_grid':ids}
+    camera={'transform_matrix':torch.eye(4).reshape(1,1,4,4).repeat(1,4,1,1),'distance':torch.full((1,4),2.5),
+        'camera_angle_x':torch.full((1,4),.7),'mesh_scale':torch.ones(1)}
+    received={}
+    def forward(**kw):
+        received.update(kw)
+        return SimpleNamespace(base_evidence=torch.zeros(1,8,1024),retarget_residual=torch.zeros(1,8,1024),fusion_scale=torch.tensor(0.))
+    native=torch.randn(1,8,1024)
+    inject_native_spatial_task(None,forward,extractor,{'proj':native.clone()},{'proj':torch.full_like(native,-100.)},transport,camera)
+    torch.testing.assert_close(received['target_keys'],transport['target_keys'][:,:8],rtol=0,atol=0)
+    torch.testing.assert_close(received['target_query'],transport['target_query'][:,:8],rtol=0,atol=0)
+    assert torch.equal(received['target_valid'],transport['target_valid'][:,:8])
+    assert received['native_candidate_values'].shape==(1,8,3,1024)
 
 
 def test_decoder_removal_keeps_other_initial_weights_identical_and_score_off_keeps_context_active():

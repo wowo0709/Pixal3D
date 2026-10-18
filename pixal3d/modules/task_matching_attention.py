@@ -173,12 +173,16 @@ def inject_native_spatial_task(module, wrapped, extractor, condition, anchor, tr
             camera['camera_angle_x'][:,view],camera['distance'][:,view],camera['mesh_scale'],projection[:,view])
     values=torch.stack([project(transport['source_values'][:,i].float(),i+1) for i in range(3)],2)
     keys=torch.stack([project(transport['source_keys'][:,i].float(),i+1) for i in range(3)],2)
-    target_keys=project(transport['target_keys'].float(),0)
-    # Alpha is the observed edited RGB support, not target GT occupancy/depth.
-    valid=project(transport['target_valid'][...,None].float(),0).squeeze(-1)>0
+    # Hold the target query and extra-path support equal to the semantic
+    # nearest consumer. Only source correspondence sampling changes here.
+    # patch_grid comes from the original camera/grid, never GT target depth.
+    patch_ids=transport['patch_grid'].flatten(1).long()
+    target_keys=transport['target_keys'].float().gather(1,patch_ids[...,None].expand(-1,-1,1024))
+    target_query=transport['target_query'].float().gather(1,patch_ids[...,None].expand(-1,-1,1024))
+    valid=transport['target_valid'].gather(1,patch_ids)&(transport['source_valid'].flatten(1).sum(-1)>=64)[:,None]
     key='proj_semantic' if 'proj_semantic' in condition else 'proj'
     result=wrapped(source_values=transport['source_values'],source_valid=transport['source_valid'],
-        target_keys=target_keys,target_query=anchor[key],target_valid=valid,
+        target_keys=target_keys,target_query=target_query,target_valid=valid,
         native_candidate_keys=keys,native_candidate_values=values)
     native=condition[key];semantic=(anchor[key]+3*result.base_evidence.to(native.dtype))/4
     update=result.fusion_scale.to(native.dtype)*(semantic-native)+.75*result.retarget_residual.to(native.dtype)

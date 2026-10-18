@@ -53,3 +53,5 @@ Task attention의 주소 대조는 attention forward의 **key·score·이미 계
 Native spatial의3개 후보는 semantic64와 같은 candidate tensor budget을 기준으로 query chunk를 확대한다. `chunk_size64`의 semantic 처리는64query×64candidate,spatial 처리는최대1365query×3candidate다. 작은 CUDA kernel을 반복 실행하는 비용을 줄이는 변경이며, 출력·gradient의 chunk 동등성을 별도로 검사한다. 실제 GPU 속도·memory PASS는 각 arm 실행 전2update probe에서 확인한다.
 
 새 attention projection의 공통 초기화는 CPU generator만 사용하고 CPU RNG를 복원한다. `torch.manual_seed`로 CUDA rank별 RNG까지 다시 초기화하지 않으며, 부모 CPU 상태와 CUDA seed 함수 비호출을 검사한다. 이 검사는 task arm의 실제 학습 시작 전에 적용했다. 서로 다른 구조의 전체 stochastic training trajectory가 bit-exact라는 주장은 하지 않는다.
+
+Native-spatial의 최종 구현에서는 target DINO/Omega query와 추가경로 support를 semantic arm과 동일한 inferred target-patch index로 gather한다. Source value/key만 원래 native camera projection으로 sample한다. Target query의 보간 방식과 alpha support까지 함께 달라지는 불필요한 차이를 제거했다. Source3 대 semantic64의 자연스러운 후보 수 차이는 남으므로 고정K 주소-only 비교라고 주장하지 않는다. 앞선 CPU prototype 기록은 당시 구현의 증거로 보존하고, 최종 구현은 별도 CPU/GPU proof로 확인한다.
