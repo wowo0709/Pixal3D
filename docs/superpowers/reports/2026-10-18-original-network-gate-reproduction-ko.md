@@ -1,5 +1,7 @@
 # 원본 constant-gate network를 보존한 geometry 학습 재현
 
+**최종6-run 결과:** 원본371-parameter gate를 쓴 두 arm×3seed의128-update 학습과 calibration 평가·strict 집계가 모두 완료됐다. Adapter-only macro IoU0.447883, adapter+query0.438332로 query 추가 차이는−0.955pp,95% source-cluster CI[−1.400,−0.528]pp다. 현재 데이터에서 query의 추가 개선을 재현하지 못했다. 아래 중간 기록은 실행 이력이다. 최종 수치와 학습 원인 진단은 문서 마지막 절을 따른다.
+
 현재 `runs-v2`의 geometry 두 arm·3개 seed 학습은 완료됐지만, gate의 학습 parameterization은 원본과 달랐다. 이 차이를 수정한 별도 검증을 진행한다. 기존 결과만으로 원본 모듈이 현재 데이터에서 효과가 없다고 확정하지 않는다.
 
 ## 확인한 차이와 수정
@@ -139,3 +141,21 @@ Seed303도 두 arm의128-update 학습을 완료했다. Train loop는 No-query *
 Seed303의 checkpoint·freeze marker·closed training log·독립 검사7개 파일 **12,999,373bytes**의 actual-file4 SHA256·크기도 확인했다. 세 seed의 독립 검사와 저장 receipt를 묶은7개 파일22,947bytes 역시 별도로 저장 검증했다. 근거는 `provenance/network-v3-training-checkpoints-independent-seed303{,-file4}.json`, `regional-network-all-six-training-only-closure-v1.json`, `regional-network-all-six-training-only-closure-file4.json`이다.
 
 집계 상태는 **PASS_ALL_SIX_FROZEN_TRAINING_ONLY_NOT_CALIBRATION**이다. 합계768개 single-asset endpoint update와90개 optimizer tensor state에 대한 검사이며, 여섯 개의 global96 production-LoRA 학습을 추가했다는 뜻이 아니다. Seed303 두 process는 고정된 weight로 normal/source-OFF/native 및 query shuffle 평가를 계속하고 있다. Six-run calibration/statistics와 Full/PBR 판정은 아직 완료되지 않았다.
+
+## 원본 network6개 평가·strict 집계 완료
+
+Seed303의 두 평가까지 모두 끝나 `all-six-network-gate-summary-v3.json/.md`가 생성됐다. 두 arm×3seed의 실제128-update·checkpoint freeze·physical channel/gate·actual GT 및 frozen native hash·32source×3noise를 모두 검사한 결과다. 아래 CI는 이3개 model seed의 반복을 source 안에서 평균한 뒤32개 source cluster를 bootstrap한 조건부 CI다. Scalar pilot·본14개 decoded-GT micro IoU 또는 unseen-test 결과와 합치지 않는다.
+
+| Method | Macro IoU | Source recall32 ↑ | Stale leak32 ↓ | Regional BCE ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| Frozen native | 0.445530 | 0.825740 | 0.601524 | 95.616471 |
+| Original-network adapter-only | 0.447883 | 0.816588 | 0.549600 | 91.920679 |
+| Original-network adapter+query | 0.438332 | 0.814673 | 0.554092 | 93.545370 |
+
+Query−adapter IoU는 **−0.955pp,95% CI[−1.400,−0.528]pp**다. Seed101/202/303의 차이도−0.074/−1.363/−1.428pp로 모두 음수다. Intact−joint-shuffle은−0.027pp[−0.082,+0.020]pp로 추가 spatial query 이득이 확인되지 않았다. Adapter-only−native는+0.235pp[−0.271,+0.750]pp여서 net IoU 개선을 확정하지 못했다. Adapter-only는 source recall−0.915pp와 stale leak−5.192pp가 함께 나타났다.
+
+실제768개 학습 log의 paired schedule·처음 native loss·pass별 loss/gradient/gate를 별도 분석했다. 마지막 pass의 query−adapter loss는−3.708/+11.209/+3.536이었다. 두 seed에서는 train objective도 불리하므로 단순한 validation 과적합이나 epoch 부족만으로 설명하지 않는다. 모든 update가 clip1에 걸렸고 query gradient 중앙값이 더 컸지만 양쪽 모두 clipping돼 이것만으로 단독 원인을 특정하지 않는다. Query gradient 단절·물리적 query 누락·초기 native 붕괴의 증거는 없었다. Consumer/domain/objective 차이는 남아 있으며 각각의 인과 효과는 분리되지 않았다. 자세한 성공/실패 범위는 [원인 분석](2026-10-18-module-reproduction-cause-analysis-ko.md)에 기록했다.
+
+여섯 run의21개 case·2,016개 prediction row에서 실제 TP/FP/FN과 macro 평균을 독립 재계산했다. 모든6개 W&B run의126개 scalar·21개 다운로드 PNG가 로컬과 같았다. 공통 reporter의54행 contrast table378개 numeric field와 summary JSON/Markdown artifact 두 파일도 실제 서버에서 내려받아 대조했다. 이 전체 결과와 raw checkpoint·freeze·closed training log·진단·remote proof 등101개 산출물 **41,602,877bytes**의 actual-file4 SHA256/크기가 일치했다.
+
+근거는 `current-geometry-regions-v1/wandb-all-six-network-readback-v3/audit.json`, `provenance/regional-network-paired-training-diagnosis-v1.json`, `regional-network-all-six-evaluations-and-readback-v3-file4.json`이다. 원본 network 복구 후 현재 calibration의 query 추가 개선은 **실패**로 기록한다. Full에 자동 포함하거나 PBR로 확대하지 않는다. 본 SS matched B3 final과 sampler 진단·최종 구성 결정은 별도로 남아 있다.
