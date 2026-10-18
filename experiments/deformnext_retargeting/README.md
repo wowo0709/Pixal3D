@@ -520,6 +520,13 @@ the real GPU gradient proof and training; mixed proof/checkpoint modes fail.
 The scalar option remains only for replaying the preserved pilot, not as an
 equivalent training reproduction. Existing data/queries/GT are reused.
 
+Campaign completion preserves historical `FAILED`/`HELD` queue records.
+An explicit `provenance/resolved-historical-queue-failures-v1.json` can document
+reviewed failures with archived-log hashes, completed replacement jobs and
+immutable PASS evidence. The reporter verifies that evidence before separating
+reviewed history from unresolved errors; new failures remain unresolved.
+This operational review does not promote a model or waive pending experiments.
+
 The original C1 candidate uses R9 native-v5 source tensors. Its saved-weight
 diagnostics use `evaluate_native_checkpoint --r9-path-control
 {source-off,adapter-off,wrong-object,wrong-address}` instead of matching-v2 evidence controls.

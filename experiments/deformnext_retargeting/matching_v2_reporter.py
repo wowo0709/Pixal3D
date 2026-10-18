@@ -141,13 +141,18 @@ def main():
                  'campaign/held':sum(r['status']=='HELD' for r in state.values()),
                  'campaign/failed':sum(r['status']=='FAILED' for r in state.values())})
         if state and all(r['status'] in {'completed','HELD','FAILED'} for r in state.values()):
+            from .review_campaign_failures import review_historical_failures
+            review=review_historical_failures(a.root,state)
             result={'status':'finished_with_holds' if any(r['status']=='HELD' for r in state.values()) else 'finished',
                     'failed':[k for k,r in state.items() if r['status']=='FAILED'],
                     'held':{k:r.get('reason') for k,r in state.items() if r['status']=='HELD'},
-                    'completed':[k for k,r in state.items() if r['status']=='completed'],'time':time.time()}
-            if result['failed']:result['status']='requires_failure_review'
+                    'completed':[k for k,r in state.items() if r['status']=='completed'],'time':time.time(),**review}
+            if result['unresolved_failures']:result['status']='requires_failure_review'
             (a.root/'campaign-result.json').write_text(json.dumps(result,indent=2)+'\n')
-            run.summary['campaign_status']=result['status'];run.finish();break
+            run.summary['campaign_status']=result['status']
+            run.summary['campaign/resolved_historical_failures']=len(result['resolved_historical_failures'])
+            run.summary['campaign/unresolved_failures']=len(result['unresolved_failures'])
+            run.finish();break
         time.sleep(30)
 
 

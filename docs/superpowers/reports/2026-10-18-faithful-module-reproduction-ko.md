@@ -131,3 +131,9 @@ Geometry content의 상대 개선과 query를 섞으면 악화되는 경향은 �
 RGB-only predicted O/D9채널은pilot320+common32 총352개에서완료·재계산exact·actual-file4 SHA까지통과했다. Common32 O의occupied count도기존source-only baseline과모두같다. 현재native condition64와actual SS-input/physical-cell authority64를구축했다. 실제full-rollout regional gradient gate를통과한뒤native adapter /adapter+query 두arm의seed101 학습을GPU2/3에서시작했다. Seed202/303도같은128-update·fixed-final3noise protocol로등록했다. 자세한입력정보량·GTauthority·학습/eval·자원·실패보존범위는 [현재regional transfer실험](2026-10-18-current-geometry-endpoint-pilot-ko.md)에기록한다.
 
 본14개표의C2-RAW2048과새9채널frozen-controller 실험을구분한다. Query/no-query의실제차원3075/3107·initial loss exact·query gradient연결을검증했다. 새regional 실험의향상과source-use는최종calibration 뒤판정하며아직Full/PBR채택완료로표현하지않는다.
+
+## 과거 실패 이력과 현재 미해결 오류의 구분
+
+과거 queue의 실패 8건은 원본 flow/cache 경로, W&B API 호출, GT voxel 재구성, sampler 인자 오류였다. 각 실패 log를 보존하고 실제 완료된 후속 job과 결과 SHA256을 대조해 `provenance/resolved-historical-queue-failures-v1.json`에 기록했다. 원래 `FAILED` 상태를 지우거나 성공으로 바꾸지 않는다. GT 재구성 실패의 후속은 actual SS-input support와 physical-cell 등록을 모두 확인한 V4이며, 이전 불일치 label을 사용하는 뜻이 아니다.
+
+최종 campaign 집계는 archived log·완료된 replacement·immutable PASS evidence가 확인된 과거 실패와 미해결 오류를 구분한다. 새로운 실패는 이 검토로 자동 해소되지 않는다. 해당 검사는 7개 CPU 테스트를 통과했다. 이 기록은 운영 오류의 수정 이력이며, 원본 constant-gate 학습·새 SS seed의 완료나 Full/PBR 채택을 뜻하지 않는다.
