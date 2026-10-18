@@ -401,3 +401,31 @@ Full−No-decoder는 −0.179pp, CI [−0.498,+0.109]pp, Full−No-prior는 −0
 첫8개 사례의 GT–Pred도 원래 순서/noise0에서 V1·기존 C1·static-C1·Full·두 제거 모델을 나란히 생성해 직접 확인했다. 예를 들어 case3은 기존 C1 0.660 대 No-decoder/No-prior 0.647/0.629, case5는 기존 C1 0.415 대0.432/0.439, case8은 Full 0.551 대0.531/0.531이었다. 모델별 개선 방향이 사례마다 다르다. 실제GT pixel·source·noise·3D hash는128개 모두 같았고, 투영 그림이 비슷해도 실제3D IoU 차이를 대신 설명하지 못한다. 새 추론이나 좋은 사례 선택은 하지 않았다.
 
 전체11개 방법·paired CI·학습 감사·입력 hash는 `wave3-fixed-final-v1/report.json`과 `report.md`, 원래 첫8개 비교는 같은 경로의 `visual-review-first8-v1/`에 보관한다. 이는 한 training seed에 조건부인 exploratory development 결과이며 다중 비교 보정이나 independent test 결과가 아니다. 원래 spatial correspondence 및 같은 retargeter Top1 대조가 이제 실제 학습을 시작했다. 두 결과와 기존 C1을 포함한6후보의 고정 선정 기준, 이후 seed202·reserved121·실제 W&B 게시/재검증은 남아 있다. 아직 최종 모델을 채택하지 않았다.
+
+
+## 원래 spatial·동일 retargeter Top1 대조의 첫 에폭
+
+두 새 대조군의 raw96/epoch1 validation, 실제 W&B 네 수치·PNG·optimizer/raw-checkpoint file4 대조가 완료됐다. 같은32개·32source·한 noise로 모든 기존 모델의 같은 epoch와 비교했다. 전체 epoch 검증은32/45개 완료됐으며 두 모델은2에폭을 학습 중이다. 아래는 fixed-final128×3와 구분하는 quick32 결과다.
+
+| 같은 32개 기준 | Epoch1 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch1 | 0.432148 | 0.603496 |
+| 이전 C1 T0.005, epoch1 | 0.436335 | 0.607567 |
+| Static-C1 T0.05, epoch1 | 0.438047 | 0.609225 |
+| Task-full, epoch1 | 0.438333 | 0.609501 |
+| Task-no-decoder, epoch1 | 0.438482 | 0.609645 |
+| Task-no-prior, epoch1 | 0.439132 | 0.610274 |
+| Task-native-spatial, epoch1 | 0.439621 | 0.610745 |
+| Static-Top1+C1, epoch1 | 0.437187 | 0.608393 |
+
+Full−native-spatial은 −0.129pp, 95% source-cluster CI [−0.378,+0.144]pp였다. 이 시점의 semantic64 경로가 원래 카메라 spatial3 경로보다 좋다는 근거는 없다. 후보 수와 값의 sampling 방식도 다르므로 주소만의 인과 대조라고 부르지 않는다. 별도 동일 후보/support의 value-address 진단을 대체하지 않는다.
+
+같은 retargeter의 soft Top-K−Top1인 static-C1−Static-Top1+C1은 +0.086pp, CI [−0.069,+0.243]pp였다. Full−Static-Top1+C1도 +0.115pp, CI [−0.035,+0.303]pp였다. 두 차이가0을 포함해 weighted multi-candidate evidence나 학습 matching 경로의 추가 이득을 아직 확정하지 않는다. 기존 C1 T0.005−Static-Top1+C1은 −0.085pp, CI [−0.177,−0.009]pp였지만 첫 epoch·한 noise에 조건부인 작은 차이이므로 최종 우열이나 Top-K의 보편적 유해성으로 확대하지 않는다.
+
+Native-spatial−V1은 +0.747pp, CI [−0.261,+1.653]pp, Static-Top1+C1−V1은 +0.504pp, CI [−0.460,+1.393]pp였다. Native-spatial−기존 C1은 +0.329pp, CI [+0.009,+0.694]pp로 경계가0에 가깝다. 비교군별 paired 오차가 다르므로 한 대조의 CI를 다른 대조에 적용하지 않는다. 모두 다중 비교를 보정하지 않은 탐색 CI다.
+
+두 대조군은 원래 SS4210/seed101에서 새로 시작했고, 실제32개 초기 생성 record와 두 rank의 첫 minibatch loss dictionary가 기존 C1의 초기 상태와 정확히 같았다. Global96/DDP2/micro48/accumulation1의 별도2update memory probe를 통과한 뒤 benchmark optimizer를 재사용하지 않고 본 학습을 시작했다. Native 경로의 step11·51에서 decoder/score/content-attention gradient가 두 rank 모두 양수이며, 두 모델의 retargeter 출력도 활성이다. 이는 경로 사용의 근거이며 성능 기여 증거와 구분한다.
+
+전체13개 방법·paired contrast·선택된 epoch record/recipe hash·실제 file4 closure는 `wave4-epoch1-comparison-v1/`에 있다. 첫 epoch를 기준으로 arm을 중단하거나 후보를 선정하지 않는다. 두 모델 모두5epoch/raw480 및 fixed128×3까지 진행하고, 기존 C1을 포함한6후보의 동일 Top1+C1 대조 기준과 추가 seed/121개 검증을 유지한다.
