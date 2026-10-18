@@ -294,8 +294,30 @@ def collect(root):
     sets['task-full-value-address']={'models':{},'contrasts':{'normal-vs-wrong-address':value['normal_minus_wrong_address']}}
     if correspondence is not None:
         sets['selected-value-address']={'models':{},'contrasts':{'normal-vs-wrong-address':correspondence['normal_minus_wrong_address']}}
+    attention_metrics={}
+    for name in ['static-c1','task-full','task-no-decoder','task-no-prior','task-native-spatial']:
+        folder=(root/'attention-statistics-v1'/name if name in ['static-c1','task-full']
+                else root/'functional-QA-v1'/('s101-'+name))
+        path=folder/'summary.json';qa=read(path);files.append(path)
+        cfg=read(root/'configs'/(name+'.json'))
+        validate_saved_qa(qa,cfg['trainer']['args']['deform_conditioner'])
+        original=read(root/'functional-QA-v1'/('s101-'+name)/'summary.json')
+        if any(qa[k]!=original[k] for k in ['source_recipe','trained_denoiser','trained_conditioner','sample_ids']):
+            raise ValueError('attention statistics saved model/cases differ')
+        stats=qa['actual_attention_weight_statistics']
+        if not stats or stats['active_queries']<=0 or len(stats['per_case'])!=2:
+            raise ValueError('actual active attention statistics missing')
+        for key in ['candidate_slots','active_queries','mean_max_weight','mean_entropy_nats','mean_effective_candidates','max_row_sum_error']:
+            value=stats[key]
+            if not math.isfinite(value):raise ValueError('nonfinite actual attention statistic')
+            attention_metrics[f'attention_QA/{name}/{key}']=value
+        scale=qa['actual_content_attention_scale']
+        if scale is not None:
+            if not math.isfinite(scale):raise ValueError('nonfinite actual attention scale')
+            attention_metrics[f'attention_QA/{name}/content_attention_scale']=scale
+    scope['attention_statistics_scope']='Two identical saved-model cases;native has3 spatial candidates versus64 semantic patches. Descriptive statistics,not dataset coverage or quality evidence.'
     return {'sets':sets,'galleries':galleries,'scope':scope,'files':list(dict.fromkeys(files)),
-            'backbone_metrics':backbone_metrics}
+            'backbone_metrics':backbone_metrics,'attention_metrics':attention_metrics}
 
 
 def publication_jobs(root, candidate, selection_job):
@@ -308,10 +330,12 @@ def publication_jobs(root, candidate, selection_job):
         'summarize-task-value-address-diagnostic','summarize-firstwave-fusion-dose',
         'fresh-omega7-feature-cache-parity']
     dependencies += [f'functional-QA-s{seed}-{name}' for _,name,seed in specs]
+    dependencies += ['attention-statistics-s101-'+name for name in ['static-c1','task-full']]
     dependencies += [f'confirm-seed202-final-top1-reference-noise{n}' for n in range(3)]
     if candidate is not None:
         dependencies += ['summarize-semantic-topk-seed202','summarize-additional121-semantic-topk']
     required=[str(root/'provenance/omega-backbone-QA-v1-file4.json')]
+    required += [str(root/'attention-statistics-v1'/name/'summary.json') for name in ['static-c1','task-full']]
     for job,_,_ in specs:
         required.append(str(root/'final-weight-audits-v1'/job/'file4-closure.json'))
         required += [str(root/'epoch-audits-v1'/job/f'epoch{e:02d}'/'file4-closure.json') for e in range(1,6)]
@@ -377,7 +401,7 @@ def payload(root):
     if summary['status']!='PASS_COMPLETED_CAMPAIGN_PRESENTATION' or summary['scope']!=data['scope']:
         raise ValueError('completed matching presentation required')
     if summary['input_SHA256']!={str(p):sha(p) for p in data['files']}:raise ValueError('actual presentation inputs changed')
-    metrics=dict(data['backbone_metrics']);tables={}
+    metrics={**data['backbone_metrics'],**data.get('attention_metrics',{})};tables={}
     for name,values in data['sets'].items():
         rows=[];contrasts=[]
         for method,model in values['models'].items():

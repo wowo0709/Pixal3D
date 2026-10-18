@@ -5,9 +5,31 @@ import pytest
 import torch
 
 from experiments.deformnext_retargeting.verify_ss_conditioning_contract import (
-    check_conditions, compare_trace_tensors,
+    check_conditions, compare_trace_tensors, attention_weight_statistics,
     online_dataset_args,verify_saved_conditioner,check_native_tokens,
 )
+
+
+def test_attention_statistics_measure_actual_active_distribution_only():
+    p=torch.tensor([[[.25,.25,.25,.25],[1.,0.,0.,0.]],[[0.,0.,0.,0.],[0.,0.,0.,0.]]])
+    r=attention_weight_statistics(p,torch.tensor([[True,True],[False,False]]))
+    assert r['active_queries']==2 and r['candidate_slots']==4
+    assert r['mean_max_weight']==pytest.approx(.625)
+    assert r['mean_entropy_nats']==pytest.approx(torch.log(torch.tensor(4.)).item()/2)
+    assert r['mean_effective_candidates']==pytest.approx(2.5)
+    assert r['per_case'][1]['active_queries']==0 and r['per_case'][1]['mean_entropy_nats'] is None
+    assert attention_weight_statistics(None,None) is None
+
+
+@pytest.mark.parametrize('weights,valid,reason',[
+    ([[[.1,.1]]],[[True]],'normalized'),
+    ([[[-.1,1.1]]],[[True]],'negative'),
+    ([[[float('nan'),1.]]],[[True]],'nonfinite'),
+    ([[[.5,.5]]],[[True,False]],'shape'),
+])
+def test_attention_statistics_reject_invalid_active_trace(weights,valid,reason):
+    with pytest.raises(ValueError,match=reason):
+        attention_weight_statistics(torch.tensor(weights),torch.tensor(valid))
 
 
 def values():

@@ -23,6 +23,18 @@ def job(root,base,name,seed,panel):
             '--panel-file',str(panel),'--output',str(output)]}
 
 
+def attention_probe_jobs(root,panel):
+    """Complete missing final attention statistics on two already-trained controls."""
+    jobs=[]
+    for name in ['static-c1','task-full']:
+        item=job(root,root,name,101,panel);output=root/'attention-statistics-v1'/name
+        item.update(name='attention-statistics-s101-'+name,priority=2,
+            depends_on=['train-task-no-decoder','train-'+name],outputs=[str(output/'summary.json')])
+        item['command'][item['command'].index('--output')+1]=str(output)
+        jobs.append(item)
+    return jobs
+
+
 def install(a):
     path=a.work_root/'queue-jobs.json';old=path.read_bytes();existing=json.loads(old)
     jobs=[job(a.root,a.root,name,101,a.panel_file) for name in [*MODELS,'static-top1-c1']]

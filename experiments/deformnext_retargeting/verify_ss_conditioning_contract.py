@@ -94,6 +94,29 @@ def compare_trace_tensors(left, right, *, name):
             'masked_negative_infinity_values': int(masked.sum())}
 
 
+def attention_weight_statistics(weights, query_valid):
+    """Describe the actual categorical trace, excluding inactive query rows."""
+    if weights is None:
+        return None  # Hard Top1 does not return a categorical-weight trace.
+    if weights.ndim!=3 or query_valid.shape!=weights.shape[:2] or query_valid.dtype!=torch.bool:
+        raise ValueError('attention weight/query mask shape differs')
+    p=weights.detach().float()
+    if not torch.isfinite(p).all() or (p<0).any():raise ValueError('nonfinite/negative attention weight')
+    def describe(rows):
+        count=len(rows)
+        if not count:return {'active_queries':0,'mean_max_weight':None,'mean_entropy_nats':None,'mean_effective_candidates':None,'max_row_sum_error':None}
+        total=rows.sum(-1,keepdim=True);error=float((total-1).abs().max())
+        if error>.005:raise ValueError('active attention weights are not normalized')
+        rows=rows/total
+        entropy=-(rows*rows.clamp_min(1e-30).log()).sum(-1)
+        return {'active_queries':count,'mean_max_weight':float(rows.amax(-1).mean()),
+            'mean_entropy_nats':float(entropy.mean()),'mean_effective_candidates':float(entropy.exp().mean()),
+            'max_row_sum_error':error}
+    return {'candidate_slots':p.shape[-1],**describe(p[query_valid]),
+        'per_case':[describe(case[valid]) for case,valid in zip(p,query_valid)],
+        'scope':'Actual two-case saved-model inference trace;FP32 row-normalized statistics over active queries only,not dataset coverage or quality evidence.'}
+
+
 def check_conditions(cached, online, train0, train1, mixed, native, mask):
     keys = {'global', 'proj'}
     if set(cached) != {'cond','neg_cond'} or set(online) != set(cached):
@@ -207,6 +230,7 @@ def main():
                 continue
             trace_comparisons[key]=compare_trace_tensors(a,b,name=key)
             trace_errors[key]=trace_comparisons[key]['max_abs_error']
+        attention_stats=attention_weight_statistics(traces[0].candidate_weights,traces[0].query_valid)
         if spec['arm']=='c1' and not traces[0].retarget_residual.abs().sum()>0:
             raise ValueError('actual trained retargeter is inactive on selected cases')
         cached,online=conditions
@@ -262,6 +286,8 @@ def main():
         'saved_frozen_head_exact_to_selected_checkpoint':bool(state_checks['frozen_initializer_state_checked_keys']),
         'frozen_head_state_keys':sorted(state_checks['frozen_initializer_state_checked_keys']),
         **state_checks,'task_cache_checks':task_cache_checks,'task_attention_configuration':task,
+        'actual_attention_weight_statistics':attention_stats,
+        'actual_content_attention_scale':float(trainer.deform_conditioner.task_attention.log_content_scale.exp().clamp(max=20.)) if task else None,
         'fresh_native_DINO_token_check':native_token_check,
         'actual_float32_matmul_precision':torch.get_float32_matmul_precision(),
         'actual_allow_TF32':torch.backends.cuda.matmul.allow_tf32,

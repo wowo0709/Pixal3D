@@ -81,7 +81,7 @@ Full 이외의 후보가 선택되어도 그 saved model에서 value-address 진
 
 `semantic_topk_campaign_wandb.py`는8개development arm·기존V1/B3/C1·두zero-shot을같은128개/3noise로묶는다. 후보가선정되면해당모델의추가training seed와reserved121의모든14개조건까지기다린다. 후보가없으면음성결과를보존하며추가candidate학습을만들지않는다. 이게시가모델탐색목표의완료나모델채택을뜻하지않는다.
 
-후보선정job이`render→publish→readback`의CPU job3개를추가한다. 실제saved-weight/cache/CFG검사와모든epoch의W&B/file4 closure가준비돼야실행한다. Epoch4/5의중간집계CPU job2개와fresh Omega7검사를포함한62개queue는선정결과에따라65개(후보없음),115개(Full선정),117개(다른후보선정)가된다. 추가되는것은검증·보고작업이며모델학습횟수와비교budget은같다.
+후보선정job이`render→publish→readback`의CPU job3개를추가한다. 실제saved-weight/cache/CFG검사와모든epoch의W&B/file4 closure가준비돼야실행한다. Epoch4/5의중간집계CPU job2개·fresh Omega7검사·완료된두모델의attention 통계검사를포함한64개queue는선정결과에따라67개(후보없음),117개(Full선정),119개(다른후보선정)가된다. 추가되는것은검증·보고작업이며모델학습횟수와비교budget은같다.
 
 Static-C1/task-full의epoch4·5 quick32비교는각각두모델의actual W&B/raw-checkpoint file4 closure가생긴뒤자동실행한다. 기존portable compiler와source hash를고정한CPU driver가같은case·noise·GT를집계하고새JSON/Markdown의actual file4 SHA도대조한다. 전체128×3 fixed-final비교와구분하며,학습을마치기전에best epoch를고르는데사용하지않는다. 기계별driver와실행계약은ignored results의`provenance/automatic-wave2-epoch-summaries-v1-contract.json`에보관한다.
 
@@ -106,4 +106,10 @@ W&B에서는숫자·표·PNG와결과artifact를기록하고,별도빈download c
 
 기존 C1의 완료된 480-update/두-rank 학습·initial/final32 replay, 실제 model/optimizer tensor, 두 RGB 사례의 cache/BF16/CFG, 실제 file4 checkpoint/metadata 검증을 재사용한다. 원래 config와 QA에 기록한 recipe hash, QA와 final tensor audit의 checkpoint path/SHA/size, 실제 file4 closure를 대조해 다른 모델의 증거가 섞이지 않도록 한다. 추가 GPU 검증을 중복 실행할 필요는 없다.
 
-선정 모델의 common32 value-address 진단과 추가121의 seed101 비교는 원래 C1 저장 경로를 사용한다. 이미 추가121에 포함된 `previous-c1` 조건을 재사용하며 가짜 `s101-previous-c1` 조건을 만들지 않는다. Seed202에는 실제 새로 학습한 `s202-previous-c1` 결과가 생긴다. 비교군 수 14개, 추가 생성42건, 전체 queue 65/115/117개와 학습 예산은 그대로다. 새 학습 모듈을 추가하거나 현재 실행 중인 No-decoder/No-prior run을 변경하지 않는다.
+선정 모델의 common32 value-address 진단과 추가121의 seed101 비교는 원래 C1 저장 경로를 사용한다. 이미 추가121에 포함된 `previous-c1` 조건을 재사용하며 가짜 `s101-previous-c1` 조건을 만들지 않는다. Seed202에는 실제 새로 학습한 `s202-previous-c1` 결과가 생긴다. 비교군 수 14개, 추가 생성42건과 학습 예산은 그대로다. 새 학습 모듈을 추가하거나 현재 실행 중인 No-decoder/No-prior run을 변경하지 않는다.
+
+## 2026-10-18 20:45 UTC: 실제 저장 attention의 집중도 기록
+
+Saved-model 정합 검사에서 실제 candidate weight의 최대값·entropy·entropy 실효K를 기록한다. Invalid query의 zero row는 제외하고 FP32에서 row-normalize해 통계를 계산하며, 원래 row 합의 오차도 기록한다. 첫 두 실제 active 사례에 대한 설명 통계이며, 전체 데이터 coverage나 성능 기여 증거로 해석하지 않는다. Native spatial의3개 후보와 semantic64개의 실효K를 같은 후보 수의 비교라고 부르지 않는다.
+
+이미 정합 검사가 끝난 static-C1과 task-full만 별도 `attention-statistics-v1` 경로에 저장 weight를 다시 검사한다. 기존 QA 결과는 덮어쓰지 않는다. 현재 두 학습이 끝나고 final generation에 사용하지 않는 허용 GPU가 생기면 우선순위2로 실행하며, SGD나 모델별 학습 예산을 추가하지 않는다. No-decoder/no-prior/native의 이후 정합 검사에는 같은 통계가 함께 저장된다. 전체 W&B 게시도 이 실제 통계가 준비된 뒤 실행한다.

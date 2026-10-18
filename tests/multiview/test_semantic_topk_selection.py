@@ -31,7 +31,7 @@ def prerequisite_jobs():
         'summarize-seven-arm-semantic-topk-search','summarize-matched-retargeter-top1',
         'summarize-zero-shot-replay-for-topk','summarize-task-value-address-diagnostic',
         'summarize-firstwave-fusion-dose','functional-QA-s202-top1-reference',
-        'fresh-omega7-feature-cache-parity']
+        'fresh-omega7-feature-cache-parity','attention-statistics-s101-static-c1','attention-statistics-s101-task-full']
     names += ['functional-QA-s101-'+name for name in ['top1-reference','soft-topk','static-c1',
         'task-full','task-no-decoder','task-no-prior','task-native-spatial','static-top1-c1']]
     names += [f'confirm-seed202-final-top1-reference-noise{n}' for n in range(3)]
