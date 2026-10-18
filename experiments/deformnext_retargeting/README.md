@@ -510,13 +510,18 @@ the primary table and the regional table after their strict collectors pass.
 
 The original C1 candidate uses R9 native-v5 source tensors. Its saved-weight
 diagnostics use `evaluate_native_checkpoint --r9-path-control
-{source-off,adapter-off,wrong-object}` instead of matching-v2 evidence controls.
+{source-off,adapter-off,wrong-object,wrong-address}` instead of matching-v2 evidence controls.
 Wrong-object replaces only DINO source values at recipient foreground sites,
 within each camera, retaining recipient Omega descriptors, addresses, scores,
 query and validity. Real donor foreground must exist and contain no zero
 vectors. Native four-view conditioning stays fixed. Scoped hooks restore on
 failure; no training, checkpoint or cache is changed. These diagnostic outputs
 are excluded from the primary matrix even if their metric counts coincide.
+`wrong-address` keeps the same object and each source camera's joint foreground
+value multiset, and changes only the DINO value-to-address association. Omega
+keys, candidate scores and foreground support remain fixed. Each active camera
+needs at least two foreground sites. This control is distinct from changing
+object identity or rolling through background sites.
 
 The [matched seed confirmation](../../docs/superpowers/reports/2026-10-18-original-SS-seed-confirmation-ko.md)
 repeats original V1/B3/C1 at seed101 under the same global96/DDP2/micro48/

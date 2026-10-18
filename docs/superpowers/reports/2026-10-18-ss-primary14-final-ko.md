@@ -74,6 +74,10 @@ Source value 교체와adapter 제거에대한민감도를확인했다. Source-of
 
 새C2의intact−shuffled RAW context는+0.093pp,CI[−0.099,+0.270]pp였다. 이진단에서도RAW query의추가생성이득은확정되지않았다. 이결과를predicted geometry9 query 실험과같은표현/대조로취급하지않는다. 근거는`module-study-native-v4/comparisons/diagnostic-{original-c1-r9-*,c2-query-r-shuffled-deform-vs-normal}.json`이다.
 
+같은물체안의주소정합만추가로검사하기위해`wrong-address`를구현했다. 각source camera의foreground index를절반길이만큼순환해값을재배치한다. Camera별joint value multiset·support·Omega descriptor·candidate/score·target query·native RGB는유지한다. 실제32개·96camera의foreground 수는18~294개로모두대조가정의됐고10,530개주소와값vector가모두바뀌었다. 상대feature L2 변화는평균45.49%였다. GT/teacher와새RNG를사용하지않는다.
+
+CPU검증은whole-vector multiset·background·score·input·hook 복원을확인했다. 새정상평가와주소교란평가를동일GPU2에서실행하고기존GPU0 정상결과와도count replay를검사한다. 비는GPU2를활용하며기존SS 학습은유지한다. 이는feature-address association의고정checkpoint 민감도진단이며학습된matcher의정답률이나module training ablation을대체하지않는다. 생성결과가나오기전에는개선으로보고하지않는다. 근거는`provenance/original-R9-wrong-address-input-audit.json`이다.
+
 ## 실행·저장 근거
 
 새 일곱 SS run은 모두 480updates/약5epochs를 완료했다. 두 rank의 연속 update, micro48·accumulation1·global96, finite loss, native 시작 IoU0.4267154667, 실제 gradient, checkpoint, 여섯 번의 epoch 검증을 strict collector가 확인했다. C2의 steady compute는 약17.27초/update, rank별 peak allocated는48.134GiB였다.

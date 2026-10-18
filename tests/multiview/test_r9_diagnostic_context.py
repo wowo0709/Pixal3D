@@ -78,3 +78,30 @@ def test_r9_wrong_object_rejects_missing_camera_donors_without_leaving_hook():
     with pytest.raises(ValueError, match='original r9'):
         with r9_diagnostic_context(torch.nn.Identity(), 'source-off', []):
             pass
+
+
+def test_r9_wrong_address_preserves_each_joint_camera_distribution_and_scores():
+    model,data=example();original={key:value.clone() for key,value in data.items()}
+    normal=model(**data);events=[];captured=[]
+    with r9_diagnostic_context(model,'wrong-address',events):
+        hook=model.register_forward_pre_hook(lambda m,args,kw:captured.append(kw),with_kwargs=True)
+        try:changed=model(**data)
+        finally:hook.remove()
+    swapped=captured[0]['source_values'];valid=data['source_valid']
+    torch.testing.assert_close(swapped[~valid],data['source_values'][~valid])
+    for sample in range(2):
+        for view in range(3):
+            before=data['source_values'][sample,view,valid[sample,view]]
+            after=swapped[sample,view,valid[sample,view]]
+            unique_before,count_before=torch.unique(before,dim=0,return_counts=True)
+            unique_after,count_after=torch.unique(after,dim=0,return_counts=True)
+            torch.testing.assert_close(unique_before,unique_after)
+            torch.testing.assert_close(count_before,count_after)
+            assert (before!=after).any(-1).all()
+    torch.testing.assert_close(changed.matching_logits,normal.matching_logits)
+    torch.testing.assert_close(changed.query_valid,normal.query_valid)
+    assert not torch.equal(changed.evidence,normal.evidence)
+    assert events[0]['changed_source_address_sites']==int(valid.sum())
+    assert not model._forward_pre_hooks
+    for key,value in original.items():torch.testing.assert_close(data[key],value)
+    torch.testing.assert_close(model(**data).evidence,normal.evidence)

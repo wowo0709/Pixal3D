@@ -12,6 +12,7 @@ DEFINITIONS = {
     'source-off': 'Disable additional R9 transport/adapter; retain native edited/source four-RGB conditioning.',
     'adapter-off': 'Remove only the learned retargeter output; keep semantic evidence, scores, gate and native RGB.',
     'wrong-object': 'Cycle donor DINO source values within each camera onto recipient foreground sites by ordinal resampling; retain recipient validity, Omega keys, target query, candidates and scores.',
+    'wrong-address': 'Derange foreground DINO values within the same object and source camera; retain joint per-view value multisets, support, Omega keys, target query, candidates and scores.',
 }
 
 
@@ -41,6 +42,26 @@ def r9_diagnostic_context(conditioner, mode, events):
             values, valid = keyword['source_values'], keyword['source_valid']
             if values.ndim != 4 or valid.shape != values.shape[:3] or valid.dtype != torch.bool:
                 raise ValueError('expected actual R9 BxVxS source values/validity')
+            if mode == 'wrong-address':
+                replacement = values.clone()
+                changed_sites = 0
+                for sample in range(len(values)):
+                    for view in range(values.shape[1]):
+                        index = torch.where(valid[sample, view])[0]
+                        if not len(index):
+                            continue
+                        if len(index) < 2:
+                            raise ValueError('wrong-address needs at least two foreground sites per active camera')
+                        selected = index.roll(len(index)//2)
+                        if torch.any(index == selected):
+                            raise ValueError('source address permutation has fixed points')
+                        replacement[sample, view, index] = values[sample, view, selected]
+                        changed_sites += len(index)
+                changed['source_values'] = replacement
+                events.append({'mode': mode, 'changed_source_address_sites': changed_sites,
+                    'foreground_sites': int(valid.sum()), 'per_view_joint_value_multisets_exact': True,
+                    'recipient_support_and_Omega_keys_preserved': True})
+                return positional, changed
             if values.shape[0] < 2:
                 raise ValueError('R9 wrong-object needs at least two assets')
             replacement = values.clone()
