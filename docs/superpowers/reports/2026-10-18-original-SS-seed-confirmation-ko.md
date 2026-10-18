@@ -113,3 +113,18 @@ C1의 점추정치 격차는 커졌지만 CI는 여전히 0을 포함한다. V1�
 2026-10-18 11:59 KST에 C1 step384의 실행·보관 검증을 마쳤다. 고정32의 IoU는 **0.45024880**, F1은 **0.62092629**다. C1의 epoch1~4 IoU 점추정치는 0.43633516 → 0.44060209 → 0.44362372 → 0.45024880이었다. 같은 32개 GT voxel hash·source cluster·sampling noise를 확인한 epoch3→4의 paired 차이는 **+0.663pp**, 95% source-cluster bootstrap CI **[+0.012, +1.284]pp**였다. 이는 한 noise의 중간 경향이며 반복 관측에 대한 보정이나 training-seed 모집단의 추정이 아니다. `selection_use=false`를 유지하고 fixed-final128×3를 대체하지 않는다. V1의 step384가 아직 없으므로 다른 epoch의 V1과 비교하지 않는다.
 
 두 rank의 step1~384가 연속·finite·global96/micro48/accumulation1임을 확인했다. Optimizer 366개 상태가 모두 step384이고 moment tensor도 모두 finite였다. W&B의 실제 history step384 수치를 검사하고 해당 GT/Pred/Diff 이미지를 내려받아 로컬 bytes와 SHA256을 대조했다. Checkpoint 3개와 검증 snapshot·이미지 등 7개 산출물 **2,857,601,449 bytes**도 actual-file4의 SHA256·크기와 일치했다. 근거는 `epoch-audits-v2/c1/epoch04/{audit,file4-closure}.json`과 `epoch-comparisons/trend-epoch04-vs-epoch03-c1.json`이다. 학습은 480 updates까지 진행 중이며 B3·원본 constant-gate 6개 학습도 후속 범위로 남아 있다.
+
+## 네 번째 epoch의 동일 조건 비교
+
+V1 step384 검증과 원격 저장 검증도 완료됐다. 아래는 같은 training seed101·world2/micro48/accumulation1·고정32 source cluster·한 sampling noise의 비교다.
+
+| Epoch / step | V1 voxel IoU | C1 voxel IoU | C1−V1, pp [95% CI] |
+| --- | ---: | ---: | --- |
+| 1 / 96 | 0.43214776 | 0.43633516 | +0.419 [−0.583, +1.320] |
+| 2 / 192 | 0.43444352 | 0.44060209 | +0.616 [−0.541, +1.900] |
+| 3 / 288 | 0.43187184 | 0.44362372 | +1.175 [−0.051, +2.641] |
+| 4 / 384 | 0.43429997 | 0.45024880 | +1.595 [+0.153, +3.134] |
+
+Epoch4의 paired CI는 0보다 높지만, 이 표는 반복 관측에 대한 보정이 없는 중간32 평가이며 training-seed 모집단 추정도 아니다. C1의 추가 이득을 최종 확인했다는 결론이나 조기 종료·epoch 연장에 사용하지 않는다. B3와 480-update fixed-final128×3가 남아 있고 Full/PBR 채택도 보류한다.
+
+두 run 모두 실제 optimizer 상태 V1 360개/C1 366개가 전부 step384·finite였다. GT voxel hash·sampling noise·source cluster 32개가 일치하며, W&B의 실제 step384 수치·다운로드한 두 GT/Pred/Diff 이미지와 공통 reporter의 paired 수치·CI를 확인했다. 두 epoch의 checkpoint와 snapshot 등 13개 산출물 **5,701,868,309 bytes**는 각 자동 closure receipt에서 actual-file4 SHA256·크기 검증을 통과했다. `epoch-comparisons/epoch-04-c1-vs-v1.json`, `epoch-audits-v2/{v1,c1}/epoch04/`, 상위 `provenance/matched-seed101-fourth-epoch-{audit,wandb-remote,file4}.json`에 근거를 보존했다.
