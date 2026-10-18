@@ -162,3 +162,24 @@ V1도480 updates를 정상 종료했고 strict training audit 및 실제 step480
 C1의 세 final 평가가 끝난 뒤 GPU0/1의 B3가 초기 native 출력 차이0·LoRA gradient L1 195.1511·fusion gate gradient0.02443을 통과했다. 실제 두 rank의 memory probe는 micro48/accumulation1/global96으로2 update씩 수행했고 peak allocated는 각각47.093GiB였다. Probe optimizer361개가 전부 step2·finite임을 확인했다. `provenance/matched-B3-startup-native-memory-{audit,file4}.json`에 실제 proof·runtime·probe optimizer를 보관했다.
 
 이후 B3 본 학습의 초기 고정32 IoU도 **0.42671546671444294**로 V1/C1과 정확히 같았다. Memory bench와 다른 본 실행 디렉터리에서 양rank의첫3 update가 연속·finite·micro48/accumulation1임을 확인했다. `provenance/matched-B3-main-start-v1.json`의 immutable prefix는 초기 검증이며 B3의480-update 완료를 뜻하지 않는다. B3, V1의 최종 평가, 원본 constant-gate6개와 sampler 진단, 최종 SS/Full·PBR 판단은 계속 남아 있다.
+
+## Matched C1−V1의 fixed-final128×3 완료
+
+V1의 세 final 평가가 끝나 C1과 동일 seed101/world2/micro48/accumulation1·480-update checkpoint를 비교했다. 두 모델의 초기 native IoU는 같았고 실제 두 rank의 연속480 update, 여섯 검증, raw final optimizer/checkpoint를 모두 검사했다. 모든 새 final 평가에서 같은128개·93 source cluster·세 개의 서로 다른 sampling noise·12steps/CFG3/generation8을 확인했다.
+
+| Method | Input | Micro IoU | Micro F1 |
+| --- | --- | ---: | ---: |
+| Frozen zero-shot source-only | M0 RGB camera8/9/10/11 | 0.38071101 | 0.55147095 |
+| Frozen zero-shot edited-RGB | M1 camera8 + M0 camera9/10/11 RGB | 0.41927516 | 0.59082998 |
+| Matched V1, seed101 | M1 camera8 + M0 camera9/10/11 RGB | 0.43265007 | 0.60398568 |
+| Matched original R9 C1, seed101 | M1 camera8 + M0 camera9/10/11 RGB | 0.44219276 | 0.61322283 |
+
+Zero-shot은 본14개 비교에서 완료한 frozen SS4210 baseline을 재사용했다. 같은128개·세 noise·target foreground count·source cluster와 명시된12steps/CFG3를 새 V1 기록에 다시 대조했다. 두 zero-shot 모두 desired-state M1을 GT로 하며, source-only의 M0 복원 능력을 측정하는 표는 아니다. 과거 baseline에 빠진 occupancy hash를 채워 넣지는 않았다. 근거는 `zero-shot-context-for-matched-runs.json`과 상위 `provenance/zero-shot-context-for-matched-runs-file4.json`이다.
+
+**새 matched C1−V1은 +0.9543pp, paired source-cluster95% CI [+0.5417,+1.3496]pp**였다. Noise0/1/2의 차이는 각각 +1.0719/+1.0008/+0.7841pp로 모두 양수다. 원래 seed0 비교의 +1.029pp와 방향·크기가 비슷하고, 이번에는 world/microbatch/accumulation도 맞췄다. 이는 **기존 R9 C1 전체 경로의 V1 대비 이득**을 새 실행에서 확인한 것이다. Retargeter의 독립 효과는 아직 학습 중인 B3와의 비교가 필요하다. 새 rejection/RAW-query ladder의 성능 근거로도 바꾸지 않는다.
+
+새 C1/V1의 모든384 paired target hash와 noise/source identity를 검사했고, 두 noise0 결과가 각 run의 마지막 epoch common32 TP/FP/FN을 정확히 재현했다. CI는 세 noise를 source cluster 안에 둔 frozen-weight 조건부 bootstrap이다. 기존 seed0은 실행 조건이 달라 seed 모집단 CI로 합치지 않으며, 이 validation128을 미사용 test로 표현하지 않는다. `c1-vs-v1-final128-audit.json`은 완료된 두 arm만의 검사이고 B3/Full/PBR 완료 flag는 false다.
+
+새 paired JSON, 검사 기록, V1의 세 평가 JSON·GT/Pred/Diff·실제 입력 contact·recipe 등12개 산출물 **763,513 bytes**를 actual-file4와 SHA256·크기 대조했다. W&B에서는 세 V1 metric set과 PNG를 직접 다운로드해 대조하고, 별도 final128 paired gain·CI·128 asset/93 cluster/3noise/384 hash-check 수치도 원격에서 일치함을 확인했다. 근거는 `comparisons/c1-vs-v1-final128-three-noise.json`, `wandb-final-readback/v1/audit.json`, 상위 `provenance/matched-C1-V1-fixed-final128-{file4,remote-file4}.json`이다.
+
+이 paired CPU job은 B3가 끝날 때까지 기다리지 않고 이미 완료된 C1/V1 대비를 노출하기 위해 추가했다. Reporter에 해당 comparison directory를 연결했고, 실제 CPU reporter만 idle 시점에 갱신했다. B3 training PID는 유지됐으며 source/입력목록/queue/갱신 기록은 `provenance/seed101-finalpair-source-logging-file4.json`에서 actual-file4 검증을 통과했다. B3 및 원본 network-gate6개·sampler 진단과 최종 채택 판단은 계속 진행한다.

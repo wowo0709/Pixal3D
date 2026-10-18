@@ -33,3 +33,11 @@ CPU 검증 뒤 실제 GPU에서 native initial loss/condition 일치, frozen bac
 GPU 0~3만 사용한다. 진행 중인 SS C1/V1 학습은 유지하고, V1의 final 평가가 끝난 GPU 2/3에서 새 검증을 실행한다. GPU 0/1의 후속 B3 학습과 병행한다. 이전 scalar pilot 실측은 No-query 약 30~33분/run, query 약 33~36분/run이었다. 새 6개 학습은 2개 GPU에서 3차례 병렬 실행하므로 약 2시간 규모이며, native GPU proof와 실제 runtime으로 추정을 갱신한다. 신규 원본/80k 다운로드나 전체 데이터 재전처리는 필요 없다.
 
 새 namespace는 `current-geometry-regions-v1/runs-network-gate-v3`, GPU proof는 `regional-gradient-proof-network-gate-v3`, 최종 집계는 `all-six-network-gate-summary-v3.json/.md`다. 기존 `runs-v2`와 원래 checkpoint를 수정하거나 resume하지 않는다. Full/PBR 채택은 원본 gate 학습 결과와 SS matched 비교를 함께 검토한 뒤 결정한다.
+
+## 실제 GPU 검증과 seed101 시작
+
+V1의 final128×3가 끝난 뒤 GPU2에서 `historical-network` proof가 정상 완료됐다. 두 arm 모두 초기 projection과 regional loss가 native와 exact였다. No-query는 raw query0·residual3075 channel, query arm은 raw query9·residual3107 channel이었다. 두 번째 update의 constant-gate MLP gradient L1은 각각 **0.0160192 / 0.0081770**, query encoder의 gradient L1은 **0.00240139**로 연결돼 있었다. Frozen SS/decoder에는 parameter gradient가 없었다. 이 PASS는 원본371-parameter gate의 실제 GPU 경로 검증이며 성능 평가가 아니다.
+
+GPU2/3에서 adapter-only와 adapter-query의 seed101 본 학습이 시작됐다. 두 실제 train log의 첫8 update가 연속·finite이고 sample ID·noise seed·epoch 순서가 정확히 같음을 확인했다. 이후 update10까지 실제 진행했으며 train peak allocated는 약6.730/6.736GiB였다. 같은 sample/noise에서 두 loss가 다른 것은 모듈의 학습 상태 차이이며, calibration 품질의 우열로 해석하지 않는다.
+
+실제 GPU proof와 immutable first8 main-update prefix를 `provenance/current-regional-original-network-GPU-start-v3.json`에 보존했다. `current-regional-original-network-GPU-start-v3-file4.json`은 두 closed artifact의 local/actual-file4 SHA256·크기 검증을 기록한다. 128 updates, checkpoint freeze 후 cal32×3noise와 source-OFF/joint-query-shuffle 평가, seed202/303 및 strict six-run 집계는 계속 남아 있다. Main SS B3는 GPU0/1에서 global96/DDP2/micro48/accumulation1 학습을 병행한다.
