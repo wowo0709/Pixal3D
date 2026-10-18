@@ -88,6 +88,8 @@ Static-C1/task-full의epoch4·5 quick32비교는각각두모델의actual W&B/raw
 
 Fresh Omega검사는각view의FRAME/GLOBAL L12성분을독립적으로비교한다(relativeRMS≤0.005,mean cosine≥0.9999). FP16저장경계를거친fresh proposal의exact여부와set overlap은별도로보고하며정답Top1정확도로해석하지않는다. 실제같은RGBA byte·camera를확인하고camera/depth head·SS생성·optimizer update는실행하지않는다. 첫두active사례를그대로쓰며,허용GPU가비었을때만실행한다. 게시job은이결과의actual file4 closure도기다린다. CPU guard 통과는아직GPU검사완료가아니다.
 
+아직시작하지않은`task-no-decoder`/`task-no-prior`학습도이검사의성공을기다리도록연결했다. 현재학습중인두run은5에폭까지그대로진행한다. 기존training base hash와canonical epoch7 hash의실제대조는완료됐고,원본RGB 재인코딩은별도의대기중인검증이다.
+
 Development128과additional121의표·metric prefix·전체사례PDF를분리한다. 그림은noise0의기존저장결과를원래순서대로사용하며새추론을하지않는다. 모든방법의실제GT pixel·3D hash·source·sampling seed를대조한다. 각PDF는8사례당두방법그룹을보여주며마지막121개panel의빈칸에는다른사례를채우지않는다.
 
 W&B에서는숫자·표·PNG와결과artifact를기록하고,별도빈download cache에서다시내려받아대조한다. Checkpoint binary는canonical file4에보관한다. `full_campaign_complete=false`와`model_adopted=false`를유지하며,각training seed의조건부CI와같은retargeter의Top1비교가seed101에만있다는범위를명시한다. 게시준비코드와CPU검사의통과는실제모든arm의완료나성능향상증거가아니다.

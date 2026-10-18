@@ -157,3 +157,24 @@ Full−V1의현재점수차이는+0.953pp,CI[−0.238,+2.345]pp다. 이차이는
 추가로기존128개descriptor/projection진단에서semantic 경로의공유정도를집계했다. 현재nearest-projection구조에서는9,882개active 2D query가125,770개native16³ conditioning cell에전달돼query당평균12.727개cell이feature/attention/retargeter출력을공유한다. 이는occupied GT voxel의개수가아니며최종native+semantic조건전체가같다는뜻도아니다. 원래native multiview와anchor조건은계속변한다.
 
 이관측은2D semantic query가3D위치별단서를충분히사용하는지확인할근거이며실패원인의인과증거는아니다. 계획한비교에서추가이득을얻지못하면같은semantic64후보·decoder·score·retargeter를고정하고native-voxel RGB query만바꾸는후속검사를고려한다. 현재새arm을추가한것은아니다. 원래spatial3후보대조는후보자체와개수도달라query만의효과를분리하지못한다. 세부derived관측은 `provenance/semantic-query-reuse-diagnosis-v1.json`에보관했다.
+
+## 네 번째 에폭: 두 C1 모델이 함께 개선
+
+같은quick32·한noise의raw384평가를자동집계했다. 실제두epoch04의W&B/image/raw-checkpoint file4 closure 이후에기존compiler가실행됐고,결과JSON/Markdown과두closure의actual file4 SHA도대조했다. Job은종료코드0으로완료됐으며학습은5에폭으로계속진행됐다.
+
+| 같은32개 기준 | Epoch4 또는zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1,epoch4 | 0.434300 | 0.605592 |
+| 이전 C1,T0.005,epoch4 | 0.450249 | 0.620926 |
+| Static-C1,T0.05,epoch4 | 0.449461 | 0.620176 |
+| Task-full,T0.05,epoch4 | 0.449138 | 0.619869 |
+
+Full−static은−0.032pp,95% source-cluster CI[−0.448,+0.492]pp다. Full−이전C1은−0.111pp,CI[−0.549,+0.430]pp이며static−이전C1도−0.079pp,CI[−0.236,+0.075]pp다. 현재셋의우열은분명하지않고learned matching 경로의추가품질기여도확인되지않았다.
+
+Full−V1은+1.484pp,CI[+0.190,+2.835]pp,static−V1은+1.516pp,CI[+0.122,+2.960]pp였다. 이는현재whole-path의quick평가결과이며decoder/score 학습의기여를따로입증하지않는다. Full의zero-edited대비차이는+2.242pp지만해당CI[−0.184,+4.807]pp는0을포함한다. 다른대조와다른분산을가진CI를혼용하지않는다.
+
+Epoch3→4는static+0.752pp,CI[+0.005,+1.456]pp,Full+0.773pp,CI[+0.021,+1.606]pp였다. 같은run의최적화가진행되는증거이며모듈단독효과나best-epoch선택의근거는아니다. Fixed raw480/final128×3와남은ablation을유지한다.
+
+전체9개방법·paired검사·temporal결과는 `wave2-epoch4-comparison-v2/`에있다. 원격대조는 `provenance/automatic-epoch4-summary-v1-file4.json`의5개파일/282,687bytes와일치했다. Epochaudit는18/45개PASS,errors=[]였다. 아직최종모델을선정하지않았다.
