@@ -164,11 +164,37 @@ def native_proof(cfg,output):
                 'query_weight_gradient_l1':query_gradient,'temporary_output_probe_restored':True,'optimizer_updates':0}
         finally:
             with torch.no_grad():last.weight.copy_(saved_weight)
+    task_proof=None
+    task=getattr(trainer.deform_conditioner,'task_attention',None)
+    if task is not None:
+        last=adapter.net[-1];saved_weight=last.weight.detach().clone();direction=last.weight.grad.detach().clone()
+        try:
+            with torch.no_grad():last.weight.add_(1e-3*direction.sign())
+            for model in trainer.models.values():model.zero_grad(set_to_none=True)
+            with torch.autocast('cuda',dtype=trainer.mix_precision_dtype):probe,_=trainer.training_losses(x_0=target,**pack)
+            probe['loss'].backward()
+            parts={'decoder':trainer.deform_conditioner.q2c.decoder,
+                   'score':trainer.deform_conditioner.q2c.fusion_head,'task_attention':task}
+            gradients={name:sum(float(p.grad.detach().float().abs().sum()) for p in module.parameters() if p.grad is not None)
+                       for name,module in parts.items()}
+            required={'decoder':trainer.deform_conditioner.task_attention_config['decoder'],
+                      'score':trainer.deform_conditioner.task_attention_config['score_prior'],'task_attention':True}
+            if any(not np.isfinite(v) or (v>0)!=required[k] for k,v in gradients.items()):
+                raise ValueError('actual SS-loss task branch gradient differs from decoder/score switches')
+            task_proof={'actual_SS_loss_gradient_L1':gradients,'required_active':required,
+                        'physical_decoder_blocks':len(parts['decoder'].blocks),
+                        'temporary_output_probe_not_optimizer_update':True,'optimizer_updates':0}
+        finally:
+            with torch.no_grad():last.weight.copy_(saved_weight)
+        if not torch.equal(last.weight,saved_weight):raise ValueError('task gradient probe did not restore its output weight')
+        task_proof['temporary_output_weight_restored_exact']=True
+    if code_hashes!={str(p.relative_to(repo)):hashlib.sha256(p.read_bytes()).hexdigest() for p in code_paths}:
+        raise RuntimeError('native proof source changed during branch probes')
     write(output/'native-proof.json',{'status':'PASS','sample_id':ds.rows[index]['sample_id'],
         'condition_max_abs_errors':errors,'fusion_gate_gradient':gate,'adapter_output_gradient_l1':gradient,
         'lora_gradient_l1':lora_gradient,
         'head_sha256':cfg['experiment']['head_sha256'],'optimizer_updates':0,'query_channels':query_proof,
-        'actual_source':proof_source})
+        'actual_source':proof_source,'task_branch_probe':task_proof})
 
 
 def audit_memory_probe(byrank,per_rank,world,split):
