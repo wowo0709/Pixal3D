@@ -457,3 +457,12 @@ No-decoder−Static-Top1+C1은 +0.751pp, CI [+0.183,+1.361]pp, No-prior−Static
 Native-spatial−V1은 +1.043pp, CI [−0.352,+2.498]pp, Static-Top1+C1−V1은 +0.592pp, CI [−0.579,+1.890]pp로 모두0을 포함했다. 같은 run의 epoch1→2 변화도 native-spatial +0.525pp, CI [−0.885,+1.840]pp, Static-Top1+C1 +0.318pp, CI [−1.220,+1.822]pp였다. 점수 상승을 관측했지만 두 temporal CI는0을 포함하며, 이는 joint optimization의 변화이지 특정 모듈의 단독 효과가 아니다.
 
 전체13개 방법·paired/temporal 결과와 실제 입력은 `wave4-epoch2-comparison-v1/`에 있다. 집계기에 같은 run의 이전 epoch 비교를 추가했고, 첫 epoch 당시 source는 원래 file4 archive에 보존했다. 모든 CI는 training seed101·한 sampling noise에 조건부인 탐색 결과이며 다중 비교를 보정하지 않았다. 원래5epoch/raw480·전체128×3·6후보 선정·추가 seed/121개 검증을 유지한다. 모델·학습률·데이터·microbatch를 변경하지 않았다.
+
+
+## SS matching key와 native value의 이미지 격자 호환 검사
+
+현재2개 학습은 유지한 채, Omega의 주소를 DINO value에 적용할 때 전처리 crop/patch 순서가 달라지는지 CPU에서 확인했다. 기존 saved-QA의 첫 두 실제 사례/8개 RGBA에 대해 cache producer의 `load_rgba`와 native dataset의 `_load_image` 함수 자체를 실행했다. 두 경로의512×512 RGB tensor가8개 모두 bit-exact였고 최대 pixel 차이는0이었다. 두 loader는 같은 LANCZOS resize와 alpha 곱을 사용하며, SS native extractor의 이후 transform은 공간 crop/resize 없이 정규화만 한다.
+
+실제 installed Hugging Face `DINOv3ViTEmbeddings`와 Omega `PatchEmbed`의 forward도 patch16/512 입력의 좌표 marker로 비교했다. Probe의1채널 patch-average weight에서32×32의1,024개 index가 양쪽 모두 같은 row-major 순서를 정확히 보였다. Native 쪽 CLS/register prefix는 실제 코드처럼 제외했다. 이 marker는 좌표 convention 검사이며 pretrained feature 또는 성능 증거가 아니다.
+
+실제8개 input tensor hash·PNG hash·함수/embedding source hash와 범위는 `provenance/shared-ss-image-grid-v1.json`에 있다. 기존 fresh DINO/Omega feature 검사를 보완하는 input/격자 검사로, 전체 dataset의3D 정합·GT matching 정확도·SS 생성 품질이나 PBR1024를 검증했다는 뜻은 아니다. GPU·optimizer update·모델·cache 변경은 없었다. 현재512 SS key/value 경로에서 다른 crop이나 token 순서가 원인이라는 근거는 확인되지 않았다.
