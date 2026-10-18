@@ -93,8 +93,9 @@ def test_reporting_waits_for_actual_models_and_auditors_without_allocating_a_gpu
     assert 'functional-QA-s101-static-top1-c1' in deps
     assert 'functional-QA-s202-top1-reference' in deps
     assert 'summarize-firstwave-fusion-dose' in deps
+    assert 'fresh-omega7-feature-cache-parity' in deps
     assert ('summarize-additional121-semantic-topk' in deps)==(candidate is not None)
-    assert len(jobs[0]['requires'])==(9 if candidate is None else 10)*6
+    assert len(jobs[0]['requires'])==(9 if candidate is None else 10)*6+1
     assert jobs[1]['depends_on']==['campaign-report-render']
     assert jobs[2]['depends_on']==['campaign-report-publish']
     assert all(Path(output).is_relative_to(tmp_path) for j in jobs for output in j['outputs'])
@@ -106,7 +107,8 @@ def test_publication_preserves_panel_prefixes_and_all_named_module_comparisons(t
         'development128':{'models':{'method':{'micro_voxel_iou':.4,'micro_voxel_f1':.57}},
                           'contrasts':{k:copy.deepcopy(contrast) for k in COMPONENTS.values()}},
         'additional121':{'models':{'method':{'micro_voxel_iou':.3,'micro_voxel_f1':.46}},'contrasts':{}},
-    },'scope':conditional_scope('task-full',*selected_reports()),'files':[]}
+    },'scope':conditional_scope('task-full',*selected_reports()),'files':[],
+        'backbone_metrics':{'backbone_QA/case0/view0/FRAME/relative_RMS':.0002}}
     folder=tmp_path/'campaign-wandb-v1/presentation';folder.mkdir(parents=True)
     (folder/'summary.json').write_text(json.dumps({'status':'PASS_COMPLETED_CAMPAIGN_PRESENTATION',
         'scope':data['scope'],'input_SHA256':{}}))
@@ -114,6 +116,7 @@ def test_publication_preserves_panel_prefixes_and_all_named_module_comparisons(t
     spec=payload(tmp_path)
     assert spec['metrics']['development128/method/micro_voxel_iou']==.4
     assert spec['metrics']['additional121/method/micro_voxel_iou']==.3
+    assert spec['metrics']['backbone_QA/case0/view0/FRAME/relative_RMS']==.0002
     rows=spec['tables']['development128/component_effects']['data']
     assert [r[0] for r in rows]==list(COMPONENTS)
     assert all(r[2]<0 for r in rows)  # Negative bounds are retained, never reformatted as improvement.

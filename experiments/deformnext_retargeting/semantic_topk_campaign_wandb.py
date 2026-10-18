@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -143,6 +144,26 @@ def collect(root):
                    'PASS_COMPLETED_SAME_WEIGHT_AGGREGATION_FUSION_DIAGNOSTIC', files)
     value = require(root/'task-value-address-v1/summary.json',
                     'PASS_COMPLETED_TASK_VALUE_ADDRESS_DIAGNOSTIC', files)
+    omega=require(root/'omega-backbone-QA-v1/summary.json','PASS_FRESH_OMEGA7_FEATURE_CACHE_PARITY',files)
+    if (omega['completed_updates']!=23597 or not omega['strict_base_and_adapter_key_load']
+        or not omega['all_parameters_frozen_eval'] or len(omega['cases'])!=2
+        or omega['Omega_forward_passes']!=2 or omega['SS_generations']!=0 or omega['optimizer_updates']!=0
+        or omega['input_camera_ids']!=[8,9,10,11] or omega['input_states']!=['M1','M0','M0','M0']):
+        raise ValueError('actual fresh Omega7 backbone proof differs')
+    backbone_metrics={}
+    for ix,case in enumerate(omega['cases']):
+        if len(case['feature_parity']['comparisons'])!=8 or not case['feature_parity']['pass'] or not case['cached_proposals_exact_to_match_cache']:
+            raise ValueError('all per-view FRAME/GLOBAL feature checks required')
+        for c in case['feature_parity']['comparisons']:
+            if not math.isfinite(c['relative_RMS']) or not math.isfinite(c['mean_cosine']) or c['relative_RMS']>.005 or c['mean_cosine']<.9999:
+                raise ValueError('actual fresh Omega7 numerical differences exceed declared limits')
+            for key in ['relative_RMS','mean_cosine','max_abs_error']:
+                backbone_metrics[f'backbone_QA/case{ix}/view{c["view"]}/{c["component"]}/{key}']=c[key]
+        backbone_metrics[f'backbone_QA/case{ix}/proposal_set_overlap']=case['fresh_proposal_set_overlap']
+        files.append(root/'omega-backbone-QA-v1'/f'case{ix}.json')
+    omega_closure=require(root/'provenance/omega-backbone-QA-v1-file4.json','PASS',files)
+    if not omega_closure['local_equals_actual_file4_SHA256']:raise ValueError('actual Omega7 proof file4 closure missing')
+    files.append(root/'provenance/omega-selected-weights-v1.json')
     records={};images={};old=root.parent/'ss-seed-confirmation-v1'
     for name in ORDER:
         if name in MODES:
@@ -178,6 +199,7 @@ def collect(root):
         if not path.is_file():raise FileNotFoundError(path)
         files.append(path)
     scope=conditional_scope(candidate,confirmation,additional,correspondence)
+    scope.update(fresh_Omega7_verified_cases=2,fresh_Omega_proposals_exact_all_cases=omega['fresh_proposals_exact_all_cases'])
     sets={'development128':{'models':models,'contrasts':{**seven['contrasts'],**matched['contrasts']}}}
     galleries={'development128':{'records':records,'images':images,'ids':ids,
         'groups':[FIRST_ORDER,['previous-c1',*[name for name in NEW_MODELS if name not in FIRST_ORDER]]],
@@ -215,7 +237,8 @@ def collect(root):
     sets['task-full-value-address']={'models':{},'contrasts':{'normal-vs-wrong-address':value['normal_minus_wrong_address']}}
     if correspondence is not None:
         sets['selected-value-address']={'models':{},'contrasts':{'normal-vs-wrong-address':correspondence['normal_minus_wrong_address']}}
-    return {'sets':sets,'galleries':galleries,'scope':scope,'files':list(dict.fromkeys(files))}
+    return {'sets':sets,'galleries':galleries,'scope':scope,'files':list(dict.fromkeys(files)),
+            'backbone_metrics':backbone_metrics}
 
 
 def publication_jobs(root, candidate, selection_job):
@@ -225,12 +248,13 @@ def publication_jobs(root, candidate, selection_job):
     if candidate is not None:specs.append(('confirm-seed202-train-'+candidate,candidate,202))
     dependencies=[selection_job,'summarize-seven-arm-semantic-topk-search',
         'summarize-matched-retargeter-top1','summarize-zero-shot-replay-for-topk',
-        'summarize-task-value-address-diagnostic','summarize-firstwave-fusion-dose']
+        'summarize-task-value-address-diagnostic','summarize-firstwave-fusion-dose',
+        'fresh-omega7-feature-cache-parity']
     dependencies += [f'functional-QA-s{seed}-{name}' for _,name,seed in specs]
     dependencies += [f'confirm-seed202-final-top1-reference-noise{n}' for n in range(3)]
     if candidate is not None:
         dependencies += ['summarize-semantic-topk-seed202','summarize-additional121-semantic-topk']
-    required=[]
+    required=[str(root/'provenance/omega-backbone-QA-v1-file4.json')]
     for job,_,_ in specs:
         required.append(str(root/'final-weight-audits-v1'/job/'file4-closure.json'))
         required += [str(root/'epoch-audits-v1'/job/f'epoch{e:02d}'/'file4-closure.json') for e in range(1,6)]
@@ -296,7 +320,7 @@ def payload(root):
     if summary['status']!='PASS_COMPLETED_CAMPAIGN_PRESENTATION' or summary['scope']!=data['scope']:
         raise ValueError('completed matching presentation required')
     if summary['input_SHA256']!={str(p):sha(p) for p in data['files']}:raise ValueError('actual presentation inputs changed')
-    metrics={};tables={}
+    metrics=dict(data['backbone_metrics']);tables={}
     for name,values in data['sets'].items():
         rows=[];contrasts=[]
         for method,model in values['models'].items():

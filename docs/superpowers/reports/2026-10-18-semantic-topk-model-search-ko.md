@@ -80,9 +80,13 @@ Full 이외의 후보가 선택되어도 그 saved model에서 value-address 진
 
 `semantic_topk_campaign_wandb.py`는8개development arm·기존V1/B3/C1·두zero-shot을같은128개/3noise로묶는다. 후보가선정되면해당모델의추가training seed와reserved121의모든14개조건까지기다린다. 후보가없으면음성결과를보존하며추가candidate학습을만들지않는다. 이게시가모델탐색목표의완료나모델채택을뜻하지않는다.
 
-후보선정job이`render→publish→readback`의CPU job3개를추가한다. 실제saved-weight/cache/CFG검사와모든epoch의W&B/file4 closure가준비돼야실행한다. Epoch4/5의중간집계CPU job2개를포함한현재61개queue는선정결과에따라64개(후보없음),114개(Full선정),116개(다른후보선정)가된다. 추가되는것은보고작업이며모델학습횟수와비교budget은같다.
+후보선정job이`render→publish→readback`의CPU job3개를추가한다. 실제saved-weight/cache/CFG검사와모든epoch의W&B/file4 closure가준비돼야실행한다. Epoch4/5의중간집계CPU job2개와fresh Omega7검사를포함한62개queue는선정결과에따라65개(후보없음),115개(Full선정),117개(다른후보선정)가된다. 추가되는것은검증·보고작업이며모델학습횟수와비교budget은같다.
 
 Static-C1/task-full의epoch4·5 quick32비교는각각두모델의actual W&B/raw-checkpoint file4 closure가생긴뒤자동실행한다. 기존portable compiler와source hash를고정한CPU driver가같은case·noise·GT를집계하고새JSON/Markdown의actual file4 SHA도대조한다. 전체128×3 fixed-final비교와구분하며,학습을마치기전에best epoch를고르는데사용하지않는다. 기계별driver와실행계약은ignored results의`provenance/automatic-wave2-epoch-summaries-v1-contract.json`에보관한다.
+
+기존saved-conditioner검사는fresh DINO와cached Omega key 이후의proposal/head경로를검증한다. 별도`verify_omega_feature_cache.py`로실제원본RGB2건을선택한frozen Omega7에다시넣는검사도수행한다. Local epoch7파일은canonical file4와SHA/크기가같고,실제base파일SHA는epoch7 checkpoint가저장한training base SHA와같아야한다. 원래training config의attention/FFN LoRA rank·alpha도대조한다.
+
+Fresh Omega검사는각view의FRAME/GLOBAL L12성분을독립적으로비교한다(relativeRMS≤0.005,mean cosine≥0.9999). FP16저장경계를거친fresh proposal의exact여부와set overlap은별도로보고하며정답Top1정확도로해석하지않는다. 실제같은RGBA byte·camera를확인하고camera/depth head·SS생성·optimizer update는실행하지않는다. 첫두active사례를그대로쓰며,허용GPU가비었을때만실행한다. 게시job은이결과의actual file4 closure도기다린다. CPU guard 통과는아직GPU검사완료가아니다.
 
 Development128과additional121의표·metric prefix·전체사례PDF를분리한다. 그림은noise0의기존저장결과를원래순서대로사용하며새추론을하지않는다. 모든방법의실제GT pixel·3D hash·source·sampling seed를대조한다. 각PDF는8사례당두방법그룹을보여주며마지막121개panel의빈칸에는다른사례를채우지않는다.
 
