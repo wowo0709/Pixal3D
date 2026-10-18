@@ -128,3 +128,13 @@ V1 step384 검증과 원격 저장 검증도 완료됐다. 아래는 같은 trai
 Epoch4의 paired CI는 0보다 높지만, 이 표는 반복 관측에 대한 보정이 없는 중간32 평가이며 training-seed 모집단 추정도 아니다. C1의 추가 이득을 최종 확인했다는 결론이나 조기 종료·epoch 연장에 사용하지 않는다. B3와 480-update fixed-final128×3가 남아 있고 Full/PBR 채택도 보류한다.
 
 두 run 모두 실제 optimizer 상태 V1 360개/C1 366개가 전부 step384·finite였다. GT voxel hash·sampling noise·source cluster 32개가 일치하며, W&B의 실제 step384 수치·다운로드한 두 GT/Pred/Diff 이미지와 공통 reporter의 paired 수치·CI를 확인했다. 두 epoch의 checkpoint와 snapshot 등 13개 산출물 **5,701,868,309 bytes**는 각 자동 closure receipt에서 actual-file4 SHA256·크기 검증을 통과했다. `epoch-comparisons/epoch-04-c1-vs-v1.json`, `epoch-audits-v2/{v1,c1}/epoch04/`, 상위 `provenance/matched-seed101-fourth-epoch-{audit,wandb-remote,file4}.json`에 근거를 보존했다.
+
+## C1의 5 epoch 학습 완료와 final 평가 시작
+
+C1이 480 updates를 마쳤고 마지막 고정32 IoU는 **0.45384906**이었다. 같은 C1의 epoch4→5 변화는 +0.360pp, paired source-cluster 95% CI [−0.168, +0.939]pp로 0을 포함한다. 학습 전 0.42671547보다 점추정치는 높지만, 아직 완료되지 않은 V1 epoch5나 fixed-final128×3 결과를 대신하지 않는다. 32개 경향으로 epoch를 연장하지 않고 계획한 5 epoch에서 종료했다.
+
+Strict training audit로 두 rank의 step1~480 연속 update·finite loss·global96/micro48/accumulation1, 여섯 validation, 초기 native 정합/gradient proof와 실제 final checkpoint를 확인했다. 두 rank의 steady compute 중앙값은 17.280/17.278초이며 peak allocated는 각각 47.999GiB였다. Queue의 실제 시작부터 정상 종료까지는 **9,041.93초(2시간 30분 42초)**다. Native/memory proof·초기화·epoch 검증을 포함하며 후속 final128 평가 시간은 포함하지 않는다. Run은 정상 종료했고 같은 process를 재시작하거나 과거 weight에서 resume하지 않았다.
+
+Step480 optimizer 366개 상태도 전부 step480·finite였으며 W&B의 실제 step480 metric과 다운로드한 GT/Pred/Diff 이미지를 검증했다. Final checkpoint·snapshot·이미지 7개 **2,857,836,515 bytes**는 actual-file4 SHA256·크기와 일치했다. 근거는 `epoch-audits-v2/c1/epoch05/`, `epoch-comparisons/trend-epoch05-vs-epoch04-c1.json`, 상위 `provenance/matched-C1-five-epoch-training-{audit,file4}.json`이다.
+
+학습 정상 종료 뒤 GPU0/1에서 final128 noise0/1의 실제 두 process가 시작됐고 각40개 생성까지 확인했다. Noise2와 후속 matched B3는 선행 평가 완료 후 같은 GPU를 사용한다. V1 학습, B3, 원본 constant-gate 두 arm·3개 seed와 [계획된 sampler 진단](2026-10-18-ss-sampler-sensitivity-ko.md)이 남아 있다. Full/PBR 채택이나 전체 실험 완료로 표시하지 않는다.
