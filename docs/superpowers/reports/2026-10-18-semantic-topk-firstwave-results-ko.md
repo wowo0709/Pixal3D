@@ -105,3 +105,11 @@ Weighting은 실제로 넓어졌고 value도 변했다. 방향이 비슷하다�
 실제SS 본학습update11과51에서는두rank의matching decoder·scalar score·task attention gradient가모두양수였다. Native/backward preflight의임시retargeter출력perturbation과달리본학습로그에서확인한값이다. 초기step1의이세gradient가0인것은native출력을보존하는zero fusion/output 초기화에따르며이후정상활성화됐다. 이관측은학습사용의증거이며각모듈의품질기여는No-decoder/No-prior/native-spatial 및선정모델진단으로추가검증한다.
 
 새두모델epoch1의실제W&B수치/image와raw checkpoint의file4 SHA/크기검사를완료했다. 중간비교JSON/Markdown은공통경로의 `wave2-epoch1-comparison-v1/`에있다. 전체5epoch·fixed-final128×3·추가seed/평가패널·최종채택검증은아직남아있다.
+
+## W&B의 완료된 첫 비교와 전체 사례 그림
+
+[첫 최종 비교 W&B run](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-semantic-topk-firstwave-v1)에7개모델/baseline의final128×3표,paired contrast표,같은사례의GT–Pred비교와feature진단그림을기록했다. Youngwoojeon 계정/entity에서완료됐으며서버의44개숫자·두표·두PNG와38개artifact파일을실제로다시내려받아확인했다. PNG와artifact는원본과byte까지일치한다. Run의 `full_campaign_complete=false`와 `selected_model=not_selected`도확인했다. 이는첫wave보고의완료이며전체학습·모델채택의완료가아니다.
+
+`firstwave-wandb-v1/presentation/`에는원래평가순서128개전체를8개씩담은16페이지PDF와첫8개의PNG가있다. 모든방법에서sample ID·seed·source cluster·3D GT hash/shape와실제GT projection pixel이같은지검사했다. 그림은기존SSoccupancy의2D max-projection을그대로표시하며새추론이나새3D metric이아니다. 물리적projection axis이름을추정하지않았고성능에따라사례를고르지않았다.
+
+같은폴더의PDF를실제reader로열어16페이지와첫/마지막사례1·128의경계를확인했고PNG도시각적으로검토했다. 독립W&B대조는 `firstwave-wandb-v1/remote-readback/audit.json`에있다. 이게시작업은CPU에서수행하고GPU/system metadata수집을비활성화했으며모델checkpoint binary는W&B에올리지않았다. Data·checkpoint의canonical 저장소는file4다.
