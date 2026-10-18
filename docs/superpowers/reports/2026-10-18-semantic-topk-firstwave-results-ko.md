@@ -349,3 +349,27 @@ Full−No-decoder는 +0.116pp, 95% source-cluster CI [−0.415,+0.682]pp, Full�
 Epoch3→4 점수 변화는 No-decoder +0.396pp, CI [−0.133,+0.920]pp, No-prior +0.568pp, CI [−0.067,+1.241]pp였다. 두 temporal CI도 0을 포함한다. Joint optimization의 중간 변화이며 안정적인 수렴·best epoch·모듈 단독 기여를 입증하지 않는다.
 
 전체 11개 방법과 paired/temporal 결과는 `wave3-epoch4-comparison-v1/`에 있다. Training seed101에 조건부인 탐색 CI이며 다중 비교를 보정하지 않았다. 마지막 raw480/fixed128×3, 원래 spatial·같은 retargeter Top1 대조, 추가 seed/121개 검증과 최종 모델 선정은 남아 있다. 현재 학습 구조나 예산은 바꾸지 않았다.
+
+
+## 제거 대조의 다섯 번째 에폭과 실제 attention 사용
+
+No-decoder/No-prior의 5epoch·raw480 학습, 마지막 W&B 네 수치·PNG와 optimizer/raw-checkpoint의 실제 file4 대조가 완료됐다. 같은 32개·32source·한 noise의 마지막 epoch 결과는 다음과 같다. 전체128×3 최종 평가는 아직 진행 중이며 이 표로 모델을 선정하지 않는다.
+
+| 같은 32개 기준 | Epoch5 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch5 | 0.434837 | 0.606114 |
+| 이전 C1 T0.005, epoch5 | 0.453849 | 0.624341 |
+| Static-C1 T0.05, epoch5 | 0.449857 | 0.620554 |
+| Task-full, epoch5 | 0.448606 | 0.619362 |
+| Task-no-decoder, epoch5 | 0.445840 | 0.616721 |
+| Task-no-prior, epoch5 | 0.444225 | 0.615175 |
+
+Full−No-decoder는 +0.277pp, 95% source-cluster CI [−0.528,+1.108]pp, Full−No-prior는 +0.438pp, CI [−0.531,+1.473]pp였다. 두 CI가 0을 포함하며 decoder/score-prior의 추가 성능 기여는 이 quick32에서 확정되지 않았다. Epoch2의 제거 모델 우위를 마지막 결과로 대체하거나 에폭을 골라 채택하지 않는다. 두 제거 모델의 epoch4→5 변화도 각각 −0.214pp, CI [−0.746,+0.541]pp와 −0.449pp, CI [−1.220,+0.427]pp로 불확실하다.
+
+No-decoder−이전 V1은 +1.100pp, CI [−0.430,+2.890]pp, No-prior−이전 V1은 +0.939pp, CI [−0.612,+2.752]pp였다. 이전 C1 대비는 각각 −0.801pp, CI [−1.570,+0.022]pp와 −0.962pp, CI [−1.920,+0.035]pp였다. 이 탐색 CI는 한 training seed·한 sampling noise에 조건부이며 다중 비교를 보정하지 않았다. 모든 paired/temporal 결과와 실제 입력 기록은 `wave3-epoch5-comparison-v1/`에 있다.
+
+두 저장 모델의 실제 RGB/cache·BF16·train/eval·CFG 정합 검사도 통과했다. 같은 첫 두 active 사례의 150개 유효 query에서 No-decoder의 평균 최대 weight는0.25757, entropy는2.67659nats, 평균 entropy 실효K는16.3902였다. No-prior는 각각0.03490,4.05895nats,58.2368이었다. 두 경로 모두 Top1으로 붕괴하지 않고 여러 source candidate value를 실제 사용한다. Invalid zero row는 제외했으며 전체 데이터 coverage나 생성 성능 기여를 뜻하지 않는다.
+
+두 모델은 decoder 유무도 다르므로 이 통계 차이를 scalar-prior 단독 효과라고 해석하지 않는다. Full/static-C1의 동일 사례 저장-weight 통계는 별도 검사로 보완한다. No-prior는 사용자 정의의 Top1 No-score 대조군이 아니며, 그 대조는 예정된 `static-top1-c1` 학습이다. 남은 native spatial·동일 retargeter Top1·추가 seed/121개와 최종 선정 기준은 유지한다.
