@@ -60,3 +60,19 @@ V4의64개 label은68.66초에 모두 완료됐다. 실제 SS hash/physical regi
 본14개 최종 집계가 완료된 뒤 seed202가GPU0/1에서 시작했다. 네 controller가 동일한CPU94/95에 몰리면서 update 공급이 느려지는 것을 확인해 각 process의모든 thread를두CPU씩다르게배치했다(GPU0:88/89,1:90/91,2:92/93,3:94/95). 총8core이며process별2core 제한은유지했다. 실행중optimizer·data·noise·step을변경하거나재시작하지않았다. Pending seed303에는명시적`--cpu-affinity`를넣고GPU선택과독립적으로기록한다. 근거는`provenance/current-regional-cpu-affinity-distribution.json`이다.
 
 최종6run은schedule·optimizer128step·GT/native voxel hash·같은32cluster/3noise를엄격히검사한뒤`all-six-run-summary-v2.json`과동명Markdown으로집계한다. Noise/model repeat를독립표본으로늘리지않고source안에서평균한다. Empty region의None과유효cluster수도그대로표시한다. 완료된14개본비교표와이regional표는각기다른GT/macro정의로구분해W&B에자동저장한다.
+
+## Seed101의 fixed-final 정상 평가: 중간 결과
+
+두arm 모두128update를완료하고checkpoint/SHA를고정한뒤cal32×3noise의native/normal 평가를마쳤다. GPU2/3의native96개전체metric·pred/GT voxel hash가exact였다. 아래는한training seed의중간관측이며source-off/shuffle과seed202/303은아직진행중이다. 실제SS encoder input GT의macro 집계로본14개표와직접비교하지않는다.
+
+| Method | Macro IoU | Source recall32 | Stale leak32 ↓ | Regional BCE ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| Frozen native | 0.445530 | 0.825740 | 0.601524 | 95.616471 |
+| Adapter-only | 0.441108 | 0.812574 | 0.571341 | 95.006540 |
+| Adapter+geometry query | 0.445109 | 0.809378 | 0.533634 | 91.544493 |
+
+Query−adapter는stale leak32 **−3.771pp,source-cluster95% CI[−5.986,−1.812]pp**,regional BCE −3.462[−6.259,−0.610]이었다. 반면IoU +0.400pp의CI[−0.409,+1.143]pp와source recall32 −0.320pp의CI[−0.935,+0.222]pp는0을포함한다. Geometry cleanup은이seed에서관측되지만source 회수나global SS 향상을함께입증한것은아니다.
+
+Query−native는IoU −0.042pp,CI[−0.939,+0.806]pp이고source recall32는−1.636pp,CI[−2.634,−0.787]pp다. Stale 제거와source positive 손실의tradeoff가있어원래regional loss가낮아졌다는이유만으로Full에채택하지않는다. Source-only 회수의원래양의결과를재현했다고보고하지않는다. 세noise를source안에서평균한32cluster bootstrap10,000회이며세training seed나unseen test의CI가아니다.
+
+기계판독근거는`current-geometry-regions-v1/interim-s101-normal-v1.json`이다. 학습설정과미완료다섯seed/arm을변경하거나중간결과로중단하지않는다. 3seed 최종집계와source-off·joint-query shuffle을모두확인한다.
