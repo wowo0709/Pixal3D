@@ -6,6 +6,7 @@ import torch
 
 from experiments.deformnext_retargeting.verify_ss_conditioning_contract import (
     check_conditions, compare_trace_tensors,
+    online_dataset_args,verify_saved_conditioner,check_native_tokens,
 )
 
 
@@ -80,3 +81,38 @@ def test_evidence_must_be_finite_without_a_mask_exception():
 def test_finite_logit_mismatch_still_fails_the_equality_assertion():
     with pytest.raises(AssertionError):
         compare_trace_tensors(torch.tensor([1.,float('-inf')]),torch.tensor([1.1,float('-inf')]),name='matching_logits')
+
+
+def test_online_task_dataset_uses_normal_R9_key_schema_without_cache_only_flag():
+    source={'match_root':'cached','task_matching_features':True,'transport_arm':'c1'}
+    online=online_dataset_args(source)
+    assert online=={'match_root':None,'transport_arm':'c1'} and source['task_matching_features']
+
+
+def test_updated_task_head_is_allowed_while_frozen_scalar_prior_must_stay_exact():
+    initial={'q2c.decoder.weight':torch.ones(2),'q2c.fusion_head.weight':torch.ones(2),
+        'task_attention.query.weight':torch.ones(2),'fusion_gate':torch.zeros(())}
+    saved={k:v.clone() for k,v in initial.items()};saved['q2c.decoder.weight']+=.1;saved['task_attention.query.weight']+=.2
+    trainable=set(initial)-{'q2c.fusion_head.weight'}
+    r=verify_saved_conditioner(initial,saved,trainable,{'score_prior':False})
+    assert r['frozen_initializer_state_checked_keys']==['q2c.fusion_head.weight']
+    assert r['actual_trainable_matcher_saved_state_changed_keys']==['q2c.decoder.weight']
+    saved['q2c.fusion_head.weight']+=.1
+    with pytest.raises(ValueError,match='frozen state'):verify_saved_conditioner(initial,saved,trainable,True)
+
+
+def test_fully_trainable_task_does_not_falsely_require_a_frozen_head():
+    initial={'q2c.fusion_head.weight':torch.ones(2),'task_attention.key.weight':torch.ones(2)}
+    saved={k:v+.1 for k,v in initial.items()}
+    r=verify_saved_conditioner(initial,saved,set(initial),True)
+    assert r['frozen_initializer_state_exact'] is None
+    with pytest.raises(ValueError,match='matcher weights'):verify_saved_conditioner(initial,initial,set(initial),True)
+
+
+def test_native_token_reference_allows_FP16_storage_but_rejects_feature_contract_mismatch():
+    torch.manual_seed(17);fresh=torch.randn(2,4,8,1024);cached=fresh.half()
+    r=check_native_tokens(cached,fresh)
+    assert r['relative_RMS']<.001 and r['mean_token_cosine']>.9999
+    with pytest.raises(ValueError,match='differs from fresh'):check_native_tokens(cached,fresh+1.)
+    bad=cached.clone();bad[0,0,0,0]=float('nan')
+    with pytest.raises(ValueError,match='finiteness'):check_native_tokens(bad,fresh)

@@ -73,11 +73,14 @@ def queue_candidate(a):
     path=a.work_root/'queue-jobs.json';old=path.read_bytes();existing=json.loads(old)
     jobs=make_jobs(folder,a.previous_work,name,devices,[SELECT_JOB],202)
     summary='summarize-semantic-topk-seed202'
+    from .semantic_topk_functional_qa import job as functional_job
+    qa=functional_job(a.root,folder,name,202,a.previous_work/'panels/panel-128.json')
     jobs.append({'name':summary,'resource':'cpu','priority':2,
-        'depends_on':[f'confirm-seed202-final-{arm}-noise{n}' for arm in [name,'top1-reference'] for n in range(3)],
+        'depends_on':[f'confirm-seed202-final-{arm}-noise{n}' for arm in [name,'top1-reference'] for n in range(3)]+[qa['name'],'functional-QA-s202-top1-reference'],
         'outputs':[str(folder/'final-confirmation-report.json'),str(folder/'final-confirmation-report.md')],
         'command':[sys.executable,'-u','-m','experiments.deformnext_retargeting.semantic_topk_selection',
                    '--mode','summarize','--root',str(a.root)]})
+    jobs.append(qa)
     from .semantic_topk_additional_validation import jobs_and_contract
     reservation_path=a.root/'additional-validation-v1/panel-contract.json'
     extra_jobs,extra_contract=jobs_and_contract(a.root,a.root.parent,name,json.loads(reservation_path.read_text()),SELECT_JOB)

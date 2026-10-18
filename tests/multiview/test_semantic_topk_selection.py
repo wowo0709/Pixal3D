@@ -84,7 +84,7 @@ def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_bas
     assert cfg['training_seed']==202 and cfg['trainer']==original['trainer'] and cfg['num_gpus']==2
     assert cfg['master_port']=='30441' and baseline.read_bytes()==baseline_bytes
     actual=json.loads((work/'queue-jobs.json').read_text());new=actual[len(jobs):]
-    assert len(new)==48 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
+    assert len(new)==49 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
     extra_jobs=[j for j in new if j['name'].startswith('additional121-')]
     assert len(extra_jobs)==42 and all('gpu' not in j and 'gpus' not in j for j in extra_jobs)
     assert not any('resume' in j['command'] for j in new)

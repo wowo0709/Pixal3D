@@ -1,4 +1,4 @@
-"""Post-training SS C1 cache/AMP/CFG checks bound to actual saved weights."""
+"""Post-training SS cache/AMP/CFG checks bound to actual saved weights."""
 from __future__ import annotations
 
 import argparse
@@ -29,6 +29,41 @@ def tensor_fingerprints(tree):
     if isinstance(tree,(list,tuple)): return [tensor_fingerprints(v) for v in tree]
     if tree is None or isinstance(tree,(str,int,float,bool)): return tree
     raise TypeError('unexpected conditioning-pack value: '+type(tree).__name__)
+
+
+def online_dataset_args(cached):
+    result=copy.deepcopy(cached);result['match_root']=None
+    # Online R9 C1 already loads Omega keys through its normal schema. The
+    # task flag explicitly requires a cache and therefore must not be reused.
+    result.pop('task_matching_features',None)
+    return result
+
+
+def verify_saved_conditioner(initial,saved,trainable,task):
+    frozen=[k for k in initial if k not in trainable]
+    if not frozen and not task:raise ValueError('static matcher has no frozen initializer state')
+    if any(not torch.equal(initial[k],saved[k]) for k in frozen):
+        raise ValueError('saved frozen state differs from the selected initializer')
+    changed=[k for k in initial if k.startswith('q2c.') and k in trainable and not torch.equal(initial[k],saved[k])]
+    if any(k.startswith('q2c.') for k in trainable) and not changed:raise ValueError('task matcher weights did not change from initialization')
+    attention_changed=[k for k in initial if k.startswith('task_attention.') and k in trainable and not torch.equal(initial[k],saved[k])]
+    if task and not attention_changed:raise ValueError('task attention weights did not change from initialization')
+    return {'frozen_initializer_state_checked_keys':frozen,
+        'frozen_initializer_state_exact':True if frozen else None,
+        'actual_trainable_matcher_saved_state_changed_keys':changed,
+        'actual_task_attention_saved_state_changed_keys':attention_changed}
+
+
+def check_native_tokens(cached,fresh):
+    if cached.shape!=fresh.shape or cached.shape[-1]!=1024 or not torch.isfinite(cached).all() or not torch.isfinite(fresh).all():
+        raise ValueError('native DINO token shape/finiteness differs')
+    delta=cached.float()-fresh.float();rms=float(fresh.float().square().mean().sqrt())
+    relative=float(delta.square().mean().sqrt())/max(rms,1e-8)
+    cosine=float(torch.nn.functional.cosine_similarity(cached.float(),fresh.float(),dim=-1).mean())
+    if relative>.005 or cosine<.9999:
+        raise ValueError(f'cached native DINO differs from fresh FP32 RGB encoding:relative_RMS={relative},cosine={cosine}')
+    return {'relative_RMS':relative,'mean_token_cosine':cosine,'max_abs_error':float(delta.abs().max()),
+        'relative_RMS_limit':.005,'mean_cosine_minimum':.9999,'scope':'Fresh FP32 DINO from actual four RGB tensors versus FP16-stored native tokens;not bit-exact BF16/FP32 encoder equality.'}
 
 
 def compare_trace_tensors(left, right, *, name):
@@ -103,8 +138,10 @@ def main():
     from pixal3d.utils.data_utils import recursive_to_device
     torch.set_num_threads(2);torch.cuda.set_device(0)
     cfg = read(args.config);spec = cfg['trainer']['args']['deform_conditioner']
-    if spec['implementation'] != 'r9-native-v5' or spec['arm'] != 'c1' or spec['value_dim'] != 1024 or not spec['freeze_q2c']:
-        raise ValueError('this proof targets the actual original R9 SS C1 candidate')
+    task=spec.get('task_attention')
+    if (spec['implementation']!='r9-native-v5' or spec['arm'] not in {'b2','b3','c1'} or spec['value_dim']!=1024
+        or (not task and not spec['freeze_q2c'])):
+        raise ValueError('this proof requires native R9 SS Top1/soft/C1 with frozen or task-trained matching')
     head = Path(spec['q2c_checkpoint']);head_ref = fingerprint(head)
     if head_ref['sha256'] != cfg['experiment']['head_sha256']:
         raise ValueError('selected head fingerprint differs')
@@ -113,7 +150,7 @@ def main():
         raise ValueError('dataset cache/head contract differs')
     manifest = Path(cfg['validation']['roots_file'])
     cached_ds = getattr(datasets,cfg['dataset']['name'])(str(manifest), **ds_args)
-    online_args = copy.deepcopy(ds_args);online_args['match_root'] = None
+    online_args = online_dataset_args(ds_args)
     online_ds = getattr(datasets,cfg['dataset']['name'])(str(manifest), **online_args)
     indices = {row['sample_id']:i for i,row in enumerate(cached_ds.rows)}
     if [r['sample_id'] for r in online_ds.rows] != [r['sample_id'] for r in cached_ds.rows]:
@@ -133,12 +170,10 @@ def main():
     trainer = getattr(trainers,cfg['trainer']['name'])(md,cached_ds,**kw,
         output_dir=str(args.output/'runtime'),load_dir=None,step=None,wandb_run=None)
     trainable={k for k,v in trainer.deform_conditioner.named_parameters() if v.requires_grad}
-    frozen_head={k:v.detach().cpu().clone() for k,v in trainer.deform_conditioner.state_dict().items() if k not in trainable}
-    if not frozen_head: raise ValueError('selected frozen head has no actual state to verify')
-    trainer.deform_conditioner.load_state_dict(torch.load(args.conditioner_checkpoint,map_location='cpu',weights_only=True),strict=True)
-    actual=trainer.deform_conditioner.state_dict()
-    if any(not torch.equal(value,actual[key].detach().cpu()) for key,value in frozen_head.items()):
-        raise ValueError('saved conditioner head differs from the selected frozen head checkpoint')
+    initialized={k:v.detach().cpu().clone() for k,v in trainer.deform_conditioner.state_dict().items()}
+    saved_state=torch.load(args.conditioner_checkpoint,map_location='cpu',weights_only=True)
+    trainer.deform_conditioner.load_state_dict(saved_state,strict=True)
+    state_checks=verify_saved_conditioner(initialized,saved_state,trainable,task)
     for model in trainer.models.values(): model.eval().requires_grad_(False)
     if len(trainer.optimizer.state): raise ValueError('proof must not load training optimizer state')
 
@@ -158,24 +193,43 @@ def main():
         raise ValueError('cached/online real RGB or camera input differs')
     trace_errors={};trace_comparisons={};trainer.p_uncond=0
     with torch.no_grad(), torch.autocast('cuda',dtype=torch.bfloat16):
-        traces=[]
+        traces=[];conditions=[]
         for one in [cached_pack,online_pack]:
-            transport=trainer._pop_deform_transport(dict(one))
-            traces.append(trainer.deform_conditioner(**{k:v for k,v in transport.items() if k not in {'patch_grid','patch_ids'}}))
+            # Use the public camera/ProjGrid route also for native-spatial;
+            # calling the conditioner directly would skip its spatial inputs.
+            conditions.append(trainer.get_inference_cond(**one))
+            traces.append(trainer._last_deform_condition)
         torch.testing.assert_close(traces[0].candidate_indices,traces[1].candidate_indices,rtol=0,atol=0)
         for key in ['evidence','matching_logits','candidate_weights','view_weights','retarget_residual']:
             a,b=getattr(traces[0],key),getattr(traces[1],key)
+            if a is None or b is None:
+                if a is not None or b is not None:raise ValueError('optional trace differs: '+key)
+                continue
             trace_comparisons[key]=compare_trace_tensors(a,b,name=key)
             trace_errors[key]=trace_comparisons[key]['max_abs_error']
-        if not traces[0].retarget_residual.abs().sum()>0:
+        if spec['arm']=='c1' and not traces[0].retarget_residual.abs().sum()>0:
             raise ValueError('actual trained retargeter is inactive on selected cases')
-        cached=trainer.get_inference_cond(**cached_pack);online=trainer.get_inference_cond(**online_pack)
+        cached,online=conditions
+        task_cache_checks=None
+        if task:
+            altered=dict(cached_pack)
+            altered['transport_matching_logits']=torch.zeros_like(altered['transport_matching_logits'])+123.
+            if spec.get('correspondence_mode','semantic')=='native-spatial':
+                altered['transport_semantic_indices']=(altered['transport_semantic_indices']+17)%3072
+                altered['transport_candidate_valid']=torch.zeros_like(altered['transport_candidate_valid'])
+            ignored=trainer.get_inference_cond(**altered)
+            for branch in ['cond','neg_cond']:
+                for key in cached[branch]:torch.testing.assert_close(cached[branch][key],ignored[branch][key],rtol=0,atol=0)
+            task_cache_checks={'stale_cached_matching_logits_ignored':True,
+                'native_spatial_ignores_semantic_cached_candidates':spec.get('correspondence_mode','semantic')=='native-spatial'}
+        trainer.deform_conditioner.train()
         train0=trainer.get_cond(**cached_pack)
         trainer.p_uncond=1.;train1=trainer.get_cond(**cached_pack)
         trainer.p_uncond=.5;np_state=np.random.get_state()
         try:
             np.random.seed(1);mixed=trainer.get_cond(**cached_pack)
         finally: np.random.set_state(np_state)
+        trainer.deform_conditioner.eval()
         expected_mask=(np.random.RandomState(1).rand(2)<.5).tolist()
         saved=trainer.deform_conditioner_config
         try:
@@ -183,17 +237,40 @@ def main():
             native=trainer.get_inference_cond(**{k:v for k,v in cached_pack.items() if not k.startswith('transport_')})
         finally: trainer.deform_conditioner_config=saved
         checks=check_conditions(cached,online,train0,train1,mixed,native,expected_mask)
+    # Validate the native value feature contract independently of matching
+    # cache/online parity. Precomputation uses FP32 DINO then FP16 storage.
+    extractor=trainer._image_cond_module
+    if any(p.dtype!=torch.float32 for p in extractor.model.parameters()):
+        raise ValueError('fresh native-token reference requires original FP32 DINO parameters')
+    token_cases=[]
+    for _,index,_ in selected:
+        with np.load(cached_ds._resolve(cached_ds.rows[index]['transport_cache'])) as z:
+            token_cases.append(torch.cat([torch.from_numpy(z['target_query'].copy())[None],torch.from_numpy(z['source_values'].copy())],0))
+    token_cache=torch.stack(token_cases).to('cuda').float()
+    with torch.no_grad(),torch.autocast('cuda',enabled=False):
+        images=cached_pack['cond'].flatten(0,1).float()
+        hidden=extractor.extract_features(extractor.transform(images))
+        registers=getattr(extractor.model.config,'num_register_tokens',4)
+        fresh=hidden[:,1+registers:].float().reshape_as(token_cache)
+        native_token_check=check_native_tokens(token_cache,fresh)
     if len(trainer.optimizer.state): raise ValueError('conditioning check applied an optimizer update')
-    result={'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT',
+    result={'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT' if not task and spec['arm']=='c1' else 'PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT',
         'amp':'bf16','sample_ids':[sid for sid,_,_ in selected],'selection':'first2 fixed-panel cases with actual target/source validity',
         'trained_denoiser':fingerprint(args.checkpoint),'trained_conditioner':fingerprint(args.conditioner_checkpoint),
         'selected_head':head_ref,'source_recipe':fingerprint(args.config),'manifest':fingerprint(manifest),
-        'saved_frozen_head_exact_to_selected_checkpoint':True,'frozen_head_state_keys':sorted(frozen_head),
+        'head_reference_role':'Initializer checkpoint;task-trained matching state is taken from the actual saved conditioner.',
+        'saved_frozen_head_exact_to_selected_checkpoint':bool(state_checks['frozen_initializer_state_checked_keys']),
+        'frozen_head_state_keys':sorted(state_checks['frozen_initializer_state_checked_keys']),
+        **state_checks,'task_cache_checks':task_cache_checks,'task_attention_configuration':task,
+        'fresh_native_DINO_token_check':native_token_check,
+        'actual_float32_matmul_precision':torch.get_float32_matmul_precision(),
+        'actual_allow_TF32':torch.backends.cuda.matmul.allow_tf32,
+        'actual_constructor_trainable_conditioner_keys':sorted(trainable),
         'panel':fingerprint(args.panel_file),'candidate_indices_exact':True,'active_trace_max_abs_errors':trace_errors,
         'active_trace_comparisons':trace_comparisons,'trace_nonfinite_masks_verified':True,
         'actual_cached_input_tensor_fingerprints':cached_inputs,
         'actual_online_input_tensor_fingerprints':online_inputs,'actual_four_RGB_cameras_exact':True,
-        **checks,'optimizer_updates':0,'scope':'Two actual active original C1 cases, exact selected head and trained checkpoint; conditioning contract, not quality evaluation or all-asset parity.'}
+        **checks,'optimizer_updates':0,'scope':'Two actual active SS cases and actual saved weights;cached versus online proposals/current head,BF16,train/inference/CFG contract. Not quality evaluation or all-asset parity.'}
     json.dumps(result,allow_nan=False)
     write_new(args.output/'summary.json',result)
 
