@@ -207,3 +207,21 @@ B3가 step192 검증을 완료했다. 같은32개·32 source cluster·한 noise�
 두rank의1~192 연속 update는 global96·micro48·accumulation1·finite loss를 유지했고, optimizer361개 상태가 모두 step192·finite였다. 실제 W&B history step192의 IoU와 다운로드한 GT/Pred/Diff PNG를 대조했다. Checkpoint와 snapshot 등7개 산출물 **2,847,648,606 bytes**의 actual-file4 SHA256·크기가 일치했다. 두 paired 비교의36개 numeric field도 공통 W&B run에서 일치했다. Closed 비교·remote readback·요약 검사4개 파일6,821bytes도 실제 file4 저장 검증을 마쳤다.
 
 근거는 `epoch-audits-v2/b3/epoch02/{audit,file4-closure}.json`, `epoch-comparisons/epoch-02-{b3-vs-v1,c1-vs-b3}.json`, 상위 `provenance/matched-B3-second-epoch-{audit,paired-wandb-remote,file4}.json`이다. 이미지에서는 전반적인 투영 silhouette가 유지되지만 경계·얇은 구조 오차가 있다. Y-projection의 유사성이3D occupancy 정합을 입증하지는 않는다. B3 학습과 final128×3를 계속 진행하며 early stopping이나 budget 변경에 사용하지 않는다.
+
+## B3 세 번째 epoch 검증과 최종 평가 병렬 배치
+
+B3가 step288 검증을 마쳤다. 같은32개·32 source cluster·한 sampling noise의 IoU는 아래와 같다.
+
+| Arm | Step288 IoU |
+| --- | ---: |
+| V1 | 0.43187184 |
+| B3 | 0.43463804 |
+| C1 | 0.44362372 |
+
+B3−V1은 **+0.277pp,95% CI[+0.016,+0.531]pp**, C1−B3는 **+0.899pp,95% CI[−0.325,+2.435]pp**였다. B3 전체 matching/fusion 경로의 이 중간 점추정치는 양수지만, attention만의 독립 효과를 분리한 비교는 아니다. Retargeter의 이득도 이32개 패널에서는 아직 확정되지 않았다. 반복 관측에 대한 보정이 없는 중간 결과이며 best epoch 선택이나 budget 변경에 사용하지 않는다.
+
+두rank의1~288 연속 update·global96/micro48/accumulation1·finite loss와 optimizer361개 상태의 step288·finite moments를 확인했다. W&B history step288의 지표·다운로드 PNG 및 checkpoint 등7개 산출물 **2,847,870,476bytes**의 actual-file4 SHA256·크기도 일치했다. 두 paired 비교의36개 remote numeric field와 닫힌 파생 결과4개 파일6,815bytes도 검증했다. 근거는 `epoch-audits-v2/b3/epoch03/{audit,file4-closure}.json`, `epoch-comparisons/epoch-03-{b3-vs-v1,c1-vs-b3}.json`, 상위 `provenance/matched-B3-third-epoch-{audit,paired-wandb-remote,file4}.json`이다.
+
+최종128×3 평가의 대기 배치도 조정했다. Noise0은 학습rank0과 같은GPU0, noise1은GPU1을 유지하고, noise2는GPU0에서 noise0 뒤에 실행하던 대신 **GPU2의 sampler 진단이 끝난 뒤GPU2에서 병렬 실행**한다. 네 장 모두 실제로 같은 RTX PRO6000 Blackwell Server Edition·97887MiB임을 확인했다. 기존316개job의 수와 다른job을 유지했고, pending noise2의 GPU와 자원 의존성만 변경했다. 전체 DAG가 acyclic이며 config·checkpoint·panel·noise map·generation batch8·sampler12/CFG3 command는 그대로다. 진행 중인 학습 process는 중단하지 않았다.
+
+이는 최종 평가 한 pass를 serial 대기에서 제거하는 배치 변경이며 실제 시간 절감이나 sampling 완료는 아직 측정되지 않았다. Before/after 전체 queue와 변경 증거3개 파일 **1,164,458bytes**의 actual-file4 저장을 확인했다. `provenance/B3-final-noise2-GPU2-backfill-v1.json`과 `B3-final-noise2-GPU2-backfill-file4.json`을 따른다. Strict three-arm final 집계와 그 뒤 Full/PBR 판단은 계속 필수다.
