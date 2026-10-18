@@ -85,3 +85,11 @@ C1−V1은 +0.419pp, paired source-cluster 95% CI [−0.583, +1.320]pp다. 점�
 두 rank의 step1~192가 모두 연속이고 finite loss·global96/micro48/accumulation1이다. Step192의 optimizer 상태는 V1 360개, C1 366개가 전부 step192이고 moment tensor도 모두 finite였다. Peak allocated는 V1 45.620GiB, C1 47.999GiB다. 두 모델의 GT voxel hash 32개와 sample noise가 같고, W&B의 실제 step192 history·paired gain/CI·두 GT/Pred/Diff 이미지도 대조했다. 원격 summary의 부동소수점 직렬화 차이는 절대오차 1e−12 이내로 검사하며, 이미지는 다운로드한 bytes의 SHA256이 일치해야 한다.
 
 근거는 `epoch-comparisons/epoch-02-c1-vs-v1.json`, `epoch-comparisons/trend-epoch02-vs-epoch01-c1.json`, `epoch-snapshots/epoch-02-*`, `figures/epoch-02-*`, 상위 `provenance/matched-seed101-{C1-epoch2,second-epoch}-{audit,wandb-remote}.json`이다. `C1-epoch2` receipt는 C1의 epoch별 변화, `second-epoch` receipt는 같은 epoch의 모델 간 비교이며 합쳐 집계하지 않는다. 두 checkpoint의 실제 file4 저장 검증은 각 `*-file4.json` receipt로 구분한다. B3와 원본 constant-gate 6개 학습은 후속 대기 상태이며 Full/PBR 채택은 아직 결정하지 않았다.
+
+## 후속 epoch의 자동 검증과 C1 step288
+
+남은 C1/V1 epoch3~5, B3 epoch1~5의 검증을 별도 CPU 프로세스로 연결했다. 실제 step192의 두 checkpoint로 native proof·GT/noise/source identity·연속 rank별 update·optimizer 감사를 먼저 실행해 통과했다. W&B history의 특정 step에 연결된 이미지가 기존에 다운로드한 이미지와 같은 것도 확인했다. 이 프로세스는 GPU를 사용하거나 trainer·queue를 제어하지 않는다. Source와 실행 기록은 상위 `provenance/runtime-verifiers/`, `matched-epoch-auditor-start.json`, `matched-epoch-auditor-source-file4.json`에 있다.
+
+C1의 실제 step288이 이 절차의 첫 전체 검증을 통과했다. IoU는 **0.44362372**로 epoch1/2/3의 점추정치가 0.43633516 → 0.44060209 → 0.44362372였다. Epoch2→3은 +0.302pp, paired 95% CI [−0.167, +0.827]pp로 0을 포함한다. V1의 epoch3가 아직 없으므로 다른 epoch의 V1과 비교하지 않고 예정한 480 updates를 유지한다.
+
+두 rank의 step1~288은 모두 연속·finite·global96/micro48/accumulation1이고, optimizer 366개 상태가 모두 step288·finite였다. GT hash·noise·source identity 32개가 native 시작과 일치한다. W&B의 실제 step288 지표·이미지를 내려받아 대조했고, checkpoint 등 7개 산출물 약 2.86GB의 local/actual-file4 SHA256·크기도 일치했다. 근거는 `epoch-audits-v2/c1/epoch03/{audit,file4-closure}.json`, 같은 폴더의 validation/runtime snapshot·이미지, `epoch-comparisons/trend-epoch03-vs-epoch02-c1.json`이다. 이 namespace의 PASS는 해당 epoch의 실행·보관 검증이며 fixed-final128×3 성능 채택을 뜻하지 않는다.
