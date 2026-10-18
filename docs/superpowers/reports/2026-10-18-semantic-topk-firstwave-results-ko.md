@@ -494,3 +494,21 @@ Full−native-spatial은 −0.007pp, CI [−0.618,+0.530]pp로 거의 같은 점
 같은 run의 epoch2→3 변화는 native-spatial −0.340pp, CI [−1.163,+0.515]pp, Static-Top1+C1 +0.142pp, CI [−0.423,+0.763]pp였다. 두 temporal CI가0을 포함하므로 이 변화만으로 과적합·수렴 실패나 최적 epoch를 판정하지 않는다.
 
 전체13개 방법·paired/temporal 결과와 실제 입력은 `wave4-epoch3-comparison-v1/`에 있다. 모두 한 training seed·한 sampling noise에 조건부인 탐색 결과이며 다중 비교를 보정하지 않았다. 학습·모델·데이터 조건을 바꾸지 않고5epoch/raw480 및 fixed128×3, 기존 C1을 포함한6후보 선정과 추가 seed/121개 검증을 유지한다. 아직 최종 모델을 채택하지 않았다.
+
+## 저장된 Full의 matching prior와 content-attention 변화
+
+기존 saved-QA의 첫 두 실제 사례·150개 active query에서 initializer와 raw480 Full의 저장 weight를 CPU FP32로 비교했다. 원래 semantic64 주소·alpha-valid support·DINO value·Omega FRAME 입력을 유지하고 matching decoder/score prior 및 content-attention의 출력을 구분했다. 학습·생성 평가·GPU 사용·GT matching label 접근은 없었다. 이는 두 사례의 feature 진단이며 전체 dataset의 matching 정확도나 SS 성능 기여를 판정하지 않는다.
+
+| 같은150 query | 평균 실효 후보 수 | 평균 최대 가중치 |
+| --- | ---: | ---: |
+| Frozen initializer score, T0.05 | 5.57454 | 0.53980 |
+| Trained decoder/score prior만, T0.05 | 12.93452 | 0.35556 |
+| 같은 trained prior + trained content-attention | 12.17337 | 0.36410 |
+
+Trained prior와 initializer prior의 argmax는42.67% query에서 달랐다. 이는 두 모델의 선택 불일치율이며 정답 Top1 accuracy가 아니다. Decoder state의 relative L2 변화는3.705%, scalar head는2.170%였고, contextual query의 initializer 대비 relative RMS 변화는 두 사례에서0.534/0.420, cosine은0.866/0.916이었다. 이 정도의 parameter 변화가 실제 score/feature 변화 없이 무시할 만큼 작다고 가정할 수는 없다.
+
+가중합한 DINO value의 reference 대비 relative RMS 차이는 trained-prior 대 initializer-prior에서11.12%, content-attention을 추가한 결과 대 같은 trained-prior에서4.01%였다. 서로 다른 reference를 쓰는 순차 대조이므로 두 수치를 더하거나 인과 기여율로 바꾸지 않는다. 현재 두 사례의 broadening은 content-attention만이 아니라 decoder/score prior의 변화에서 크게 나타났고, content 항은 평균 실효K를 오히려 조금 줄였다. 이 관측만으로 matching 학습이 유해하다거나 Full의 SS 성능 차이 원인을 확정하지 않는다.
+
+Cached frozen score와 initializer의 fresh score로 만든 value 가중합의 relative RMS 차이는2.61e-7이었다. 실제 consumer는 source value를 FP32로 올린 뒤 logit을 cast하므로 cached score도 FP32로 비교했다. 앞선 BF16 GPU parity 검사를 이 CPU 계산으로 대체하지 않는다. FP32 total-attention 실효K12.17337과 기존 BF16 saved-QA의12.17240도 서로 다른 계산 경계의 기술통계다.
+
+정확한 입력/weight/source hash와 결과는 `matching-prior-drift-two-case-v2/summary.json`에 있다. 분석 초안v1의 불필요한 cached-logit FP16 cast는 별도 superseded 기록으로 보존하고 보고에는v2만 사용한다. 실제 학습 코드·cache·checkpoint는 바꾸지 않았다. 모든 현재 fixed-final 비교가 끝난 뒤에도 유효한 후보가 없으면, matcher를 고정한 채 content-attention만 학습하는 분리를 다음 설계의 우선 가설로 둔다. 이 가설을 아직 구현·학습·검증된 모델로 부르거나 현재8arm/선정 기준을 변경하지 않는다.
