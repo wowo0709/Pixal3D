@@ -466,3 +466,31 @@ Native-spatial−V1은 +1.043pp, CI [−0.352,+2.498]pp, Static-Top1+C1−V1은 
 실제 installed Hugging Face `DINOv3ViTEmbeddings`와 Omega `PatchEmbed`의 forward도 patch16/512 입력의 좌표 marker로 비교했다. Probe의1채널 patch-average weight에서32×32의1,024개 index가 양쪽 모두 같은 row-major 순서를 정확히 보였다. Native 쪽 CLS/register prefix는 실제 코드처럼 제외했다. 이 marker는 좌표 convention 검사이며 pretrained feature 또는 성능 증거가 아니다.
 
 실제8개 input tensor hash·PNG hash·함수/embedding source hash와 범위는 `provenance/shared-ss-image-grid-v1.json`에 있다. 기존 fresh DINO/Omega feature 검사를 보완하는 input/격자 검사로, 전체 dataset의3D 정합·GT matching 정확도·SS 생성 품질이나 PBR1024를 검증했다는 뜻은 아니다. GPU·optimizer update·모델·cache 변경은 없었다. 현재512 SS key/value 경로에서 다른 crop이나 token 순서가 원인이라는 근거는 확인되지 않았다.
+
+
+## 원래 spatial·동일 retargeter Top1 대조의 세 번째 에폭
+
+두 대조군의 raw288/epoch3 validation과 실제 W&B 네 수치·PNG·optimizer/raw-checkpoint file4 대조가 완료됐다. 전체 epoch 검증은36/45개 완료됐고 두 모델은4에폭을 학습 중이다. 아래는 같은32개·32source·한 noise의 같은 epoch 결과이며 fixed-final128×3와 구분한다.
+
+| 같은 32개 기준 | Epoch3 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch3 | 0.431872 | 0.603227 |
+| 이전 C1 T0.005, epoch3 | 0.443624 | 0.614597 |
+| Static-C1 T0.05, epoch3 | 0.441943 | 0.612982 |
+| Task-full, epoch3 | 0.441403 | 0.612463 |
+| Task-no-decoder, epoch3 | 0.444019 | 0.614977 |
+| Task-no-prior, epoch3 | 0.443037 | 0.614034 |
+| Task-native-spatial, epoch3 | 0.441475 | 0.612533 |
+| Static-Top1+C1, epoch3 | 0.441788 | 0.612833 |
+
+기존 C1 T0.005−Static-Top1+C1은 +0.184pp, 95% source-cluster CI [+0.027,+0.356]pp였다. 이 epoch의 조건부 quick32에서는 같은 retargeter에서 soft matching evidence를 사용하는 기존 C1 쪽이 높았다. 첫 epoch의 작은 음의 차이, 두 번째 epoch의0을 포함하는 CI와 방향이 달라진 점을 함께 기록한다. 한 epoch를 골라 최종 개선이나 안정적인 Top-K 효과로 확정하지 않는다.
+
+Static-C1 T0.05−Static-Top1+C1은 +0.016pp, CI [−0.231,+0.293]pp, Full−Static-Top1+C1은 −0.038pp, CI [−0.396,+0.331]pp였다. No-decoder−Static-Top1+C1은 +0.223pp, CI [−0.066,+0.516]pp, No-prior−Static-Top1+C1은 +0.125pp, CI [−0.139,+0.401]pp였다. 두 제거 모델의 epoch2 우위가0을 제외하는 CI로 유지된 것은 아니다.
+
+Full−native-spatial은 −0.007pp, CI [−0.618,+0.530]pp로 거의 같은 점수와 불확실한 차이를 보였다. Native3개의 camera sample과 semantic64개의 patch 차이를 명시하며, semantic 주소만의 인과 효과로 해석하지 않는다. Native-spatial−V1은 +0.960pp, CI [−0.258,+2.393]pp, Static-Top1+C1−V1은 +0.992pp, CI [−0.193,+2.497]pp로 모두0을 포함했다.
+
+같은 run의 epoch2→3 변화는 native-spatial −0.340pp, CI [−1.163,+0.515]pp, Static-Top1+C1 +0.142pp, CI [−0.423,+0.763]pp였다. 두 temporal CI가0을 포함하므로 이 변화만으로 과적합·수렴 실패나 최적 epoch를 판정하지 않는다.
+
+전체13개 방법·paired/temporal 결과와 실제 입력은 `wave4-epoch3-comparison-v1/`에 있다. 모두 한 training seed·한 sampling noise에 조건부인 탐색 결과이며 다중 비교를 보정하지 않았다. 학습·모델·데이터 조건을 바꾸지 않고5epoch/raw480 및 fixed128×3, 기존 C1을 포함한6후보 선정과 추가 seed/121개 검증을 유지한다. 아직 최종 모델을 채택하지 않았다.
