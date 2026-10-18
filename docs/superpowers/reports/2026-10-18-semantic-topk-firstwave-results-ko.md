@@ -236,3 +236,27 @@ Static-C1과 task-full의 마지막 raw480 checkpoint를 고정 128개·93개 so
 Full의 별도 same-weight value-address 검사에서는 key·score·attention weight·후보와 support·query별 source value 집합을 그대로 두고 value 연결만 바꿨다. 실제 호출에서 valid slot 160,704개를 재배치했다. 정상 결과 0.448606과 연결 변경 결과 0.448251의 차이는 +0.036pp, CI [−0.645,+0.770]pp로 0을 포함한다. 이 32개 검사에서는 구체적인 value 연결의 품질 기여를 확인하지 못했다. 모든 semantic matching 설계가 무효라는 결론이나 원래 spatial 후보와의 동등성을 뜻하지 않는다. 정상 결과는 같은 checkpoint의 fixed128/noise0 subset과 exact였다.
 
 기계 판독 결과는 `wave2-fixed-final-v1/`, `firstwave-fusion-dose-v1/summary.json`, `task-value-address-v1/summary.json`에 있다. GPU가 비는 동안 기존에 예정한 진단 두 건의 배치만 조정했고 명령·데이터·checkpoint·결과 경로는 바꾸지 않았다. `provenance/value-address-idle-gpu-scheduling-v1.json`에 기록했다. 이어서 No-decoder를 GPU0·1, No-prior를 GPU2·3에서 시작했다. 각각 native/backward·2-update memory 검증 이후 동일한 fresh SS4210/5에폭 예산으로 학습한다. 목표와 최종 모델 선정은 계속 진행 중이다.
+
+
+## Decoder·score-prior 제거 대조의 첫 에폭
+
+두 제거 대조 모두 raw96/epoch1 검증을 마쳤고 학습을 계속 진행 중이다. 두 rank의 실제 update11과51에서 No-decoder는 decoder gradient가0이고 score/content-attention gradient가 양수였다. No-prior는 score gradient가0이고 decoder/content-attention gradient가 양수였다. 초기 quick32의 모든 count·source·noise·GT hash와 첫 minibatch loss는 기존 C1/native 초기와 같았다. 의도한 경로의 사용과 초기 보존을 확인한 것이며 품질 기여와 구분한다.
+
+같은32개·32source·한noise·raw96으로 완료된 기존 모델과 비교했다. SS quick sampler는12step/CFG3이며 batch8이다. Guidance는quick config의별도필드가아니라 `quick_metrics.py`의실제sampler호출상수3.0을확인하고source hash를기록했다. 새모델의첫epoch W&B 네수치/실제PNG·optimizer상태·rawcheckpoint의actual file4검증도완료됐다. W&B history가아직표시되지않은첫조회에서는대기했고,다음조회에정상일치해학습변경없이완료됐다.
+
+| 같은32개 기준 | Epoch1 또는zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1,epoch1 | 0.432148 | 0.603496 |
+| 이전 C1 T0.005,epoch1 | 0.436335 | 0.607567 |
+| Static-C1 T0.05,epoch1 | 0.438047 | 0.609225 |
+| Task-full,epoch1 | 0.438333 | 0.609501 |
+| Task-no-decoder,epoch1 | 0.438482 | 0.609645 |
+| Task-no-prior,epoch1 | 0.439132 | 0.610274 |
+
+Full−No-decoder는 −0.015pp,95% source-cluster CI [−0.635,+0.524]pp였다. Full−No-prior는 −0.080pp,CI [−0.527,+0.324]pp였다. 첫에폭에서는decoder와scalar-score prior의추가품질기여를확인하지못했다. CI가0을포함하므로해당모듈이유해하거나동등하다고확정하지도않는다. No-prior의점수가조금높다는이유로모델을선정하거나epoch를줄이지않는다.
+
+No-decoder−V1은 +0.633pp,CI [−0.581,+1.912]pp,No-prior−V1은 +0.698pp,CI [−0.407,+1.785]pp였다. 두CI는0을포함한다. 이비교는32개·한noise의중간경향이며앞의fixed128×3/마지막epoch점수와섞지않는다. 조건부탐색CI이며다중비교보정이나training-seed population CI는아니다.
+
+전체11개방법과paired대조는 `wave3-epoch1-comparison-v1/`에있다. 원래5epoch/raw480과나머지native-spatial·같은retargeter의Top1·추가seed/121개검증기준을유지한다. 기존에완료된여섯모델의noise0 첫8개GT–Pred그림도 `wave2-fixed-final-v1/visual-review-first8-v1/`에보관했다. 첫8개는원래순서이며성능으로고르지않았다. 전체128개의실제GT pixel/source/noise/3D hash를대조했고투영도가비슷해도실제3D IoU는다를수있으므로그림만으로품질이나실패원인을판정하지않는다.
