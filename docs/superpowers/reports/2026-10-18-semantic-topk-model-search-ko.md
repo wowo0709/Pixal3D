@@ -34,7 +34,8 @@ Frozen score의 soft weighting 이후에는 생성 loss를 통해 후보의 유�
 | --- | --- | --- | --- |
 | top1-reference | Frozen D1 | Argmax 선택 | Semantic64 중1개 / 없음 |
 | soft-topk | Frozen D1 | Frozen soft weighting | 같은 Semantic64 / 없음 |
-| static-c1 | Frozen D1 | Frozen soft weighting | 같은 Semantic64 / C1 |
+| static-c1 | Frozen D1 | Frozen soft weighting T0.05 | 같은 Semantic64 / C1 |
+| previous-c1 | 기존 frozen D1 | 기존 frozen soft weighting T0.005 | 같은 Semantic64 / C1, 원래 저장 모델 재사용 |
 | task-full | 생성 loss로 학습하는 D1 | 생성 loss로 학습하는 scalar score | 같은 Semantic64 / C1 |
 | task-no-decoder | 물리적 D0, context block 없음 | 같은 초기 scalar head를 학습 | 같은 Semantic64 / C1 |
 | task-no-prior | 같은 학습 D1 유지 | 사용하지 않음, scalar head freeze | 같은 Semantic64 / C1 |
@@ -58,7 +59,7 @@ Native-spatial의 최종 구현에서는 target DINO/Omega query와 추가경로
 
 추가로 `static-top1-c1` 대조군을 동일5epoch로 학습한다. 위 표의 Top1 reference는 retargeter가 없으므로 C1과 비교하면 retargeter 효과가 섞인다. 새 대조군은 static-C1과 같은 R9/frozen decoder,64개 후보,같은 초기 retargeter/seed/optimizer를 유지하고 matching-score argmax의 feature 하나만 retargeter에 전달한다. Uniform 평균이 아니다. Static-C1 대 이 대조군이 retargeter를 고정한 soft evidence의 비교이며, task-full 대 이 대조군은 learned-head/attention 전체 경로까지 함께 바뀐다. 기존7개 fixed-final 보고서와 별도의 matched-retargeter Top1 보고서를 모두 얻은 뒤 추가 seed 후보를 선택한다. 추가 학습은 마지막 native-spatial arm과 병렬 배치하고, 아직 pending인 seed202 Top1 baseline은 그 다음으로 이동한다.
 
-추가 seed의 후보는 위 두 fixed-final 보고서와 value-address 진단이 끝난 뒤 선택한다. Semantic Top-K/weighted attention을 쓰는5개 모델(soft,static-C1,task-full,no-decoder,no-prior) 중 V1·retargeter 없는 Top1·같은 retargeter의 Top1 대비 source-cluster CI가 양수이고3noise 모두 같은 개선 방향인 모델에서 microIoU가 가장 높은 후보를 재검증한다. Retargeter 없는 soft arm에서는 두 Top1 대조군이 같다. Retargeter만의 이득으로 semantic Top-K 경로의 성공을 선언하지 않기 위한 기준이며 실제 후보 선정 전에 고정한다. Decoder/prior 제거 모델이 이기면 그 결과도 허용하며 full을 미리 정하지 않는다. Native-spatial/Top1 대조군 및 이전 C1의 점수도 함께 기록해 더 강한 대조군을 숨기지 않는다. 조건을 만족하는 후보가 없으면 음성 결과를 보존하고 설계 분석을 계속한다.
+추가 seed의 후보는 위 두 fixed-final 보고서와 value-address 진단이 끝난 뒤 선택한다. Semantic Top-K/weighted attention을 쓰는6개 후보(soft,static-C1,task-full,no-decoder,no-prior,기존C1 T0.005) 중 V1·retargeter 없는 Top1·같은 retargeter의 Top1 대비 source-cluster CI가 양수이고3noise 모두 같은 개선 방향인 모델에서 microIoU가 가장 높은 후보를 재검증한다. Retargeter 없는 soft arm에서는 두 Top1 대조군이 같다. Retargeter만의 이득으로 semantic Top-K 경로의 성공을 선언하지 않기 위한 기준이며 실제 후보 선정 전에 고정한다. Decoder/prior 제거 모델이 이기면 그 결과도 허용하며 full을 미리 정하지 않는다. Native-spatial/Top1 대조군의 점수도 함께 기록해 더 강한 대조군을 숨기지 않는다. 기존 C1도 같은 세 기준을 통과해야 후보가 된다. 조건을 만족하는 후보가 없으면 음성 결과를 보존하고 설계 분석을 계속한다.
 
 선정 후보는 seed202에서 SS4210부터 새로480updates를 학습하며, 동시 실행하는 Top1 seed202 기준선과 master port를 분리한다. 같은 development128/93source clusters/3noise를 재사용하므로 이는 optimization seed 재현이며 독립 test 일반화 검증이 아니다. 두 training seed의 source-cluster CI는 각각 보고하고 두 seed를 섞어 population training-seed CI를 만들지 않는다. Seed202 기준선은 retargeter 없는Top1이므로 전체 조합의 재현을 검사한다. 같은 retargeter의Top1 대비 ablation은 seed101에 한정되며 그 특정 효과까지 두 training seed에서 재현했다고 표현하지 않는다. 이 자동 연결의 완료는 cache/BF16/CFG·weight·W&B/file4 검증과 최종 모델 채택의 완료를 뜻하지 않는다.
 
@@ -95,3 +96,14 @@ Development128과additional121의표·metric prefix·전체사례PDF를분리한
 W&B에서는숫자·표·PNG와결과artifact를기록하고,별도빈download cache에서다시내려받아대조한다. Checkpoint binary는canonical file4에보관한다. `full_campaign_complete=false`와`model_adopted=false`를유지하며,각training seed의조건부CI와같은retargeter의Top1비교가seed101에만있다는범위를명시한다. 게시준비코드와CPU검사의통과는실제모든arm의완료나성능향상증거가아니다.
 
 네 생성 평가와CPU summary는학습완료후남는허용GPU를사용하는낮은우선순위의evaluation resource다. Exclusive training과겹쳐메모리를소비하지않고새training arm도추가하지않는다. 결과는원인분석과후속가설에사용하며,기존개발128선정기준이나추가121의예약을변경하지않는다. 양의inference-dose결과도새모델의학습·fixed-final 검증없이채택하지않는다.
+
+
+## 2026-10-18 18:30 UTC: 기존 C1의 후보 자격과 원래 저장 경로
+
+첫 네 모델의 fixed128×3 결과에서 기존 C1 T0.005가 새 static-C1/Full보다 높았다. 이를 확인한 뒤, 최종 후보 목록을 원래의 새 모델 5개에서 기존 C1을 포함한 6개로 수정했다. 이 수정은 결과를 본 뒤의 탐색 계획 변경이며 여섯 후보를 처음부터 사전 등록했다고 표현하지 않는다. 같은 retargeter의 Top1 및 나머지 제거 대조와 reserved121 결과는 아직 나오기 전이다. 세 대조의 CI·3noise 일관성 기준을 완화하지 않으며, 기존 C1의 점수만 높다는 이유로 자동 채택하지 않는다.
+
+`semantic_topk_candidates.py`가 기존 C1의 원래 `ss-seed-confirmation-v1/configs/c1.json`, `runs_ss64/c1/ckpts/`, `evaluations/c1/` 경로를 명시적으로 연결한다. 새 search 경로 아래에 존재하지 않는 `previous-c1` checkpoint를 가정하거나 모델을 복사하지 않는다. 기존 C1이 선택되면 원래 T0.005/frozen-head recipe의 initializer SS4210부터 seed202를 새로 학습한다. Candidate 이름은 `previous-c1`로 유지하고 실제 source arm은 `c1`로 기록한다.
+
+기존 C1의 완료된 480-update/두-rank 학습·initial/final32 replay, 실제 model/optimizer tensor, 두 RGB 사례의 cache/BF16/CFG, 실제 file4 checkpoint/metadata 검증을 재사용한다. 원래 config와 QA에 기록한 recipe hash, QA와 final tensor audit의 checkpoint path/SHA/size, 실제 file4 closure를 대조해 다른 모델의 증거가 섞이지 않도록 한다. 추가 GPU 검증을 중복 실행할 필요는 없다.
+
+선정 모델의 common32 value-address 진단과 추가121의 seed101 비교는 원래 C1 저장 경로를 사용한다. 이미 추가121에 포함된 `previous-c1` 조건을 재사용하며 가짜 `s101-previous-c1` 조건을 만들지 않는다. Seed202에는 실제 새로 학습한 `s202-previous-c1` 결과가 생긴다. 비교군 수 14개, 추가 생성42건, 전체 queue 65/115/117개와 학습 예산은 그대로다. 새 학습 모듈을 추가하거나 현재 실행 중인 No-decoder/No-prior run을 변경하지 않는다.

@@ -66,6 +66,8 @@ def summarize(root,previous):
         label='previous-'+name
         records[label]=[json.loads((previous/'ss-seed-confirmation-v1/evaluations'/name/f'noise-{n}/evaluation.json').read_text()) for n in range(3)]
         for e in records[label]:validate_evaluation(e)
+    training['previous-c1']=audit_training(previous/'ss-seed-confirmation-v1','c1',initial)
+    training['previous-c1']['final128_replays_epoch32']=audit_final_replay(training['previous-c1'],records['previous-c1'][0])
     zero=json.loads((root/'zero-shot-replay-summary-v1.json').read_text())
     if zero['status']!='PASS_ACTUAL_ZERO_SHOT_REPLAYS_AND_GT_HASHES':raise ValueError('zero-shot replay incomplete')
     for name,mode in MODES.items():
@@ -75,6 +77,7 @@ def summarize(root,previous):
     pairs=[(candidate,baseline) for candidate in MODELS for baseline in ['previous-v1','top1-reference'] if candidate!=baseline]
     pairs += [('task-full','static-c1'),('task-full','task-no-decoder'),('task-full','task-no-prior'),
               ('task-full','task-native-spatial'),('task-full','previous-c1'),('static-c1','previous-c1')]
+    pairs += [('previous-c1','previous-v1'),('previous-c1','top1-reference')]
     pairs += [(name,baseline) for name in MODELS for baseline in MODES]
     for candidate,baseline in pairs:
         contrasts[candidate+'-vs-'+baseline]=compare([(str(n),records[baseline][n],records[candidate][n]) for n in range(3)])

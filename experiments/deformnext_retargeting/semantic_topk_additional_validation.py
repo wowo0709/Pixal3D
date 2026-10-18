@@ -8,13 +8,14 @@ import sys
 
 from .compare_ss_noise_panels import compare
 from .semantic_topk_search import write_new
+from .semantic_topk_candidates import SEMANTIC_CANDIDATES,additional_development_label
 from .summarize_semantic_topk_search import MODELS,aggregate
 
 
 def jobs_and_contract(root,previous,candidate,reservation,dependency):
     if reservation['status']!='RESERVED_NOT_EVALUATED' or reservation['additional_assets']!=121 or reservation['additional_source_clusters']!=39:
         raise ValueError('additional validation requires the original reserved121/39 panel')
-    if candidate not in set(MODELS)-{'top1-reference','task-native-spatial'}:
+    if candidate not in SEMANTIC_CANDIDATES:
         raise ValueError('additional validation requires a selected semanticTopK model')
     folder=root/'additional-validation-v1';models={}
     def trained(label,base,name,seed,parent):
@@ -100,15 +101,18 @@ def summarize(root):
     for label,spec in contract['models'].items():
         records[label]=[json.loads((folder/'evaluations'/label/f'noise-{n}/evaluation.json').read_text()) for n in range(3)]
         for n,e in enumerate(records[label]):validate(e,spec,ids,rows,seedmaps[n])
+    development_candidate=additional_development_label(candidate)
     pairs=[(label,'previous-v1') for label in records if label!='previous-v1']
     pairs += [('s101-task-full','s101-task-no-decoder'),('s101-task-full','s101-task-no-prior'),
         ('s101-task-full','s101-task-native-spatial'),('s101-task-full','s101-static-c1'),
         ('s101-static-c1','s101-static-top1-c1'),('s101-static-top1-c1','s101-top1-reference'),
-        ('s101-soft-topk','s101-top1-reference'),('s101-'+candidate,'previous-c1'),
-        ('s101-'+candidate,'s101-task-native-spatial'),('zero-edited-rgb','zero-source-only')]
-    pairs += [('s'+str(seed)+'-'+candidate,'s'+str(seed)+'-top1-reference') for seed in [101,202]]
+        ('s101-soft-topk','s101-top1-reference'),(development_candidate,'previous-c1'),
+        (development_candidate,'s101-task-native-spatial'),('zero-edited-rgb','zero-source-only')]
+    candidate_labels={'101':development_candidate,'202':'s202-'+candidate}
+    pairs += [(candidate_labels[str(seed)],'s'+str(seed)+'-top1-reference') for seed in [101,202]]
     contrasts={}
     for a,b in pairs:
+        if a==b:continue
         name=a+'-vs-'+b
         if name in contrasts:continue
         c=compare([(str(n),records[b][n],records[a][n]) for n in range(3)])
@@ -117,7 +121,7 @@ def summarize(root):
     models={name:aggregate(es) for name,es in records.items()}
     for name,es in records.items():
         models[name]['secondary_macro_case_iou']=sum(r['tp']/max(1,r['tp']+r['fp']+r['fn']) for e in es for r in e['per_asset'])/363
-    perseed={str(seed):contrasts['s'+str(seed)+'-'+candidate+'-vs-s'+str(seed)+'-top1-reference'] for seed in [101,202]}
+    perseed={str(seed):contrasts[candidate_labels[str(seed)]+'-vs-s'+str(seed)+'-top1-reference'] for seed in [101,202]}
     result={'status':'PASS_ADDITIONAL121_FIXED_SELECTED_MODEL_VALIDATION','selected_candidate':candidate,
         'models':models,'contrasts':contrasts,'per_training_seed_matched_Top1':perseed,
         'positive_CI_and_all_noises_on_both_additional_training_seeds':all(supported(c) for c in perseed.values()),

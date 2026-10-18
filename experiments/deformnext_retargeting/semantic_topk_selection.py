@@ -11,11 +11,12 @@ import sys
 from .compare_ss_noise_panels import compare
 from .semantic_topk_confirmation import make_jobs,seed_config
 from .semantic_topk_search import write_new
+from .semantic_topk_candidates import SEMANTIC_CANDIDATES,candidate_source
 from .summarize_semantic_topk_search import aggregate,task_gradient_audit,validate_evaluation
 from .summarize_ss_module_study import audit_training,audit_final_replay
 
 
-CANDIDATES=['soft-topk','static-c1','task-full','task-no-decoder','task-no-prior']
+CANDIDATES=SEMANTIC_CANDIDATES
 SELECT_JOB='select-and-queue-semantic-topk-seed202'
 
 
@@ -34,7 +35,8 @@ def selection(seven,matched):
         'static-c1':'Frozen matcher,same C1 retargeter:weighting only',
         'task-full':'Learned D1/scalar-score/content attention plus C1:whole-path comparison',
         'task-no-decoder':'Learned pairwise scalar-score/content attention plus C1;physical D0',
-        'task-no-prior':'Learned D1-context/content attention plus C1;scalar-score prior OFF'}
+        'task-no-prior':'Learned D1-context/content attention plus C1;scalar-score prior OFF',
+        'previous-c1':'Existing frozen D1/scalar-score T0.005 plus C1;retain original saved-model lineage'}
     for name in CANDIDATES:
         versus_v1=seven['contrasts'][name+'-vs-previous-v1']
         versus_top1=seven['contrasts'][name+'-vs-top1-reference']
@@ -54,7 +56,7 @@ def selection(seven,matched):
         'selected_candidate':chosen,'candidate_evidence':candidates,
         'best_overall_development_model':best_overall,
         'selected_exceeds_previous_C1_point_estimate':None if chosen is None else overall[chosen]['micro_voxel_iou']>overall['previous-c1']['micro_voxel_iou'],
-        'selection_rule':'Among semanticTopK+weighted-attention models with positive source-cluster CI against V1,no-retargeter Top1 AND same-retargeter Top1,andpositive direction at all3noises,pick highest microIoU. Without retargeter the two Top1 controls coincide. Decoder/prior may be removed when their ablations win;do not presume task-full wins. Native-spatial/Top1 controls cannot establish semanticTopK utility.',
+        'selection_rule':'Among all six semanticTopK+weighted-attention candidates,including existing C1 T0.005,with positive source-cluster CI against V1,no-retargeter Top1 AND same-retargeter Top1,andpositive direction at all3noises,pick highest microIoU. Without retargeter the two Top1 controls coincide. Decoder/prior may be removed when their ablations win;do not presume a new arm wins. Native-spatial/Top1 controls cannot establish semanticTopK utility.',
         'same_retargeter_frozen_score_TopK_effect':matched['contrasts']['static-c1-vs-static-top1-c1'],
         'scope':'Exploratory development model selection. Additional training seed uses the same128assets/noises;not independent held-out test or a population training-seed CI.',
         'full_goal_complete':False,'if_no_candidate':'Retain all negative evidence and continue model diagnosis/design;do not mark goal complete.'}
@@ -82,7 +84,12 @@ def queue_candidate(a):
     devices=a.gpus.split(',')
     if len(devices)!=2 or len(set(devices))!=2 or any(not x.isdigit() for x in devices):raise ValueError('explicit assigned GPU pair required')
     folder=a.root/'seed-confirmation-v1'
-    cfg=seed_config(json.loads((a.root/'configs'/(name+'.json')).read_text()),folder,name,202)
+    source_root,source_arm=candidate_source(a.root,name)
+    source_recipe=source_root/'configs'/(source_arm+'.json')
+    if name=='previous-c1':
+        from .semantic_topk_campaign_wandb import previous_c1_proof_files
+        previous_c1_proof_files(a.root,[])
+    cfg=seed_config(json.loads(source_recipe.read_text()),folder,name,202)
     cfg['master_port']='30441'  # Concurrent Top1 baseline owns30440 on this host.
     path=a.work_root/'queue-jobs.json';old=path.read_bytes();existing=json.loads(old)
     jobs=make_jobs(folder,a.previous_work,name,devices,[SELECT_JOB],202)
@@ -114,6 +121,8 @@ def queue_candidate(a):
     write_new(folder/'configs'/(name+'.json'),cfg)
     write_new(folder/'candidate-contract.json',{'status':'CONFIGURED_NOT_TRAINED','candidate':name,'training_seed':202,
         'source_commit':source,'master_port':30441,'fresh_original_SS4210':True,'fixed_final_report_SHA256':result['actual_fixed_final_report_SHA256'],
+        'development_source_root':str(source_root),'development_source_arm':source_arm,
+        'development_source_recipe':str(source_recipe),'development_source_recipe_SHA256':hashlib.sha256(source_recipe.read_bytes()).hexdigest(),
         'scope':'Additional optimization-seed confirmation on same development panel,no test-generalization claim.'})
     write_new(a.root/'additional-validation-v1/evaluation-contract.json',extra_contract)
     write_new(a.root/'selected-correspondence-v1/contract.json',diagnostic_contract)
@@ -135,8 +144,9 @@ def summarize(root):
         training[arm]['final128_replays_epoch32']=audit_final_replay(training[arm],records[arm][0])
         training[arm]['task_branch_gradients']=task_gradient_audit(folder,arm)
         models[arm]=aggregate(records[arm])
+        source_root,source_arm=candidate_source(root,arm)
         for n in range(3):
-            previous=json.loads((root/'evaluations'/arm/f'noise-{n}/evaluation.json').read_text())
+            previous=json.loads((source_root/'evaluations'/source_arm/f'noise-{n}/evaluation.json').read_text())
             keys=['sample_id','source_cluster_id','seed','target_voxels_sha256','target_voxel_shape']
             byid={r['sample_id']:r for r in previous['per_asset']}
             if any(any(r[k]!=byid[r['sample_id']][k] for k in keys) for r in records[arm][n]['per_asset']):

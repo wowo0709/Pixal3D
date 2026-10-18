@@ -1,11 +1,12 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 from experiments.deformnext_retargeting.semantic_topk_campaign_wandb import (
-    conditional_scope, validate_noise_identity, publication_jobs, payload, COMPONENTS, validate_saved_qa,
+    conditional_scope, validate_noise_identity, publication_jobs, payload, COMPONENTS, validate_saved_qa, previous_c1_proof_files,
 )
 
 
@@ -136,3 +137,59 @@ def test_legacy_frozen_matcher_qa_cannot_certify_a_task_trainable_matching_head(
     spec={'arm':'c1','task_attention':{'decoder':True,'score_prior':True}}
     with pytest.raises(ValueError,match='schema'):validate_saved_qa(qa,spec)
     qa['status']='PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT';validate_saved_qa(qa,spec)
+
+
+@pytest.fixture
+def existing_c1_metadata(tmp_path):
+    root=tmp_path/'search';base=tmp_path/'ss-seed-confirmation-v1'
+    def save(path,value):
+        path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value));return path
+    def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+    recipe=save(base/'configs/c1.json',{'training_seed':101,'trainer':{'args':{'deform_conditioner':{'arm':'c1'}}}})
+    refs=[{'path':str(base/'runs_ss64/c1/ckpts'/name),'sha256':str(i)*64,'bytes':12}
+          for i,name in enumerate(['denoiser_step0000480.pt','deform_conditioner_step0000480.pt'],1)]
+    qa=save(tmp_path/'conditioning-contract-v2/summary.json',{
+        'status':'PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT','optimizer_updates':0,
+        'actual_four_RGB_cameras_exact':True,'p1_all_branches_exact_zero':True,'sample_ids':['one','two'],
+        'source_recipe':{'path':str(recipe),'sha256':digest(recipe)},'saved_frozen_head_exact_to_selected_checkpoint':True,
+        'trained_denoiser':refs[0],'trained_conditioner':refs[1]})
+    weights=save(base/'all-three-final-weight-audit-v1.json',{
+        'status':'PASS_ALL_THREE_FINAL_MODEL_TENSORS_AND_FROZEN_BASE','B3_C1_all24_frozen_Q2C_tensors_exact':True,
+        'actual_final_weights':[{'arm':'c1','actual_final_denoiser':refs[0],'actual_conditioner':refs[1],
+            'all_denoiser_tensors_finite':True,'all_conditioner_tensors_finite':True,
+            'all_frozen_base_tensors_dtype_shape_and_values_exact_to_SS4210':True,
+            'frozen_base_tensor_keys':701,'lora_tensor_keys_changed':360,'frozen_Q2C_head_keys':24,
+            'actual_retargeter_present':True,'RAW_deformation_query_channels':0}]})
+    epoch=save(base/'epoch-audits-v2/c1/epoch05/audit.json',{'status':'PASS_EPOCH_CHECKPOINT_AUDIT',
+        'training_seed':101,'step':480,'all_optimizer_steps':480,'all_optimizer_moments_finite':True,
+        'global_batch':96,'world_size':2,'microbatch_per_rank':48,'accumulation':1})
+    evaluations=[save(base/'evaluations/c1'/f'noise-{i}/evaluation.json',{'fixture':i}) for i in range(3)]
+    for closure,paths in [
+        (tmp_path/'provenance/current-C1-QA-v2-completed-file4.json',[qa]),
+        (tmp_path/'provenance/all-three-final-weight-audit-v1-file4.json',[weights]),
+        (tmp_path/'provenance/matched-all-three-final-quality-and-remote-v1-file4.json',[recipe,*evaluations]),
+        (base/'epoch-audits-v2/c1/epoch05/file4-closure.json',[epoch])]:
+        rows=[{'relative_path':str(p.relative_to(tmp_path)),'sha256':digest(p),'bytes':p.stat().st_size} for p in paths]
+        if paths==[epoch]:rows += [{'relative_path':str(Path(r['path']).relative_to(tmp_path)),
+                                  'sha256':r['sha256'],'bytes':r['bytes']} for r in refs]
+        save(closure,{'status':'PASS','local_equals_actual_file4_SHA256':True,'files':rows})
+    return root,{'recipe':recipe,'qa':qa,'weights':weights,'epoch':epoch}
+
+
+def test_original_c1_proofs_retain_original_recipe_and_checkpoint_paths(existing_c1_metadata):
+    root,paths=existing_c1_metadata;files=[];previous_c1_proof_files(root,files)
+    assert paths['recipe'] in files and paths['qa'] in files and len(set(files))==11
+    assert not (root/'configs/previous-c1.json').exists()
+
+
+@pytest.mark.parametrize('changed',['checkpoint','recipe','optimizer','file4'])
+def test_original_c1_cannot_be_certified_by_an_unrelated_or_changed_saved_proof(existing_c1_metadata,changed):
+    root,paths=existing_c1_metadata
+    key='epoch' if changed=='optimizer' else 'qa'
+    p=paths[key];data=json.loads(p.read_text())
+    if changed=='checkpoint':data['trained_denoiser']['sha256']='other-model'
+    elif changed=='recipe':data['source_recipe']['path']='unrelated-recipe.json'
+    elif changed=='optimizer':data['all_optimizer_moments_finite']=False
+    else:data['sample_ids'].reverse()  # Still valid QA shape,but no longer the actual closed metadata bytes.
+    p.write_text(json.dumps(data))
+    with pytest.raises(ValueError):previous_c1_proof_files(root,[])

@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 from .semantic_topk_search import write_new
+from .semantic_topk_candidates import SEMANTIC_CANDIDATES,candidate_source
 from .summarize_semantic_topk_search import validate_evaluation
 from .summarize_task_value_diagnostic import summarize as value_summary
 
@@ -16,9 +17,10 @@ SUMMARY_JOB='summarize-selected-model-correspondence'
 
 
 def jobs_and_contract(root,work,candidate,dependency):
-    if candidate not in {'soft-topk','static-c1','task-full','task-no-decoder','task-no-prior'}:
+    if candidate not in SEMANTIC_CANDIDATES:
         raise ValueError('correspondence diagnostic requires a selected semantic Top-K model')
     folder=root/'selected-correspondence-v1';jobs=[]
+    source_root,source_arm=candidate_source(root,candidate)
     if candidate=='task-full':
         # Reuse actual already-queued intervention, rather than duplicate GPU
         # evaluation just because Full happened to win model selection.
@@ -26,7 +28,7 @@ def jobs_and_contract(root,work,candidate,dependency):
         dependencies=[dependency,'summarize-task-value-address-diagnostic']
     else:
         evaluations=folder
-        config=root/'configs'/(candidate+'.json');run=root/'runs_ss64'/candidate/'ckpts'
+        config=source_root/'configs'/(source_arm+'.json');run=source_root/'runs_ss64'/source_arm/'ckpts'
         dependencies=[]
         for control in ['normal','wrong-address']:
             name='selected-correspondence-'+control;output=evaluations/control
@@ -47,7 +49,8 @@ def jobs_and_contract(root,work,candidate,dependency):
             '--root',str(root)]})
     return jobs,{'status':'QUEUED_NOT_EVALUATED','candidate':candidate,
         'normal':str(evaluations/'normal/evaluation.json'),'altered':str(evaluations/'wrong-address/evaluation.json'),
-        'reference':str(root/'evaluations'/candidate/'noise-0/evaluation.json'),
+        'reference':str(source_root/'evaluations'/source_arm/'noise-0/evaluation.json'),
+        'source_root':str(source_root),'source_arm':source_arm,
         'panel':str(work/'panels/panel-32.json'),'seed_map':str(work/'panels/seed-map.json'),
         'scope':'Same selected seed101 raw480 model/common32/noise0,zero SGD. Keep keys,logits,weights,valid support and every query candidate-value multiset;permute value-to-weight pairing only. Not a new training ablation or native-spatial substitute.'}
 

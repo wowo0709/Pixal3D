@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from experiments.deformnext_retargeting.semantic_topk_selection import CANDIDATES,SELECT_JOB,selection,supported,queue_candidate
+from experiments.deformnext_retargeting.semantic_topk_candidates import candidate_source
 
 
 def contrast(gain=.01,low=.001,noises=None):
@@ -44,7 +45,7 @@ def test_selects_observed_best_only_after_both_complete_reports():
     with pytest.raises(ValueError,match='both complete'):selection(a,b)
 
 
-@pytest.mark.parametrize('winner',['task-no-decoder','task-no-prior'])
+@pytest.mark.parametrize('winner',['task-no-decoder','task-no-prior','previous-c1'])
 def test_does_not_force_decoder_or_scalar_prior_when_ablation_wins(winner):
     a,b=reports()
     for report in [a,b]:report['models'][winner]['micro_voxel_iou']=.46
@@ -92,14 +93,20 @@ def test_inconsistent_fixed_final_reports_are_rejected():
     with pytest.raises(ValueError,match='disagree'):selection(a,b)
 
 
-def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_baseline(tmp_path,monkeypatch):
+@pytest.mark.parametrize('winner',['task-full','previous-c1'])
+def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_baseline(tmp_path,monkeypatch,winner):
     root=tmp_path/'result';work=tmp_path/'work';root.mkdir();work.mkdir();(root/'configs').mkdir()
     a,b=reports()
+    for report in [a,b]:report['models'][winner]['micro_voxel_iou']=.46
     for filename,value in [('seven-arm-final-report.json',a),('matched-retargeter-top1-report.json',b)]:
         (root/filename).write_text(json.dumps(value))
     original={'trainer':{'args':{'max_steps':480,'batch_size_per_gpu':48,'batch_split':1,
-        'continuation_ckpt':{'denoiser':'SS4210'}}},'training_seed':101,'num_gpus':2,'experiment':{'arm':'task-full'}}
-    (root/'configs/task-full.json').write_text(json.dumps(original))
+        'continuation_ckpt':{'denoiser':'SS4210'}}},'training_seed':101,'num_gpus':2,'experiment':{'arm':winner}}
+    source_root,source_arm=candidate_source(root,winner)
+    source_recipe=source_root/'configs'/(source_arm+'.json');source_recipe.parent.mkdir(parents=True,exist_ok=True)
+    source_recipe.write_text(json.dumps(original))
+    proof_calls=[]
+    monkeypatch.setattr('experiments.deformnext_retargeting.semantic_topk_campaign_wandb.previous_c1_proof_files',lambda r,f:proof_calls.append(r))
     (root/'configs/zero-shot-reference.json').write_text(json.dumps(original))
     extra=root/'additional-validation-v1';extra.mkdir()
     (extra/'panel-contract.json').write_text(json.dumps({'status':'RESERVED_NOT_EVALUATED',
@@ -111,20 +118,37 @@ def test_selected_candidate_is_fresh_and_uses_different_port_from_concurrent_bas
     (work/'queue-jobs.json').write_text(json.dumps(jobs))
     monkeypatch.setattr('experiments.deformnext_retargeting.semantic_topk_selection.subprocess.check_output',lambda *args,**kw:'test-source\n')
     queue_candidate(SimpleNamespace(root=root,work_root=work,previous_work=tmp_path/'panels',gpus='0,1'))
-    cfg=json.loads((root/'seed-confirmation-v1/configs/task-full.json').read_text())
+    cfg=json.loads((root/'seed-confirmation-v1/configs'/(winner+'.json')).read_text())
     assert cfg['training_seed']==202 and cfg['trainer']==original['trainer'] and cfg['num_gpus']==2
     assert cfg['master_port']=='30441' and baseline.read_bytes()==baseline_bytes
     actual=json.loads((work/'queue-jobs.json').read_text());new=actual[len(jobs):]
-    assert len(new)==53 and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
+    assert len(new)==(53 if winner=='task-full' else 55) and new[0]['gpus']==['0','1'] and new[0]['depends_on']==[SELECT_JOB]
     assert any(j['name']=='summarize-selected-model-correspondence' for j in new)
-    assert json.loads((root/'selected-correspondence-v1/contract.json').read_text())['candidate']=='task-full'
+    diagnostic=json.loads((root/'selected-correspondence-v1/contract.json').read_text())
+    assert diagnostic['candidate']==winner
+    if winner=='previous-c1':
+        assert diagnostic['reference']==str(source_root/'evaluations/c1/noise-0/evaluation.json')
+        assert proof_calls==[root] and not (root/'configs/previous-c1.json').exists()
+        assert not (root/'runs_ss64/previous-c1').exists()
     extra_jobs=[j for j in new if j['name'].startswith('additional121-')]
     assert len(extra_jobs)==42 and all('gpu' not in j and 'gpus' not in j for j in extra_jobs)
     assert not any('resume' in j['command'] for j in new)
-    assert json.loads((root/'candidate-selection-v1.json').read_text())['selected_candidate']=='task-full'
+    assert json.loads((root/'candidate-selection-v1.json').read_text())['selected_candidate']==winner
+    contract=json.loads((root/'seed-confirmation-v1/candidate-contract.json').read_text())
+    assert contract['development_source_recipe']==str(source_recipe)
     all_names={j['name'] for j in actual}
     assert all(set(j.get('depends_on',[]))<=all_names for j in new)
     assert [j['name'] for j in new[-3:]]==['campaign-report-render','campaign-report-publish','campaign-report-readback']
+
+
+def test_existing_c1_still_requires_positive_same_retargeter_top1_evidence():
+    a,b=reports()
+    for report in [a,b]:report['models']['previous-c1']['micro_voxel_iou']=.5
+    b['contrasts']['previous-c1-vs-static-top1-c1']=contrast(low=-.001)
+    result=selection(a,b)
+    assert result['selected_candidate']!='previous-c1'
+    assert result['best_overall_development_model']=='previous-c1'
+    assert not result['candidate_evidence']['previous-c1']['eligible_with_same_retargeter_Top1_control']
 
 
 def test_negative_selection_queues_reporting_without_fabricating_a_candidate_or_seed_run(tmp_path,monkeypatch):

@@ -45,7 +45,8 @@ def test_additional_validation_rejects_changed_source_seed_depth_or_checkpoint()
     with pytest.raises(ValueError,match='source/noise'):validate(bad,spec,['a'],rows,seeds)
 
 
-def test_complete_synthetic_additional_panel_pairs_all_models_without_claiming_goal_complete(tmp_path):
+@pytest.mark.parametrize('candidate',['task-full','previous-c1'])
+def test_complete_synthetic_additional_panel_pairs_all_models_without_claiming_goal_complete(tmp_path,candidate):
     root=tmp_path/'run';folder=root/'additional-validation-v1';folder.mkdir(parents=True);(root/'configs').mkdir()
     def save(path,value):
         path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value))
@@ -65,12 +66,13 @@ def test_complete_synthetic_additional_panel_pairs_all_models_without_claiming_g
         path=tmp_path/f'noise{n}.json';maps[n]={sid:i+1000*n for i,sid in enumerate(ids)};save(path,maps[n])
         r['seed_maps'][str(n)]={'path':str(path),'sha256':sha(path)}
     save(folder/'panel-contract.json',r)
-    _,contract=jobs_and_contract(root,tmp_path/'previous','task-full',r,'selection')
+    _,contract=jobs_and_contract(root,tmp_path/'previous',candidate,r,'selection')
     contract['reservation_SHA256']=sha(folder/'panel-contract.json');save(folder/'evaluation-contract.json',contract)
-    save(root/'candidate-selection-v1.json',{'selected_candidate':'task-full','status':'PROMISING_COMBINATION_FOR_SEED_CONFIRMATION'})
+    save(root/'candidate-selection-v1.json',{'selected_candidate':candidate,'status':'PROMISING_COMBINATION_FOR_SEED_CONFIRMATION'})
     save(root/'evaluations/top1-reference/noise-0/evaluation.json',{'per_asset':devrows})
     for label,spec in contract['models'].items():
-        tp=60 if label in ['s101-task-full','s202-task-full'] else 50
+        first='previous-c1' if candidate=='previous-c1' else 's101-'+candidate
+        tp=60 if label in [first,'s202-'+candidate] else 50
         for n in range(3):
             e={'status':'PASS','stage':'ss64','step':spec['step'],'weights':'raw','sampling_steps':12,'guidance':3.,
                 'generation_batch_size':8,'optimizer_updates_during_evaluation':0,'conditioning_mode':spec['conditioning_mode'],
@@ -86,3 +88,7 @@ def test_complete_synthetic_additional_panel_pairs_all_models_without_claiming_g
     assert report['positive_CI_and_all_noises_on_both_additional_training_seeds']
     assert report['per_training_seed_matched_Top1']['202']['paired_target_hashes_verified']==363
     assert report['per_training_seed_matched_Top1']['101']['source_clusters']==39
+    if candidate=='previous-c1':
+        assert 's101-previous-c1' not in contract['models']
+        assert contract['models']['previous-c1']['config'].endswith('ss-seed-confirmation-v1/configs/c1.json')
+        assert report['per_training_seed_matched_Top1']['101']==report['contrasts']['previous-c1-vs-s101-top1-reference']

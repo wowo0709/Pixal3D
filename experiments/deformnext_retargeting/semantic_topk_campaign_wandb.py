@@ -20,6 +20,7 @@ from PIL import Image
 
 from .firstwave_wandb import ORDER as FIRST_ORDER, PROJECT, read, sha, near
 from .semantic_topk_search import write_new
+from .semantic_topk_candidates import candidate_source
 from .semantic_topk_zero_replay import MODES, zero_paths, validate_zero
 from .summarize_semantic_topk_search import MODELS, aggregate, validate_evaluation
 
@@ -134,6 +135,53 @@ def proof_files(root, job, name, seed, files):
             raise ValueError('actual canonical file4 epoch closure missing')
 
 
+def previous_c1_proof_files(root, files):
+    """Reuse the original C1 proofs with their actual paths and checkpoint hashes."""
+    base,arm=candidate_source(root,'previous-c1');parent=root.parent
+    recipe=base/'configs'/(arm+'.json');cfg=read(recipe);files.append(recipe)
+    qa_path=parent/'conditioning-contract-v2/summary.json'
+    qa=read(qa_path);validate_saved_qa(qa,cfg['trainer']['args']['deform_conditioner']);files.append(qa_path)
+    if (cfg['training_seed']!=101 or qa['source_recipe']['path']!=str(recipe)
+        or qa['source_recipe']['sha256']!=sha(recipe) or not qa['saved_frozen_head_exact_to_selected_checkpoint']):
+        raise ValueError('existing C1 recipe/frozen-head proof differs')
+    weights_path=base/'all-three-final-weight-audit-v1.json'
+    weights=require(weights_path,'PASS_ALL_THREE_FINAL_MODEL_TENSORS_AND_FROZEN_BASE',files)
+    actual=[r for r in weights['actual_final_weights'] if r['arm']=='c1']
+    if len(actual)!=1:raise ValueError('existing C1 final weight proof is not unique')
+    actual=actual[0]
+    if (actual['actual_final_denoiser']!=qa['trained_denoiser'] or actual['actual_conditioner']!=qa['trained_conditioner']
+        or not actual['all_denoiser_tensors_finite'] or not actual['all_conditioner_tensors_finite']
+        or not actual['all_frozen_base_tensors_dtype_shape_and_values_exact_to_SS4210']
+        or actual['frozen_base_tensor_keys']!=701 or actual['lora_tensor_keys_changed']!=360
+        or actual['frozen_Q2C_head_keys']!=24 or not weights['B3_C1_all24_frozen_Q2C_tensors_exact']
+        or not actual['actual_retargeter_present'] or actual['RAW_deformation_query_channels']!=0):
+        raise ValueError('existing C1 actual tensors/checkpoint identity differs')
+    epoch_path=base/'epoch-audits-v2/c1/epoch05/audit.json'
+    epoch=require(epoch_path,'PASS_EPOCH_CHECKPOINT_AUDIT',files)
+    expected={'training_seed':101,'step':480,'all_optimizer_steps':480,'all_optimizer_moments_finite':True,
+              'global_batch':96,'world_size':2,'microbatch_per_rank':48,'accumulation':1}
+    if any(epoch.get(k)!=v for k,v in expected.items()):raise ValueError('existing C1 actual optimizer differs')
+    closures=[(parent/'provenance/current-C1-QA-v2-completed-file4.json',[qa_path]),
+        (parent/'provenance/all-three-final-weight-audit-v1-file4.json',[weights_path]),
+        (parent/'provenance/matched-all-three-final-quality-and-remote-v1-file4.json',
+         [recipe,*[base/'evaluations/c1'/f'noise-{n}/evaluation.json' for n in range(3)]]),
+        (base/'epoch-audits-v2/c1/epoch05/file4-closure.json',[epoch_path])]
+    for closure_path,paths in closures:
+        closure=require(closure_path,'PASS',files)
+        if not closure.get('local_equals_actual_file4_SHA256'):raise ValueError('existing C1 canonical file4 proof missing')
+        rows={r['relative_path']:r for r in closure['files']}
+        for path in paths:
+            row=rows.get(str(path.relative_to(parent)))
+            if row is None or row['sha256']!=sha(path) or row['bytes']!=path.stat().st_size:
+                raise ValueError('existing C1 file4 proof input changed')
+            files.append(path)
+        if closure_path==closures[-1][0]:
+            for ref in [qa['trained_denoiser'],qa['trained_conditioner']]:
+                row=rows.get(str(Path(ref['path']).relative_to(parent)))
+                if row is None or any(row[k]!=ref[k] for k in ['sha256','bytes']):
+                    raise ValueError('existing C1 file4 checkpoint identity differs')
+
+
 def collect(root):
     """Read all required immutable results before producing any output."""
     from .semantic_topk_selection import selection
@@ -201,6 +249,7 @@ def collect(root):
                                'PASS_SELECTED_MODEL_SAME_POOL_VALUE_ADDRESS_DIAGNOSTIC',files)
         if additional['candidate_selection_SHA256']!=sha(decision_path):raise ValueError('additional model selection changed')
         proof_files(root,'confirm-seed202-train-'+candidate,candidate,202,files)
+        if candidate=='previous-c1':previous_c1_proof_files(root,files)
     markdown=[root/'firstwave-fixed-final-v1/report.md',root/'seven-arm-final-report.md']
     if candidate is not None:markdown += [seedroot/'final-confirmation-report.md',root/'additional-validation-v1/final-report.md']
     for path in markdown:

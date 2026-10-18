@@ -5,7 +5,7 @@ import pytest
 from experiments.deformnext_retargeting.semantic_topk_selected_correspondence import jobs_and_contract,summarize,SUMMARY_JOB
 
 
-@pytest.mark.parametrize('candidate',['soft-topk','static-c1','task-full','task-no-decoder','task-no-prior'])
+@pytest.mark.parametrize('candidate',['soft-topk','static-c1','task-full','task-no-decoder','task-no-prior','previous-c1'])
 def test_actual_winner_gets_its_own_same_pool_control_without_duplicate_full_evaluations(tmp_path,candidate):
     jobs,contract=jobs_and_contract(tmp_path,tmp_path/'work',candidate,'selection')
     assert jobs[-1]['name']==SUMMARY_JOB and contract['candidate']==candidate
@@ -18,9 +18,13 @@ def test_actual_winner_gets_its_own_same_pool_control_without_duplicate_full_eva
             assert job['resource']=='evaluation' and 'gpu' not in job and 'gpus' not in job
             assert job['depends_on']==['selection']
             command=job['command']
-            assert command[command.index('--arm-config')+1].endswith(candidate+'.json')
+            source_arm='c1' if candidate=='previous-c1' else candidate
+            assert command[command.index('--arm-config')+1].endswith(source_arm+'.json')
             assert command[command.index('--task-value-control')+1]==control
             assert command[command.index('--panel-file')+1].endswith('panel-32.json')
+            if candidate=='previous-c1':
+                assert 'ss-seed-confirmation-v1/runs_ss64/c1/ckpts/' in command[command.index('--checkpoint')+1]
+                assert contract['reference']==str(tmp_path.parent/'ss-seed-confirmation-v1/evaluations/c1/noise-0/evaluation.json')
 
 
 def records():
