@@ -48,6 +48,25 @@ def test_negative_or_noise_unstable_search_cannot_be_reported_as_positive():
     assert not supported(contrast(gain=-.01,low=-.02))
 
 
+def test_retargeter_gain_alone_does_not_qualify_as_topk_combination_success():
+    a,b=reports()
+    for name in CANDIDATES:
+        if name!='soft-topk':b['contrasts'][name+'-vs-static-top1-c1']=contrast(low=-.001)
+    result=selection(a,b)
+    assert result['selected_candidate']=='soft-topk'
+    assert result['candidate_evidence']['task-full']['supported_vs_V1_and_Top1_in_development']
+    assert not result['candidate_evidence']['task-full']['eligible_with_same_retargeter_Top1_control']
+    a['contrasts']['soft-topk-vs-top1-reference']=contrast(low=-.001)
+    assert selection(a,b)['status']=='NO_PROMISING_COMBINATION_YET'
+
+
+def test_same_retargeter_top1_gain_must_be_consistent_across_noise_repeats():
+    a,b=reports()
+    b['contrasts']['task-full-vs-static-top1-c1']=contrast(noises=[.02,-.001,.02])
+    result=selection(a,b)
+    assert result['selected_candidate']!='task-full'
+
+
 def test_best_control_cannot_be_hidden_by_semantic_candidate_selection():
     a,b=reports()
     for report in [a,b]:report['models']['task-native-spatial']['micro_voxel_iou']=.5

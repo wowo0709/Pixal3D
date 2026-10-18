@@ -38,12 +38,15 @@ def selection(seven,matched):
     for name in CANDIDATES:
         versus_v1=seven['contrasts'][name+'-vs-previous-v1']
         versus_top1=seven['contrasts'][name+'-vs-top1-reference']
+        same_retargeter_top1=(seven['contrasts']['soft-topk-vs-top1-reference'] if name=='soft-topk'
+            else matched['contrasts'][name+'-vs-static-top1-c1'])
         candidates[name]={'micro_voxel_iou':seven['models'][name]['micro_voxel_iou'],
             'supported_vs_V1_and_Top1_in_development':supported(versus_v1) and supported(versus_top1),
+            'eligible_with_same_retargeter_Top1_control':supported(versus_v1) and supported(versus_top1) and supported(same_retargeter_top1),
             'versus_V1':versus_v1,'versus_Top1':versus_top1,
-            'same_retargeter_Top1_control':seven['contrasts']['soft-topk-vs-top1-reference'] if name=='soft-topk' else matched['contrasts'][name+'-vs-static-top1-c1'],
+            'same_retargeter_Top1_control':same_retargeter_top1,
             'TopK_effect_scope':scopes[name]}
-    eligible=[name for name in CANDIDATES if candidates[name]['supported_vs_V1_and_Top1_in_development']]
+    eligible=[name for name in CANDIDATES if candidates[name]['eligible_with_same_retargeter_Top1_control']]
     chosen=max(eligible,key=lambda n:candidates[n]['micro_voxel_iou']) if eligible else None
     overall={**seven['models'],**matched['models']}
     best_overall=max(overall,key=lambda n:overall[n]['micro_voxel_iou'])
@@ -51,7 +54,7 @@ def selection(seven,matched):
         'selected_candidate':chosen,'candidate_evidence':candidates,
         'best_overall_development_model':best_overall,
         'selected_exceeds_previous_C1_point_estimate':None if chosen is None else overall[chosen]['micro_voxel_iou']>overall['previous-c1']['micro_voxel_iou'],
-        'selection_rule':'Among semanticTopK+weighted-attention models with positive source-cluster CI against V1 and Top1 andpositive direction at all3noises,pick highest microIoU. Decoder/prior may be removed when their ablations win;do not presume task-full wins. Native-spatial/Top1 controls cannot establish semanticTopK utility.',
+        'selection_rule':'Among semanticTopK+weighted-attention models with positive source-cluster CI against V1,no-retargeter Top1 AND same-retargeter Top1,andpositive direction at all3noises,pick highest microIoU. Without retargeter the two Top1 controls coincide. Decoder/prior may be removed when their ablations win;do not presume task-full wins. Native-spatial/Top1 controls cannot establish semanticTopK utility.',
         'same_retargeter_frozen_score_TopK_effect':matched['contrasts']['static-c1-vs-static-top1-c1'],
         'scope':'Exploratory development model selection. Additional training seed uses the same128assets/noises;not independent held-out test or a population training-seed CI.',
         'full_goal_complete':False,'if_no_candidate':'Retain all negative evidence and continue model diagnosis/design;do not mark goal complete.'}
@@ -130,6 +133,7 @@ def summarize(root):
     report={'status':'PASS_FIXED_FINAL_SEED202_CONFIRMATION','selected_candidate':name,'models':models,
         'training_audits':training,'per_training_seed_contrast':{'101':first,'202':second},
         'positive_CI_and_all_noise_direction_at_both_seeds':supported(first) and supported(second),
+        'replication_control_scope':'Seed202 compares the complete selected combination against the no-retargeter Top1 reference. Same-retargeter Top1 ablation remains seed101 only;do not claim its TopK-specific effect replicated across training seeds.',
         'descriptive_mean_gain_over_training_seeds':(first['gain']+second['gain'])/2,
         'training_seed_population_CI':None,'full_goal_complete':False,
         'required_remaining':['reserved source-disjoint additional121 evaluation','trained cache/BF16/CFG functional audit','actual final logging/storage/source closure','module-effect interpretation and final adoption'],
@@ -137,7 +141,7 @@ def summarize(root):
     lines=['# Semantic Top-K additional training-seed confirmation','',f'Candidate: {name}','','| Training seed | Gain IoU vs matched Top1,pp | 95% source-cluster CI,pp |','| --- | ---: | --- |']
     for seed,c in report['per_training_seed_contrast'].items():
         lo,hi=c['paired_cluster_bootstrap_ci95'];lines.append(f"| {seed} | {100*c['gain']:+.3f} | [{100*lo:+.3f},{100*hi:+.3f}] |")
-    lines+=['',report['scope'],'','Functional QA,logging/storage closure and adoption are not completed by this report.']
+    lines+=['',report['scope'],'',report['replication_control_scope'],'','Functional QA,logging/storage closure and adoption are not completed by this report.']
     write_new(folder/'final-confirmation-report.json',report)
     with (folder/'final-confirmation-report.md').open('x') as f:f.write('\n'.join(lines)+'\n')
     print(json.dumps({'status':report['status'],'candidate':name,'confirmed':report['positive_CI_and_all_noise_direction_at_both_seeds']}),flush=True)
