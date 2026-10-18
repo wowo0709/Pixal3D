@@ -556,3 +556,30 @@ Full−native-spatial은 +0.699pp, CI [−0.029,+1.574]pp로 semantic 쪽 point 
 같은 run의 epoch3→4 변화는 native-spatial +0.067pp, CI [−0.337,+0.529]pp, Static-Top1+C1 +0.810pp, CI [+0.119,+1.473]pp였다. Top1+C1의 이 구간 개선은 관측되지만 joint optimization의 변화이며 특정 모듈의 단독 효과나5에폭 최종 수렴을 입증하지 않는다.
 
 전체13개 방법·paired/temporal 결과와 실제 입력은 `wave4-epoch4-comparison-v1/`에 있다. 한 training seed·한 sampling noise에 조건부이고 다중 비교를 보정하지 않은 중간 결과다. 모델·데이터·학습률·microbatch·원래5에폭 budget을 변경하지 않았으며 fixed128×3,6후보 선정,추가 seed/121개 검증과 최종 채택은 계속 남아 있다.
+
+## 원래 spatial·동일 retargeter Top1 대조의 다섯 번째 에폭
+
+두 대조군 모두480 update/5epoch 학습과 마지막 validation을 완료했다. 실제 W&B 네 수치·PNG·optimizer/raw-checkpoint file4 대조도 두 epoch 모두 통과해 현재8개 development 학습의40epoch 검증이 완료됐다. 전체 target45개 중 남은5개는 아직 시작하지 않은 seed202 Top1 기준선이다. 새 두 모델의 최종 frozen-base/LoRA/conditioner 검증도 완료됐고, fixed128×3 생성 평가는 GPU0~3에서 병렬 진행 중이다. 아래는 마지막 epoch의 common32/32source/한 noise 결과로, 아직 두 대조군의128×3 결과가 아니다.
+
+| 같은32개 기준 | Epoch5 또는 zero-shot IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.394997 | 0.566305 |
+| Zero edited1M1+source3M0 | 0.426715 | 0.598179 |
+| 이전 V1, epoch5 | 0.434837 | 0.606114 |
+| 이전 C1 T0.005, epoch5 | 0.453849 | 0.624341 |
+| Static-C1 T0.05, epoch5 | 0.449857 | 0.620554 |
+| Task-full, epoch5 | 0.448606 | 0.619362 |
+| Task-no-decoder, epoch5 | 0.445840 | 0.616721 |
+| Task-no-prior, epoch5 | 0.444225 | 0.615175 |
+| Task-native-spatial, epoch5 | 0.444720 | 0.615649 |
+| Static-Top1+C1, epoch5 | 0.454022 | 0.624505 |
+
+기존 C1 T0.005−Static-Top1+C1은 −0.017pp, 95% source-cluster CI [−0.224,+0.171]pp였다. 이 panel에서 둘은 거의 같은 점수이며, epoch3에서 보인 양수 CI를 마지막 epoch의 추가 이득으로 재현하지 못했다. Static-C1 T0.05−Static-Top1+C1은 −0.417pp, CI [−0.726,−0.150]pp, Full−Static-Top1+C1은 −0.542pp, CI [−0.948,−0.164]pp였다. No-decoder는 −0.818pp [−1.515,−0.091], No-prior는 −0.980pp [−1.900,−0.056]로, 이32개·한 noise 평가에서는 넓은 soft/학습 attention 경로들이 matched Top1+C1보다 낮았다. 전체128×3와 추가 seed의 결론으로 확대하지 않는다.
+
+Static-Top1+C1−retargeter 없는 Top1은 +1.593pp, CI [+0.096,+3.211]pp, Static-Top1+C1−V1은 +1.919pp, CI [+0.432,+3.439]pp였다. 앞 대조는 같은 frozen matcher의 score-argmax evidence에서 retargeter를 추가한 조건부 결과다. 두 run의 training noise stream이 bit-exact라는 주장은 하지 않는다. Zero-edited RGB 기준선 대비도 +2.731pp, CI [+0.256,+5.326]pp였으며 source4M0와 edited1M1+3M0를 구분해 보고한다.
+
+Full−native-spatial은 +0.389pp, CI [−0.375,+1.259]pp로 불확실했다. Native-spatial−기존 C1은 −0.913pp, CI [−1.722,−0.115]pp지만 두 모델의 head 학습/attention도 달라 주소만의 효과로 부르지 않는다. 같은 run의 epoch4→5 변화는 native-spatial +0.257pp [−0.355,+0.796], Static-Top1+C1 +0.414pp [−0.115,+1.071]로 모두0을 포함했다. 이를 추가 epoch의 효과나 최적 epoch 선정 근거로 쓰지 않는다.
+
+학습 후반의 실제 기록도 확인했다. Full의 step451에서 decoder/score/content gradient가 모두 양수이고, No-decoder는 decoder만0, No-prior는 scalar score만0이었다. 새 native-spatial도 네 번의 validation 이후 step401에서 두 rank의 세 gradient가 모두 양수였다. 이는 후반에도 의도한 경로가 학습됐다는 근거이며 성능 기여 증거와 구분한다. 학습 중 최대 allocated memory는 native-spatial 두 rank59.75/59.39GiB, Top1+C1 두 rank48.00/48.00GiB였다.
+
+전체13개 방법·paired/temporal 비교와 입력은 `wave4-epoch5-comparison-v1/`에 있다. 같은 training seed101의 탐색 CI이며 다중 비교를 보정하지 않았다. 학습 budget·microbatch·학습률·데이터를 변경하지 않았고, 원래 fixed128×3/6후보 선정·조건부 추가 seed/121개·실제 전체 W&B readback·모델 채택은 아직 남아 있다.
