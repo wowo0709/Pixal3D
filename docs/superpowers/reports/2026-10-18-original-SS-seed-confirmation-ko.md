@@ -70,3 +70,18 @@ C1−V1은 +0.419pp, paired source-cluster 95% CI [−0.583, +1.320]pp다. 점�
 근거는 `epoch-comparisons/epoch-01-c1-vs-v1.json`, `epoch-snapshots/epoch-01-{v1,c1}-{runtime,validation}.json`, `figures/epoch-01-{v1,c1}-GT-Pred-Diff.png`, 상위 `provenance/matched-seed101-first-epoch-{audit,wandb-remote}.json`이다. 학습은 480 updates까지 계속하며 중간 snapshot을 final 결과로 대체하지 않는다.
 
 두 모델의 step96 checkpoint와 위 snapshot·이미지·source delta 등 17개 산출물 약 5.70GB는 실제 file4와 local의 SHA256·크기가 모두 같았다. `provenance/matched-seed101-first-epoch-file4.json`에 기록했다. 아직 쓰고 있는 runtime/validation 전체 파일을 immutable 파일로 해시한 것은 아니다.
+
+## 두 번째 epoch의 matched 비교
+
+2026-10-18 11:15 KST에 V1의 step192 검증도 완료됐다. 같은 32개 source cluster·동일 noise·같은 decoded-target GT를 유지한다.
+
+| Epoch / step | V1 voxel IoU | C1 voxel IoU | C1−V1, pp [95% CI] |
+| --- | ---: | ---: | --- |
+| 1 / 96 | 0.43214776 | 0.43633516 | +0.419 [−0.583, +1.320] |
+| 2 / 192 | 0.43444352 | 0.44060209 | +0.616 [−0.541, +1.900] |
+
+두 모델 모두 첫 epoch보다 점추정치가 올랐지만, C1의 추가 이득은 여전히 확정되지 않았다. C1 자체의 1→2 epoch 변화도 +0.427pp, paired 95% CI [−1.095, +1.911]pp로 0을 포함한다. 다른 epoch의 V1/C1을 직접 비교하거나 이 경향으로 학습을 연장하지 않는다. 예정한 480 updates와 final128×3를 유지한다.
+
+두 rank의 step1~192가 모두 연속이고 finite loss·global96/micro48/accumulation1이다. Step192의 optimizer 상태는 V1 360개, C1 366개가 전부 step192이고 moment tensor도 모두 finite였다. Peak allocated는 V1 45.620GiB, C1 47.999GiB다. 두 모델의 GT voxel hash 32개와 sample noise가 같고, W&B의 실제 step192 history·paired gain/CI·두 GT/Pred/Diff 이미지도 대조했다. 원격 summary의 부동소수점 직렬화 차이는 절대오차 1e−12 이내로 검사하며, 이미지는 다운로드한 bytes의 SHA256이 일치해야 한다.
+
+근거는 `epoch-comparisons/epoch-02-c1-vs-v1.json`, `epoch-comparisons/trend-epoch02-vs-epoch01-c1.json`, `epoch-snapshots/epoch-02-*`, `figures/epoch-02-*`, 상위 `provenance/matched-seed101-{C1-epoch2,second-epoch}-{audit,wandb-remote}.json`이다. `C1-epoch2` receipt는 C1의 epoch별 변화, `second-epoch` receipt는 같은 epoch의 모델 간 비교이며 합쳐 집계하지 않는다. 두 checkpoint의 실제 file4 저장 검증은 각 `*-file4.json` receipt로 구분한다. B3와 원본 constant-gate 6개 학습은 후속 대기 상태이며 Full/PBR 채택은 아직 결정하지 않았다.
