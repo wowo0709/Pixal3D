@@ -16,21 +16,36 @@ class TaskCandidateAttention(nn.Module):
     contextual query path. No exact-match confidence or GT is consumed.
     """
 
-    def __init__(self, width=1024, hidden=128):
+    def __init__(self, width=1024, hidden=128, content_mode='cosine'):
         super().__init__()
+        if content_mode not in {'cosine', 'residual-zero'}:
+            raise ValueError('unknown candidate content-attention mode')
+        self.content_mode = content_mode
         self.query = nn.Linear(width, hidden, bias=False)
         self.context = nn.Linear(width, hidden, bias=False)
         self.key = nn.Linear(width, hidden, bias=False)
         self.log_content_scale = nn.Parameter(torch.tensor(math.log(4.)))
         for layer in [self.query, self.context, self.key]:
             nn.init.xavier_uniform_(layer.weight)
+        if content_mode == 'residual-zero':
+            # Preserve the frozen matching prior at initialization. This
+            # output learns first; query/key projections then receive gradients.
+            self.content_output = nn.Linear(2*hidden, 1, bias=False)
+            nn.init.zeros_(self.content_output.weight)
 
     def forward(self, target, contextual_omega, candidates, valid, prior=None):
         candidates = torch.where(valid[...,None],candidates,torch.zeros_like(candidates))
         q = self.query(F.layer_norm(target, target.shape[-1:]))
         q = q + self.context(F.layer_norm(contextual_omega, contextual_omega.shape[-1:]))
         k = self.key(F.layer_norm(candidates, candidates.shape[-1:]))
-        content = (F.normalize(q.float(), dim=-1)[:,None] * F.normalize(k.float(),dim=-1)).sum(-1)
+        if self.content_mode == 'cosine':
+            content = (F.normalize(q.float(), dim=-1)[:,None] * F.normalize(k.float(),dim=-1)).sum(-1)
+        else:
+            with torch.autocast(device_type=target.device.type, enabled=False):
+                nq = F.layer_norm(q.float(), q.shape[-1:])[:,None]
+                nk = F.layer_norm(k.float(), k.shape[-1:])
+                pair = torch.cat((nq*nk, (nq-nk).abs()), dim=-1)
+                content = torch.tanh(self.content_output(pair).squeeze(-1))
         logits = self.log_content_scale.exp().clamp(max=20.) * content
         if prior is not None:
             if prior.shape != logits.shape:

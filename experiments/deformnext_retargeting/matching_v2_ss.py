@@ -177,8 +177,9 @@ def native_proof(cfg,output):
                    'score':trainer.deform_conditioner.q2c.fusion_head,'task_attention':task}
             gradients={name:sum(float(p.grad.detach().float().abs().sum()) for p in module.parameters() if p.grad is not None)
                        for name,module in parts.items()}
-            required={'decoder':trainer.deform_conditioner.task_attention_config['decoder'],
-                      'score':trainer.deform_conditioner.task_attention_config['score_prior'],'task_attention':True}
+            task_config=trainer.deform_conditioner.task_attention_config
+            required={'decoder':task_config.get('train_decoder',task_config['decoder']),
+                      'score':task_config.get('train_score',task_config['score_prior']),'task_attention':True}
             if any(not np.isfinite(v) or (v>0)!=required[k] for k,v in gradients.items()):
                 raise ValueError('actual SS-loss task branch gradient differs from decoder/score switches')
             task_proof={'actual_SS_loss_gradient_L1':gradients,'required_active':required,

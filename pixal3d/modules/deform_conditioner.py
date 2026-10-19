@@ -173,19 +173,27 @@ class DeformationAwareConditioner(nn.Module):
         if task_attention is not None:
             if implementation != 'r9-native-v5' or arm != 'c1' or value_dim != 1024 or query_dim != 1024:
                 raise ValueError('task candidate attention supports explicit SS C1 only')
-            if set(task_attention) != {'decoder', 'score_prior', 'chunk_size'}:
+            required_fields = {'decoder', 'score_prior', 'chunk_size'}
+            optional_fields = {'train_decoder', 'train_score', 'content_mode'}
+            if not required_fields <= set(task_attention) or set(task_attention)-required_fields-optional_fields:
                 raise ValueError('task attention requires explicit decoder/score/chunk contract')
             if (not isinstance(task_attention['decoder'],bool) or not isinstance(task_attention['score_prior'],bool)
                     or not isinstance(task_attention['chunk_size'],int) or task_attention['chunk_size']<1):
                 raise ValueError('invalid task attention switches or chunk size')
+            train_decoder = task_attention.get('train_decoder', task_attention['decoder'])
+            train_score = task_attention.get('train_score', task_attention['score_prior'])
+            if (not isinstance(train_decoder, bool) or not isinstance(train_score, bool)
+                or (train_decoder and not task_attention['decoder'])
+                or (train_score and not task_attention['score_prior'])):
+                raise ValueError('cannot train a removed decoder or unused score prior')
             from .task_matching_attention import TaskCandidateAttention
             from .r9_matching import RegionDecoder
             self.task_attention_config = dict(task_attention)
             if not task_attention['decoder']:
                 self.q2c.decoder = RegionDecoder('D0-PAIRWISE')
                 self.q2c.decoder_arm = 'D0-PAIRWISE'
-            self.q2c.decoder.requires_grad_(True)
-            self.q2c.fusion_head.requires_grad_(task_attention['score_prior'])
+            self.q2c.decoder.requires_grad_(train_decoder)
+            self.q2c.fusion_head.requires_grad_(train_score)
             # Equal task-layer initialization across physical decoder ablations;
             # do not alter the caller's denoiser/retargeter RNG consumption.
             with torch.random.fork_rng(devices=[]):
@@ -193,7 +201,7 @@ class DeformationAwareConditioner(nn.Module):
                 # fork_rng(devices=[]) restores only CPU state. Seed the CPU
                 # generator directly so DDP ranks retain their own RNG.
                 torch.random.default_generator.manual_seed(20261018)
-                self.task_attention = TaskCandidateAttention()
+                self.task_attention = TaskCandidateAttention(content_mode=task_attention.get('content_mode','cosine'))
 
     def _validate(
         self,

@@ -45,7 +45,8 @@ def task_gradient_audit(root,name):
             values=[r['conditioner'][branch+'_gradient_L1'] for r in rows if branch+'_gradient_L1' in r.get('conditioner',{})]
             if not values or not all(math.isfinite(x) and x>=0 for x in values):
                 raise ValueError('task runtime gradient evidence missing/nonfinite: '+name+' '+branch)
-            required={'matching_decoder':task['decoder'],'matching_score':task['score_prior'],'task_attention':True}[branch]
+            required={'matching_decoder':task.get('train_decoder',task['decoder']),
+                      'matching_score':task.get('train_score',task['score_prior']),'task_attention':True}[branch]
             if (max(values)>0)!=required:raise ValueError('actual task branch usage differs: '+name+' '+branch)
             seen[branch]={'records':len(values),'maximum_gradient_L1':max(values),'expected_active':required}
         ranks.append({'rank':rank,'actual_SS_loss_gradient':seen})
