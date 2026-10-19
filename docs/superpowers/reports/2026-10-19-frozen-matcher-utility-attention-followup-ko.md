@@ -315,3 +315,9 @@ Scale16에도 같은 raw480/common32/noise0 value-address 진단을 연결한다
 Scale16−Top1+C1은 **+0.084pp,[−0.031,+0.207]pp**,scale4 F1 대비는−0.067pp,[−0.258,+0.090]pp였다. V1 대비+0.676pp,[−0.504,+1.959]pp,joint Full 대비+0.093pp,[−0.202,+0.395]pp,기존 C1 대비+0.060pp,[−0.015,+0.154]pp였다. 이 작은 중간 패널에서 primary Top1 대비 추가 효과는 여전히 확인되지 않았다. 초기 scale 증가가 한 에폭의 양의 scale4 차이를 계속 유지하지도 않았다. 고정 raw480/128×3 기준과5에폭 예산을 유지한다.
 
 별도 native voxel-query 후속 구현·CPU/실제 설정 preflight와 유휴 GPU proof 예약은 [후속 리포트](2026-10-19-native-voxel-query-followup-ko.md)에 기록했다. 현재 진행 중인 scale16의 여섯 forward source와 optimizer·sampler는 변경하지 않았다. 후속 후보의 실제 본 학습이나 품질 개선은 아직 완료되지 않았다.
+
+## Scale16 세 번째 에폭
+
+실제 step288의 W&B 네 수치·PNG·371개 optimizer state·checkpoint/file4 대조와 paired comparison이 완료됐다. Common32/한 noise의 IoU는0.443928이었다. Top1+C1 대비는 **+0.214pp,[+0.049,+0.393]pp**,기존 scale4 F1 대비는+0.040pp,[−0.036,+0.121]pp였다. 기존 C1 대비+0.030pp,[−0.021,+0.094]pp,joint Full 대비+0.253pp,[−0.136,+0.637]pp,V1 대비+1.206pp,[−0.022,+2.701]pp였다.
+
+이 중간 패널의 Top1 대비 구간은 양수지만,scale4 대비 추가 이득은 확인되지 않았다. 앞선 F1도3에폭에서 Top1보다 앞선 뒤 고정 최종 평가에서는 차이가 사라졌다. 반복 관찰·여러 모델을 포함한 탐색적 CI이며,5에폭/raw480/development128×3와 추가 training seed 조건을 변경하지 않는다. 두 후속 후보의 조건부 실행 및 장시간 host 지연 기록은 [실행 분기 리포트](2026-10-19-orthogonal-utility-followups-ko.md)에 있다.
