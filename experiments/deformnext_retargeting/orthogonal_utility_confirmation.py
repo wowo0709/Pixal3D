@@ -40,6 +40,37 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def stable_recipe(cfg):
+    value = copy.deepcopy(cfg)
+    experiment = value['experiment']
+    if experiment.pop('release_status', None) not in [None, 'pending-native-and-DDP48-proof',
+            'pending-native-and-two-rank-memory-proof', 'native-and-memory-verified']:
+        raise ValueError('unexpected launcher status transition')
+    if experiment.pop('microbatch_per_gpu', None) not in [None, 48]:
+        raise ValueError('launcher metadata changed the fixed micro48 budget')
+    return value
+
+
+def require_sources(args):
+    study.require_source_contract(args.source_contract, args.source_receipt, args.campaign_root)
+    contract = read(args.source_contract)
+    bindings = contract.get('prepared_recipe_bindings', [])
+    if bindings:
+        expected = {str(args.campaign_root / p.NAMESPACE / 'configs' / (p.NAME + '.json'))
+                    for p in study.PROFILES.values()}
+        if {row['runtime_path'] for row in bindings} != expected or len(bindings) != 2:
+            raise ValueError('both declared first-run recipe bindings required')
+    closed = {row['relative_path']: row for row in read(args.source_receipt)['files']}
+    for row in bindings:
+        archived = Path(row['archived_path'])
+        key = str(archived.relative_to(args.campaign_root.parent))
+        if (key not in closed or sha(archived) != closed[key]['sha256']
+                or archived.stat().st_size != closed[key]['bytes']):
+            raise ValueError('archived original first-run recipe changed')
+        if stable_recipe(read(Path(row['runtime_path']))) != stable_recipe(read(archived)):
+            raise ValueError('first-run numerical recipe changed beyond launcher status metadata')
+
+
 def replica_recipe(source, root, profile):
     profile.validate_profile(source, root)
     cfg = seed_config(source, root / 'seed-confirmation-v1', profile.NAME, 202)
@@ -59,7 +90,7 @@ def validate_replica(cfg, folder, profile):
     # must equal the immutable seed101 recipe except these declared aliases.
     for value in [actual, expected]:
         value['experiment'].pop('source_commit', None)
-    if actual != expected:
+    if stable_recipe(actual) != stable_recipe(expected):
         raise ValueError('replica changed more than declared seed,paths,port and logging')
 
 
@@ -119,7 +150,7 @@ def command(args, mode):
 
 
 def stage(args):
-    study.require_source_contract(args.source_contract, args.source_receipt, args.campaign_root)
+    require_sources(args)
     folder = args.campaign_root / study.NAMESPACE
     branch = read(folder / 'queue-decision-v1.json')
     if branch['status'] == 'SKIPPED_FOR_STRENGTH_CONFIRMATION':
@@ -193,7 +224,7 @@ def replica_jobs(args, profile, devices):
 
 
 def queue(args):
-    study.require_source_contract(args.source_contract, args.source_receipt, args.campaign_root)
+    require_sources(args)
     if any(sha(path) != digest for path, digest in [(args.epoch_template, args.epoch_sha),
                                                    (args.final_template, args.final_sha)]):
         raise ValueError('immutable owned audit template changed')
@@ -319,7 +350,7 @@ def summarize(campaign, profile):
 
 
 def train(args, profile):
-    study.require_source_contract(args.source_contract, args.source_receipt, args.campaign_root)
+    require_sources(args)
     cfg = read(args.config)
     validate_replica(cfg, args.root, profile)
     before = profile.source_record()['actual_component_SHA256']

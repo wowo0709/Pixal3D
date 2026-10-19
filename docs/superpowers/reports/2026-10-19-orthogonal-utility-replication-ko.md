@@ -8,6 +8,8 @@ scale16의 고정 raw480 최종 비교가 음성이면 준비된 두 후보를 �
 
 각 반복은 global96, DDP2, micro48, accumulation1, raw480을 유지한다. seed101의 실제 recipe를 읽어 seed, 출력 경로, 통신 port, 로깅 이름만 바꾼다. 두 후속 후보는 검증된 workers2를 사용하고, 기존 workers8 Top-1 모델과 비교할 때 실제 dataset/order/RNG parity proof를 요구한다. voxel query의 구현 trainer/chunk 설정은 명시적인 구조 차이로 기록한다. 실행 전후 소스 hash, 실제 epoch별 optimizer/W&B 수치 및 PNG, 최종 frozen base/LoRA/conditioner 상태, GPU cache/AMP/CFG 확인, 최종 128개·93 source·3 noise 재평가가 모두 있어야 재현 결과를 산출한다.
 
+공용 launcher는 native/DDP 검증 후 원본 resolved recipe의 `release_status`와 `microbatch_per_gpu`를 갱신한다. 소스 guard는 실행 코드와 불변 입력의 hash를 고정하고, 두 seed101 recipe는 실제 file4에 보존한 원본과 비교하되 이 두 필드의 허용된 상태 전이만 인정한다. microbatch 값은 48만 허용하며 optimizer, 데이터, batch, step, 모델 설정의 변경은 거부한다. 검증 완료 후의 seed202 recipe에도 같은 검사를 적용한다.
+
 두 optimization seed는 재학습 반복이다. 세 생성 noise는 같은 checkpoint의 sampling 반복이며 별도 학습 seed로 세지 않는다. V1은 고정 checkpoint를 재사용하며 seed202 V1을 새로 학습했다고 표현하지 않는다. source-cluster CI는 학습 seed 모집단의 CI가 아니다. 여러 후보를 살핀 개발 단계라는 한계도 유지한다.
 
 이 단계가 양성이더라도 모델 채택을 완료하지 않는다. 잠근 후보의 추가 source-disjoint SS validation과 같은 구조에서의 decoder/Top-1/native-spatial 비교가 남는다. 예약된 121개는 SS 생성 결과를 아직 보지 않았지만 이전 matching head의 validation에 포함되었으므로 독립 test라고 부르지 않는다. No-score는 Top-1 feature 사용, No-corr은 native spatial correspondence 사용이라는 정의를 유지한다. 기존 joint full의 삭제 실험은 새 후보에 대한 직접적인 모듈 효과로 대체해 해석할 수 없다.

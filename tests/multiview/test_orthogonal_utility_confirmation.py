@@ -63,9 +63,38 @@ def test_replica_preserves_actual_profile_and_rejects_numerical_changes(tmp_path
     assert source == before and cfg['trainer'] == source['trainer']
     assert cfg['training_seed'] == cfg['experiment']['training_seed'] == 202
     assert cfg['master_port'] == module.PORTS[name]
+    launched = copy.deepcopy(cfg)
+    launched['experiment'].update(release_status='native-and-memory-verified', microbatch_per_gpu=48)
+    module.validate_replica(launched, root / 'seed-confirmation-v1', profile)
     changed = copy.deepcopy(cfg); changed['trainer']['args']['batch_size_per_gpu'] = 24
     with pytest.raises(ValueError, match='replica changed'): module.validate_replica(
         changed, root / 'seed-confirmation-v1', profile)
+
+
+def test_source_guard_allows_only_launcher_status_changes_in_prepared_recipes(tmp_path):
+    args = setup(tmp_path)
+    bindings = []
+    receipt = module.read(args.source_receipt)
+    for profile in module.study.PROFILES.values():
+        runtime = args.campaign_root / profile.NAMESPACE / 'configs' / (profile.NAME + '.json')
+        archived = args.source_contract.parent / (profile.NAME + '-original.json')
+        archived.write_bytes(runtime.read_bytes())
+        bindings.append({'runtime_path': str(runtime), 'archived_path': str(archived)})
+        receipt['files'].append({'relative_path': str(archived.relative_to(args.campaign_root.parent)),
+            'sha256': module.sha(archived), 'bytes': archived.stat().st_size})
+        cfg = module.read(runtime)
+        cfg['experiment'].update(release_status='native-and-memory-verified', microbatch_per_gpu=48)
+        save(runtime, cfg)
+    contract = module.read(args.source_contract); contract['prepared_recipe_bindings'] = bindings
+    save(args.source_contract, contract)
+    for row in receipt['files']:
+        if row['relative_path'] == str(args.source_contract.relative_to(args.campaign_root.parent)):
+            row.update(sha256=module.sha(args.source_contract), bytes=args.source_contract.stat().st_size)
+    save(args.source_receipt, receipt)
+    module.require_sources(args)
+    path = Path(bindings[0]['runtime_path']); cfg = module.read(path)
+    cfg['trainer']['args']['max_steps'] = 960; save(path, cfg)
+    with pytest.raises(ValueError, match='numerical recipe changed'): module.require_sources(args)
 
 
 def test_replica_jobs_close_every_epoch_final_and_both_control_comparisons(tmp_path):
