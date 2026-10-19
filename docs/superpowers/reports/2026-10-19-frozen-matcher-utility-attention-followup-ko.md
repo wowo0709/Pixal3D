@@ -14,6 +14,31 @@ Frozen Omega epoch7과R9 D1 decoder/scalar head를 유지한다. 같은 semantic
 
 C1 retargeter·fusion gate·denoiser LoRA는 같은 조건으로 학습한다. Deformation-query channel은 물리적으로 없고 retargeter 입력은2048차원이다. 기존 task 설정의`decoder`/`score_prior`는 forward 경로 존재 여부로 유지하고,새`train_decoder=false`/`train_score=false`가 학습 여부를 명시한다. 이전 Full·No-decoder·No-prior의 기본 동작과 checkpoint key는 그대로 유지한다.
 
+현재 F1의 데이터 흐름은 아래와 같다. 구현된 후보 구조이며 최종 full model로 선정한 것은 아니다. Decoder/score는 frozen 상태로 forward에 참여하고,utility와C1 retargeter·fusion gate·SS LoRA가 학습된다.
+
+```mermaid
+flowchart LR
+    RGB["M1 target RGB + M0 source RGB 3개"] --> DINO["Frozen DINO: target query와source values"]
+    RGB --> Omega["Frozen Omega epoch7: FRAME keys"]
+    Omega --> Candidates["같은 semantic Top64 proposal"]
+    Candidates --> Decoder["Frozen D1 decoder: contextual Omega query"]
+    Decoder --> Score["Frozen scalar matching score / 0.005"]
+    DINO --> Utility["학습 utility logit: 마지막 weight는0으로시작"]
+    Decoder --> Utility
+    Score --> Attention["Softmax of score prior + utility"]
+    Utility --> Attention
+    Attention --> Pool["Source DINO values의가중합"]
+    DINO --> Pool
+    Pool --> R["C1 retargeter: pooled value와target DINO,2048채널입력"]
+    DINO --> R
+    Pool --> Gather["기존 target patch map으로SS voxel에gather"]
+    R --> Gather
+    DINO --> Native["기존4뷰 native projection"]
+    Native --> Fuse["Native + gate times semantic difference + 0.75 R"]
+    Gather --> Fuse
+    Fuse --> SS["SS4210 continuation: frozen base + 학습 LoRA"]
+```
+
 사용자 SS4210에서 fresh seed101,global96/DDP2/micro48/accumulation1,5epoch/480update로 시작한다. 기존 native LoRA continuation·데이터·optimizer/LR·warmup25·validation32/12steps/CFG3·final128×3/생성batch8 조건을 유지한다. 기존 DeformNeXt world-v4 train9149/validation508과 RGB/Omega/DINO/proposal/projection cache를 재사용하며 새 raw/depth/matching 데이터 구축은 없다. GPU2/3의 이미 실행 중인 No-retargeter Top1 seed202는 유지하고 F1은 GPU0/1을 사용한다.
 
 초기 native condition의 exact equality,실제 SS loss의 LoRA·fusion·retargeter gradient,temporary restored probe의 utility gradient와 matching decoder/score gradient0을 검사한다. DDP 두 update memory probe에서 micro48/accumulation1·각rank batch/유한 loss를 확인하고 benchmark optimizer를 재사용하지 않는다. 예상 optimizer state는371개(LoRA360+C1의6+utility5)이며 실제 값과 frozen matcher24개 tensor를 따로 검사한다. 매epoch validation/W&B 수치·그림,실제 raw checkpoint·optimizer·file4 대조를 유지한다.
