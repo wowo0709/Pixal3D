@@ -32,3 +32,13 @@ Soft-prior 후보는 이전의 고정 C1/T0.05나 matcher까지 공동 학습하
 이 검사는 index-only loader에서 pin_memory=False를 사용했다. 전체 실데이터 GPU 공급 속도·GPU copy timing·전체 GPU 수치 재현을 증명하지 않는다. 새로운 recipe는 이 실제 source/order proof SHA를 요구하며,시작 시 실제 DDP48 benchmark와 초기 loss/GT/noise identity를 추가 확인한다. Loader와 해당 proof metadata를 제외한 모델·optimizer·데이터 설정의 차이를 별도로 대조한다.
 
 현재110개 관련 CPU 검사가 통과했다. Synthetic gate/receipt 사례는 pytest temp에만 생성했고 실제 성능 근거로 쓰지 않는다. 두 후속 모델은 아직 본 학습이나 품질 개선을 완료하지 않았다. 실제로 기준을 통과하는 후보의 추가 training seed,decoder 물리 제거·Top1 No-score·native-spatial No-corr의 효과,원래 예약121개 source-disjoint 평가는 별도로 남아 있다.
+
+실제 source·초기 recipe·worker parity·두 모델 초기35개 state/데이터/optimizer 대조와 실행 분기36개 파일은 file4 SHA/크기 대조를 마쳤다. 현재125개 queue에는 두 본 학습이 아닌 조건부 factory가 추가돼 있다. 실제 음성이 확정되면 후보당17개 작업을 추가한다. Standalone voxel proof는 `verification/voxel-query-c1/standalone-native-v1`에 저장하고,본 학습 proof는 그 부모에서 별도로 생성한다. 이전 준비 recipe도 immutable copy로 보존했다.
+
+## 추가 관측과 평가 범위
+
+뒤이어 scale16 step274/275는772.2/2875.9초,Top1+C1 seed202 step372/373는771.5/2874.2초가 기록됐다. 약1시간의 동시 지연 이후 각17초대로 복귀했다. 복귀 시점 host memory PSI full avg300은60.59%,available RAM은118.46GiB,swap 사용은8GiB였다. 두 본 학습 PID는 그대로였고,GPU OOM은 관측하지 않았다. `load_seconds`가0에 가까워도 `run_step`에는 이후 CPU→GPU 전송이 포함되므로 이를 GPU kernel 자체의 지연이라고 단정하지 않는다. 단일 원인 확정이나 향후 ETA 보장은 하지 않는다.
+
+예약121개는 **SS development128과 source가 분리된 추가 validation**이다. 기존 matching-head train9143개와 asset/source 중복은0이지만,이전 matching-head validation508개에는121개가 전부 포함돼 있었다. 실제 head의0–7epoch 검증 기록과 manifest를 대조했고,최종24개 head tensor가 저장된 epoch7과 같음도 확인했다. 당시 실제 source commit은`808820d836e411a3a2555379705446c5889537ff`이며 마지막 저장은 사전 지정한 epoch 수를 사용했다.
+
+따라서121개를 모든 학습·검증 과정에서 완전히 관측하지 않은 독립 test로 표현하지 않는다. 이 확인에서는 sample ID·기존 head 기록만 읽었고,예약 패널·noise를 변경하거나 SS 생성 결과를 열지 않았다. 원래 helper가 명시한 것처럼 동일 validation split 안에서 고정된 SS 후보를 추가 검증하는 범위로 유지한다.
