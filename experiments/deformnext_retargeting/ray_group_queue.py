@@ -21,8 +21,13 @@ from .summarize_ss_module_study import audit_final_replay, audit_training
 
 
 MODULE = 'experiments.deformnext_retargeting.ray_group_queue'
-ORDER = ['ray-full', 'ray-weighted', 'ray-top1', 'ray-native-spatial', 'ray-no-decoder']
-PAIRS = {name: (['0', '1'] if name in {'ray-weighted', 'ray-native-spatial'} else ['2', '3']) for name in ARMS}
+ORDER = ['ray-full', 'ray-weighted', 'ray-top1', 'ray-native-spatial', 'ray-no-decoder', 'ray-no-score-prior']
+PAIRS = {name: (['0', '1'] if name in {'ray-weighted', 'ray-native-spatial', 'ray-no-decoder', 'ray-no-score-prior'} else ['2', '3']) for name in ARMS}
+
+
+def native_proof_folder(root, name):
+    version = 'cohost-score-prior-native-v1' if name == 'ray-no-score-prior' else 'cohost-final-native-v4'
+    return root / 'verification' / name / version
 
 
 def read(path):
@@ -48,8 +53,8 @@ def arm_jobs(args, name):
     jobs = make_jobs(root, previous, name, PAIRS[name], [], 101, prefix='')
     jobs[0]['command'][3] = 'experiments.deformnext_retargeting.ray_group_study'
     training = jobs[0]['name']
-    jobs[0]['requires'] += [str(args.source_receipt), str(root / 'verification' / name /
-        'cohost-final-native-v4/ray-source-binding-proof.json')]
+    jobs[0]['requires'] += [str(args.source_receipt), str(native_proof_folder(root, name) /
+        'ray-source-binding-proof.json')]
     for job in jobs:
         job['requires'].append(str(args.source_receipt))
     qa = qa_job(root, root, name, 101, previous / 'panels/panel-128.json')
@@ -109,7 +114,7 @@ def queue(args):
     jobs = []
     for name in ORDER:
         validate_profile(read(args.root / 'configs' / (name + '.json')), args.root)
-        folder = args.root / 'verification' / name / 'cohost-final-native-v4'
+        folder = native_proof_folder(args.root, name)
         binding, proof = read(folder / 'ray-source-binding-proof.json'), read(folder / 'native-proof.json')
         if (binding['component_SHA256'] != current['component_SHA256'] or not binding['source_stable_through_execution']
                 or proof['status'] != 'PASS' or proof['optimizer_updates'] != 0
@@ -117,13 +122,13 @@ def queue(args):
             raise ValueError('actual current-source ray hardware native proof required: ' + name)
         jobs += arm_jobs(args, name)
     dependencies = [j['name'] for j in jobs if j['name'].startswith(('audit-final-', 'functional-QA-', 'final-'))]
-    summary = 'summarize-five-ray-arms-fixed-final'
+    summary = 'summarize-six-ray-arms-fixed-final'
     jobs.append({'name': summary, 'resource': 'cpu', 'priority': 2, 'depends_on': dependencies,
-        'outputs': [str(args.root / 'fixed-final-report.json'), str(args.root / 'fixed-final-report.md')],
+        'outputs': [str(args.root / 'six-arm-fixed-final-report.json'), str(args.root / 'six-arm-fixed-final-report.md')],
         'command': cpu() + ['-m', MODULE, '--mode', 'summarize', '--root', str(args.root)]})
     jobs.append(close_job(args.root, args.root.parent, args.work_root, args.previous_work,
-        'close-five-ray-arms-fixed-final', [summary],
-        [args.root / 'fixed-final-report.json', args.root / 'fixed-final-report.md'], args.root / 'fixed-final-file4.json'))
+        'close-six-ray-arms-fixed-final', [summary],
+        [args.root / 'six-arm-fixed-final-report.json', args.root / 'six-arm-fixed-final-report.md'], args.root / 'six-arm-fixed-final-file4.json'))
     commands_from_stage(jobs, stage)
     path = args.work_root / 'queue-jobs.json'
     before = path.read_bytes()
@@ -136,7 +141,7 @@ def queue(args):
     declaration = args.root / 'queue-declaration-v1.json'
     write_new(declaration, {'status': 'PREPARED_FOR_QUEUE', 'source_commit': current['commit_at_entry'],
         'source_contract_SHA256': sha(args.source_contract), 'source_receipt_SHA256': sha(args.source_receipt),
-        'jobs': jobs, 'training_runs': 5, 'training_seed': 101, 'GPUs': [0,1,2,3],
+        'jobs': jobs, 'training_runs': len(ARMS), 'training_seed': 101, 'GPUs': [0,1,2,3],
         'training_budget': 'Each freshSS4210/raw480/global96/DDP2/micro48/acc1;native gate and actual2-updateDDP48 benchmark before each main.',
         'query_unit': 'source-camera ray group,common to all arms', 'retargeter': 'common to all arms',
         'model_adopted': False, 'reserved121_accessed': False})
@@ -147,10 +152,10 @@ def queue(args):
     os.replace(temporary, path)
     write_new(args.root / 'queue-installed-v1.json', {'status': 'QUEUED_NOT_TRAINED', 'new_jobs': len(jobs),
         'total_jobs': len(existing + jobs), 'declaration_SHA256': sha(declaration), 'stage': str(stage)})
-    print(json.dumps({'status': 'QUEUED_NOT_TRAINED', 'new_jobs': len(jobs), 'training_runs': 5}), flush=True)
+    print(json.dumps({'status': 'QUEUED_NOT_TRAINED', 'new_jobs': len(jobs), 'training_runs': len(ARMS)}), flush=True)
 
 
-def summarize(root):
+def summarize(root, report_stem='six-arm-fixed-final-report'):
     campaign = root.parent
     initial = read(campaign / 'seven-arm-final-report.json')['training_audits']['static-c1']['initial_iou']
     records, inputs, audits = {}, [], {}
@@ -197,18 +202,33 @@ def summarize(root):
     zeros, paths = zero_records(campaign)
     records.update(zeros)
     inputs += paths
-    pairs = [('ray-full', name) for name in ['ray-top1','ray-weighted','ray-native-spatial','ray-no-decoder']]
+    pairs = [('ray-full', name) for name in ['ray-top1','ray-weighted','ray-native-spatial','ray-no-decoder','ray-no-score-prior']]
     pairs += [('ray-weighted','ray-top1')]
     pairs += [(name, base) for name in ARMS for base in ['v1','old-top1-R',*zeros]]
     contrasts = {candidate+'-vs-'+base:compare([(str(n),records[base][n],records[candidate][n]) for n in range(3)])
                  for candidate,base in pairs}
-    report = {'status':'PASS_FIVE_RAY_ARMS_FIXED_FINAL_EXPLORATORY_REPORT',
+    current = source_record()['component_SHA256']
+    lineage = root / 'score-prior-control-v1/source-isolation.json'
+    parent = read(lineage)['parent_components_SHA256'] if lineage.exists() else current
+    registry = 'experiments/deformnext_retargeting/ray_group_study.py'
+    if set(parent) != set(current) or any(parent[k] != current[k] for k in parent if k != registry):
+        raise ValueError('score-prior extension changed a tensor model/data/trainer component')
+    for name in ARMS:
+        binding = read(root / 'verification' / name / 'ray-source-binding-train.json')
+        allowed = [current] if name == 'ray-no-score-prior' else [parent, current]
+        if not binding['source_stable_through_execution'] or binding['component_SHA256'] not in allowed:
+            raise ValueError('actual per-arm numerical source lineage differs: ' + name)
+    if lineage.exists():
+        inputs.append(lineage)
+    report = {'status':'PASS_SIX_RAY_ARMS_FIXED_FINAL_EXPLORATORY_REPORT',
         'models':{name:aggregate(values) for name,values in records.items()}, 'contrasts':contrasts,
         'training_audits':audits, 'training_seed':101, 'model_adopted':False,
         'scope':'Common ray-group query/R,raw480,fixed128/93source clusters,three generation noises;one training seed,exploratory contrasts without multiplicity correction. No training-seed replication or held-out-test claim.',
         'native_spatial_scope':'Original native spatial3 versus semantic64;natural candidate count differs.',
         'no_decoder_scope':'Physical D1 removal with D1-selected frozen scalar initialization;conditional ablation,not optimally retrainedD0.',
         'historical_scope':'Old Top1-R has a different query unit;context only. Both zero baselines score identical desiredM1:fourM0RGB versus oneM1+threeM0RGB.',
+        'score_prior_scope':'Full versus score-prior-off holds ray queries, RAW64 support, frozen D1, learned utility and R constant. Official No-score remains Top1.',
+        'source_lineage':'All12 tensor model/data/trainer components identical;only recipe/validation registry extended for scalar score-prior removal.',
         'inputs':[{'path':str(p),'sha256':sha(p)} for p in dict.fromkeys(inputs)]}
     lines=['# Shared camera-ray query: fixed-final report','','| Model | IoU | F1 |','| --- | ---: | ---: |']
     lines += [f"| {name} | {v['micro_voxel_iou']:.6f} | {v['micro_voxel_f1']:.6f} |" for name,v in report['models'].items()]
@@ -217,8 +237,8 @@ def summarize(root):
         lo,hi=value['paired_cluster_bootstrap_ci95']
         lines.append(f"| {name} | {100*value['gain']:+.3f} | [{100*lo:+.3f},{100*hi:+.3f}] |")
     lines += ['',report['scope'],'',report['native_spatial_scope'],'',report['no_decoder_scope'],'',report['historical_scope']]
-    write_new(root / 'fixed-final-report.json', report)
-    with (root / 'fixed-final-report.md').open('x') as stream:
+    write_new(root / (report_stem + '.json'), report)
+    with (root / (report_stem + '.md')).open('x') as stream:
         stream.write('\n'.join(lines)+'\n')
 
 
@@ -250,9 +270,15 @@ def main():
     for name in ['epoch-sha','final-sha']:
         p.add_argument('--'+name)
     args=p.parse_args()
+    if args.source_contract is not None or args.source_receipt is not None:
+        if args.source_contract is None or args.source_receipt is None:
+            p.error('source contract and actual receipt must be supplied together')
+        require_source_contract(args.source_contract, args.source_receipt, args.root.parent)
     if args.mode=='queue':queue(args)
     elif args.mode=='summarize':summarize(args.root)
     else:value(args)
+    if args.source_contract is not None:
+        require_source_contract(args.source_contract, args.source_receipt, args.root.parent)
 
 
 if __name__=='__main__':main()

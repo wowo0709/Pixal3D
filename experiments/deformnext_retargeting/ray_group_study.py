@@ -21,6 +21,7 @@ ARMS = {
     'ray-native-spatial': ('native-spatial-attention', True),
     'ray-no-decoder': ('semantic-attention', False),
     'ray-weighted': ('semantic-weighted', True),
+    'ray-no-score-prior': ('semantic-attention', True),
 }
 STATIC = {'ray-top1', 'ray-weighted'}
 SOURCES = [
@@ -46,7 +47,7 @@ def recipe(source, root, name):
         correspondence_mode='native-spatial' if name == 'ray-native-spatial' else 'semantic',
         candidate_aggregation='top1' if name == 'ray-top1' else 'weighted', score_temperature=.05)
     spec['task_attention'] = (None if name in STATIC else dict(decoder=ARMS[name][1],
-        score_prior=True, train_decoder=False, train_score=False, content_mode='residual-zero',
+        score_prior=name != 'ray-no-score-prior', train_decoder=False, train_score=False, content_mode='residual-zero',
         initial_content_scale=16., chunk_size=64))
     for args in [cfg['dataset']['args'], cfg['validation']['dataset_args']]:
         args.update(match_root=None, task_matching_features=False)
@@ -60,7 +61,7 @@ def recipe(source, root, name):
         matching_query_source='mean edited-target FRAME over same ray group;fresh frozen RAW64 retrieval',
         retarget_query_source='mean edited-target native DINO over same ray group',
         matching_temperature=.05, matching_decoder='frozen D1-Q2C' if ARMS[name][1] else 'physically removed D1 blocks',
-        matching_score_prior=True, matching_head_frozen=True, physical_deformation_query_channels=0,
+        matching_score_prior=name != 'ray-no-score-prior', matching_head_frozen=True, physical_deformation_query_channels=0,
         correspondence='original native spatial3' if name == 'ray-native-spatial' else 'fresh ray-level frozen Omega RAW64',
         utility_mode='none;exact matched Top1 feature' if name == 'ray-top1' else 'zero-output residual utility,scale16',
         optimizer_expected_states=366 if name in STATIC else 371,
@@ -71,6 +72,8 @@ def recipe(source, root, name):
     cfg['experiment']['source_commit'] = source_record()['commit_at_entry']
     if name == 'ray-weighted':
         cfg['experiment']['utility_mode'] = 'frozen score-weighted Top64;no utility module'
+    elif name == 'ray-no-score-prior':
+        cfg['experiment']['utility_mode'] = 'learned utility without scalar score prior;same RAW64/D1/R'
     validate_profile(cfg, root)
     return cfg
 
@@ -98,7 +101,7 @@ def validate_profile(cfg, root):
         candidate_aggregation='top1' if name == 'ray-top1' else 'weighted', score_temperature=.05)
     if any(spec.get(key) != value for key, value in expected.items()) or spec.get('deformation_dim') is not None:
         raise ValueError('common ray/native C1 architecture,matching and physical no-DQ contract differs')
-    task = (None if name in STATIC else dict(decoder=ARMS[name][1], score_prior=True,
+    task = (None if name in STATIC else dict(decoder=ARMS[name][1], score_prior=name != 'ray-no-score-prior',
         train_decoder=False, train_score=False, content_mode='residual-zero', initial_content_scale=16., chunk_size=64))
     if spec.get('task_attention') != task:
         raise ValueError('ray attention,Top1 or physical decoder ablation differs')

@@ -1,5 +1,6 @@
 """Shared ray queries, user-defined controls, native zero start and actual gradients."""
 from contextlib import nullcontext
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -8,13 +9,13 @@ from pixal3d.modules.ray_group_matching import RayGroupConditioner
 from experiments.deformnext_retargeting.task_attention_controls import task_value_context
 
 
-def fixture(mode='semantic-attention', decoder=True):
+def fixture(mode='semantic-attention', decoder=True, score_prior=True):
     torch.manual_seed(813)
     cfg = dict(arm='c1', implementation='r9-native-v5', key_dim=1024, value_dim=1024,
         query_dim=1024, topk=64, hidden_dim=256, score_temperature=.5,
         projection_mode='native-bilinear', ray_mode=mode, ray_chunk_size=4)
     if mode.endswith('attention'):
-        cfg['task_attention'] = dict(decoder=decoder, score_prior=True, train_decoder=False,
+        cfg['task_attention'] = dict(decoder=decoder, score_prior=score_prior, train_decoder=False,
             train_score=False, content_mode='residual-zero', initial_content_scale=16., chunk_size=4)
     if mode == 'native-spatial-attention':
         cfg['correspondence_mode'] = 'native-spatial'
@@ -29,6 +30,40 @@ def fixture(mode='semantic-attention', decoder=True):
     if mode == 'native-spatial-attention':
         data.update(spatial_keys=torch.randn(1, 96, 3, 1024), spatial_values=torch.randn(1, 96, 3, 1024))
     return model, data
+
+
+def test_score_prior_removal_keeps_learned_utility_and_context_but_ignores_scalar_scores():
+    model, data = fixture(score_prior=False)
+    with torch.no_grad():
+        model.fusion_gate.fill_(.2)
+        model.retargeter.net[-1].weight.normal_(std=.001)
+        model.task_attention.content_output.weight.normal_(std=.02)
+        normal = model(**data)
+        score = model.q2c.fusion_head.forward
+        def changed_score(*args):
+            original = score(*args)
+            return 3 * original + torch.linspace(-2, 2, original.shape[-1])[None]
+        with patch.object(model.q2c.fusion_head, 'forward', side_effect=changed_score):
+            altered = model(**data)
+        assert torch.equal(normal.attention.candidate_indices, altered.attention.candidate_indices)
+        assert torch.equal(normal.attention.candidate_weights, altered.attention.candidate_weights)
+        assert torch.equal(normal.map_delta, altered.map_delta)
+        model.task_attention_config['score_prior'] = True
+        enabled = model(**data)
+        with patch.object(model.q2c.fusion_head, 'forward', side_effect=changed_score):
+            perturbed = model(**data)
+        assert not torch.equal(enabled.attention.candidate_weights, perturbed.attention.candidate_weights)
+        model.task_attention_config['score_prior'] = False
+        from pixal3d.modules.ray_group_matching import contextual_query
+        def changed_context(*args):
+            value = contextual_query(*args)
+            return value + torch.linspace(-.1, .1, value.shape[-1])[None]
+        with patch('pixal3d.modules.ray_group_matching.contextual_query', side_effect=changed_context):
+            contextual = model(**data)
+        assert not torch.equal(normal.attention.candidate_weights, contextual.attention.candidate_weights)
+    assert len(model.q2c.decoder.blocks) == 1
+    assert len([k for k in model.state_dict() if k.startswith('task_attention.')]) == 5
+    assert model.retargeter.input_dim == 2048
 
 
 @pytest.mark.parametrize('amp', [False, True])

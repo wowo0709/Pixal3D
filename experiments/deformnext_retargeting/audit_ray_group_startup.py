@@ -80,7 +80,8 @@ def audit(args):
     entry = read(root / 'verification' / name / 'entry-source-contract.json')
     if entry['component_SHA256'] != source_record()['component_SHA256']:
         raise ValueError('executed numerical ray source differs')
-    contract = read(root / 'provenance/prelaunch-v3/source-contract.json')
+    contract = read(getattr(args, 'prepared_source_contract', None)
+                    or root / 'provenance/prelaunch-v3/source-contract.json')
     archived = [Path(row['archived_path']) for row in contract['runtime_components']
                 if Path(row['runtime_path']) == root / 'configs' / (name + '.json')]
     if len(archived) != 1:
@@ -133,6 +134,7 @@ def main():
     p.add_argument('--work-root',type=Path,required=True)
     p.add_argument('--arm',choices=list(ARMS),required=True)
     p.add_argument('--expected-sha',required=True)
+    p.add_argument('--prepared-source-contract',type=Path)
     audit(p.parse_args())
 
 
