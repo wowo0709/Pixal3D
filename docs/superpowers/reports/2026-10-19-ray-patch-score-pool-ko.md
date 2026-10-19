@@ -48,7 +48,9 @@ Full raw480의 실제 두 사례 RGB-cachedDINO/Omega/camera 입력에서 원래
 
 첫 SS launcher는 native lazy import 도중 namespace package의 확장 경로가 재계산되어 새 helper import에 실패했다. 모델 생성 전의 실패였으며 원본 로그를 보존했다. 명시적인 package path list를 사용하는 새 namespace에서 실행했고 두 SS 평가가 정상 종료했다. Identity 두 helper의 source는 바꾸지 않았다. Identity driver의 첫 metadata type 오류도 보존하고 원래 산술·검사 조건을 유지하여 전체 증명을 다시 실행했다.
 
-현재 고정 score 평균 prototype을 긴 학습으로 승격하지 않는다. 진행 중인 여섯 arm의 최종 비교를 완료하면서, correspondence의 보완 정보를 잃는 지점과 기존 양성 R의 query/carrier를 함께 검토한다. 한 가지 후속 가설은 target-alpha로 제한한 query를 source-camera ray로 다시 투영할 때 consumer 영역이 어떻게 달라지는가이다. 코드는 source-ray delta를 native ProjGrid로 투영하지만 target-alpha consumer mask를 다시 적용하지 않는다. 이 사실만으로 실패 원인이나 bug를 확정하지 않으며, projection energy와 입력-only counterfactual로 별도 검증해야 한다.
+현재 고정 score 평균 prototype을 긴 학습으로 승격하지 않는다. 진행 중인 여섯 arm의 최종 비교를 완료하면서, correspondence의 보완 정보를 잃는 지점과 기존 양성 R의 query/carrier를 함께 검토한다. 한 가지 후속 가설은 target-alpha로 제한한 query를 source-camera ray로 다시 투영할 때 consumer 영역이 어떻게 달라지는가이다. 코드는 source-ray delta를 native ProjGrid로 투영하지만 target-alpha consumer mask를 다시 적용하지 않는다.
+
+이후 실제 cached-RGB/DINO/Omega32개 입력과 Full480에서 측정한 projected condition correction의 squared-L2 energy 중 **46.71%가 입력 M1 target-alpha foreground 밖**에 있었다. 이는 voxel 오차율이나 GT mask 기반 metric이 아니다. Source ray가 여러 target ray를 가로지르는 전달 범위를 측정한 것이며, 바깥 보정이 기존 M0 geometry를 억제하는 데 유용할 가능성도 있다. 따라서 실패 원인이나 bug를 확정하지 않는다. 다음에는 GT-free input-alpha consumer control로 R 성분과 전체 보정을 구분하여 SS 성능을 검사해야 한다. 이 진단도 기존 모델·학습·query를 변경하지 않았다. 결과는 `diagnostics/ray-write-consumer-energy-v1/audit.json`이다.
 
 ## 실제 산출물
 
