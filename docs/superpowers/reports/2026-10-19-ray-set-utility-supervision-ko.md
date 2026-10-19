@@ -66,3 +66,14 @@ Epoch7−원래 head의 IoU 차이는 **−0.14231 percentage points**, source-c
 Union 조건에서 head7−원래 head는 +0.085604 pp, CI[-0.355475,+0.399408] pp였다. 후보 coverage 증가와 이번 조합이 SS 향상으로 연결된 증거는 없으며 두 조건을 승격하지 않는다. `ray-proposal-union-control-v1/quality-pilot-v1/summary.json`에 paired 입력·GT·noise·source 및 실제 control4회/32개 검증과 모든 contrast를 보존했다.
 
 별도의 같은 계산 모드128개×3 생성 noise 비교에서도 기존 ray Full0.433994, 가중합0.434168로 Full−가중합은 -0.017377 pp, CI[-0.088001,+0.046097] pp였다. 두 모델의 독립32→128 exact replay 및 실제 file4 closure가 검증됐다. 원본은 `deterministic-evaluation-v1/study-v1/interim-full-vs-weighted-128x3-v1/`다. 학습 seed는 여전히1개이고 전체6-arm 판정을 대신하지 않는다.
+
+이어 Top-1과 native-spatial까지 같은128×3 평가와 exact replay/file4 closure를 마쳤다.
+
+| 완료한 ray arm / 고정 raw480 | 128×3 micro IoU |
+| --- | ---: |
+| Full | 0.433994 |
+| 고정 score 가중합 | 0.434168 |
+| Top-1 | 0.434027 |
+| Native-spatial | 0.436203 |
+
+Full−Top-1은 -0.003287 pp, CI[-0.104668,+0.105238] pp, 가중합−Top-1은 +0.014090 pp, CI[-0.079573,+0.118863] pp였다. Full−native-spatial도 -0.220902 pp, CI[-0.566998,+0.109282] pp로0을 포함했다. 현재 query/carrier 조건에서 Top-K 조합의 추가 SS 이득을 확인하지 못했다. `interim-four-ray-arms-128x3-v1/file4-closure.json`에 실제 입력 결과와 source binding을 검증한 비교를 닫았다. 두 나머지 arm과 같은 계산 모드 V1·기존 R·zero-shot baselines는 계속 진행하며, 기존32개 중간값을 이 표와 합산하지 않는다.
