@@ -26,8 +26,11 @@ def validate_profile(cfg, root):
     scale = task.pop('initial_content_scale', None)
     if isinstance(scale, bool) or scale != INITIAL_SCALE:
         raise ValueError('strength study requires explicit initial_content_scale=16')
-    if cfg['experiment']['arm'] != NAME or cfg['training_seed'] != 101:
-        raise ValueError('declared fresh seed101 utility-strength arm required')
+    confirmation = root.name == 'seed-confirmation-v1' and root.parent.name == NAMESPACE
+    expected_seed = 202 if confirmation else 101
+    if (cfg['experiment']['arm'] != NAME or cfg['training_seed'] != expected_seed
+            or cfg['experiment'].get('training_seed') != expected_seed):
+        raise ValueError('declared fresh utility-strength seed and confirmation namespace required')
     expected_recipe = (root / 'configs' / (NAME + '.json')).resolve()
     expected_run = (root / 'runs_ss64' / NAME).resolve()
     if (Path(cfg['config']).resolve() != expected_recipe

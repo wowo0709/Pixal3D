@@ -32,8 +32,8 @@ def read(path):
     return json.loads(path.read_text())
 
 
-def decision_supported(report):
-    if (report['candidate'] != NAME or report['model_adopted'] is not False
+def decision_supported(report, *, candidate_name=NAME):
+    if (report['candidate'] != candidate_name or report['model_adopted'] is not False
             or report['full_goal_complete'] is not False
             or report['first_round_negative_preserved'] is not True):
         raise ValueError('actual frozen-utility development decision required')
@@ -209,24 +209,30 @@ def verify_closed_audit(folder, campaign):
     return read(audit)
 
 
-def summarize(root, campaign):
+def summarize(root, campaign, *, candidate_name=NAME, profile_validator=validate_profile,
+              fixed_reference_sources=None):
+    require_closed_decision(root / 'fixed-final-decision-v1.json',
+                            root / 'fixed-final-report-file4.json', campaign)
     development = read(root / 'fixed-final-decision-v1.json')
-    if not decision_supported(development):
+    if not decision_supported(development, candidate_name=candidate_name):
         raise ValueError('no eligible development candidate')
+    for item in development['inputs']:
+        if hashlib.sha256(Path(item['path']).read_bytes()).hexdigest() != item['sha256']:
+            raise ValueError('development input changed before seed confirmation')
     folder, base = root / 'seed-confirmation-v1', campaign / 'seed-confirmation-v1'
-    cfg = read(folder / 'configs' / (NAME + '.json'))
-    validate_profile(cfg, folder)
+    cfg = read(folder / 'configs' / (candidate_name + '.json'))
+    profile_validator(cfg, folder)
     if cfg['training_seed'] != 202:
         raise ValueError('fresh training seed202 required')
     training, records, models, inputs = {}, {}, {}, []
-    for arm, location in [(NAME, folder), *[(name, base) for name in CONTROLS]]:
+    for arm, location in [(candidate_name, folder), *[(name, base) for name in CONTROLS]]:
         training[arm] = audit_training(location, arm, development['training_audit']['initial_iou'])
         paths = [location / 'evaluations' / arm / f'noise-{noise}/evaluation.json' for noise in range(3)]
         records[arm] = [read(path) for path in paths]
         for value in records[arm]:
             validate_evaluation(value)
         training[arm]['final128_replays_epoch32'] = audit_final_replay(training[arm], records[arm][0])
-        qa_path = (root if arm == NAME else campaign) / 'functional-QA-v1' / ('s202-' + arm) / 'summary.json'
+        qa_path = (root if arm == candidate_name else campaign) / 'functional-QA-v1' / ('s202-' + arm) / 'summary.json'
         qa = read(qa_path)
         recipe = location / 'configs' / (arm + '.json')
         recipe_cfg = read(recipe)
@@ -271,34 +277,51 @@ def summarize(root, campaign):
                 inputs.extend([audit_folder / 'audit.json', audit_folder / 'file4-closure.json'])
         models[arm] = aggregate(records[arm])
         inputs.extend([recipe, qa_path, *paths])
-    job = 'confirm-seed202-train-' + NAME
+    job = 'confirm-seed202-train-' + candidate_name
     final_folder = root / 'final-weight-audits-v1' / job
     epoch_folders = [root / 'epoch-audits-v1' / job / f'epoch{n:02d}' for n in range(1, 6)]
     final = verify_closed_audit(final_folder, campaign)
     epochs = [verify_closed_audit(path, campaign) for path in epoch_folders]
-    qa_path = root / 'functional-QA-v1' / ('s202-' + NAME) / 'summary.json'
+    qa_path = root / 'functional-QA-v1' / ('s202-' + candidate_name) / 'summary.json'
     validate_saved_audits(final, read(qa_path), epochs, training_seed=202)
-    training[NAME]['task_branch_gradients'] = task_gradient_audit(folder, NAME)
+    training[candidate_name]['task_branch_gradients'] = task_gradient_audit(folder, candidate_name)
     for path in [final_folder, *epoch_folders]:
         inputs.extend([path / 'audit.json', path / 'file4-closure.json'])
-    first_records = [read(root / 'evaluations' / NAME / f'noise-{n}/evaluation.json') for n in range(3)]
-    for noise, value in enumerate(records[NAME]):
+    first_records = [read(root / 'evaluations' / candidate_name / f'noise-{n}/evaluation.json') for n in range(3)]
+    for noise, value in enumerate(records[candidate_name]):
         previous = {row['sample_id']: row for row in first_records[noise]['per_asset']}
         for row in value['per_asset']:
             if any(row[key] != previous[row['sample_id']][key] for key in [
                     'source_cluster_id', 'seed', 'target_voxels_sha256', 'target_voxel_shape']):
                 raise ValueError('seed confirmation changed development inputs or generation noise')
-    contrasts = {arm: compare([(str(n), records[arm][n], records[NAME][n]) for n in range(3)])
-                 for arm in CONTROLS}
+    fixed_labels = []
+    for label, (location, arm) in (fixed_reference_sources or {}).items():
+        if label in records or label not in development['contrasts']:
+            raise ValueError('fixed reference label collides or lacks a development contrast')
+        paths = [location / 'evaluations' / arm / f'noise-{n}/evaluation.json' for n in range(3)]
+        records[label] = [read(path) for path in paths]
+        for value in records[label]:
+            validate_evaluation(value)
+        models[label] = aggregate(records[label])
+        inputs.extend(paths)
+        fixed_labels.append(label)
+    compared = [*CONTROLS, *fixed_labels]
+    contrasts = {arm: compare([(str(n), records[arm][n], records[candidate_name][n]) for n in range(3)])
+                 for arm in compared}
     replicated = all(supported(value) for value in contrasts.values())
     result = {
         'status': 'PASS_ACTUAL_FROZEN_UTILITY_SEED202_COMPARISON',
+        'candidate': candidate_name,
         'positive_CI_and_all3noise_direction_at_both_training_seeds': replicated,
-        'per_training_seed_contrasts': {'101': {arm: development['contrasts'][arm] for arm in CONTROLS},
+        'per_training_seed_contrasts': {'101': {arm: development['contrasts'][arm] for arm in compared},
                                         '202': contrasts},
+        'fixed_reference_labels_reused_without_new_training': fixed_labels,
+        'fixed_reference_scope': 'Fixed checkpoints reused at both candidate seeds; '
+                                 'these references are not independently retrained at seed202.',
         'models': models, 'training_audits': training,
         'inputs': [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
-                   for p in dict.fromkeys([root / 'fixed-final-decision-v1.json', *inputs])],
+                   for p in dict.fromkeys([root / 'fixed-final-decision-v1.json',
+                                            root / 'fixed-final-report-file4.json', *inputs])],
         'scope': 'Two independent optimization seeds on the same development128/93sources/3noises. '
                  'Same-retargeter Top1 effect compared at both seeds; conditional source-cluster CIs, '
                  'no training-seed population interval or independent test claim.',

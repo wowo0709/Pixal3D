@@ -291,3 +291,17 @@ F1의 모든 generation·GPU QA·주소 진단·saved480 CPU 진단이 완료된
 완료된 F1의 두 CPU audit watcher는 모든 실제 file4 target을 확인한 후 정상 종료해 약5.74GiB PSS를 회수했다. 남아 있던 원래 phase와 scale16의 최종 tensor auditor도 raw480/epoch05를 기다리는 동안 base tensor를 보유하고 있어,실제 완료 후 실행하도록 옮겨 약8.35GiB PSS를 추가 회수했다. 총 약14.09GiB이며,GPU 학습은 같은 PID로 이어갔다.
 
 최종 tensor 검사의 구현·SHA 및 원래 품질 조건은 유지한다. 실제 training completion과 epoch05 canonical receipt가 준비되면 기존 auditor를 실행하고,필요한 실제 receipt 생성 후 종료하는 CPU 작업 두 개를 예약했다. Child lifecycle/source-hash 거부 검사 두 개가 통과했다. Synthetic 검사는 별도 temp에만 보존했고 모델 성능 증거로 사용하지 않았다. 이 변경은 pending 최종 검사를 생략하거나 학습의 optimizer·sampler·seed·microbatch를 바꾼 것이 아니다.
+
+## Scale16 첫 에폭과 재현 분기 준비
+
+실제 step96의 W&B 네 metric·PNG·371개 optimizer state와 raw checkpoint/file4 대조가 완료됐다. 같은32개/한 생성 noise의 IoU는 scale16이0.437854,scale4 F1이0.436888,Top1+C1이0.437187,기존 C1이0.436335,V1이0.432148,기존 joint Full이0.438333이었다. Source4M0 zero-shot은0.394997,edited1M1+3M0 zero-shot은0.426715로 같은 기준을 유지했다.
+
+Scale16−scale4는+0.097pp,[+0.009,+0.205]pp,기존 C1 대비+0.152pp,[+0.042,+0.275]pp였다. 그러나 Top1+C1 대비는+0.067pp,[−0.047,+0.208]pp로0을 포함했다. V1 대비+0.571pp,[−0.397,+1.441]pp,joint Full 대비−0.048pp,[−0.150,+0.043]pp였다. 한 에폭/common32/한 training seed의 탐색적 비교이며,여러 모델·에폭을 관찰한 무보정 CI다. 이를 최종 모델 선정이나 Top-K의 추가 효과 확정으로 사용하지 않는다.
+
+같은 saved96/원래128개/9,883query의 CPU FP32 진단에서 실제 content scale은4.0013 대16.0109였다. Utility span median은0.1118→0.5202,prior에 대한 DINO value relative RMS 변화는0.0914%→0.4369%,argmax 변경 비율은0.0708%→0.3339%였다. 보정 크기는 커졌지만 실효K는 양쪽 모두 약1.231로 여전히 Top1에 집중됐다. Prior gap이 utility span보다 큰 query도99.01%→94.90%였다. 이는 correspondence 정확도가 아니며,이 계산은 GPU AMP numerical replay나 SS generation 평가와 별도다.
+
+`utility_strength_confirmation.py`는 실제 raw480/128×3 결정이 기준을 통과할 때만 seed202를 추가한다. 원래 SS4210에서 fresh optimizer로 같은5에폭/global96/DDP2/micro48/accumulation1,scale16·frozen head·LR을 유지하며,별도 port30445/W&B run을 쓴다. 같은 retargeter Top1과 no-retargeter Top1의 실제 seed202 결과·다섯 epoch/file4·saved-state/GPU QA를 모두 요구한다. V1은 기존 고정 checkpoint를 재사용해 seed202 후보와도 비교하며,V1을 두 seed로 다시 학습했다고 표현하지 않는다.
+
+Seed202 profile은 명시적인 `utility-strength-followup-v1/seed-confirmation-v1` namespace와 두 training-seed metadata가202일 때만 허용했다. 현재 seed101의 validator 조건은 유지한다. 최종 tensor 검사는 기존 구현의 stop/status 이름만 replica용으로 바꾸고,실제 completion/epoch05 receipt 이후에 실행해 종료하도록 구성했다. Negative development 결과에서는 새 recipe·GPU 작업을 만들지 않는다. 두 seed 모두 두 Top1 대조 및 같은 고정 V1 대비 조건을 통과해야 재현 성공으로 기록하며,모델 채택과 예약121개 평가는 별도로 남긴다.
+
+관련 CPU 검사57개와 실제 두 대조 recipe·고정 SS4210 continuation·미래7개 작업의 dependency preflight가 통과했다. Synthetic positive/negative count 사례로 올바른 새 후보 경로와,Top1을 이겨도 고정 V1 비교가 실패하면 재현을 거부하는 조건을 검사했다. 현재 실제 scale16 최종 결과는 없으므로 seed202 recipe·학습·예약121개 generation을 생성하거나 완료했다고 주장하지 않는다.
