@@ -174,7 +174,7 @@ class DeformationAwareConditioner(nn.Module):
             if implementation != 'r9-native-v5' or arm != 'c1' or value_dim != 1024 or query_dim != 1024:
                 raise ValueError('task candidate attention supports explicit SS C1 only')
             required_fields = {'decoder', 'score_prior', 'chunk_size'}
-            optional_fields = {'train_decoder', 'train_score', 'content_mode'}
+            optional_fields = {'train_decoder', 'train_score', 'content_mode', 'initial_content_scale'}
             if not required_fields <= set(task_attention) or set(task_attention)-required_fields-optional_fields:
                 raise ValueError('task attention requires explicit decoder/score/chunk contract')
             if (not isinstance(task_attention['decoder'],bool) or not isinstance(task_attention['score_prior'],bool)
@@ -201,7 +201,8 @@ class DeformationAwareConditioner(nn.Module):
                 # fork_rng(devices=[]) restores only CPU state. Seed the CPU
                 # generator directly so DDP ranks retain their own RNG.
                 torch.random.default_generator.manual_seed(20261018)
-                self.task_attention = TaskCandidateAttention(content_mode=task_attention.get('content_mode','cosine'))
+                self.task_attention = TaskCandidateAttention(content_mode=task_attention.get('content_mode','cosine'),
+                    initial_content_scale=task_attention.get('initial_content_scale', 4.))
 
     def _validate(
         self,

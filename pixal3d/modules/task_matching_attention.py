@@ -16,15 +16,18 @@ class TaskCandidateAttention(nn.Module):
     contextual query path. No exact-match confidence or GT is consumed.
     """
 
-    def __init__(self, width=1024, hidden=128, content_mode='cosine'):
+    def __init__(self, width=1024, hidden=128, content_mode='cosine', initial_content_scale=4.):
         super().__init__()
         if content_mode not in {'cosine', 'residual-zero'}:
             raise ValueError('unknown candidate content-attention mode')
+        if (isinstance(initial_content_scale, bool) or not isinstance(initial_content_scale, (int, float))
+                or not math.isfinite(initial_content_scale) or not 0 < initial_content_scale <= 20):
+            raise ValueError('initial content scale must be finite, positive and at most20')
         self.content_mode = content_mode
         self.query = nn.Linear(width, hidden, bias=False)
         self.context = nn.Linear(width, hidden, bias=False)
         self.key = nn.Linear(width, hidden, bias=False)
-        self.log_content_scale = nn.Parameter(torch.tensor(math.log(4.)))
+        self.log_content_scale = nn.Parameter(torch.tensor(math.log(initial_content_scale)))
         for layer in [self.query, self.context, self.key]:
             nn.init.xavier_uniform_(layer.weight)
         if content_mode == 'residual-zero':

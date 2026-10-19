@@ -230,3 +230,44 @@ Utility만 읽은 counterfactual은 실효K59.32로 넓지만,현재 prior에 �
 Fresh frozen prior와 cached prior의 argmax는 전부 같았고,평균 total variation은1.17e-6,value relative RMS는1.05e-6이었다. 이 패널에서는 cache/head 불일치가 실질적인 설명이라는 근거가 없다. Task 경로와 기존 categorical 경로의 scale/max-subtraction 순서 차이는 probability 최대3.64e-6이었다. 이를 모델 구현 오류나 성능 차이로 해석하지 않는다.
 
 이 진단으로 다음 후보에서 utility의 보정 강도를 독립적으로 검증할 근거가 생겼다. 최종 F1 결과가 음성이면,frozen decoder/score·semantic64·T0.005·native 시작 출력·나머지 optimizer를 그대로 둔 채 utility 초기 scale만 높인 후보를 먼저 비교할 수 있다. 초기 output weight0이므로 scale을 높여도 시작 attention은 prior와 같아야 한다. 이는 아직 구현·GPU 검증·학습·품질 향상이 완료된 후보가 아니며,현재 F1이나 진행 중인 Top1+C1 seed202의 설정은 바꾸지 않는다.
+
+## 실제 5에폭 완료와 최종 attention 진단
+
+F1은 raw480/5에폭을 완료했다. 다섯 epoch의 실제 W&B 네 수치·PNG·optimizer371개·micro48/accumulation1·raw checkpoint/file4 대조가 통과했다. 최종 tensor 검사에서도 frozen base701개가 SS4210과 같았고,LoRA360개는 갱신됐으며,matching decoder18개·score6개는 원래 R9와 같았다. 저장된 최종 모델의 두 실제 사례 GPU 검사는 RGB/cache·BF16 AMP·CFG 경로와 frozen head 보존을 통과했다.
+
+Common32/한 noise의 마지막 IoU는0.453291,Top1+C1은0.454022,기존 C1은0.453849,V1은0.434837이었다. F1−Top1+C1은−0.073pp,[−0.286,+0.060]pp,기존 C1 대비−0.056pp,[−0.175,+0.054]pp,V1 대비+1.845pp,[+0.377,+3.360]pp였다. Epoch4→5 변화는+0.330pp,[−0.160,+0.912]pp였다. 이는 최종128×3 선정 결과가 아니며,그 generation 평가가 진행 중이다.
+
+실제 saved480의 원래128개/9,883query도 다시 진단했다. 모든 input과 frozen prior의 Top1 logit margin은 step384와 같았다. Learned attention의 실효K는1.231547,prior는1.231470이었다. Prior argmax 변경은1.184%,가중합 DINO value relative RMS 변화는1.280%였다. Utility span median은1.482391로 늘었지만,prior margin median7.227585에 비해 작고86.178% query에서 prior gap이 utility span보다 컸다. Content scale은4에서4.039566으로만 변했다. 저장된 실제 attention이 보정하는 범위가 최종 epoch에도 작다는 기록이며,correspondence 정확도나 품질 원인 증명은 아니다.
+
+같은 misc480의 bias-corrected RMS/(RMS+eps) median은 utility query0.6157,context0.7576,key0.8435였다. Epsilon1e-8과 기존 두 optimizer group은 그대로였고,misc480 hash/size를 실제 epoch05 file4 receipt와 대조했다. 초기 epsilon damping은 학습 중 줄었으므로,이를 현재 품질 정체의 단독 원인으로 간주하지 않는다. Step480 attention/optimizer 결과 네 파일도 별도 실제 file4 SHA/size 대조를 마쳤다.
+
+## 보정 강도 후보의 격리 준비
+
+다음 후보는 `utility-scale16-c1`이다. 같은 frozen D1/score·semantic64·T0.005에서 utility 초기 scale만4→16으로 바꾼다. 출력층은0으로 시작하고,optimizer state371개·C1 입력2048채널·LoRA/optimizer/LR·5에폭/global96/DDP2/micro48/accumulation1은 유지한다. 아직 최종 full model로 선정한 구조가 아니다.
+
+기존 F1의 GPU 평가가 읽는 code를 유지하기 위해 별도 작업 사본에서 구현했다. CPU 검사87개,기존 기본 설정의 FP32/CPU BF16 출력·state exact equality,실제 F1 recipe와 두 Top1 대조 recipe의 정합 검사가 통과했다. Scale16은 초기 prior 출력이 scale4와 같았고,utility output 첫 gradient가4배였다. 이 CPU 수치는 실제 SS 학습 속도나 개선 결과가 아니다. 별도 recipe/output/W&B/port30444 경로를 사용하도록 검사했고,source/preflight 아홉 파일을 실제 file4에 저장·대조했다.
+
+현재 새 모델의 GPU native·DDP 최대 배치 검사와 본 학습은 아직 시작하지 않았다. F1의 고정128×3·value-address 진단이 끝나고 실제 결정이 음성이면,기존 결과를 보존한 채 이 후보를 새 SS4210에서 검증·학습한다. F1이 기준을 통과하면 이미 준비한 seed202 재현 경로를 따른다. Top1+C1 seed202의 건강한 학습은 계속 유지한다.
+
+## F1 고정 최종 결과와 다음 후보
+
+02:55 UTC에 raw480/development128·93source·3noise의 실제 최종 결정과 file4 대조가 완료됐다. F1은 `NO_FROZEN_UTILITY_IMPROVEMENT_CONFIRMED`였으며,조건부 seed202 F1 학습은 추가하지 않았다. 기존 모든 결과·모델·선정 기준은 보존했다.
+
+| 고정 최종128×3,seed101 | Micro IoU |
+| --- | ---: |
+| Zero source4M0 | 0.380711 |
+| Zero edited1M1+3M0 | 0.419275 |
+| V1 | 0.432650 |
+| No-retargeter Top1 | 0.434529 |
+| Top1+C1 | 0.442757 |
+| 기존 frozen C1 T0.005 | 0.442193 |
+| 기존 joint Full | 0.439236 |
+| 새 F1,frozen prior+utility | 0.442268 |
+
+F1−Top1+C1은 **−0.049pp,[−0.131,+0.021]pp**이고,세 sampling noise 모두 point gain이 음수였다. 기존 C1 대비+0.008pp,[−0.021,+0.035]pp로 utility의 추가 이득이 확인되지 않았다. V1 대비+0.962pp,[+0.553,+1.350]pp,no-retargeter Top1 대비+0.774pp,[+0.391,+1.155]pp였다. 이전 joint Full 대비는+0.303pp,[+0.077,+0.577]pp였으나,여러 구조·학습 설정이 함께 달라 matcher 고정만의 효과로 귀속하지 않는다. 한 optimization seed의 탐색적 source-cluster CI이며 sampling noise 세 개를 세 training seed로 세지 않는다.
+
+같은 raw480/common32/noise0의 correspondence 값 주소 진단은 정상0.453291,주소만 derange한 조건0.446419였다. Key·score·weight·valid support·query별 value multiset을 유지한 상태에서 정상 연결의 이득은 **+0.687pp,[+0.039,+1.362]pp**였다. 정상 경로는 같은 모델 최종128의 해당32개 subset과 정확히 재현됐다. 이는 이 고정 패널에서 score/value 주소 연결을 사용하는 근거이며,정확한 Top1 correspondence 정확도나 native-spatial No-corr 학습 arm의 결과가 아니다.
+
+동일 GT hash·source·noise의 네 조건을 함께 bootstrap한 F1 대 joint Full의 주소 민감도 차이는+0.652pp,[+0.067,+1.250]pp였다. 이 역시 common32/단일 noise/한 training seed의 탐색적 전체 모델 차이다. 온도·head 학습·utility 형식이 함께 달라,개별 decoder/score/utility의 인과 효과로 분해하지 않는다. 실제 진단·source 열 파일도 file4 SHA/size 대조를 완료했다.
+
+F1의 모든 generation·GPU QA·주소 진단·saved480 CPU 진단이 완료된 뒤에만,격리 검증한 scale16 관련 여섯 source/test 파일을 작업 브랜치로 옮겼다. 다음 후보는 동일한 native/backward·DDP 최대 배치 검사를 먼저 통과해야 한다. 5에폭과 fixed128×3,같은 retargeter Top1 대조 및 F1 자체와의 비교를 유지하고,성공 시에만 추가 training seed와 예약121개 평가로 진행한다. 아직 새 후보의 품질 개선이나 최종 모델 채택을 선언하지 않는다.

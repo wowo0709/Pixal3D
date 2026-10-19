@@ -73,19 +73,20 @@ def validate_saved_audits(final, qa, epochs, *, training_seed=101):
             raise ValueError('epoch budget/optimizer/actual W&B evidence differs')
 
 
-def summarize(root, campaign):
-    if root.resolve() != (campaign / 'frozen-utility-followup-v1').resolve():
+def summarize(root, campaign, *, name=NAME, namespace='frozen-utility-followup-v1',
+              profile_validator=validate_profile, extra_sources=None):
+    if root.resolve() != (campaign / namespace).resolve():
         raise ValueError('follow-up must use its declared campaign namespace')
-    cfg = read(root / 'configs' / (NAME + '.json'))
-    validate_profile(cfg, root)
+    cfg = read(root / 'configs' / (name + '.json'))
+    profile_validator(cfg, root)
     if cfg['training_seed'] != 101 or cfg['ckpt'] != 'none':
         raise ValueError('fresh original-SS4210 seed101 recipe required')
     original = read(campaign / 'seven-arm-final-report.json')
     decision = read(campaign / 'candidate-selection-v1.json')
     if decision['status'] != 'NO_PROMISING_COMBINATION_YET' or decision['selected_candidate'] is not None:
         raise ValueError('preserved negative first-round decision differs')
-    training = audit_training(root, NAME, original['training_audits']['static-c1']['initial_iou'])
-    records = {NAME: [read(root / 'evaluations' / NAME / f'noise-{n}/evaluation.json') for n in range(3)]}
+    training = audit_training(root, name, original['training_audits']['static-c1']['initial_iou'])
+    records = {name: [read(root / 'evaluations' / name / f'noise-{n}/evaluation.json') for n in range(3)]}
     previous = campaign.parent / 'ss-seed-confirmation-v1'
     sources = {
         'v1': (previous, 'v1'), 'previous-c1': (previous, 'c1'),
@@ -94,24 +95,28 @@ def summarize(root, campaign):
         'task-full': (campaign, 'task-full'),
         'task-native-spatial': (campaign, 'task-native-spatial'),
     }
-    inputs = [root / 'configs' / (NAME + '.json'), campaign / 'candidate-selection-v1.json',
+    for label, source in (extra_sources or {}).items():
+        if label in sources or label in records or label in MODES:
+            raise ValueError('extra comparison label collides with a declared model')
+        sources[label] = source
+    inputs = [root / 'configs' / (name + '.json'), campaign / 'candidate-selection-v1.json',
               campaign / 'seven-arm-final-report.json']
-    for name, (base, arm) in sources.items():
+    for label, (base, arm) in sources.items():
         paths = [base / 'evaluations' / arm / f'noise-{n}/evaluation.json' for n in range(3)]
-        records[name] = [read(path) for path in paths]
+        records[label] = [read(path) for path in paths]
         inputs.extend(paths)
-    inputs.extend(root / 'evaluations' / NAME / f'noise-{n}/evaluation.json' for n in range(3))
+    inputs.extend(root / 'evaluations' / name / f'noise-{n}/evaluation.json' for n in range(3))
     for values in records.values():
         for value in values:
             validate_evaluation(value)
     zeros, zero_inputs = zero_records(campaign)
     records.update(zeros)
     inputs.extend(zero_inputs)
-    training['final128_replays_epoch32'] = audit_final_replay(training, records[NAME][0])
-    training['task_branch_gradients'] = task_gradient_audit(root, NAME)
-    final_folder = root / 'final-weight-audits-v1' / ('train-' + NAME)
-    epoch_folders = [root / 'epoch-audits-v1' / ('train-' + NAME) / f'epoch{n:02d}' for n in range(1, 6)]
-    qa_path = root / 'functional-QA-v1' / ('s101-' + NAME) / 'summary.json'
+    training['final128_replays_epoch32'] = audit_final_replay(training, records[name][0])
+    training['task_branch_gradients'] = task_gradient_audit(root, name)
+    final_folder = root / 'final-weight-audits-v1' / ('train-' + name)
+    epoch_folders = [root / 'epoch-audits-v1' / ('train-' + name) / f'epoch{n:02d}' for n in range(1, 6)]
+    qa_path = root / 'functional-QA-v1' / ('s101-' + name) / 'summary.json'
     validate_saved_audits(read(final_folder / 'audit.json'), read(qa_path),
                           [read(folder / 'audit.json') for folder in epoch_folders])
     inputs.extend([qa_path, final_folder / 'audit.json'])
@@ -127,12 +132,12 @@ def summarize(root, campaign):
                 or entries[0]['bytes'] != audit_path.stat().st_size):
             raise ValueError('closed audit bytes differ from the actual file4 receipt')
         inputs.extend([path, folder / 'audit.json'])
-    contrasts = {name: compare([(str(n), records[name][n], records[NAME][n]) for n in range(3)])
-                 for name in [*sources, *MODES]}
-    eligible = all(supported(contrasts[name]) for name in ['v1', 'static-top1-c1', 'top1-reference'])
+    contrasts = {label: compare([(str(n), records[label][n], records[name][n]) for n in range(3)])
+                 for label in [*sources, *MODES]}
+    eligible = all(supported(contrasts[label]) for label in ['v1', 'static-top1-c1', 'top1-reference'])
     report = {
         'status': 'PROMISING_FROZEN_UTILITY_REQUIRES_CONFIRMATION' if eligible else 'NO_FROZEN_UTILITY_IMPROVEMENT_CONFIRMED',
-        'candidate': NAME, 'eligible_for_training_seed_confirmation': eligible,
+        'candidate': name, 'eligible_for_training_seed_confirmation': eligible,
         'models': {name: aggregate(values) for name, values in records.items()},
         'contrasts': contrasts, 'training_audit': training,
         'inputs': [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size}
