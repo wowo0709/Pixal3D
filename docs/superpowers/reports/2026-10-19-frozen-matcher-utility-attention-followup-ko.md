@@ -149,3 +149,31 @@ Step192의 실제 checkpoint/optimizer, 두 rank의 micro48·accumulation1 기�
 Final128의 IoU/F1와 paired CI,common32의 epoch curve,common32의 value-address 진단은 각각 다른 이름으로 기록한다. 최종 수치와 진단을 섞지 않고 음수 CI도 보존한다. 모델 weight는 업로드하지 않는다. 공통 publication/readback 코드는 별도 folder·run ID를 받을 수 있도록 확장했고,기존 campaign의 기본 경로·ID는 유지한다. SDK routing·scope·기존 publication 검사34개가 통과했으며,실제 완료된 firstwave reference 데이터128개로 공통 renderer의16-page PDF와 첫8개 PNG를 생성·확인했다. 이 renderer QA에는 새 F1 최종 성능이 포함되지 않는다.
 
 실제 F1 고정 최종 평가와 value-address 진단이 준비되면 render→publish→독립 readback 순서로 실행한다. 새 빈 download cache에서 숫자·table·PNG·artifact byte를 확인한다. 이 리포트는 training seed101의 development 결과만 다루며,성공·실패와 무관하게 seed202·예약121개·모듈별 품질 기여·최종 모델 채택을 완료로 표시하지 않는다. 현재 이 별도 W&B 업로드 및 실제 원격 readback은 아직 실행 전이다.
+
+## 실제 3에폭 결과와 optimizer 변화
+
+Step288의 실제 checkpoint·371개 optimizer state·두 rank micro48/accumulation1·W&B 네 metric/PNG·file4 대조가 완료됐다. 후속 CPU 비교와 실제 Adam moment 검사도 실행했고,moment가 읽은 misc288의 SHA/크기를 해당 epoch의 실제 file4 receipt와 다시 대조했다. `epoch03-observation-v1.json` 및 `epoch03-optimizer-file4.json`에 기록했다.
+
+| 같은32개·단일 생성 noise의 모델 | IoU |
+| --- | ---: |
+| Zero source4M0 | 0.394997 |
+| Zero edited1M1+3M0 | 0.426715 |
+| V1,epoch3 | 0.431872 |
+| Matched Top1+C1,epoch3 | 0.441788 |
+| 기존 C1,epoch3 | 0.443624 |
+| Joint-trained Full,epoch3 | 0.441403 |
+| 새 F1,epoch3 | 0.443527 |
+
+F1−matched Top1+C1은 **+0.174pp,[+0.057,+0.295]pp**였다. 다만 기존 C1 대비는−0.010pp,[−0.084,+0.065]pp로 차이가 없었다. V1 대비+1.166pp,[−0.049,+2.647]pp,Joint-trained Full 대비+0.212pp,[−0.172,+0.579]pp였다. F1의 epoch2→3 변화도+0.166pp,[−0.288,+0.716]pp였다. 중간32개·단일 sampling noise·training seed101의 탐색적 관찰이며,여러 epoch를 확인한 결과다. 이번 Top1 우위를 최종 raw480/final128×3 선정이나 학습 seed 재현으로 해석하지 않는다. 학습 가능한 utility가 기존 고정 Top-K C1을 개선했다는 증거도 아직 없다.
+
+| Parameter | Median RMS/(RMS+eps),step96 | step288 |
+| --- | ---: | ---: |
+| Utility query projection | 0.0667 | 0.3814 |
+| Utility Omega-context projection | 0.1237 | 0.5468 |
+| Utility key projection | 0.1764 | 0.6688 |
+| Utility output weight | 0.9955 | 0.9986 |
+| Retargeter first weight | 0.9847 | 0.9943 |
+
+동일한 `eps=1e-8`에서 query/context/key의 bias-corrected RMS가 커졌고,epsilon이 분모를 지배하는 정도가 줄었다. Query의 RMS가 eps보다 작은 성분 비율은99.60%→72.27%,context는99.46%→40.56%,key는98.87%→19.59%였다. 실제 optimizer는 여전히 기존 두 group,LoRA360 state와 conditioner11 state이며 LR은1e-5/1e-4였다. 이 산술 변화는 utility가 처음의 작은 gradient 구간에서 벗어나고 있다는 기록이지,epsilon이 초기 성능 차이의 확정 원인이었다는 증거가 아니다.
+
+따라서 현재 F1의 optimizer를 유지하고,준비한 utility 전용 epsilon 옵션의 새 GPU 실험을 지금 추가하지 않는다. 고정5에폭의 최종 품질과 step480 moment를 확인한 뒤 필요성을 판단한다. Decoder·score가 고정된 채 실제 사용되는 것과,각 모듈이 최종 품질을 개선하는 것은 계속 구분한다.
