@@ -618,3 +618,11 @@ Full−native-spatial은 +0.389pp, CI [−0.375,+1.259]pp로 불확실했다. Na
 `matching-address-first8-v1/`의 PNG8개와 PDF는 원래 fixed128의 첫8개 asset을 그대로 사용한다. 각 asset의 foreground query를 row-major 순서의 네 mid-quantile에서 선택하고,frozen matching-score Top1·ranks2~4와 완료된 Task-full raw480의 최종 attention Top1을 같은 target M1·source M0 RGB canvas에 표시했다. 이는 현재 학습 중인 frozen-utility 모델의 결과가 아니다. CPU2개만 사용했고 SGD·추가 생성·GT correspondence label·예약121개를 사용하지 않았다.
 
 622개 active query의 실제 선택이 기존 saved128 진단과 일치하고,공유하는 transport/match/target RGB24개 file fingerprint도 기존 canonical 기록과 일치했다. 실제로 확인한 도끼·침대·책장 세 그림에서는 같은 넓은 부위에 모이는 후보와 반복 구조·가림에 따른 위치 모호성이 함께 보였다. 세 그림의 정성 관찰을 전체 데이터의 정답 매칭 정확도나 decoder/score 변경의 품질 인과 효과로 해석하지 않는다. Source-camera/row-major patch 주소를 직접 확인하는 자료이며,생성 품질 효과는 같은 retargeter의 Top1 및 native-spatial 대조와 구분해 평가한다.
+
+## 2D semantic query를 공유하는 실제 voxel 수
+
+현재 semantic task 경로는2D target patch에서 candidate attention과 retargeter를 계산한 뒤,기존 `transport_patch_grid`로3D SS voxel에 gather한다. 실제 첫8개에서 foreground622patch에7579voxel이 대응했고,사용 patch당 평균12.185voxel이 같은2D 결과를 공유했다. 각 case의 평균은8.54~16.83,max는14~21voxel이었다. 같은 nearest-patch bin에 들어간 voxel들이 정확히 같은 물리적 ray 위에 있다고 가정하지 않는다.
+
+원래 `ProjGrid`와 실제 camera·mesh_scale을 사용해 cached RGB DINO map을 CPU FP32로 projection했다. 같은 target-patch group 안에서 group mean을 뺀 RMS를 원래 feature RMS로 나눈 pooled 값은4뷰 native context16.00%,3개 source context21.07%,target-only context6.29%였다. 반복하는 원래2D patch feature를 넣은 대조 통계는2e-6 이하로0을 재현했다. 이 결과는 기존 native 경로에 voxel별로 달라지는 정보가 있음을 확인하며,현재 전체 denoiser가 depth 정보를 갖지 못한다거나 이 공유가 성능 저하의 확정 원인이라는 주장은 아니다. GPU/BF16 수치의 exact replay도 아니다.
+
+자료는 `semantic-patch-voxel-reuse-first8-v1/summary.json`에 있다. Frozen semantic64 prior/value를 유지하고 기존 native voxel context를 utility query로 쓰는 후보를 검토할 근거지만,이 진단에서는 해당 모델을 구현·학습하지 않았다. 현재 F1의5epoch/fixed128×3 판정과 구분하며,추가 데이터나 GT correspondence label을 사용하지 않았다.
