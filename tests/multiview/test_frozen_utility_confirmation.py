@@ -71,8 +71,8 @@ def test_fresh_seed_recipe_preserves_original_matching_module_and_budget(tmp_pat
 
 def test_confirmation_keeps_frozen_entrypoint_and_both_matched_seed_controls(tmp_path):
     jobs = confirmation_jobs(tmp_path / 'F', tmp_path / 'N', tmp_path / 'panels', ['0', '1'],
-                             allowed_gpus=['0', '1', '2', '3'])
-    assert len(jobs) == 6 and jobs[0]['gpus'] == ['0', '1']
+                             allowed_gpus=['0', '1', '2', '3'], work_root=tmp_path / 'W')
+    assert len(jobs) == 7 and jobs[0]['gpus'] == ['0', '1']
     assert 'experiments.deformnext_retargeting.frozen_matcher_utility' in jobs[0]['command']
     assert jobs[0]['depends_on'] == [QUEUE_JOB]
     summary = next(job for job in jobs if job['name'] == SUMMARY_JOB)
@@ -81,7 +81,10 @@ def test_confirmation_keeps_frozen_entrypoint_and_both_matched_seed_controls(tmp
         assert f'functional-QA-s202-{control}' in summary['depends_on']
         for noise in range(3):
             assert f'confirm-seed202-final-{control}-noise{noise}' in summary['depends_on']
-    assert not any('additional-validation' in str(job) for job in jobs)
+    reserved = jobs[-1]
+    assert reserved['name'] == 'queue-frozen-utility-additional121-if-replicated'
+    assert reserved['resource'] == 'cpu' and reserved['depends_on'] == [SUMMARY_JOB]
+    assert not any(job['resource'] == 'evaluation' and 'additional121' in job['name'] for job in jobs)
 
 
 def matched_control(candidate):
@@ -162,11 +165,11 @@ def test_confirmation_rejects_unmatched_training_or_generation(change, tmp_path)
 @pytest.mark.parametrize('devices', [['0', '0'], ['6', '7'], ['0'], ['0', '1', '2']])
 def test_confirmation_cannot_use_unassigned_or_wrong_gpu_count(tmp_path, devices):
     with pytest.raises(ValueError, match='assigned physical GPUs'):
-        confirmation_jobs(tmp_path, tmp_path, tmp_path, devices, allowed_gpus=['0', '1', '2', '3'])
+        confirmation_jobs(tmp_path, tmp_path, tmp_path, devices, allowed_gpus=['0', '1', '2', '3'], work_root=tmp_path / 'W')
 
 
 def test_pure_queue_factory_uses_explicit_assignment_without_a_baked_gpu_list(tmp_path):
-    jobs = confirmation_jobs(tmp_path, tmp_path, tmp_path, ['8', '9'], allowed_gpus=['8', '9'])
+    jobs = confirmation_jobs(tmp_path, tmp_path, tmp_path, ['8', '9'], allowed_gpus=['8', '9'], work_root=tmp_path / 'W')
     assert jobs[0]['gpus'] == ['8', '9']
 
 
@@ -203,7 +206,7 @@ def test_positive_branch_appends_only_after_exact_control_dependencies_exist(tmp
     queue(SimpleNamespace(root=root, work_root=work, campaign_root=tmp_path / 'N',
                           previous_work=tmp_path / 'old', gpus='0,1', allowed_gpus='0,1,2,3'))
     jobs = json.loads((work / 'queue-jobs.json').read_text())
-    assert jobs[:len(original)] == original and len(jobs) == len(original) + 6
+    assert jobs[:len(original)] == original and len(jobs) == len(original) + 7
     assert json.loads((root / 'seed-confirmation-v1/configs' / (NAME + '.json')).read_text())['training_seed'] == 202
     result = json.loads((root / 'seed202-queue-decision-v1.json').read_text())
     assert result['status'] == 'FROZEN_UTILITY_CONFIRMATION_QUEUED'

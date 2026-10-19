@@ -56,7 +56,7 @@ def confirmation_recipe(source, root):
     return cfg
 
 
-def confirmation_jobs(root, campaign, previous_work, devices, *, allowed_gpus):
+def confirmation_jobs(root, campaign, previous_work, devices, *, allowed_gpus, work_root):
     assigned = gpu_ids(','.join(allowed_gpus))
     if len(devices) != 2 or len(set(devices)) != 2 or any(g not in assigned for g in devices):
         raise ValueError('two distinct explicitly assigned physical GPUs required')
@@ -88,6 +88,8 @@ def confirmation_jobs(root, campaign, previous_work, devices, *, allowed_gpus):
                     'experiments.deformnext_retargeting.frozen_utility_confirmation',
                     '--mode', 'summarize', '--root', str(root), '--campaign-root', str(campaign)],
     })
+    from .frozen_utility_additional_validation import factory_job
+    jobs.append(factory_job(root, campaign, work_root, previous_work))
     return jobs
 
 
@@ -165,7 +167,7 @@ def queue(args):
     if allowed is None:
         raise ValueError('explicit allowed-gpus or scheduler assignment required')
     jobs = confirmation_jobs(args.root, args.campaign_root, args.previous_work,
-                             gpu_ids(args.gpus), allowed_gpus=gpu_ids(allowed))
+                             gpu_ids(args.gpus), allowed_gpus=gpu_ids(allowed), work_root=args.work_root)
     queue_path = args.work_root / 'queue-jobs.json'
     old = queue_path.read_bytes()
     existing = json.loads(old)

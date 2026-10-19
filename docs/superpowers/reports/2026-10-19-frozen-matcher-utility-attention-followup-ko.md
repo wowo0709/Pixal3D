@@ -177,3 +177,26 @@ F1−matched Top1+C1은 **+0.174pp,[+0.057,+0.295]pp**였다. 다만 기존 C1 �
 동일한 `eps=1e-8`에서 query/context/key의 bias-corrected RMS가 커졌고,epsilon이 분모를 지배하는 정도가 줄었다. Query의 RMS가 eps보다 작은 성분 비율은99.60%→72.27%,context는99.46%→40.56%,key는98.87%→19.59%였다. 실제 optimizer는 여전히 기존 두 group,LoRA360 state와 conditioner11 state이며 LR은1e-5/1e-4였다. 이 산술 변화는 utility가 처음의 작은 gradient 구간에서 벗어나고 있다는 기록이지,epsilon이 초기 성능 차이의 확정 원인이었다는 증거가 아니다.
 
 따라서 현재 F1의 optimizer를 유지하고,준비한 utility 전용 epsilon 옵션의 새 GPU 실험을 지금 추가하지 않는다. 고정5에폭의 최종 품질과 step480 moment를 확인한 뒤 필요성을 판단한다. Decoder·score가 고정된 채 실제 사용되는 것과,각 모듈이 최종 품질을 개선하는 것은 계속 구분한다.
+
+## Seed 재현 이후 예약121개 평가 연결
+
+`frozen_utility_additional_validation.py`를 준비했다. F1의 고정 development 결과가 기준을 통과하면 기존6개 seed202 작업에 CPU 분기 하나를 추가한다. 이 분기는 실제 seed202 요약의 두 training seed×두 Top1 대조에서 CI와3noise 방향을 다시 확인하고,그 요약을 실제 file4에 저장·대조한다. 재현에 실패하면 음성 결정만 기록하고 예약 패널의 row/outcome이나 GPU 평가를 열지 않는다.
+
+재현에 성공하면 원래 예약한121개·39source와 seed map을 그대로 사용한다. Train·validation manifest hash와 development128/93source의 source-disjoint 조건을 확인한다. 이는 기존 validation 안의 추가 SS generation 평가이며,이전 matcher/flow 진단에서도 전혀 접근하지 않았던 독립 test dataset을 뜻하지 않는다. 현재 실제 preflight에서는 ID·source·manifest·seed metadata만 읽었고,예약 패널의 RGB·latent·새 생성 결과는 읽지 않았다.
+
+| 조건 묶음 | 개수 |
+| --- | ---: |
+| 원래 seed101 development arm8개 | 8 |
+| 기존 V1·기존 C1 | 2 |
+| 두 zero-shot | 2 |
+| 새 F1,seed101 | 1 |
+| 새 F1·no-retargeter Top1·Top1+C1,seed202 | 3 |
+| 합계 | 16 |
+
+원래14조건 계획에서 새 F1 seed101과 seed202의 같은-retargeter Top1 대조를 추가한 구성이다. 새로 모델을 학습하는 단계가 아니라16개 saved-model 조건×3noise,총48개 generation 평가다. 허용 GPU가 비면 evaluation resource로 배치하고,current training과 겹쳐 메모리를 사용하지 않는다. Source-only는camera08을 포함한4M0 RGB,edited 조건은1M1+3M0 RGB다.
+
+평가마다 raw checkpoint/config 경로·step·12 sampling steps·CFG3·batch8·optimizer0update·camera08–11·RGB modality·원래 manifest hash와 panel/seed-map 경로를 확인한다. 모든16×3 조건의 GT64 hash·count·source·noise를 함께 대조한다. Seed별 두 Top1 대조 및 동일한 기존 V1 checkpoint 대비 효과를 별도 CI로 기록하며,두 candidate seed의 V1 비교를 vanilla의 두 training seed 재현으로 표현하지 않는다. Case macro IoU는 보조 metric이다. 결과를 보고 후보를 다시 선택하지 않는다.
+
+48개 평가 이후 CPU summary와 실제 file4 closure를 추가해 총50개 후속 작업을 만든다. Contract·queue decision·최종 JSON/Markdown·48개 metric JSON/PNG의100개 파일을 canonical file4와 대조한다. 원래 Full의 decoder/prior/native 제거 결과는 함께 보고하지만,그 결과로 새 F1의 개별 모듈 효과를 귀속하지 않는다. 모듈별 해석·최종 logging·채택은 후속 검증으로 남긴다.
+
+CPU 검사32개와 실제 예약 metadata/전체 미래 dependency preflight가 통과했다. 실제15개 recipe와 아직 생성하지 않은 F1 seed202의 메모리 내 recipe에서 SS4210 model·LoRA·validation manifest 정합도 확인했다. Synthetic16조건×3noise에서 positive/negative gate·정확한 population·서로 다른 GT 거부를 확인했고,해당 synthetic 결과를 실제 성능으로 저장하지 않았다. 현재 F1/seed202 재현의 최종 결과가 없으므로 이48개 GPU 평가와 예약121개 결과 생성은 아직 실행하지 않았다. 현재 두 학습의 데이터·설정은 유지한다.
