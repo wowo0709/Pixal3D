@@ -52,3 +52,13 @@ Matching도 독립적인 병목이다. 실제 native VAL32에서 추가 Q/K를 �
 최종 checkpoint는480으로 고정한다. 128개/93 source clusters/3 generation noises에서 TP/FP/FN을 모아 IoU를 계산하고 source cluster 단위 paired bootstrap을 사용한다. Generation noise3회는 training seed3회가 아니다. Strong-R·matched-R·V1 대비 CI 하한과 각 noise의 개선을 확인한 뒤 독립 training seed 후속 실험을 판단한다. Matching decoder/Top-K/score의 독립 효과는 새 모델 자체의 적절한 학습 대조군으로 후속 검증해야 한다. No-score=Top1 correspondence feature, No-corr=native spatial correspondence, No-DQ=채널의 물리적 제거라는 사용자 정의를 유지한다.
 
 진행 중인 FullDirect480에는 appearance-only suppression을 fixed480/128×3으로 평가하는 별도 5개 job도 연결되어 있다. 기존 PBR의 native parity/warmup 검사는 반복하지 않고, 준비된 actual capacity/train/eval 계획을 유지한다. 이 문서 작성 시점에는 성능 향상 달성, full model 채택 또는 전체 실험 완료를 선언하지 않는다.
+
+## 본 학습 시작 확인 — 2026-10-19 23:56 UTC
+
+자체 DDP2 capacity가 두 rank 모두 통과했다. Micro48, accumulation1에서 peak50.02418/50.01889GiB,374 optimizer states, 공통366 Adam96→99와 추가8 state0→3, 모든 trainable tensor 변경 및 DDP 일치를 확인했다. 첫 회 초기화가 지난 capacity update98/99는 약17.6초였다.
+
+**GPU2,3 본 학습도 시작하여 step99까지 진행했다.** 별도 evaluator의 초기 일치뿐 아니라, 실제 과학 실험 프로세스의 native 초기32 결과와 두 rank의 첫97 update에 기록된 모든 loss 항목이 closed matched-R 기록과 정확히 같다. Sampler(epoch1/idx48), 공통 Adam366, stage RNG101/102와 공통 optimizer group 설정도 일치한다. Source와 초기화 때문에 시작하자마자 성능이 하락한 상태는 배제했다. 이 확인은 이후 학습의 성능 향상을 보장하지 않는다. W&B: https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-ray-geometry-only-prior-anchored-s101-joint480-v1
+
+기존 input-DQ와 FullDirect는480을 완료했다. 같은32 개발 패널에서 input-DQ0.44830316, FullDirect0.44678401, matched-R0.44655414, historical strong-R0.45402236, V10.43483711이다. FullDirect의 중간 하락 일부가 회복됐지만 matched-R보다 나아졌다는 증거는 없다(+0.0230pp, CI [−0.8433,+1.0055]pp). Strong-R를 넘지도 못했다. 따라서 새 geometry 구조를 이미 성공 모델로 선언하지 않고 고정480/128×3 평가까지 진행한다.
+
+Actual scientific startup 감사 1개 CPU job을 추가하여 queue478개로 연결했다. 추가 전477개 descriptor는 그대로다. 이 감사도 실제 기록을 비교하여 terminal0/실제 file4 closure까지 완료했다.
