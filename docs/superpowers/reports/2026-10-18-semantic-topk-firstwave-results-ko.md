@@ -583,3 +583,32 @@ Full−native-spatial은 +0.389pp, CI [−0.375,+1.259]pp로 불확실했다. Na
 학습 후반의 실제 기록도 확인했다. Full의 step451에서 decoder/score/content gradient가 모두 양수이고, No-decoder는 decoder만0, No-prior는 scalar score만0이었다. 새 native-spatial도 네 번의 validation 이후 step401에서 두 rank의 세 gradient가 모두 양수였다. 이는 후반에도 의도한 경로가 학습됐다는 근거이며 성능 기여 증거와 구분한다. 학습 중 최대 allocated memory는 native-spatial 두 rank59.75/59.39GiB, Top1+C1 두 rank48.00/48.00GiB였다.
 
 전체13개 방법·paired/temporal 비교와 입력은 `wave4-epoch5-comparison-v1/`에 있다. 같은 training seed101의 탐색 CI이며 다중 비교를 보정하지 않았다. 학습 budget·microbatch·학습률·데이터를 변경하지 않았고, 원래 fixed128×3/6후보 선정·조건부 추가 seed/121개·실제 전체 W&B readback·모델 채택은 아직 남아 있다.
+
+## 첫 round: 실제128개·3noise 최종 평가와 선정
+
+이 절이 앞 절들의 중간 진행 상황을 대체한다. 새8개 구조는 모두5epoch/480update를 완료했고, 각 모델의 fixed128/93source·3noise 최종 생성 평가, 실제 saved-weight cache/BF16/CFG 검사, 전체40epoch W&B 수치·이미지 및 optimizer/file4 검사, 최종 frozen base·LoRA·conditioner tensor 검사가 완료됐다. 추가 optimization seed의 학습과 전체 campaign 원격 게시 확인은 아직 완료되지 않았다.
+
+| 방법 | 최종 micro IoU | Voxel F1 |
+| --- | ---: | ---: |
+| Zero source4M0 | 0.380711 | 0.551471 |
+| Zero edited1M1+source3M0 | 0.419275 | 0.590830 |
+| V1 | 0.432650 | 0.603986 |
+| Frozen semantic Top1, retargeter 없음 | 0.434529 | 0.605814 |
+| Frozen semantic soft-Top64, retargeter 없음 | 0.434589 | 0.605873 |
+| 기존 C1, frozen Top64 T0.005 | 0.442193 | 0.613223 |
+| Static-C1, frozen Top64 T0.05 | 0.440938 | 0.612016 |
+| Task-full | 0.439236 | 0.610374 |
+| Task-no-decoder | 0.441023 | 0.612097 |
+| Task-no-prior | 0.440340 | 0.611439 |
+| Task-native-spatial | 0.441701 | 0.612750 |
+| Frozen semantic Top1+C1 | 0.442757 | 0.613765 |
+
+같은 retargeter의 Top1을 기준으로 기존 C1 T0.005는 −0.056pp,95% source-cluster CI[−0.131,+0.007]pp,static T0.05는 −0.182pp,[−0.308,−0.079]pp,Task-full은 −0.352pp,[−0.624,−0.127]pp였다. Retargeter 없는 soft-Top64−Top1은 +0.006pp,[−0.039,+0.050]pp다. 따라서 현재 soft/학습 Top-K가 Top1보다 추가 개선을 만든다는 근거는 없다. Top1+C1−retargeter 없는 Top1은 +0.823pp,[+0.427,+1.222]pp로,retargeter가 다른 대조를 Top-K 자체의 효과로 해석해서는 안 된다. 이 두 run의 전체 training noise stream이 bit-exact라고 주장하지 않는다.
+
+실제 decoder 효과 대조 Full−No-decoder는 −0.179pp,[−0.498,+0.109]pp,scalar matching-score prior 효과 Full−No-prior는 −0.110pp,[−0.398,+0.121]pp,semantic correspondence 경로 대조 Full−native-spatial은 −0.246pp,[−0.660,+0.091]pp였다. 세 대조 모두0을 포함하므로 모듈의 생성 품질 기여가 입증되지 않았다. No-prior는 score prior를 끈 content attention이며,사용자가 정의한 Top1 no-score arm과 다르다. Native-spatial은 원래 camera projection의3개 후보,semantic은64개 patch 후보여서 주소만 바꾸는 인과 실험은 아니다. Gradient와 saved tensor 변화 검사는 의도한 경로의 사용을 확인했으며,품질 개선의 증거와 구분한다.
+
+원본 `seven-arm-final-report.json`, `matched-retargeter-top1-report.json`, `candidate-selection-v1.json`의 실제 선정 결과는 `NO_PROMISING_COMBINATION_YET`, `selected_candidate:null`이다. 최고 점수는 Top1+C1이며 semantic Top-K utility 모델로 채택하지 않는다. CI는 한 training seed101에 조건부인 탐색 결과이며 다중 비교를 보정하지 않았다. 양수였던 중간 epoch를 선택해 이 최종 결론을 바꾸지 않는다.
+
+동일 noise0·원래 순서의 첫8개 asset에서8개 학습 모델과 두 zero-shot의 GT/Pred 투영 이미지를 직접 확인했다. Source-only zero-shot이 학습 모델보다 나은 사례와 방법별 우열이 달라지는 사례가 모두 있었다. 투영 silhouette가 비슷해도3D IoU가 다를 수 있어 이 그림만으로 hidden-depth 오류나 축 정합 오류를 단정하지 않는다. 실제 PNG/PDF와 검토 기록은 `wave4-noise0-first8-v1/`에 보존했고 관련26개 파일의 실제 file4 SHA 검증이 통과했다.
+
+후속 실험은 [frozen matcher utility 계획](2026-10-19-frozen-matcher-utility-attention-followup-ko.md)에 따른다. Frozen decoder/score와 초기 가중합을 보존하고 zero-start utility attention만 추가해 검사한다. 원래 음성 결과는 보존하며,새 모델도 같은 retargeter의 Top1과 V1을 넘어서는지 raw480/fixed128×3로 판단한다.

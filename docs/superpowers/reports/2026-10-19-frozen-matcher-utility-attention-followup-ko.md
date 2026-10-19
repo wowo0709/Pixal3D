@@ -23,3 +23,13 @@ C1 retargeter·fusion gate·denoiser LoRA는 같은 조건으로 학습한다. D
 원래 raw480/fixed128×3에서 V1과 같은 retargeter의 Top1 대비 paired source-cluster CI가 양수이고3noise 모두 같은 개선 방향이어야 개선 후보로 인정한다. 기존 C1 및 No-retargeter Top1 대비 결과도 함께 보고한다. Best epoch를 고르거나 initial/native equality 및 gradient 통과를 품질 개선으로 간주하지 않는다.
 
 F1이 통과하면 fresh seed202 F1과 matched Top1+C1 seed202를 병렬 학습해 Top-K utility의 추가 효과도 두 optimization seed에서 검증한다. 이미 진행 중인 No-retargeter Top1 seed202는 전체 조합의 추가 기준선으로 재사용한다. 그 뒤 원래 예약한source-disjoint additional121/39source에서 고정 모델과 기준선을 비교하며,이 validation panel을 독립 미사용 test라고 부르거나 결과로 후보를 다시 고르지 않는다. 현재는 CPU 경로 검사61개를 통과한 구현 단계이며,실제 GPU 정합·memory proof·F1 본 학습·성능 향상은 아직 완료되지 않았다.
+
+## 실제 시작 검사: 2026-10-19 UTC
+
+위 구현 시점 이후 실제 GPU 정합·DDP memory proof를 통과했다. 실제 sample의 초기 global/projection condition은 native와 exact equality였고,LoRA/fusion/retargeter gradient는 양수,decoder/score gradient는0이었다. 원상복원하는 임시 probe에서 utility gradient도 확인했다. 실제2update DDP에서 두 rank 모두 micro48/global96/accumulation1·유한 loss를 확인했고,최대 allocated memory는50.464/50.336GiB,두 번째 update 계산 시간은17.263/17.295초였다. 이는 본 학습 전체의 OOM 보장이 아니다.
+
+2update saved conditioner의24개 decoder/score tensor가 실제 R9 initializer와 정확히 같았다. Adam state371개가 모두 step2·유한 moment였고,zero-initialized utility output의256개 weight가 모두 갱신됐다(L2 norm 약1.321e-5). Retargeter 입력도2048채널로 확인했다. 이 benchmark optimizer는 본 학습에 재사용하지 않았다. 본 학습은 원래 SS4210에서 새로 시작해 초기 validation을 수행 중이며,이 기록 시점에는 본 SGD나 품질 개선을 완료했다고 주장하지 않는다.
+
+첫 launch에서는 생성한 실행 recipe의 `ckpt`/`load_dir`가 JSON null이어서 memory benchmark가 optimizer update 전에 종료됐다. 실패 config·native proof·launch log·queue 상태를 `launch-attempts/attempt01-null-resume-option/`에 보존했다. 기존 runtime이 요구하는 `ckpt="none"`, `load_dir=""` 문자열로 수정하고 해당5개 job만 재개했다. 이미 학습 중인 Top1 seed202 process는 유지했고,scheduler만 정상 종료·재개해 동일 PID의 학습을 이어갔다. 잘못된 fresh 옵션을 모델 로딩 전에 거부하는 검사도 추가했다.
+
+`summarize_frozen_utility_followup.py`는5epoch·실제 W&B 그림/수치·file4 audit bytes·saved tensor/optimizer·GPU conditioning 검사와 fixed raw480/128×3을 모두 확인한 후 V1/같은 retargeter Top1/retargeter 없는 Top1을 비교한다. 판정 결과가 양수여도 모델 채택은false이며 추가 seed/121개 검증이 필요하다. 새로운 실패 거부 검사11개가 통과했다. 이11개 unit test는 실제 모델 품질 근거로 사용하지 않는다.
