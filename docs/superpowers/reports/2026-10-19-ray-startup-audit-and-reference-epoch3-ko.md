@@ -6,7 +6,7 @@
 
 각 ray arm에 CPU-only startup audit을 연결한다. 실제 main의 rank0/1 첫3 update, 실제2-update DDP benchmark,초기 common32 예측을 저장해 검사한다. Global96/DDP2/micro48/acc1,finite loss/compute/memory,실제 native-conditioning zero-start,현재13개 numerical component SHA256,준비된 model/data/trainer/validation recipe 동등성을 확인한다. 초기32개별 GT hash·generation noise·TP/FP/FN·4개 voxel metric은 V1 및 기존 Top1-R의 학습 전 결과와 정확히 같아야 한다. 이 검사는 학습 완료나 향후 OOM 부재를 보장하지 않는다.
 
-신규 verifier 회귀 검사2개를 통과했다. Aggregate IoU가 같더라도 GT/noise/count/order 변경을 거부하고,rank 누락·accumulation 변경·비정상 메모리/시간 값을 거부한다. 추가로 실제 기존V/P의 initial32와 두 rank 첫3 update 자료에도 검사를 적용해 통과했다. 새 ray run 자료가 아닌 historical-input 검증이라는 범위를 구분한다.
+신규 verifier 회귀 검사3개를 통과했다. Aggregate IoU가 같더라도 GT/noise/count/order 변경을 거부하고,rank 누락·accumulation 변경·비정상 메모리/시간 값을 거부한다. Main job이 terminal인데 첫3 update가 없으면 대기하지 않고 실패를 알리는 검사도 포함한다. 추가로 실제 기존V/P의 initial32와 두 rank 첫3 update 자료에도 검사를 적용해 통과했다. 새 ray run 자료가 아닌 historical-input 검증이라는 범위를 구분한다.
 
 ## 기존 arm의 닫힌 epoch3 결과
 

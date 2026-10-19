@@ -1,9 +1,14 @@
 """An unchanged aggregate metric cannot hide changed GT or DDP execution."""
 import copy
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from experiments.deformnext_retargeting.audit_ray_group_startup import verify_initial, verify_ranks
+from experiments.deformnext_retargeting import audit_ray_group_startup as startup
 
 
 def initial():
@@ -47,3 +52,20 @@ def test_actual_startup_rejects_accumulation_missing_rank_and_nonfinite_measurem
         changed[1][0][field]=float('nan')
         with pytest.raises(ValueError,match='DDP/microbatch'):
             verify_ranks(changed,first_steps=[1,2,3])
+
+
+def test_auditor_does_not_keep_waiting_for_a_terminal_main(tmp_path,monkeypatch):
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES','')
+    root=tmp_path/'ray-group-study-v1'
+    run=root/'runs_ss64/ray-full'
+    run.mkdir(parents=True)
+    for rank,filename in [(0,'runtime_batch.jsonl'),(1,'runtime_batch.rank1.jsonl')]:
+        (run/filename).write_text(json.dumps(ranks()[rank][0])+'\n')
+    work=tmp_path/'queue'
+    work.mkdir()
+    (work/'queue-state.json').write_text(json.dumps({'train-ray-full':{'status':'FAILED','returncode':1}}))
+    args=SimpleNamespace(root=root,work_root=work,arm='ray-full',
+        expected_sha=hashlib.sha256(Path(startup.__file__).read_bytes()).hexdigest())
+    with pytest.raises(RuntimeError,match='terminal without three saved updates'):
+        startup.audit(args)
+    assert not (root/'startup-audits-v1/ray-full/summary.json').exists()
