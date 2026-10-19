@@ -50,6 +50,15 @@ def test_complete_saved_evidence_can_reach_quality_comparison(complete_evidence)
     validate_saved_audits(*complete_evidence)
 
 
+def test_seed202_audits_require_explicit_confirmation_seed(complete_evidence):
+    final, qa, epochs = copy.deepcopy(complete_evidence)
+    for epoch in epochs:
+        epoch['training_seed'] = 202
+    with pytest.raises(ValueError, match='epoch budget'):
+        validate_saved_audits(final, qa, epochs)
+    validate_saved_audits(final, qa, epochs, training_seed=202)
+
+
 @pytest.mark.parametrize('change', ['unfrozen', 'no-utility-learning', 'partial-epochs',
                                    'wrong-budget', 'local-only-logging', 'GPU-proof-with-SGD', 'nonfinite'])
 def test_incomplete_or_different_execution_cannot_claim_quality(complete_evidence, change):

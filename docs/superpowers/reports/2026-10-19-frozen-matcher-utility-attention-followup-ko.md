@@ -129,3 +129,13 @@ Step192의 실제 checkpoint/optimizer, 두 rank의 micro48·accumulation1 기�
 | V1 | +0.743 | [−0.421,+1.973] |
 
 1에폭에서는 Top1+C1보다−0.030pp였고2에폭에는 평균이 앞섰지만,아직 위 네 대조의 CI가 모두0을 포함한다. 32개 샘플·단일 생성 noise·training seed101의 중간 결과로 개선을 확정하지 않는다. 고정 raw480/final128×3 평가 및 학습 seed 재현 기준은 유지한다. 비교 source는 `compare_frozen_utility_epochs.py`,실제 결과는 외부 campaign의 `frozen-utility-followup-v1/early-progress-v1/epoch02-common32-with-zero-comparison-v1.json`에 기록했다.
+
+## 최종 결과에 따른 재현 분기
+
+`frozen_utility_confirmation.py`는 실제 file4 대조를 마친 최종 결정과 원본 입력 hash를 확인한다. Raw480/final128×3에서 V1·no-retargeter Top1·같은 retargeter의 Top1 대비 각각 CI 하한이 양수이고 모든 생성 noise에서 이득이 있을 때만,원래 SS4210에서 fresh training seed202의 F1을 추가한다. 실패하면 음성 결과를 보존하고 재현 학습을 추가하지 않는다. 중간 epoch 성적이나 단순 point estimate로 이 분기를 열지 않는다.
+
+재현 학습은 GPU0,1을 사용하고 기존 seed202의 두 Top1 대조와 비교한다. 기존과 동일한5에폭/global96/micro48/accumulation1,matching head 고정,utility/R/LoRA optimizer 설정을 유지하며,별도 port30443과 W&B run을 사용한다. 새 프로세스도 실제 native parity와 DDP micro48 메모리 검증을 먼저 통과해야 한다. 다섯 epoch의 실제 optimizer/W&B/file4 기록,최종 tensor와 GPU 조건 검증을 요구한다. 같은 retargeter의 Top1 대비 효과를 두 training seed에서 비교하며,여러 생성 noise를 독립 학습으로 세지 않는다. 별도로 예약한121개 source-disjoint validation은 아직 열지 않는다.
+
+두 대조의 실제 seed202 config에 대해 model·optimizer·데이터·평가 정합 검사가 통과했다. 허용한 데이터 차이는 utility에 필요한 Omega context cache와 각 arm의 `transport_arm` consumer이다. Top1+C1 config의 `score_temperature=.05`는 raw-logit argmax 경로에서 사용되지 않으므로,현재 F1의 `.005`와 차이가 있어도 Top1 예측을 바꾸지 않는다. 실제 conditioner의 online/cached 경로에서 nonzero retargeter 상태로 두 온도의 correspondence·weight·evidence·residual이 정확히 같음을 CPU 검사로 확인했다. 원래 semantic correspondence 기본값도 동일하다. 이는 실행 중이거나 예약된 대조 config를 수정한 것이 아니다.
+
+이번 조건부 분기의 CPU queue/quality 검사와 실제 config preflight는 완료했지만,seed202 F1 학습을 이미 실행했다는 뜻은 아니다. Decoder·score·correspondence 각각의 품질 기여도 확정하지 않는다. 최종 후보가 우수하면 그 후보에 맞춘 제거 실험과 value-address 진단을 해석하고,개별 모듈 효과가 없는 경우 전체 조합의 효과와 구분해 기록한다.

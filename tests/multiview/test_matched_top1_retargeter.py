@@ -33,6 +33,24 @@ def test_top1_retargeter_initial_weights_and_caller_rng_equal_weighted_C1():
     p=inputs();assert (a(**p).evidence-b(**p).evidence).abs().max()>0
 
 
+def test_top1_retargeter_temperature_cannot_change_online_or_cached_correspondence():
+    m=model('top1');p=inputs()
+    with torch.no_grad():
+        m.fusion_gate.fill_(.1)
+        m.retargeter.net[-1].weight.normal_(std=.002)
+    for online in [False, True]:
+        pack=dict(p)
+        if online:
+            pack.pop('matching_logits',None)
+            pack.pop('semantic_indices',None)
+        m.score_temperature=.05
+        left=m(**pack)
+        m.score_temperature=.005
+        right=m(**pack)
+        for key in ['evidence','candidate_weights','retarget_residual','candidate_indices']:
+            torch.testing.assert_close(getattr(left,key),getattr(right,key),rtol=0,atol=0)
+
+
 @pytest.mark.parametrize('extra',[{'arm':'b3'},{'task_attention':{'decoder':True,'score_prior':True,'chunk_size':64}}])
 def test_top1_mode_cannot_silently_replace_existing_or_task_models(extra):
     args=dict(arm='c1',key_dim=1024,value_dim=1024,query_dim=1024,candidate_aggregation='top1');args.update(extra)

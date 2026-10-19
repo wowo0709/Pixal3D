@@ -33,7 +33,7 @@ def zero_records(campaign):
     return records, inputs
 
 
-def validate_saved_audits(final, qa, epochs):
+def validate_saved_audits(final, qa, epochs, *, training_seed=101):
     """Require actual frozen-head, trained-utility and epoch logging evidence."""
     expected = {
         'status': 'PASS_ACTUAL_FINAL_TENSORS_AND_OPTIMIZER',
@@ -62,7 +62,7 @@ def validate_saved_audits(final, qa, epochs):
     for number, epoch in enumerate(epochs, 1):
         expected_epoch = {
             'status': 'PASS_ACTUAL_EPOCH_OPTIMIZER_LOGGING_AND_BATCH',
-            'epoch': number, 'step': 96 * number, 'training_seed': 101,
+            'epoch': number, 'step': 96 * number, 'training_seed': training_seed,
             'global_batch': 96, 'world_size': 2, 'microbatch_per_rank': 48,
             'accumulation': 1, 'actual_optimizer_states': 371,
             'all_optimizer_steps': 96 * number,
