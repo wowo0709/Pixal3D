@@ -13,3 +13,7 @@
 실행 recipe는 기존 scale16 recipe를 복사해 trainer와 voxel chunk만 변경하며,원래 SS4210 base+LoRA continuation·optimizer·LR·seed101·train9149/validation508·5에폭/global96/DDP2/micro48/accumulation1을 유지한다. 별도 port30446과 W&B run을 쓴다. 공용 launch는 실제 SS-loss/native/backward 검사와 두 update의 DDP48 메모리 검사를 먼저 수행한다. 새 entry source contract는 추가 module/trainer/registry를 포함한 열 개 source SHA를 기록한다.
 
 Scale16이 두 Top1 대조 및 V1 대비 고정 raw480/development128·93source·3noise 기준을 통과하면 기존 조건부 seed202 재현을 먼저 진행한다. 실패하면 이 후속 후보를 실제 GPU 검증하고 같은 고정 예산으로 비교한다. 이 보고서 작성 시점에는 후속 후보의 학습을 queue에 넣지 않았다. Decoder 제거·Top1 No-score·native-spatial No-corr의 학습 효과와 예약121개 검증은 별도로 남아 있다.
+
+실제 recipe·원래 R9 checkpoint를 읽은 CPU preflight에서 초기 conditioner35개 state key/value가 scale16 reference와 모두 같았고,matching24개 tensor가 frozen,학습 가능한 conditioner tensor는11개였다. 실제 validation508개 중 첫 sample의 transport 입력·4096개 projection-grid site 형상도 새 API와 맞았다. 원래 source/recipe/preflight16개 파일은 실제 file4 SHA/size 대조를 마쳤다. GPU 없이 sparse import 설정을 읽는 데에는 기존 CPU pytest의 import-only 설정을 사용했으며,GPU 실행 검증으로 세지 않는다.
+
+후속 후보의 **native GPU proof만** 예약했다. Top1+C1 seed202의 실제 최종 generation3개와 saved-model GPU QA가 완료된 뒤 유휴 physical GPU2를 사용한다. 실제 native 출력·SS-loss backward·LoRA/C1/utility gradient와 열 개 source의 안정성을 확인하고 optimizer update는 하지 않는다. 본 학습이나 DDP48 메모리 검사가 예약·완료된 것은 아니다. 진행 중인 scale16/GPU0·1 및 Top1+C1/GPU2·3 학습은 그대로 유지한다.
