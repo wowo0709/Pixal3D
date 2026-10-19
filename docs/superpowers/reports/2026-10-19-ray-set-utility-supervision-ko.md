@@ -26,3 +26,43 @@ Epoch0 및 매 epoch calibration loss, target-patch probability mass, ray positi
 최종 head는 동일 Full480 denoiser, deterministic sampler12/CFG3, 동일 개발32개/noise0로 실제 SS 평가한다. 정답 후보 질량만 좋아지고 SS가 좋아지지 않으면 성공으로 선언하지 않는다. 개선 후보만 동일 dev128×3 generation noises와 필요한 독립 train-seed 재현 대상으로 올린다. 기존 6-arm 최종 평가는 별도로 유지하며, 이 탐색32개를 독립 test로 부르지 않는다.
 
 학습 코드/캐시 source hash를 고정하고 실행 중 변경을 검사한다. 최종 epoch7 결과가 나오기 전에는 모델 채택이나 성능 향상을 주장하지 않는다.
+
+## 고정 epoch7 실행 결과
+
+실제 학습은 7 epochs/112 updates를 완료했다. 904.15초, peak allocated 17.1385 GiB였으며 accumulation은1이었다. Epoch0의 utility 5 tensor는 원래 Full480과 exact였고 최종 export에서는 그5개만 바뀌었다. R/D1/scalar/fusion은 모두 exact, SS 추가 update는0이다. 새 가중치도 원래 BF16/CFG/trace conditioning QA를 완화 없이 통과했다.
+
+| Calibration 지표 | Epoch0 | 고정 epoch7 |
+| --- | ---: | ---: |
+| 다중 positive-set loss | 4.23930 | 3.24328 |
+| Exact target-patch probability mass | 0.083433 | 0.081654 |
+| Near1 target-patch probability mass | 0.275039 | 0.280371 |
+| Exact ray-union probability mass | 0.169456 | 0.167912 |
+| Near1 ray-union probability mass | 0.426370 | 0.431594 |
+
+Loss 감소와 정답 집합의 평균 확률 증가가 같은 현상은 아니다. 후보64개가 고정된 이번 학습은 proposal miss를 해결하지 못한다. 초기2에폭 이후 일부 평균 mass가 다시 내려왔지만 checkpoint를 선택하지 않고 고정 epoch7을 평가했다.
+
+| 동일 Full480 denoiser / deterministic SS32·noise0 | IoU | F1 |
+| --- | ---: | ---: |
+| 원래 utility head | 0.436073 | 0.607313 |
+| 다중 positive-set epoch7 head | 0.434650 | 0.605932 |
+
+Epoch7−원래 head의 IoU 차이는 **−0.14231 percentage points**, source-cluster bootstrap95% CI **[−0.53704,+0.16628] pp**였다. RGB 입력 PNG, GT fingerprint, source cluster, 생성 noise 및 sampler가 모두 paired였다. SS 개선은 확인되지 않았고, 사전에 정한 승격 조건을 만족하지 않아 이 head를 단독으로128×3에 올리거나 추가 epoch를 돌리지 않는다. 이는 현재 fixed-bank/utility5-only/503 train-assets pilot의 결과이며 semantic Top-K나 attention 일반의 불가능성을 뜻하지 않는다.
+
+실제 결과와 GT/Pred·입력 이미지를 같은 [W&B run](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-ray-set-head-v1-s101-512-e7)에 추가했다. 원격 numeric9개와 PNG2개의 byte equality를 직접 확인했다. Canonical `SS32-publication-v1/file4-closure.json`은 SS 평가·paired 비교·export 감사·원격 로깅 감사17개 파일/201,450 bytes의 실제 file4 SHA와 크기를 검증한다. 학습 checkpoint와 history의 앞선 별도 closure는13개 파일/43,145,027 bytes다.
+
+## 대응점 사용과 다음 분리 검사
+
+별도의 기존 Full480 value-address control은 candidate key·score·weight·support를 유지하고 retrieved value 주소만 섞었다. 정상 IoU0.436073, 주소 교란0.431890으로 정상−교란은 +0.41833 pp, CI[+0.00860,+0.78817] pp였다. 이는 탐색적 개발32개에서의 저장 모델 조건부 민감도이며 V1 대비 향상, matching decoder의 독립 효과, 학습 seed 재현이나 정확한 Top-1의 증거가 아니다. 이 정상32개는 새 Full128/noise0의 공통32개와 exact였고, 기존 Full의 생성 noise3개 및 value/replay proof는 실제 file4에 닫혔다.
+
+다음 작은 비교는 **후보 검색을 평균 전에 수행하는 GT-free patch union**이다. 기존 same64 coverage 검사에서 constituent target patch별 후보를 round-robin으로 합친64개는 near1 coverage를80.4807%→83.8385%로 높였다. 이 단계의 coverage gain은 SS gain이 아니다. 새 inference-only control은 기존 pooled ray query·support·D1/scalar/utility/R 계산을 유지하고 후보 bank만 바꾼다. 실제2개 샘플에서 identity의9개 trace와 projection exact, 후보64개 중복 없음, source-disable의 native 복귀, context 종료 후 원본 exact 복원을 확인했으며 CPU6검사를 통과했다.
+
+두 SS32 비교도 완료했다. (2)의 head는 원래 pooled 후보 bank에서 학습했으며 union 전용으로 재학습한 head가 아니다. 두 비교 모두 SS 추가 update는0이며, 기존6개 SS ablation과 결정적 최종 평가를 바꾸지 않았다.
+
+| Saved-weight SS32 조건 | IoU | 원래 Full 대비 차이 pp | 95% CI pp |
+| --- | ---: | ---: | --- |
+| Union 후보 + 원래 Full head | 0.434458 | -0.161491 | [-0.391174,+0.043342] |
+| Union 후보 + 고정 epoch7 head | 0.435314 | -0.075886 | [-0.489950,+0.288941] |
+
+Union 조건에서 head7−원래 head는 +0.085604 pp, CI[-0.355475,+0.399408] pp였다. 후보 coverage 증가와 이번 조합이 SS 향상으로 연결된 증거는 없으며 두 조건을 승격하지 않는다. `ray-proposal-union-control-v1/quality-pilot-v1/summary.json`에 paired 입력·GT·noise·source 및 실제 control4회/32개 검증과 모든 contrast를 보존했다.
+
+별도의 같은 계산 모드128개×3 생성 noise 비교에서도 기존 ray Full0.433994, 가중합0.434168로 Full−가중합은 -0.017377 pp, CI[-0.088001,+0.046097] pp였다. 두 모델의 독립32→128 exact replay 및 실제 file4 closure가 검증됐다. 원본은 `deterministic-evaluation-v1/study-v1/interim-full-vs-weighted-128x3-v1/`다. 학습 seed는 여전히1개이고 전체6-arm 판정을 대신하지 않는다.

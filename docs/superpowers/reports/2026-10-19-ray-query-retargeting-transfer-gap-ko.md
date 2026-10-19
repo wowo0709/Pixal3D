@@ -30,9 +30,11 @@ Native-spatial의 같은 raw480/32개 epoch IoU는0.443367이었다. Full−nati
 | Query 위치 | Edited-target 이미지의 patch | 각 source camera의32² ray group |
 | Matching 입력 | 해당 target patch의 Omega FRAME | 같은 source-ray에 모인 voxel이 참조하는 target FRAME의 평균 |
 | R의 target 입력 | 해당 target patch의 native DINO | 같은 source-ray에 모인 target native DINO의 평균 |
-| R 출력의 전달 | Target-anchor patch map을 camera0로 ProjGrid 투영 | Source camera별 ray map3개를 각 원래 camera로 ProjGrid 투영한 뒤1/4씩 더함 |
+| R 출력의 전달 | `projection_mode=nearest`: target-anchor `patch_grid`로 feature/residual을 voxel에 gather | `native-bilinear`: source camera별 ray map3개를 각 원래 camera로 ProjGrid 투영한 뒤1/4씩 더함 |
 
 R 네트워크의 입력 차원2048·hidden256·bounded residual·zero output 초기화는 유지하지만 R이 받는 정보와 보정 위치는 달라졌다. Ray grouping 산술과 native projection의 재현만으로 기존 양성 모듈 전체를 동일 조건으로 재현했다고 할 수 없다.
+
+위 전달 경로의 기존 문구는 camera0 ProjGrid라고 적혀 있었으나 정확하지 않았다. 실제 `configs/static-top1-c1.json`과 저장 raw480 conditioner를 원래 loader로 strict load해 `projection_mode=nearest`, `candidate_aggregation=top1`, utility attention 없음, R 입력2048을 확인했다. Config가 projection_mode를 생략하며 constructor 기본값은 nearest다. 원래 mixin은 이 경우 dense SS의 `patch_grid`로 gather한다. 따라서 query 위치와 R의 target 입력뿐 아니라 nearest→bilinear 전달 연산도 함께 바뀐 것이며, 그 차이의 개별 인과 효과를 아직 측정하지 않았다. 기존 모델의 같은 target patch를 참조하는 voxel들은 동일한 feature를 받는다. 향후 개선 arm은 이 양성 경로와 checkpoint를 먼저 exact 보존한 뒤 새로운 Top-K 조합의 효과를 분리해야 한다.
 
 과거 `target_proxy_ray_summary`의 query는 target-only **predicted** SS latent와 occupancy 등을 source ray로 모은21채널 요약이었다. 현재 query는 RGB projected DINO/FRAME 평균이며 그 shape-state 표현을 복제한 것이 아니다. 해당 과거 local-ray query 학습은 terminal budget 전에 중단되어, 최종 learned-query 성공 기록은 없다. [과거 재감사](2026-10-19-ray-group-query-contract-audit-ko.md)의 원본 근거와 주장의 범위를 유지한다.
 
