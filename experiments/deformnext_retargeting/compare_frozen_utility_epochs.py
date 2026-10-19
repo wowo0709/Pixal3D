@@ -19,14 +19,29 @@ def record_at(path, step):
     return next(record for record in records if record['step'] == step)
 
 
-def summarize(root, epoch):
-    if epoch not in range(2, 6):
-        raise ValueError('later epoch must be in 2..5')
-    campaign = root.parent
-    folder = root / 'epoch-audits-v1/train-frozen-utility-c1' / f'epoch{epoch:02d}'
+def closed_snapshot(folder, campaign):
     closure = folder / 'file4-closure.json'
-    if read(closure)['status'] != 'PASS':
+    receipt = read(closure)
+    if receipt.get('status') != 'PASS' or receipt.get('local_equals_actual_file4_SHA256') is not True:
         raise ValueError('actual epoch file4 closure required')
+    for name in ['audit.json', 'validation-snapshot.json', 'initial-validation-snapshot.json']:
+        path = folder / name
+        key = str(path.relative_to(campaign.parent))
+        entries = [entry for entry in receipt['files'] if entry['relative_path'] == key]
+        if (len(entries) != 1 or entries[0]['sha256'] != hashlib.sha256(path.read_bytes()).hexdigest()
+                or entries[0]['bytes'] != path.stat().st_size):
+            raise ValueError('closed epoch snapshot bytes differ from actual receipt')
+    return closure
+
+
+def summarize(root, epoch, *, candidate_name='frozen-utility-c1'):
+    if epoch not in range(1, 6):
+        raise ValueError('epoch must be in 1..5')
+    if candidate_name not in {'frozen-utility-c1', 'utility-scale16-c1'}:
+        raise ValueError('undeclared frozen utility candidate')
+    campaign = root.parent
+    folder = root / 'epoch-audits-v1' / ('train-' + candidate_name) / f'epoch{epoch:02d}'
+    closure = closed_snapshot(folder, campaign)
     audit = read(folder / 'audit.json')
     step = 96 * epoch
     if (audit['step'] != step or audit['actual_optimizer_states'] != 371
@@ -46,6 +61,8 @@ def summarize(root, epoch):
         'matched-Top1-C1': (campaign, 'static-top1-c1'),
         'joint-trained-Full': (campaign, 'task-full'),
     }
+    if candidate_name == 'utility-scale16-c1':
+        baselines['reference-F1-scale4'] = (campaign / 'frozen-utility-followup-v1', 'frozen-utility-c1')
     inputs = [closure, folder / 'audit.json', folder / 'validation-snapshot.json',
               folder / 'initial-validation-snapshot.json']
     contrasts = {}
@@ -70,19 +87,23 @@ def summarize(root, epoch):
         lookup = {row['sample_id']: row for row in repeats[0]['per_asset']}
         zero_contrasts[label] = paired([lookup[sid] for sid in ids])
     inputs.extend(paths)
-    previous_folder = folder.parent / f'epoch{epoch - 1:02d}'
-    if read(previous_folder / 'file4-closure.json')['status'] != 'PASS':
-        raise ValueError('previous actual epoch closure required')
-    previous = read(previous_folder / 'validation-snapshot.json')
+    if epoch == 1:
+        previous = initial
+    else:
+        previous_folder = folder.parent / f'epoch{epoch - 1:02d}'
+        previous_closure = closed_snapshot(previous_folder, campaign)
+        previous = read(previous_folder / 'validation-snapshot.json')
+        inputs.extend([previous_closure, previous_folder / 'validation-snapshot.json'])
     if previous['step'] != step - 96 or previous['quick_panel_ids'] != ids:
         raise ValueError('previous epoch identity differs')
     temporal = paired(previous['quick_per_asset'])
-    inputs.extend([previous_folder / 'file4-closure.json', previous_folder / 'validation-snapshot.json'])
     inputs.append(Path(__file__))
     return {
-        'status': 'PASS_ACTUAL_LATER_EPOCH_COMMON32_WITH_BOTH_ZERO_BASELINES',
+        'status': ('PASS_ACTUAL_LATER_EPOCH_COMMON32_WITH_BOTH_ZERO_BASELINES' if epoch > 1
+                   else 'PASS_ACTUAL_FIRST_EPOCH_COMMON32_WITH_BOTH_ZERO_BASELINES'),
         'UTC': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        'epoch': epoch, 'step': step, 'candidate_metrics': candidate['quick_metrics'],
+        'epoch': epoch, 'step': step, 'candidate': candidate_name, 'previous_step': previous['step'],
+        'candidate_metrics': candidate['quick_metrics'],
         'contrasts': contrasts, 'zero_baseline_contrasts': zero_contrasts,
         'candidate_vs_previous_epoch': temporal,
         'inputs': [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -96,10 +117,12 @@ def summarize(root, epoch):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--candidate', choices=['frozen-utility-c1', 'utility-scale16-c1'],
+                        default='frozen-utility-c1')
     parser.add_argument('--epoch', type=int, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    result = summarize(args.root, args.epoch)
+    result = summarize(args.root, args.epoch, candidate_name=args.candidate)
     write_new(args.output, result)
     print(json.dumps({'status': result['status'], 'epoch': args.epoch,
                       'contrasts': result['contrasts']}, indent=2), flush=True)

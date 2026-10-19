@@ -271,3 +271,17 @@ F1−Top1+C1은 **−0.049pp,[−0.131,+0.021]pp**이고,세 sampling noise 모�
 동일 GT hash·source·noise의 네 조건을 함께 bootstrap한 F1 대 joint Full의 주소 민감도 차이는+0.652pp,[+0.067,+1.250]pp였다. 이 역시 common32/단일 noise/한 training seed의 탐색적 전체 모델 차이다. 온도·head 학습·utility 형식이 함께 달라,개별 decoder/score/utility의 인과 효과로 분해하지 않는다. 실제 진단·source 열 파일도 file4 SHA/size 대조를 완료했다.
 
 F1의 모든 generation·GPU QA·주소 진단·saved480 CPU 진단이 완료된 뒤에만,격리 검증한 scale16 관련 여섯 source/test 파일을 작업 브랜치로 옮겼다. 다음 후보는 동일한 native/backward·DDP 최대 배치 검사를 먼저 통과해야 한다. 5에폭과 fixed128×3,같은 retargeter Top1 대조 및 F1 자체와의 비교를 유지하고,성공 시에만 추가 training seed와 예약121개 평가로 진행한다. 아직 새 후보의 품질 개선이나 최종 모델 채택을 선언하지 않는다.
+
+## Scale16 실제 시작 검증
+
+학습 entry는 commit `8e936c9fcd6080b047b17ce6ac9722992484c98c`이며,GPU0/1의 새 run은 `utility-strength-followup-v1/runs_ss64/utility-scale16-c1`이다. GPU2/3에서는 기존 Top1+C1 seed202를 계속 학습한다. 실제 native condition의 global/projection 최대 오차는0이었다. 원상복원하는 실제 SS-loss probe에서 decoder/score gradient는0,utility gradient는0.001066이었다. 동일 sample의 기존 F1 probe 대비 약3.97배이며,CPU의 이상적4배와 구분한다.
+
+두 번의 실제 DDP benchmark에서 각rank micro48/global96/accumulation1을 확인했고,peak allocated memory는50.464/50.336GiB,두 번째 update는17.318/17.338초였다. 두 rank의 첫 benchmark loss와 모든 timestep-bin MSE는 기존 F1과 정확히 같았다. Saved step2의24개 matching tensor가 R9와 같았고,utility output256개 weight는 갱신됐으며,실제 content scale은15.999992였다. 실제 optimizer371 state는 모두 step2·유한 moment였고,두 group의 eps는1e-8이었다. 이 benchmark optimizer를 본 학습에 사용하지 않았다.
+
+본 학습의 초기32개 generation은 V1·F1·Top1+C1의 시작 기록과 GT hash·source·noise·TP/FP/FN 및 네 aggregate metric이 같았다. IoU는0.426715였다. 이어 실제 본 학습 step1의 loss/timestep-bin MSE도 두 rank 모두 F1·Top1+C1과 정확히 같았고,세 update까지 global96/micro48/accumulation1·유한 loss를 확인했다. 첫 두 update의 compute는 약70–89초의 시작 비용을 포함했고,step3부터 약17.3초였다. 첫3update peak allocated memory는50.464/50.510GiB였다. 이는 향후 모든 batch의 OOM 보장이 아니다.
+
+초기32개의 실제 W&B 네 수치와 PNG도 원격 readback으로 확인했다. SDK의 명시적 step 기록이 뒤 로그에서 flush된 뒤 확인했으며,처음 API에서 빈 history가 나온 것을 logging 실패로 처리하거나 학습을 재시작하지 않았다. 새 학습은 [scale16 training run](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-frozen-utility-scale16-c1-s101),완료된 F1의 최종 비교는 [F1 development report](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-frozen-utility-development-v1)에 있다. F1 최종 리포트의 publish/readback 및 실제 file4 closure도 완료됐다.
+
+에폭 비교 helper는 실제 epoch receipt와 audit·초기/현재 snapshot의 SHA/size를 대조한 뒤 같은32개·같은 noise에서 V1·기존 C1·Top1+C1·기존 Full·F1·두 zero-shot과 비교한다. 첫 에폭은 초기32개를 시간상 대조로 쓰며,그 뒤에는 직전 실제 closed epoch를 쓴다. 기존 F1의 epoch5 수치 네 block이 새 helper에서 정확히 재현됐고,새 후보의 초기 전체 per-asset record가 다섯 대조의 초기 record와 같았다. 관련 CPU 검사11개가 통과했다.
+
+저장된 attention 진단에는 명시적인 reference/scale16 profile을 추가했다. 각 profile의 실제 이름·strict config validator·checkpoint/epoch receipt를 선택하고,같은 FRAME1024·FP32·softmax 순서와원래128개 cache를 사용한다. 기존 진단의 source와 결과는 별도 archive에 보존했다. 첫 에폭의 scale4/scale16과 마지막 scale16의 probability·value 변화를 검사할 예정이며,이를 SS 품질이나 correspondence 정확도와 혼동하지 않는다. 새 모델의5에폭 최종128×3 및 추가 seed/모듈별 효과 검증은 아직 남아 있다.

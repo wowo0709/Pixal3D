@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from experiments.deformnext_retargeting.inspect_frozen_utility_mixing import (
-    contrast, distribution_stats, quantiles, summarize_contrasts,
+    contrast, declared_profile, distribution_stats, quantiles, summarize_contrasts,
 )
 
 
@@ -58,3 +58,12 @@ def test_logit_quantiles_reject_empty_and_nonfinite_measurements():
         with pytest.raises(ValueError):
             quantiles(value)
     assert quantiles(torch.arange(5.))['median'] == 2.
+
+
+def test_explicit_profiles_select_their_own_names_and_strict_validators():
+    from experiments.deformnext_retargeting.frozen_matcher_utility import validate_profile
+    from experiments.deformnext_retargeting.frozen_utility_strength import validate_profile as strength_validator
+    assert declared_profile('reference') == ('frozen-utility-c1', validate_profile)
+    assert declared_profile('scale16') == ('utility-scale16-c1', strength_validator)
+    with pytest.raises(ValueError):
+        declared_profile('guess-from-path')

@@ -66,6 +66,15 @@ def summarize_contrasts(cases, label):
     return result
 
 
+def declared_profile(choice):
+    if choice == 'reference':
+        return NAME, validate_profile
+    if choice == 'scale16':
+        from .frozen_utility_strength import NAME as strength_name, validate_profile as validate_strength
+        return strength_name, validate_strength
+    raise ValueError('explicit frozen-reference or scale16 profile required')
+
+
 def inspect(args):
     if args.cases <= 0 or args.cases > 128 or args.step not in [96, 192, 288, 384, 480]:
         raise ValueError('declared development prefix and actual epoch checkpoint required')
@@ -73,11 +82,13 @@ def inspect(args):
         raise FileExistsError('preserve existing mixing diagnosis')
     torch.set_num_threads(2)
     torch.set_grad_enabled(False)
-    config_path = args.root / 'configs' / (NAME + '.json')
+    profile = getattr(args, 'profile', 'reference')
+    candidate, profile_validator = declared_profile(profile)
+    config_path = args.root / 'configs' / (candidate + '.json')
     cfg = read(config_path)
-    validate_profile(cfg, args.root)
-    checkpoint = args.root / 'runs_ss64' / NAME / 'ckpts' / f'deform_conditioner_step{args.step:07d}.pt'
-    closure_path = args.root / 'epoch-audits-v1' / ('train-' + NAME) / f'epoch{args.step // 96:02d}/file4-closure.json'
+    profile_validator(cfg, args.root)
+    checkpoint = args.root / 'runs_ss64' / candidate / 'ckpts' / f'deform_conditioner_step{args.step:07d}.pt'
+    closure_path = args.root / 'epoch-audits-v1' / ('train-' + candidate) / f'epoch{args.step // 96:02d}/file4-closure.json'
     closure, stamp = read(closure_path), fingerprint(checkpoint)
     relative = str(checkpoint.relative_to(args.root.parent.parent))
     entries = [item for item in closure['files'] if item['relative_path'] == relative]
@@ -185,6 +196,7 @@ def inspect(args):
     repo = Path(__file__).resolve().parents[2]
     result = {'status': 'PASS_ACTUAL_SAVED_FROZEN_UTILITY_MIXING_DIAGNOSIS',
               'UTC': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'step': args.step,
+              'candidate': candidate, 'profile': profile, 'training_seed': cfg['training_seed'],
               'device': 'CPU_FP32', 'torch_threads': 2, 'GPU_used': False, 'optimizer_updates': 0,
               'cases': len(cases), 'active_queries': sum(case['active_queries'] for case in cases),
               'source_clusters': len({case['source_cluster_id'] for case in cases}),
@@ -193,6 +205,7 @@ def inspect(args):
               'original_head': fingerprint(head_path), 'recipe': fingerprint(config_path),
               'panel': fingerprint(args.panel), 'manifest': fingerprint(manifest), 'inputs': inputs,
               'driver': fingerprint(Path(__file__)),
+              'profile_validator_source': fingerprint(Path(profile_validator.__code__.co_filename)),
               'runtime_sources': [fingerprint(repo / 'pixal3d/modules' / name)
                                   for name in ['r9_matching.py', 'task_matching_attention.py']],
               'effective_content_scale': float(attention.log_content_scale.exp().clamp(max=20.)),
@@ -221,6 +234,7 @@ def inspect(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--profile', choices=['reference', 'scale16'], default='reference')
     parser.add_argument('--cache-root', type=Path, required=True)
     parser.add_argument('--panel', type=Path, required=True)
     parser.add_argument('--step', type=int, required=True)
