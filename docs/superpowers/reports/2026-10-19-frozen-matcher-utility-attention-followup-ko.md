@@ -200,3 +200,11 @@ F1−matched Top1+C1은 **+0.174pp,[+0.057,+0.295]pp**였다. 다만 기존 C1 �
 48개 평가 이후 CPU summary와 실제 file4 closure를 추가해 총50개 후속 작업을 만든다. Contract·queue decision·최종 JSON/Markdown·48개 metric JSON/PNG의100개 파일을 canonical file4와 대조한다. 원래 Full의 decoder/prior/native 제거 결과는 함께 보고하지만,그 결과로 새 F1의 개별 모듈 효과를 귀속하지 않는다. 모듈별 해석·최종 logging·채택은 후속 검증으로 남긴다.
 
 CPU 검사32개와 실제 예약 metadata/전체 미래 dependency preflight가 통과했다. 실제15개 recipe와 아직 생성하지 않은 F1 seed202의 메모리 내 recipe에서 SS4210 model·LoRA·validation manifest 정합도 확인했다. Synthetic16조건×3noise에서 positive/negative gate·정확한 population·서로 다른 GT 거부를 확인했고,해당 synthetic 결과를 실제 성능으로 저장하지 않았다. 현재 F1/seed202 재현의 최종 결과가 없으므로 이48개 GPU 평가와 예약121개 결과 생성은 아직 실행하지 않았다. 현재 두 학습의 데이터·설정은 유지한다.
+
+## 실제 4에폭 중간 결과
+
+Step384의 실제 model/optimizer·W&B 네 metric/PNG·file4 대조와 common32 paired 비교가 완료됐다. F1 IoU는0.449995,Top1+C1은0.449885,기존 C1은0.450249,기존 joint-trained Full은0.449138,V1은0.434300이었다. 동일한 두 zero-shot 기준은 source4M0가0.394997,edited1M1+3M0가0.426715다.
+
+F1−Top1+C1은 **+0.011pp,[−0.065,+0.089]pp**로 차이가 없었다. 기존 C1 대비−0.025pp,[−0.089,+0.032]pp,Full 대비+0.086pp,[−0.463,+0.550]pp였다. V1 대비는+1.569pp,[+0.105,+3.131]pp였다. Epoch3→4의 F1 변화는+0.647pp,[−0.001,+1.261]pp였으며,이는 서로 다른 모델의 추가 효과가 아니라 같은 모델의 시간 경과 비교다.
+
+따라서3에폭의 Top1 대비 양의 CI가 다음 에폭에서도 유지됐다고 해석할 수 없다. 현재 근거는 vanilla 대비 조합의 이득과,Top1+C1/기존 Top-K C1 대비 학습형 utility의 추가 이득을 구분해야 함을 보여준다. 고정 raw480/final128×3 기준을 유지하고 최종 결과로 재현 학습 여부를 판단한다. 중간에 optimizer를 바꾸거나 best epoch를 선택하지 않는다.
