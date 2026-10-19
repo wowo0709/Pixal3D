@@ -116,3 +116,16 @@ F1−matched Top1+C1은 −0.030pp,95% source-cluster CI[−0.154,+0.072]pp였�
 이 변경은 현재 F1 학습이 시작된 이후의 공통 trainer에 추가한 선택 옵션이다. 현재 F1 프로세스는 변경 전 trainer를 이미 로드했고, config에 이 옵션이 없으며 저장된 실제 optimizer는 기존 두 group이다. 현재 reference F1 entrypoint는 이 옵션을 거부한다. 따라서 후속 실험은 명시적인 별도 profile, 실제 초기 native parity와 DDP micro48 메모리 검증, 세 group의 실제 epsilon·LR·저장 상태를 검사하는 별도 auditor가 준비된 뒤 실행해야 한다. 현재 단일 conditioner group을 전제로 하는 optimizer inspector를 세 group 실험에 그대로 적용하지 않는다.
 
 현재 두 학습을 재시작하거나 optimizer를 중간 변경하지 않는다. 후반 moment와 고정 최종 성능을 근거로 이 통제 실험의 필요성을 판단한다. 낮은 epsilon이 품질을 높인다는 결과는 아직 없다.
+
+## 실제 2에폭 중간 결과
+
+Step192의 실제 checkpoint/optimizer, 두 rank의 micro48·accumulation1 기록, W&B 네 metric과 PNG, file4 저장본 대조가 완료됐다. Common32의 F1 IoU는0.441871이었다. 동일 에폭의 matched Top1+C1은0.440365,기존 C1은0.440602,기존 joint-trained Full은0.440274,V1은0.434444였다. 두 zero-shot의 같은32개 결과는 source4M0가0.394997,edited1M1+3M0가0.426715이다.
+
+| F1 대비 기준 | IoU 차이,pp | 95% source-cluster CI,pp |
+| --- | ---: | --- |
+| Matched Top1+C1 | +0.151 | [−0.026,+0.388] |
+| 기존 C1 | +0.127 | [−0.004,+0.330] |
+| Joint-trained Full | +0.160 | [−0.032,+0.357] |
+| V1 | +0.743 | [−0.421,+1.973] |
+
+1에폭에서는 Top1+C1보다−0.030pp였고2에폭에는 평균이 앞섰지만,아직 위 네 대조의 CI가 모두0을 포함한다. 32개 샘플·단일 생성 noise·training seed101의 중간 결과로 개선을 확정하지 않는다. 고정 raw480/final128×3 평가 및 학습 seed 재현 기준은 유지한다. 비교 source는 `compare_frozen_utility_epochs.py`,실제 결과는 외부 campaign의 `frozen-utility-followup-v1/early-progress-v1/epoch02-common32-with-zero-comparison-v1.json`에 기록했다.
