@@ -5,6 +5,7 @@ import pytest
 import torch
 
 from pixal3d.modules.ray_group_matching import RayGroupConditioner
+from experiments.deformnext_retargeting.task_attention_controls import task_value_context
 
 
 def fixture(mode='semantic-attention', decoder=True):
@@ -106,6 +107,23 @@ def test_static_weighted_control_replays_zero_utility_prior_and_retargeter_exact
     assert torch.equal(first.attention.candidate_indices, second.attention.candidate_indices)
     torch.testing.assert_close(first.attention.candidate_weights, second.attention.candidate_weights, rtol=0, atol=0)
     torch.testing.assert_close(first.map_delta, second.map_delta, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize('mode', ['semantic-top1', 'semantic-weighted', 'semantic-attention'])
+def test_value_only_diagnostic_really_runs_at_ray_readout_without_changing_scores(mode):
+    model, data = fixture(mode)
+    events = []
+    with torch.no_grad():
+        normal = model(**data).attention
+        with task_value_context(model, 'wrong-address', events):
+            altered = model(**data).attention
+        restored = model(**data).attention
+    assert events and all(row['matching_logits_and_weights_unchanged'] for row in events)
+    assert torch.equal(normal.candidate_indices, altered.candidate_indices)
+    assert torch.equal(normal.candidate_weights, altered.candidate_weights)
+    assert torch.equal(normal.matching_logits, altered.matching_logits)
+    assert not torch.equal(normal.base_evidence, altered.base_evidence)
+    assert torch.equal(normal.base_evidence, restored.base_evidence)
 
 
 def test_native_spatial_control_consumes_explicit_projected_values_and_physical_no_decoder():

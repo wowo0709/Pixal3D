@@ -42,9 +42,10 @@ def task_value_context(conditioner,control,events):
     # its aggregation boundary instead, after the original weights were
     # computed. This keeps the SAME per-query candidate value multiset, unlike
     # perturbing the full source feature map before retrieval.
+    static_ray = getattr(conditioner, 'ray_mode', None) in {'semantic-top1', 'semantic-weighted'}
     if (getattr(conditioner,'implementation',None)!='r9-native-v5'
             or getattr(conditioner,'arm',None) not in {'b3','c1'}
-            or getattr(conditioner,'candidate_aggregation',None)!='weighted'):
+            or (not static_ray and getattr(conditioner,'candidate_aggregation',None)!='weighted')):
         raise ValueError('value-address control requires a task or static soft attention model')
     previous=conditioner.__dict__.get('_attention')
     original=conditioner._attention

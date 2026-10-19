@@ -162,6 +162,10 @@ def main():
     torch.set_num_threads(2);torch.cuda.set_device(0)
     cfg = read(args.config);spec = cfg['trainer']['args']['deform_conditioner']
     task=spec.get('task_attention')
+    ray = cfg['trainer']['name'] == 'RayGroupImageConditionedProjFlowMatchingCFGTrainer'
+    if ray:
+        from .ray_group_study import validate_profile
+        validate_profile(cfg, args.config.parent.parent)
     if (spec['implementation']!='r9-native-v5' or spec['arm'] not in {'b2','b3','c1'} or spec['value_dim']!=1024
         or (not task and not spec['freeze_q2c'])):
         raise ValueError('this proof requires native R9 SS Top1/soft/C1 with frozen or task-trained matching')
@@ -169,7 +173,7 @@ def main():
     if head_ref['sha256'] != cfg['experiment']['head_sha256']:
         raise ValueError('selected head fingerprint differs')
     ds_args = copy.deepcopy(cfg['validation']['dataset_args'])
-    if ds_args['expected_q2c_sha256'] != head_ref['sha256'] or not ds_args['match_root']:
+    if ds_args['expected_q2c_sha256'] != head_ref['sha256'] or (not ray and not ds_args['match_root']):
         raise ValueError('dataset cache/head contract differs')
     manifest = Path(cfg['validation']['roots_file'])
     cached_ds = getattr(datasets,cfg['dataset']['name'])(str(manifest), **ds_args)
@@ -231,11 +235,29 @@ def main():
             trace_comparisons[key]=compare_trace_tensors(a,b,name=key)
             trace_errors[key]=trace_comparisons[key]['max_abs_error']
         attention_stats=attention_weight_statistics(traces[0].candidate_weights,traces[0].query_valid)
+        if ray and (traces[0].query_valid.shape != (2,3072)
+                    or traces[0].candidate_indices.shape[-1] != (3 if spec['ray_mode']=='native-spatial-attention' else 64)):
+            raise ValueError('saved ray model changed its camera/ray/candidate layout')
         if spec['arm']=='c1' and not traces[0].retarget_residual.abs().sum()>0:
             raise ValueError('actual trained retargeter is inactive on selected cases')
         cached,online=conditions
         task_cache_checks=None
-        if task:
+        if ray:
+            rejected=[]
+            for key in ['spatial_indices','semantic_indices','matching_logits']:
+                altered=dict(cached_pack)
+                altered['transport_'+key]=torch.zeros(2,1024,1,device='cuda')
+                try:
+                    trainer.get_inference_cond(**altered)
+                except ValueError as error:
+                    if 'ray queries cannot consume' not in str(error):
+                        raise
+                    rejected.append(key)
+                else:
+                    raise ValueError('ray model accepted a forbidden GT/old-match side channel: '+key)
+            task_cache_checks={'forbidden_transport_inputs_rejected':rejected,
+                'fresh_ray_support_recomputed_on_both_calls':True,'old_2D_match_cache_used':False}
+        elif task:
             altered=dict(cached_pack)
             altered['transport_matching_logits']=torch.zeros_like(altered['transport_matching_logits'])+123.
             if spec.get('correspondence_mode','semantic')=='native-spatial':
@@ -297,6 +319,14 @@ def main():
         'actual_cached_input_tensor_fingerprints':cached_inputs,
         'actual_online_input_tensor_fingerprints':online_inputs,'actual_four_RGB_cameras_exact':True,
         **checks,'optimizer_updates':0,'scope':'Two actual active SS cases and actual saved weights;cached versus online proposals/current head,BF16,train/inference/CFG contract. Not quality evaluation or all-asset parity.'}
+    if ray:
+        result.update(status='PASS_SAVED_RAY_GROUP_RGB_BF16_CFG_CONTRACT',
+            query_unit='one query per source-camera32x32 ray group;3072 trace rows',
+            proposal_comparison='Repeated dataset access and fresh online ray retrieval;no precomputed ray proposals exist.',
+            scope='Two real active fixed-panel cases,actual raw480 saved weights,fresh ray support replay,BF16,train/inference/CFG,frozen initializer and native RGB token checks;zero optimizer updates. Not quality or all-asset parity.')
+        result['repeat_online_condition_max_abs_errors']=result.pop('cached_online_condition_max_abs_errors')
+        result['actual_first_input_tensor_fingerprints']=result.pop('actual_cached_input_tensor_fingerprints')
+        result['actual_repeated_input_tensor_fingerprints']=result.pop('actual_online_input_tensor_fingerprints')
     json.dumps(result,allow_nan=False)
     write_new(args.output/'summary.json',result)
 

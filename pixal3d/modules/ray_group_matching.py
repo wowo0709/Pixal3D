@@ -63,6 +63,18 @@ class RayGroupConditioner(DeformationAwareConditioner):
         self.q2c.requires_grad_(False)
         self.ray_mode, self.ray_chunk_size = ray_mode, ray_chunk_size
 
+    def _attention(self, logits, values, valid, view_index, views):
+        """Static ray readout; expose the same value-only diagnostic boundary."""
+        if self.ray_mode not in {'semantic-top1', 'semantic-weighted'}:
+            raise ValueError('static ray readout is only used by declared static controls')
+        if self.ray_mode == 'semantic-top1':
+            weights = F.one_hot(logits.argmax(-1), logits.shape[-1]).float() * valid.any(-1)[..., None]
+        else:
+            weights = categorical_weights(logits, valid, 1.)
+        evidence = (weights[..., None] * values.float()).sum(2)
+        view_weights = evidence.new_zeros(*evidence.shape[:2], views).scatter_add(2, view_index, weights)
+        return evidence, weights, view_weights
+
     def forward(self, *, native_voxels, target_omega_voxels, target_native_voxels, ray_ids,
                 source_keys, source_values, source_valid, spatial_keys=None, spatial_values=None,
                 control='normal'):
@@ -123,13 +135,10 @@ class RayGroupConditioner(DeformationAwareConditioner):
             ids, mask = indices.reshape(-1, width)[ix], valid.reshape(-1, width)[ix]
             prior = score[ix] / self.score_temperature
             if self.task_attention is None:
-                if self.ray_mode == 'semantic-top1':
-                    p = F.one_hot(score[ix].argmax(-1), width).float() * mask.any(-1)[:, None]
-                else:
-                    # Match the full attention's divide-first FP32 prior order.
-                    p = categorical_weights(prior, mask, 1.)
                 values = flat_values[b[:, None], ids]
-                result = ((p[..., None] * values).sum(1), p, prior)
+                e, p, _ = self._attention(prior[None], values[None], mask[None],
+                    torch.div(ids, sites, rounding_mode='floor')[None], 3)
+                result = (e[0], p[0], prior)
             elif native_spatial:
                 values = spatial_values.reshape(-1, 3, 1024)[ix].float()
                 result = self.task_attention(native_query[ix], context[ix], values, mask,
