@@ -14,6 +14,7 @@ from .compare_ss_noise_panels import compare
 from .frozen_matcher_utility import validate_profile
 from .matching_v2_queue import gpu_ids
 from .semantic_topk_confirmation import make_jobs, seed_config
+from .semantic_topk_campaign_wandb import validate_saved_qa
 from .semantic_topk_functional_qa import job as functional_job
 from .semantic_topk_search import write_new
 from .semantic_topk_selection import supported
@@ -225,13 +226,13 @@ def summarize(root, campaign):
         training[arm]['final128_replays_epoch32'] = audit_final_replay(training[arm], records[arm][0])
         qa_path = (root if arm == NAME else campaign) / 'functional-QA-v1' / ('s202-' + arm) / 'summary.json'
         qa = read(qa_path)
-        if qa['status'] != 'PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT' or qa['optimizer_updates'] != 0:
-            raise ValueError('actual saved seed202 GPU proof required')
         recipe = location / 'configs' / (arm + '.json')
-        if read(recipe)['training_seed'] != 202:
+        recipe_cfg = read(recipe)
+        validate_saved_qa(qa, recipe_cfg['trainer']['args']['deform_conditioner'])
+        if recipe_cfg['training_seed'] != 202:
             raise ValueError('control did not use training seed202')
         if arm in CONTROLS:
-            control = read(recipe)
+            control = recipe_cfg
             validate_matched_recipe(cfg, control, arm)
             spec = control['trainer']['args']['deform_conditioner']
             if (control['ckpt'] != 'none' or control['load_dir'] != ''
