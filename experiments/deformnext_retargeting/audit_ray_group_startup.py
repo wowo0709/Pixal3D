@@ -70,6 +70,9 @@ def audit(args):
         rows = [lines(path) for path in paths]
         if all(len(values) >= 3 for values in rows):
             break
+        job = read(args.work_root / 'queue-state.json').get('train-' + name, {})
+        if job.get('status') in {'FAILED', 'HELD', 'completed'}:
+            raise RuntimeError('actual main is terminal without three saved updates: ' + str(job))
         print('AWAITING_FIRST_THREE_ACTUAL_MAIN_UPDATES', [len(v) for v in rows], flush=True)
         time.sleep(10)
     cfg = read(root / 'configs' / (name + '.json'))
@@ -127,6 +130,7 @@ def audit(args):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,required=True)
+    p.add_argument('--work-root',type=Path,required=True)
     p.add_argument('--arm',choices=list(ARMS),required=True)
     p.add_argument('--expected-sha',required=True)
     audit(p.parse_args())
