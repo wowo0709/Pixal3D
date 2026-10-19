@@ -1,6 +1,6 @@
 # Ray query로 변경한 뒤 기존 R 이득이 유지되는가
 
-2026-10-19 UTC. 현재 ray 구조가 기존 Top-1 + retargeting 기준선을 넘는 성능은 아직 확인되지 않았다. 기존 R의 두 seed 양성 결과는 유효하며, 이를 새 query/carrier로 옮긴 효과는 별도 검증해야 한다. 같은 ray의 Top-1 + R과 native-spatial은 학습 중이므로 현재 Full/가중합만으로 원인을 하나로 특정할 수 없다.
+2026-10-19 UTC. 현재 ray 구조가 기존 Top-1 + retargeting 기준선을 넘는 성능은 아직 확인되지 않았다. 기존 R의 두 seed 양성 결과는 유효하며, 이를 새 query/carrier로 옮긴 효과는 별도 검증해야 한다. Native-spatial은 raw480 학습과 최종 가중치/conditioning 검사를 마쳤고 Top-1 + R은 학습 중이다. 최종 결정적128×3 비교는 아직 진행 중이다.
 
 ## 이전 R 결과와 현재 관측
 
@@ -20,6 +20,8 @@
 Full−가중합은 +0.05974%p, source-cluster95% CI[−0.02869,+0.16083]%p다. 기존 R과 현재 ray 구조의 query/carrier가 달라 이 차이를 semantic matching 하나의 효과로 읽지 않는다. 이 표는 개발32개·학습 seed1개·생성 noise1개의 중간 관측이다.
 
 이후 5에폭 raw480의 같은32개 epoch 기록에서는 Full0.436341, 가중합0.437597, V1 0.434837, 기존 Top-1+R0.454022였다. Full−가중합은 −0.12558%p, CI[−0.40892,+0.13393]%p로 추가 attention의 이득을 확인하지 못했다. Full−V1은 +0.15037%p, CI[−0.63357,+0.85369]%p이며, 기존 R보다 −1.76815%p 낮았다. 이 수치는 아래 결정적 평가로 새로 생성한 결과와 섞지 않는다. 원본은 `epoch-pair-comparisons-v1/ray-full-vs-ray-weighted/epoch05.json`이다.
+
+Native-spatial의 같은 raw480/32개 epoch IoU는0.443367이었다. Full−native-spatial은 −0.70266%p, source-cluster95% CI[−1.70032,+0.17403]%p다. 평균은 native-spatial 쪽이 높지만 이 한 학습 seed/생성 noise의 CI는0을 포함하므로 semantic retrieval이 성능을 떨어뜨린다는 확정 판정도 하지 않는다. Epoch3/4/5의 대응 비교는 모두 실제 W&B·file4 epoch audit에서 읽었으며 `epoch-pair-comparisons-v1/ray-full-vs-ray-native-spatial/completed-epoch03to05-v1/file4-closure.json`으로 실제 file4 SHA/크기를 확인했다. Native-spatial은 후보가3개, semantic은64개인 원래 설계 차이를 유지한다.
 
 ## 코드에서 확인한 변화
 
