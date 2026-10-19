@@ -33,3 +33,7 @@ F1이 통과하면 fresh seed202 F1과 matched Top1+C1 seed202를 병렬 학습�
 첫 launch에서는 생성한 실행 recipe의 `ckpt`/`load_dir`가 JSON null이어서 memory benchmark가 optimizer update 전에 종료됐다. 실패 config·native proof·launch log·queue 상태를 `launch-attempts/attempt01-null-resume-option/`에 보존했다. 기존 runtime이 요구하는 `ckpt="none"`, `load_dir=""` 문자열로 수정하고 해당5개 job만 재개했다. 이미 학습 중인 Top1 seed202 process는 유지했고,scheduler만 정상 종료·재개해 동일 PID의 학습을 이어갔다. 잘못된 fresh 옵션을 모델 로딩 전에 거부하는 검사도 추가했다.
 
 `summarize_frozen_utility_followup.py`는5epoch·실제 W&B 그림/수치·file4 audit bytes·saved tensor/optimizer·GPU conditioning 검사와 fixed raw480/128×3을 모두 확인한 후 V1/같은 retargeter Top1/retargeter 없는 Top1을 비교한다. 판정 결과가 양수여도 모델 채택은false이며 추가 seed/121개 검증이 필요하다. 새로운 실패 거부 검사11개가 통과했다. 이11개 unit test는 실제 모델 품질 근거로 사용하지 않는다.
+
+00:15 UTC에는 본 학습 두 rank가 실제3update를 완료했다. 초기 validation32에서 V1·기존 C1·matched Top1+C1의 초기32개와 각 asset의 GT voxel hash·noise·source ID·TP/FP/FN 및 네 aggregate metric이 모두 같았다(IoU0.42671546671444294). 본 학습의 첫 update는 data-worker 시작으로 약43초 loading과83~85초 compute,두 번째는39.3초,세 번째는17.28~17.29초 compute였다. Benchmark 수치를 그대로 본 학습 속도라고 부르지 않고 실제 startup과 이후 구간을 구분한다. 이 시점 peak allocated memory는 두 rank50.464/50.510GiB이고 OOM·비정상 loss는 관측되지 않았다. 전체480update 품질 판정은 아직 남아 있다.
+
+추가 seed의 matched Top1+C1 대조군은 F1의 결과를 기다리기 전에 예약했다. 현재 GPU2/3에서 진행 중인 No-retargeter Top1 seed202의3개 최종 noise 평가와 saved-weight QA가 끝난 뒤,같은 GPU2/3에서 fresh SS4210/seed202/global96/micro48/DDP2/480update로 시작한다. 원래 최고 대조군의 재현성을 검사하는 목적도 있어 F1이 음성이어도 유효하다. F1을 미리 선정하거나 학습 중인 run을 바꾸지 않았다. F1이 통과하면 그 seed202 학습은 나머지 GPU에서 병행하고 이 대조 결과를 재사용한다.
