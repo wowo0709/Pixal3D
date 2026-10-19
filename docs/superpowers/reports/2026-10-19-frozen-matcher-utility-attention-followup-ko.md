@@ -285,3 +285,9 @@ F1의 모든 generation·GPU QA·주소 진단·saved480 CPU 진단이 완료된
 에폭 비교 helper는 실제 epoch receipt와 audit·초기/현재 snapshot의 SHA/size를 대조한 뒤 같은32개·같은 noise에서 V1·기존 C1·Top1+C1·기존 Full·F1·두 zero-shot과 비교한다. 첫 에폭은 초기32개를 시간상 대조로 쓰며,그 뒤에는 직전 실제 closed epoch를 쓴다. 기존 F1의 epoch5 수치 네 block이 새 helper에서 정확히 재현됐고,새 후보의 초기 전체 per-asset record가 다섯 대조의 초기 record와 같았다. 관련 CPU 검사11개가 통과했다.
 
 저장된 attention 진단에는 명시적인 reference/scale16 profile을 추가했다. 각 profile의 실제 이름·strict config validator·checkpoint/epoch receipt를 선택하고,같은 FRAME1024·FP32·softmax 순서와원래128개 cache를 사용한다. 기존 진단의 source와 결과는 별도 archive에 보존했다. 첫 에폭의 scale4/scale16과 마지막 scale16의 probability·value 변화를 검사할 예정이며,이를 SS 품질이나 correspondence 정확도와 혼동하지 않는다. 새 모델의5에폭 최종128×3 및 추가 seed/모듈별 효과 검증은 아직 남아 있다.
+
+03:08–03:17 UTC에는 두 독립 DDP 학습에서 동시에 host 지연이 관찰됐다. 예를 들어 scale16 step16/17의 compute는224.9/83.7초,Top1+C1 seed202 step108/109는221.4/83.5초였다. GPU OOM이나 nonfinite loss는 관측되지 않았고,노드 memory PSI 상승과 swap 포화가 함께 관찰됐다. 이 상관만으로 단일 원인을 확정하지 않는다. 이후 다시17초대 update가 관찰됐지만,전체 ETA에는 이런 노드 부하 변동을 반영해야 한다.
+
+완료된 F1의 두 CPU audit watcher는 모든 실제 file4 target을 확인한 후 정상 종료해 약5.74GiB PSS를 회수했다. 남아 있던 원래 phase와 scale16의 최종 tensor auditor도 raw480/epoch05를 기다리는 동안 base tensor를 보유하고 있어,실제 완료 후 실행하도록 옮겨 약8.35GiB PSS를 추가 회수했다. 총 약14.09GiB이며,GPU 학습은 같은 PID로 이어갔다.
+
+최종 tensor 검사의 구현·SHA 및 원래 품질 조건은 유지한다. 실제 training completion과 epoch05 canonical receipt가 준비되면 기존 auditor를 실행하고,필요한 실제 receipt 생성 후 종료하는 CPU 작업 두 개를 예약했다. Child lifecycle/source-hash 거부 검사 두 개가 통과했다. Synthetic 검사는 별도 temp에만 보존했고 모델 성능 증거로 사용하지 않았다. 이 변경은 pending 최종 검사를 생략하거나 학습의 optimizer·sampler·seed·microbatch를 바꾼 것이 아니다.
