@@ -4,7 +4,9 @@ import copy
 import pytest
 
 from experiments.deformnext_retargeting.frozen_utility_strength import recipe as strength_recipe
-from experiments.deformnext_retargeting.voxel_query_followup import NAME, NAMESPACE, TRAINER, recipe, validate_profile
+from experiments.deformnext_retargeting.voxel_query_followup import (
+    NAME, NAMESPACE, TRAINER, recipe, standalone_directory, validate_profile,
+)
 
 
 def source(root):
@@ -62,3 +64,15 @@ def test_profile_rejects_uncontrolled_model_and_optimization_changes(tmp_path, c
         cfg['output_dir'] = str(tmp_path / 'existing-run')
     with pytest.raises(ValueError):
         validate_profile(cfg, root)
+
+
+def test_standalone_proof_cannot_overwrite_production_or_previous_proof(tmp_path):
+    parent = tmp_path / 'verification' / NAME
+    selected = standalone_directory(tmp_path)
+    assert selected == parent / 'standalone-native-v1'
+    for path in [parent, tmp_path / 'elsewhere']:
+        with pytest.raises(ValueError): standalone_directory(tmp_path, path)
+    selected.mkdir(parents=True)
+    (selected / 'native-proof.json').write_text('{"synthetic":true}')
+    with pytest.raises(FileExistsError): standalone_directory(tmp_path)
+    assert standalone_directory(tmp_path, parent / 'standalone-native-v2') == parent / 'standalone-native-v2'

@@ -11,7 +11,8 @@ from .semantic_topk_selected_correspondence import summarize
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--candidate', choices=['frozen-utility-c1', 'utility-scale16-c1'],
+    parser.add_argument('--candidate', choices=['frozen-utility-c1', 'utility-scale16-c1',
+                                              'voxel-query-c1', 'utility-softprior-c1'],
                         default='frozen-utility-c1')
     args = parser.parse_args()
     folder = args.root / 'task-value-address-v1'
