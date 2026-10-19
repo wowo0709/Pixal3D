@@ -12,6 +12,7 @@ import sys
 
 from .compare_ss_noise_panels import compare
 from .frozen_matcher_utility import validate_profile
+from .matching_v2_queue import gpu_ids
 from .semantic_topk_confirmation import make_jobs, seed_config
 from .semantic_topk_functional_qa import job as functional_job
 from .semantic_topk_search import write_new
@@ -54,9 +55,10 @@ def confirmation_recipe(source, root):
     return cfg
 
 
-def confirmation_jobs(root, campaign, previous_work, devices):
-    if len(devices) != 2 or len(set(devices)) != 2 or any(g not in {'0', '1', '2', '3'} for g in devices):
-        raise ValueError('two distinct assigned physical GPUs from0..3 required')
+def confirmation_jobs(root, campaign, previous_work, devices, *, allowed_gpus):
+    assigned = gpu_ids(','.join(allowed_gpus))
+    if len(devices) != 2 or len(set(devices)) != 2 or any(g not in assigned for g in devices):
+        raise ValueError('two distinct explicitly assigned physical GPUs required')
     folder = root / 'seed-confirmation-v1'
     jobs = make_jobs(folder, previous_work, NAME, devices, [QUEUE_JOB], 202)
     command = jobs[0]['command']
@@ -158,7 +160,11 @@ def queue(args):
         print(json.dumps(decision), flush=True)
         return
     cfg = confirmation_recipe(read(args.root / 'configs' / (NAME + '.json')), args.root)
-    jobs = confirmation_jobs(args.root, args.campaign_root, args.previous_work, args.gpus.split(','))
+    allowed = getattr(args, 'allowed_gpus', None) or os.environ.get('MATCHING_V2_ALLOWED_GPUS')
+    if allowed is None:
+        raise ValueError('explicit allowed-gpus or scheduler assignment required')
+    jobs = confirmation_jobs(args.root, args.campaign_root, args.previous_work,
+                             gpu_ids(args.gpus), allowed_gpus=gpu_ids(allowed))
     queue_path = args.work_root / 'queue-jobs.json'
     old = queue_path.read_bytes()
     existing = json.loads(old)
@@ -309,6 +315,7 @@ def main():
     parser.add_argument('--work-root', type=Path)
     parser.add_argument('--previous-work', type=Path)
     parser.add_argument('--gpus')
+    parser.add_argument('--allowed-gpus')
     args = parser.parse_args()
     if args.mode == 'summarize':
         summarize(args.root, args.campaign_root)

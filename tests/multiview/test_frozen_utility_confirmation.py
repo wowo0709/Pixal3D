@@ -70,7 +70,8 @@ def test_fresh_seed_recipe_preserves_original_matching_module_and_budget(tmp_pat
 
 
 def test_confirmation_keeps_frozen_entrypoint_and_both_matched_seed_controls(tmp_path):
-    jobs = confirmation_jobs(tmp_path / 'F', tmp_path / 'N', tmp_path / 'panels', ['0', '1'])
+    jobs = confirmation_jobs(tmp_path / 'F', tmp_path / 'N', tmp_path / 'panels', ['0', '1'],
+                             allowed_gpus=['0', '1', '2', '3'])
     assert len(jobs) == 6 and jobs[0]['gpus'] == ['0', '1']
     assert 'experiments.deformnext_retargeting.frozen_matcher_utility' in jobs[0]['command']
     assert jobs[0]['depends_on'] == [QUEUE_JOB]
@@ -151,7 +152,12 @@ def test_confirmation_rejects_unmatched_training_or_generation(change, tmp_path)
 @pytest.mark.parametrize('devices', [['0', '0'], ['6', '7'], ['0'], ['0', '1', '2']])
 def test_confirmation_cannot_use_unassigned_or_wrong_gpu_count(tmp_path, devices):
     with pytest.raises(ValueError, match='assigned physical GPUs'):
-        confirmation_jobs(tmp_path, tmp_path, tmp_path, devices)
+        confirmation_jobs(tmp_path, tmp_path, tmp_path, devices, allowed_gpus=['0', '1', '2', '3'])
+
+
+def test_pure_queue_factory_uses_explicit_assignment_without_a_baked_gpu_list(tmp_path):
+    jobs = confirmation_jobs(tmp_path, tmp_path, tmp_path, ['8', '9'], allowed_gpus=['8', '9'])
+    assert jobs[0]['gpus'] == ['8', '9']
 
 
 def test_negative_branch_records_failure_without_queue_or_recipe_writes(tmp_path):
@@ -185,7 +191,7 @@ def test_positive_branch_appends_only_after_exact_control_dependencies_exist(tmp
     original = [{'name': name} for name in names]
     (work / 'queue-jobs.json').write_text(json.dumps(original))
     queue(SimpleNamespace(root=root, work_root=work, campaign_root=tmp_path / 'N',
-                          previous_work=tmp_path / 'old', gpus='0,1'))
+                          previous_work=tmp_path / 'old', gpus='0,1', allowed_gpus='0,1,2,3'))
     jobs = json.loads((work / 'queue-jobs.json').read_text())
     assert jobs[:len(original)] == original and len(jobs) == len(original) + 6
     assert json.loads((root / 'seed-confirmation-v1/configs' / (NAME + '.json')).read_text())['training_seed'] == 202
