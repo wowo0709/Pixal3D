@@ -106,3 +106,13 @@ F1−matched Top1+C1은 −0.030pp,95% source-cluster CI[−0.154,+0.072]pp였�
 현재 학습을 변경하지 않고 후반 checkpoint의 moment·utility 변화·실제 품질을 확인한다. 최종 성능이 부족하고 이 감쇠가 지속된다면,utility만 별도 Adam epsilon을 사용하는 통제 실험을 검토할 수 있다. LoRA와 retargeter까지 함께 바꾸는 실험으로 utility 학습의 효과를 혼동하지 않도록 한다. 같은 target patch의 voxel 공유와 native context 차이 진단도 별도의 설계 가설로 유지한다.
 
 재사용 가능한 `inspect_utility_optimizer.py`로 실제 step96을 재검사해11개 parameter 통계를 기존 진단과 재현했다. 이 inspector는 실제 config/misc와 group 구성 source의 SHA를 함께 기록하고,371개 optimizer state의 step·유한값 및11개 대응 shape를 확인한다. Step288과480의 실제 epoch/file4 대조가 완료되면 같은 방법으로 기록하도록 예약하며,학습 optimizer나 GPU에 변경을 가하지 않는다.
+
+## Utility 전용 epsilon 옵션의 준비 범위
+
+`trainer.args.task_attention_optimizer_eps`를 명시하면 기존 conditioner optimizer group에서 실제 `task_attention` parameter만 분리한다. 예를 들어 `1e-10`이면 LoRA와 retargeter는 기존 `eps=1e-8`을 유지하고 utility group에만 `eps=1e-10`을 적용한다. Learning rate, warmup, parameter identity와 frozen parameter 제외는 보존한다. 기본값 `None`에서는 기존 두 group 구성 경로를 그대로 사용한다. 기존 `inflat_all`의 model별 learning-rate 제한도 유지한다.
+
+신규 CPU 검사17개가 각각 통과했다. 실제 `BasicTrainer.init_models_and_more`의 FP32/BF16 AMP 설정, utility만 달라지는 작은-gradient Adam update, 기본 경로, 잘못된 group/epsilon 거부, 세 group optimizer와 warmup의 저장·복원 후 동일 update를 확인했다. GPU/DDP에서 이 옵션을 사용한 학습이나 성능 개선은 아직 검증하지 않았다.
+
+이 변경은 현재 F1 학습이 시작된 이후의 공통 trainer에 추가한 선택 옵션이다. 현재 F1 프로세스는 변경 전 trainer를 이미 로드했고, config에 이 옵션이 없으며 저장된 실제 optimizer는 기존 두 group이다. 현재 reference F1 entrypoint는 이 옵션을 거부한다. 따라서 후속 실험은 명시적인 별도 profile, 실제 초기 native parity와 DDP micro48 메모리 검증, 세 group의 실제 epsilon·LR·저장 상태를 검사하는 별도 auditor가 준비된 뒤 실행해야 한다. 현재 단일 conditioner group을 전제로 하는 optimizer inspector를 세 group 실험에 그대로 적용하지 않는다.
+
+현재 두 학습을 재시작하거나 optimizer를 중간 변경하지 않는다. 후반 moment와 고정 최종 성능을 근거로 이 통제 실험의 필요성을 판단한다. 낮은 epsilon이 품질을 높인다는 결과는 아직 없다.

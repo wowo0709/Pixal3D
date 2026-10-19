@@ -67,6 +67,10 @@ def inspect(config, checkpoint, step):
         'inputs': {'recipe': fingerprint(config), 'checkpoint': fingerprint(checkpoint)},
         'driver': fingerprint(Path(__file__)),
         'group_enumeration_source': fingerprint(repo / 'pixal3d/trainers/basic.py'),
+        'group_enumeration_source_role': 'Current-checkout reference for parameter ordering,not a claim that its entire file version was loaded by the running trainer. Actual moments/groups are read from the saved checkpoint.',
+        'actual_saved_optimizer_groups': [{key: (len(value) if key == 'params' else value)
+                                          for key, value in saved_group.items()}
+                                         for saved_group in opt['param_groups']],
         'conditioner_source': fingerprint(repo / 'pixal3d/modules/deform_conditioner.py'),
         'mapping': 'BasicTrainer enumerates trainable model.parameters();all11 corresponding actual state shapes checked.',
         'scope': 'Bias-corrected accumulated second-moment RMS and epsilon-normalizer damping atone actual checkpoint. Not raw single-step gradients or a counterfactual retraining outcome. Training is unchanged.',

@@ -9,6 +9,8 @@ from .matching_v2_ss import train
 def validate_profile(cfg, root):
     if cfg.get('ckpt') != 'none' or cfg.get('load_dir') != '':
         raise ValueError('fresh utility recipe requires ckpt="none" and load_dir="" strings')
+    if cfg.get('trainer', {}).get('args', {}).get('task_attention_optimizer_eps') is not None:
+        raise ValueError('reference utility profile retains its original optimizer; use an explicit epsilon-study profile')
     spec=cfg['trainer']['args']['deform_conditioner']
     required={'decoder':True,'score_prior':True,'train_decoder':False,'train_score':False,
               'content_mode':'residual-zero','chunk_size':64}

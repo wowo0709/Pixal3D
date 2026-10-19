@@ -93,6 +93,7 @@ class BasicTrainer:
         batch_split=None,
         optimizer={},
         model_learning_rates=None,
+        task_attention_optimizer_eps=None,
         lr_scheduler=None,
         elastic=None,
         grad_clip=None,
@@ -141,6 +142,7 @@ class BasicTrainer:
         self.debug = debug
         self.optimizer_config = optimizer
         self.model_learning_rates = dict(model_learning_rates or {})
+        self.task_attention_optimizer_eps = task_attention_optimizer_eps
         self.lr_scheduler_config = lr_scheduler
         self.elastic_controller_config = elastic
         self.grad_clip = grad_clip
@@ -337,6 +339,12 @@ class BasicTrainer:
                     'params': default_params,
                     'model_name': 'default',
                 })
+        if self.task_attention_optimizer_eps is not None:
+            if 'deform_conditioner' not in self.model_learning_rates:
+                raise ValueError('task_attention_optimizer_eps requires an explicit conditioner learning rate')
+            from ..utils.optimizer_groups import split_task_attention_group
+            optimizer_params = split_task_attention_group(
+                optimizer_params, self.models.get('deform_conditioner'), self.task_attention_optimizer_eps)
         if hasattr(torch.optim, self.optimizer_config['name']):
             self.optimizer = getattr(torch.optim, self.optimizer_config['name'])(optimizer_params, **self.optimizer_config['args'])
         else:
