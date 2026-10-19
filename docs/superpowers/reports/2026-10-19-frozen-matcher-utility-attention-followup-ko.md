@@ -88,3 +88,19 @@ F1−matched Top1+C1은 −0.030pp,95% source-cluster CI[−0.154,+0.072]pp였�
 최종 보고서에도 두 zero-shot의 기존128×3 실제 평가를 재사용한다. Source-only는4M0 RGB,edited-RGB는1M1+3M0 RGB이며 둘 다 같은 M1 GT에 대해 평가한다. 실제 기존 Top1+C1의 zero-shot 대비 세 noise paired 결과를 그대로 재현하는 reporting preflight가 통과했다. 이를 새 F1의 최종 성능 결과로 혼동하지 않는다.
 
 학습 후에는 동일 raw480 모델의 common32/noise0에서 score·attention weight·candidate support와 각 query의 source-value multiset을 유지하고,value-to-weight pairing만 바꾸는 진단을 추가한다. 이는 원래 spatial matching을 사용하는 사용자 No-corr 학습 arm과 구분한다. 새 residual-zero utility의 초기 및 nonzero output 상태에서 logits·weights·입력 보존,pooled value 변경,hook 원상복원 검사2개가 통과했다. 이 진단은 모델 품질 선정이나 semantic retrieval 전체의 필요성을 단독 판정하는 기준이 아니다.
+
+## 첫 에폭의 실제 optimizer 정규화
+
+실제 misc step96의 conditioner Adam group은 LR1e-4,betas(0.9,0.95),eps1e-8이었다. `BasicTrainer`가 trainable `model.parameters()` 순서로 group을 만드는 것을 확인하고,같은 constructor의11개 trainable parameter와 저장된 optimizer state의 shape를 모두 대조했다. 아래 RMS는 raw gradient 한 번의 값이 아니라 bias-corrected second moment의 제곱근이다.
+
+| Parameter | Median gradient RMS | eps보다 작은 성분 | Median RMS/(RMS+eps) |
+| --- | ---: | ---: | ---: |
+| Utility query projection | 7.15e-10 | 99.60% | 0.0667 |
+| Utility Omega-context projection | 1.41e-9 | 99.46% | 0.1237 |
+| Utility key projection | 2.14e-9 | 98.87% | 0.1764 |
+| Utility output weight | 2.20e-6 | 0% | 0.9955 |
+| Retargeter first weight | 6.42e-7 | 0.068% | 0.9847 |
+
+즉 현재 query/key projection은 gradient 연결과 FP32 parameter 변화가 있으면서도 Adam 분모의 epsilon으로 업데이트가 크게 줄어드는 구간이다. 출력 head와 retargeter에는 같은 정도의 감쇠가 없다. 마지막 열은 현재 moment를 고정한 채 epsilon이 없는 분모와 비교한 산술 계수이며,다른 epsilon으로 재학습한 결과를 뜻하지 않는다. 이를 성능 부진의 확정 원인이나 epsilon 변경의 개선 증거로 해석하지 않는다.
+
+현재 학습을 변경하지 않고 후반 checkpoint의 moment·utility 변화·실제 품질을 확인한다. 최종 성능이 부족하고 이 감쇠가 지속된다면,utility만 별도 Adam epsilon을 사용하는 통제 실험을 검토할 수 있다. LoRA와 retargeter까지 함께 바꾸는 실험으로 utility 학습의 효과를 혼동하지 않도록 한다. 같은 target patch의 voxel 공유와 native context 차이 진단도 별도의 설계 가설로 유지한다.
