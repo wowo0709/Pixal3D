@@ -307,3 +307,11 @@ Seed202 profile은 명시적인 `utility-strength-followup-v1/seed-confirmation-
 관련 CPU 검사57개와 실제 두 대조 recipe·고정 SS4210 continuation·미래7개 작업의 dependency preflight가 통과했다. Synthetic positive/negative count 사례로 올바른 새 후보 경로와,Top1을 이겨도 고정 V1 비교가 실패하면 재현을 거부하는 조건을 검사했다. 현재 실제 scale16 최종 결과는 없으므로 seed202 recipe·학습·예약121개 generation을 생성하거나 완료했다고 주장하지 않는다.
 
 Scale16에도 같은 raw480/common32/noise0 value-address 진단을 연결한다. 새 후보 이름을 명시해야 하며,실제 정상/변경/최종128 reference의 arm이 모두 일치해야 한다. 값 연결을 변경한 뒤에도 utility logit·attention weight·입력 value가 보존되고 hook이 복원되는 검사를 초기 scale4와16 양쪽에서 통과했다. 관련 continuation·gate 검사와 합쳐61개 CPU 검사가 통과했다. 이 saved-weight 진단은 최종128×3 선정 기준을 바꾸지 않으며,decoder 제거·Top1 No-score·native-spatial No-corr의 학습 효과를 대체하지 않는다.
+
+## Scale16 두 번째 에폭
+
+실제 step192의 W&B 네 수치·PNG·371개 optimizer state·checkpoint/file4 대조와 paired comparison이 완료됐다. Common32/한 noise의 IoU는 scale16이0.441203,Top1+C1이0.440365,scale4 F1이0.441871,기존 C1이0.440602,joint Full이0.440274,V1이0.434444였다. 같은 source-only/edited zero-shot은0.394997/0.426715다.
+
+Scale16−Top1+C1은 **+0.084pp,[−0.031,+0.207]pp**,scale4 F1 대비는−0.067pp,[−0.258,+0.090]pp였다. V1 대비+0.676pp,[−0.504,+1.959]pp,joint Full 대비+0.093pp,[−0.202,+0.395]pp,기존 C1 대비+0.060pp,[−0.015,+0.154]pp였다. 이 작은 중간 패널에서 primary Top1 대비 추가 효과는 여전히 확인되지 않았다. 초기 scale 증가가 한 에폭의 양의 scale4 차이를 계속 유지하지도 않았다. 고정 raw480/128×3 기준과5에폭 예산을 유지한다.
+
+별도 native voxel-query 후속 구현·CPU/실제 설정 preflight와 유휴 GPU proof 예약은 [후속 리포트](2026-10-19-native-voxel-query-followup-ko.md)에 기록했다. 현재 진행 중인 scale16의 여섯 forward source와 optimizer·sampler는 변경하지 않았다. 후속 후보의 실제 본 학습이나 품질 개선은 아직 완료되지 않았다.
