@@ -9,6 +9,7 @@ from pathlib import Path
 from .audit_ray_group_startup import verify_initial
 from .compare_frozen_utility_epochs import closed_snapshot, record_at
 from .compare_orthogonal_utility_epochs import paired_records
+from .orthogonal_utility_followups import require_source_contract
 from .ray_group_study import ARMS, STATIC, validate_profile
 from .semantic_topk_search import write_new
 from .summarize_frozen_utility_followup import zero_records
@@ -120,10 +121,14 @@ def main():
     p.add_argument('--candidate',choices=list(ARMS),required=True)
     p.add_argument('--baseline',choices=list(ARMS),required=True)
     p.add_argument('--expected-sha',required=True)
+    p.add_argument('--source-contract',type=Path,required=True)
+    p.add_argument('--source-receipt',type=Path,required=True)
     args=p.parse_args()
     if hashlib.sha256(Path(__file__).read_bytes()).hexdigest()!=args.expected_sha:
         raise ValueError('declared comparison source changed')
+    require_source_contract(args.source_contract,args.source_receipt,args.root.parent)
     result=summarize(args.root,args.epoch,args.candidate,args.baseline)
+    require_source_contract(args.source_contract,args.source_receipt,args.root.parent)
     folder=args.root/'epoch-pair-comparisons-v1'/(args.candidate+'-vs-'+args.baseline)
     output=folder/f'epoch{args.epoch:02d}.json'
     write_new(output,result)
