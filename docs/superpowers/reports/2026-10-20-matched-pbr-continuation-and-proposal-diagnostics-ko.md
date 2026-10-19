@@ -4,7 +4,7 @@
 
 Semantic Top-K를 계산하고 attention에서 여러 후보를 사용한다는 사실만으로 품질 향상이 보장되지는 않는다. 기존 input-side feature attention은 native semantic fusion gate에 의해 새 feature의 영향이 약해질 수 있었다. Physical deformation query와 bounded direct feature retargeting은 이 병목을 겨냥한 별도 후보다. 기존 ray 단위 carrier와 retargeting 경로를 유지하고, 추가 보정만 native residual 경로로 전달한다.
 
-현재 validation 성능 개선은 확립되지 않았다. 같은 step96에서 시작한 SS R 대조군과 input-side attention의 고정32 사례 결과는 다음과 같다. 이는 per-asset IoU 평균이며 최종128×3 pooled-count 평가와 집계 방식이 다르다.
+현재 validation 성능 개선은 확립되지 않았다. 같은 step96에서 시작한 SS R 대조군과 input-side attention의 고정32 사례 결과는 다음과 같다. IoU는32개 사례의 TP/FP/FN을 합쳐 계산한다. 최종128×3 평가도 같은 count 집계를 사용하지만 사례 수와 생성 noise 반복 수가 다르다.
 
 | 전체 update | R control | Input-side feature attention | 차이 | Source-cluster paired 95% CI |
 |---|---:|---:|---:|---:|
