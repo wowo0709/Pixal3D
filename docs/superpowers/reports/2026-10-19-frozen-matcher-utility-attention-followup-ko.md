@@ -141,3 +141,11 @@ Step192의 실제 checkpoint/optimizer, 두 rank의 micro48·accumulation1 기�
 이번 조건부 분기의 CPU queue/quality 검사와 실제 config preflight는 완료했지만,seed202 F1 학습을 이미 실행했다는 뜻은 아니다. Decoder·score·correspondence 각각의 품질 기여도 확정하지 않는다. 최종 후보가 우수하면 그 후보에 맞춘 제거 실험과 value-address 진단을 해석하고,개별 모듈 효과가 없는 경우 전체 조합의 효과와 구분해 기록한다.
 
 후속 검토에서 재현 요약 코드가 모든 arm에 학습형 QA status를 요구하는 문제를 수정했다. 실제 정적 Top1+C1은 `PASS_CURRENT_C1_CACHE_AMP_CFG_CONTRACT`,학습형 utility와 B2 Top1은 `PASS_TRAINED_SS_CACHE_AMP_CFG_CONTRACT`를 사용한다. 이미 검증된 recipe별 QA validator를 재사용해 실제 네 RGB 입력·CFG·두 사례 조건을 함께 확인한다. 두 대조의 실제 완료된 seed101 QA와 예약된 seed202 recipe에 대한 schema preflight,관련 기존 CPU 검사3개가 통과했다. 이는 앞선 config/hash 정합 preflight에 빠져 있던 status 분기 검사이며,현재 학습·checkpoint·성능 수치를 바꾼 수정이 아니다.
+
+## 별도 W&B development 비교 리포트
+
+`frozen_utility_wandb.py`는 실제 최종 결정의 file4 저장본 및 입력 hash,원본128×3 voxel count,동일 GT pixel과 noise를 확인한 뒤에만 별도 run `ss-frozen-utility-development-v1`을 만든다. 두 zero-shot·V1·Top1·기존 C1·Top1+C1·기존 Full·native spatial·새 F1의9개 모델 수치와 동일 사례 이미지를 기록한다. 새 추론이나 추가 학습을 수행하지 않고,기존 평가 순서의128개를 모두 PDF에 넣으며 PNG는 첫8개를 표시한다.
+
+Final128의 IoU/F1와 paired CI,common32의 epoch curve,common32의 value-address 진단은 각각 다른 이름으로 기록한다. 최종 수치와 진단을 섞지 않고 음수 CI도 보존한다. 모델 weight는 업로드하지 않는다. 공통 publication/readback 코드는 별도 folder·run ID를 받을 수 있도록 확장했고,기존 campaign의 기본 경로·ID는 유지한다. SDK routing·scope·기존 publication 검사34개가 통과했으며,실제 완료된 firstwave reference 데이터128개로 공통 renderer의16-page PDF와 첫8개 PNG를 생성·확인했다. 이 renderer QA에는 새 F1 최종 성능이 포함되지 않는다.
+
+실제 F1 고정 최종 평가와 value-address 진단이 준비되면 render→publish→독립 readback 순서로 실행한다. 새 빈 download cache에서 숫자·table·PNG·artifact byte를 확인한다. 이 리포트는 training seed101의 development 결과만 다루며,성공·실패와 무관하게 seed202·예약121개·모듈별 품질 기여·최종 모델 채택을 완료로 표시하지 않는다. 현재 이 별도 W&B 업로드 및 실제 원격 readback은 아직 실행 전이다.

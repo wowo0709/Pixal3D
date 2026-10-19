@@ -360,8 +360,10 @@ def publication_jobs(root, candidate, selection_job):
     return jobs
 
 
-def render(root):
-    data=collect(root);folder=root/'campaign-wandb-v1/presentation'
+def render(root, *, collector=None, output_folder=None, labels=None):
+    data=(collector or collect)(root)
+    folder=output_folder if output_folder is not None else root/'campaign-wandb-v1/presentation'
+    selected_labels=LABELS if labels is None else labels
     if folder.exists():raise FileExistsError('preserve previous presentation')
     # Check all pixels before writing any presentation, including the additional panel.
     for gallery in data['galleries'].values():
@@ -393,7 +395,7 @@ def render(root):
                             axes[row,column].imshow(images[method][case*64:(case+1)*64,64:128],interpolation='nearest')
                             r=gallery['records'][method][0]['per_asset'][case]
                             axes[row,column].set_xlabel(f"IoU64 {r['tp']/(r['tp']+r['fp']+r['fn']):.3f}",fontsize=7)
-                            if row==0:axes[row,column].set_title(LABELS.get(method,method),fontsize=7)
+                            if row==0:axes[row,column].set_title(selected_labels.get(method,method),fontsize=7)
                         for column in range(len(group)+1,8):axes[row,column].set_axis_off()
                     figure.suptitle(gallery['scope']+'\nOriginal case order;no best-case selection or new inference.',fontsize=9)
                     pdf.savefig(figure);pages+=1
@@ -435,33 +437,37 @@ def payload(root):
         'source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
 
 
-def publish(root):
+def publish(root, *, payload_factory=None, output_folder=None, run_id=None, run_name=None):
     os.environ.setdefault('WANDB_DISABLE_CODE','true')
     import wandb
-    folder=root/'campaign-wandb-v1'
+    folder=output_folder if output_folder is not None else root/'campaign-wandb-v1'
+    selected_id=RUN_ID if run_id is None else run_id
     if (folder/'publication.json').exists():raise FileExistsError('already published;read back the same run')
-    spec=payload(root);write_new(folder/'publication-spec.json',spec)
-    run=wandb.init(entity=PROJECT.split('/')[0],project=PROJECT.split('/')[1],id=RUN_ID,resume='never',
-        name='SS semantic TopK completed experiment comparison',dir=str(folder),
+    spec=(payload_factory or payload)(root);write_new(folder/'publication-spec.json',spec)
+    run=wandb.init(entity=PROJECT.split('/')[0],project=PROJECT.split('/')[1],id=selected_id,resume='never',
+        name=run_name or 'SS semantic TopK completed experiment comparison',dir=str(folder),
         settings=wandb.Settings(x_disable_stats=True,x_disable_meta=True),
         config={'source_commit':spec['source_commit'],'scope':spec['scope'],
             'primary_metric':'SS64 micro voxel IoU/F1;aligned decoded target latent',
             'training_in_this_run':False,'same_retargeter_Top1_replication_across_training_seeds':False})
     run.log(spec['metrics']);run.log({**{k:wandb.Table(**v) for k,v in spec['tables'].items()},
                                     **{k:wandb.Image(p) for k,p in spec['images'].items()}})
-    artifact=wandb.Artifact(RUN_ID,type='evaluation-report')
+    artifact=wandb.Artifact(selected_id,type='evaluation-report')
     for name,path in spec['artifact_files'].items():artifact.add_file(path,name=name)
     logged=run.log_artifact(artifact);logged.wait();version=logged.version
     run.summary.update({'status':'PASS_COMPLETED_SS_CAMPAIGN_PUBLICATION','model_weights_uploaded':False,**spec['scope']})
     url=run.url;run.finish()
-    write_new(folder/'publication.json',{'status':'PASS_WANDB_FINISHED_SS_CAMPAIGN_REPORT','run_id':RUN_ID,
+    write_new(folder/'publication.json',{'status':'PASS_WANDB_FINISHED_SS_CAMPAIGN_REPORT','run_id':selected_id,
         'run_url':url,'artifact_version':version,'spec_SHA256':sha(folder/'publication-spec.json'),
         'full_goal_complete':False,'independent_readback_required':True})
     print(json.dumps({'status':'PASS_WANDB_FINISHED_SS_CAMPAIGN_REPORT','run_url':url}),flush=True)
 
 
-def readback(root):
-    folder=root/'campaign-wandb-v1';receipt=read(folder/'publication.json');spec=read(folder/'publication-spec.json')
+def readback(root, *, output_folder=None, run_id=None):
+    folder=output_folder if output_folder is not None else root/'campaign-wandb-v1'
+    selected_id=RUN_ID if run_id is None else run_id
+    receipt=read(folder/'publication.json');spec=read(folder/'publication-spec.json')
+    if receipt['run_id']!=selected_id:raise ValueError('publication run identity differs')
     if receipt['spec_SHA256']!=sha(folder/'publication-spec.json'):raise ValueError('publication intent changed')
     if (folder/'remote-readback/audit.json').exists():raise FileExistsError('preserve successful readback')
     index=0
@@ -490,7 +496,7 @@ def readback(root):
     for key,local in spec['images'].items():
         meta=actual.summary[key];path=Path(actual.file(meta['path']).download(root=str(output/key),replace=False).name)
         if sha(path)!=sha(Path(local)) or sha(path)!=meta['sha256']:raise ValueError('actual PNG bytes differ')
-    artifact=api.artifact(PROJECT+'/'+RUN_ID+':'+receipt['artifact_version'])
+    artifact=api.artifact(PROJECT+'/'+selected_id+':'+receipt['artifact_version'])
     downloaded=Path(artifact.download(root=str(output/'artifact')))
     for name,local in spec['artifact_files'].items():
         if sha(downloaded/name)!=sha(Path(local)):raise ValueError('actual artifact differs: '+name)
