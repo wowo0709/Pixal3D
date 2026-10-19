@@ -104,3 +104,5 @@ F1−matched Top1+C1은 −0.030pp,95% source-cluster CI[−0.154,+0.072]pp였�
 즉 현재 query/key projection은 gradient 연결과 FP32 parameter 변화가 있으면서도 Adam 분모의 epsilon으로 업데이트가 크게 줄어드는 구간이다. 출력 head와 retargeter에는 같은 정도의 감쇠가 없다. 마지막 열은 현재 moment를 고정한 채 epsilon이 없는 분모와 비교한 산술 계수이며,다른 epsilon으로 재학습한 결과를 뜻하지 않는다. 이를 성능 부진의 확정 원인이나 epsilon 변경의 개선 증거로 해석하지 않는다.
 
 현재 학습을 변경하지 않고 후반 checkpoint의 moment·utility 변화·실제 품질을 확인한다. 최종 성능이 부족하고 이 감쇠가 지속된다면,utility만 별도 Adam epsilon을 사용하는 통제 실험을 검토할 수 있다. LoRA와 retargeter까지 함께 바꾸는 실험으로 utility 학습의 효과를 혼동하지 않도록 한다. 같은 target patch의 voxel 공유와 native context 차이 진단도 별도의 설계 가설로 유지한다.
+
+재사용 가능한 `inspect_utility_optimizer.py`로 실제 step96을 재검사해11개 parameter 통계를 기존 진단과 재현했다. 이 inspector는 실제 config/misc와 group 구성 source의 SHA를 함께 기록하고,371개 optimizer state의 step·유한값 및11개 대응 shape를 확인한다. Step288과480의 실제 epoch/file4 대조가 완료되면 같은 방법으로 기록하도록 예약하며,학습 optimizer나 GPU에 변경을 가하지 않는다.
