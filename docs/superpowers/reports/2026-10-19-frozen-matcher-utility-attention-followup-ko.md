@@ -305,3 +305,5 @@ Scale16−scale4는+0.097pp,[+0.009,+0.205]pp,기존 C1 대비+0.152pp,[+0.042,+
 Seed202 profile은 명시적인 `utility-strength-followup-v1/seed-confirmation-v1` namespace와 두 training-seed metadata가202일 때만 허용했다. 현재 seed101의 validator 조건은 유지한다. 최종 tensor 검사는 기존 구현의 stop/status 이름만 replica용으로 바꾸고,실제 completion/epoch05 receipt 이후에 실행해 종료하도록 구성했다. Negative development 결과에서는 새 recipe·GPU 작업을 만들지 않는다. 두 seed 모두 두 Top1 대조 및 같은 고정 V1 대비 조건을 통과해야 재현 성공으로 기록하며,모델 채택과 예약121개 평가는 별도로 남긴다.
 
 관련 CPU 검사57개와 실제 두 대조 recipe·고정 SS4210 continuation·미래7개 작업의 dependency preflight가 통과했다. Synthetic positive/negative count 사례로 올바른 새 후보 경로와,Top1을 이겨도 고정 V1 비교가 실패하면 재현을 거부하는 조건을 검사했다. 현재 실제 scale16 최종 결과는 없으므로 seed202 recipe·학습·예약121개 generation을 생성하거나 완료했다고 주장하지 않는다.
+
+Scale16에도 같은 raw480/common32/noise0 value-address 진단을 연결한다. 새 후보 이름을 명시해야 하며,실제 정상/변경/최종128 reference의 arm이 모두 일치해야 한다. 값 연결을 변경한 뒤에도 utility logit·attention weight·입력 value가 보존되고 hook이 복원되는 검사를 초기 scale4와16 양쪽에서 통과했다. 관련 continuation·gate 검사와 합쳐61개 CPU 검사가 통과했다. 이 saved-weight 진단은 최종128×3 선정 기준을 바꾸지 않으며,decoder 제거·Top1 No-score·native-spatial No-corr의 학습 효과를 대체하지 않는다.

@@ -11,14 +11,18 @@ from .semantic_topk_selected_correspondence import summarize
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--candidate', choices=['frozen-utility-c1', 'utility-scale16-c1'],
+                        default='frozen-utility-c1')
     args = parser.parse_args()
     folder = args.root / 'task-value-address-v1'
     contract_path = folder / 'contract.json'
     contract = json.loads(contract_path.read_text())
-    if contract['candidate'] != 'frozen-utility-c1' or contract['candidate_preselected'] is not False:
+    if contract['candidate'] != args.candidate or contract['candidate_preselected'] is not False:
         raise ValueError('declared unselected frozen-utility candidate required')
     paths = [Path(contract[key]) for key in ['normal', 'altered', 'reference']]
     records = [json.loads(path.read_text()) for path in paths]
+    if any(record.get('arm') != args.candidate for record in records):
+        raise ValueError('actual saved model differs from declared diagnostic candidate')
     panel_path, seed_path = [Path(contract[key]) for key in ['panel', 'seed_map']]
     for key, path in [('panel', panel_path), ('seed_map', seed_path)]:
         if hashlib.sha256(path.read_bytes()).hexdigest() != contract[key + '_SHA256']:
@@ -35,7 +39,7 @@ def main():
     result = summarize(*records)
     result.update(
         status='PASS_FROZEN_UTILITY_SAME_POOL_VALUE_ADDRESS_DIAGNOSTIC',
-        candidate='frozen-utility-c1',
+        candidate=args.candidate,
         contract_SHA256=hashlib.sha256(contract_path.read_bytes()).hexdigest(),
         actual_evaluation_SHA256={str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths},
         scope='Same actual raw480 candidate/common32/noise0; keys/logits/weights/support and per-query value multiset preserved. Value-to-weight association changes after attention. Not the native-spatial No-corr training arm,not matching accuracy or a model-adoption gate.',

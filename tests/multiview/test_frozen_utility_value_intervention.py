@@ -9,8 +9,10 @@ from pixal3d.modules.task_matching_attention import TaskCandidateAttention
 
 
 @pytest.mark.parametrize('learned_output', [False, True])
-def test_value_only_control_keeps_utility_logits_weights_inputs_and_restores_hook(learned_output):
-    attention = TaskCandidateAttention(width=4, hidden=3, content_mode='residual-zero').eval()
+@pytest.mark.parametrize('content_scale', [4., 16.])
+def test_value_only_control_keeps_utility_logits_weights_inputs_and_restores_hook(learned_output, content_scale):
+    attention = TaskCandidateAttention(width=4, hidden=3, content_mode='residual-zero',
+                                       initial_content_scale=content_scale).eval()
     if learned_output:
         with torch.no_grad():
             attention.content_output.weight.fill_(.1)
