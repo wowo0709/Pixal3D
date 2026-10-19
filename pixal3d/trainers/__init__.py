@@ -13,6 +13,7 @@ __attributes = {
     'ImageConditionedFlowMatchingCFGTrainer': 'flow_matching.flow_matching',
     'ImageConditionedProjFlowMatchingCFGTrainer': 'flow_matching.flow_matching',
     'VoxelQueryImageConditionedProjFlowMatchingCFGTrainer': 'flow_matching.voxel_query_matching',
+    'RayGroupImageConditionedProjFlowMatchingCFGTrainer': 'flow_matching.ray_group_matching',
     
     'SparseFlowMatchingTrainer': 'flow_matching.sparse_flow_matching',
     'SparseFlowMatchingCFGTrainer': 'flow_matching.sparse_flow_matching',
