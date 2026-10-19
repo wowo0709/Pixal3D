@@ -26,3 +26,13 @@ Query를 만드는 입력과 pooling 방식, target anchor와 source camera writ
 검증은 same-ray voxel의 순서를 바꾸어도 ray query/attention이 같음, view 간 group이 섞이지 않음, ray마다 feature 하나만 쓰임, native projection·zero-init·global branch·CFG가 보존됨을 포함한다. 최종 성능은 같은 retargeter의 Top-1 및 기존 anchor-patch arm과 고정 raw480/dev128×3 조건으로 비교한다. Source address/score/decoder 효과와 ray-group 효과를 분리하고 개선을 미리 가정하지 않는다.
 
 이 문서는 source 감사와 수정할 계약이다. 새 ray-group production model의 구현·학습·성능 향상을 완료했다고 표시하지 않는다. 기존 V/P는 원래 recipe로 계속 학습하며 individual-voxel 및 anchor-patch 비교 근거로 보존한다.
+
+## 사용자 지시 반영 및 실제 구현 시작
+
+Retargeting adapter를 공통 블록으로 유지하고, 앞으로의 semantic matching/matching-aware attention 비교는 ray-group query를 공통 기반으로 한다. 개별 voxel 또는 단순 anchor-patch 모델의 자동 seed202 확장 factory는 실행 전 pending 상태에서 예약을 철회했다. 원래 descriptor·pending 이력·queue backup을 보존했으며 현재 학습·고정 최종 평가·게시 작업은 중지하거나 변경하지 않았다.
+
+`wowo0709/feature-retargeting`을 별도 `/root/dev/Pixal3D/.worktrees/ray-group-query-stage-20261019` checkout으로 옮겼다. 기존 학습 checkout은 같은 commit에 detached 상태로 유지해 실제 forward source11/8개를 바꾸지 않는다. 새 `pixal3d/modules/ray_group_query.py`는 explicit camera/patch membership으로 `[B,V,R,D]`의 ray당 query 하나를 만들며 빈 ray는 valid=false로 구분한다. Native ray membership은 과거 mean-Q의 nearest32² patch-bin 계약을 따른다. Bilinear native ProjGrid를 다른 voxel splice로 대체하지 않는다.
+
+Camera/batch 분리·same-ray voxel 순서 불변성·빈 ray·gradient·invalid index 관련 CPU 검사7개를 통과했다. 원래 dev128의 첫2개 실제 DeformNeXt camera를 써 과거 `target_proxy_ray_summary`의 unweighted query와 새 pooling을 대조했다. Group membership/populated mask가 같고, synthetic varying-latent probe의 두 query tensor 최대 차이가 모두0이었다. Source-camera별 활성 ray 수는421/414/416과840/852/849이며 ray당 최대 voxel 수는27과16이다. 이는 실제 camera에서 grouping 산술을 재현한 결과로, GT latent를 열거나 새 모델 성능을 평가한 결과가 아니다.
+
+통합할 query의 feature 출처와 semantic key/score의 ray 단위 정의를 별도로 고정하고, ray feature 하나→retargeter→native per-view ProjGrid를 구현·검증한 뒤 같은 ray 기반 Top-1/native-spatial/decoder 대조를 구성해야 한다. Core pooling의 통과만으로 conditioner·GPU proof·본 학습이 완료됐다고 표시하지 않는다.
