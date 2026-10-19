@@ -18,9 +18,9 @@ Semantic arm은 ray별 frozen Omega RAW Top64를 새로 찾고 같은 frozen D1/
 | ray-native-spatial | 동일 ray query/R/projection/attention이며 source evidence는 각 camera의 original native spatial projection을 ray-group으로 모은3후보다. 사용자 No-corr 정의이며64대3 자연 후보 수 차이를 명시한다. |
 | ray-no-decoder | 동일 semantic/full 구성에서 D1 block을 실제 제거한다. 기존 선택된 D1-trained scalar initialization은 유지하므로 optimalD0를 따로 학습한 비교라고 주장하지 않는다. |
 
-CPU 검사23개에서 same-ray voxel 순서 불변성·view/batch 분리·empty-ray mask·Top1 one-feature·physical decoder removal·frozen head·AMP/gradient·native projection 선형성·원래4-view projection/global zero-start를 통과했다. Native projector를 통해 backward가 실제 fusion gate와 retargeter output에 도달하는지 검사했다. Config guard는 budget·R·GT/old-cache·score-prior drift를 거부한다.
+CPU 검사32개에서 same-ray voxel 순서 불변성·view/batch 분리·empty-ray mask·Top1 one-feature·physical decoder removal·frozen head·AMP/gradient·native projection 선형성·원래4-view projection/global zero-start를 통과했다. Native projector를 통해 backward가 실제 fusion gate와 retargeter output에 도달하는지 검사했다. Config guard는 budget·R·GT/old-cache·score-prior drift를 거부한다. Static Top1/weighted와 learned attention 모두 value-only intervention에서 실제 evidence가 바뀌고 score/weight/candidate ID는 그대로인지 검사했다.
 
-아직 actual GPU native/SS-loss proof,DDP48 memory/time benchmark,본 학습·최종128×3·training-seed replication은 남아 있다. CPU 통과는 새 모델의 SS 성능 개선이나 전체 실험 완료를 뜻하지 않는다. 기존 학습 checkout은 detached/frozen으로 보존하고 새 source는 `wowo0709/feature-retargeting`의 ray-group stage에서만 바꾼다.
+Actual GPU native/SS-loss proof는 아래와 같이 완료했다. DDP48 memory/time benchmark,본 학습·최종128×3·training-seed replication은 남아 있다. 구현 검증 통과는 새 모델의 SS 성능 개선이나 전체 실험 완료를 뜻하지 않는다. 기존 학습 checkout은 detached/frozen으로 보존하고 새 source는 `wowo0709/feature-retargeting`의 ray-group stage에서만 바꾼다.
 
 ## 실제 GPU 첫 검증 및 weighted 기준 추가
 
@@ -29,3 +29,11 @@ CPU 검사23개에서 same-ray voxel 순서 불변성·view/batch 분리·empty-
 첫 시도는 standalone 환경에서 `ATTN_BACKEND`가 빠져 기본 FlashAttention import에 실패했다. 실행 중인 reference process의 실제 환경을 확인해 SDPA 및 `expandable_segments:True`로 맞췄고,CUDA 할당 전 이를 확인하는 guard를 추가했다. 실패 source/로그는 별도 보존하며 패키지나 기존 학습은 변경하지 않았다.
 
 Score-only weighted arm도 추가했다. Zero-utility Full과 score-only arm의 candidate weight·retargeter·ray delta가 exact한 CPU 대조를 추가해 총25개 검사를 통과했다. Weighted branch의 FP32 softmax는 Full의 divide-first prior 순서를 사용한다. 이 확장 후의 source/config snapshot과 hardware gate는 원래 첫 검증 버전과 구분한다. 아직 새 ray 모델의 실제 본 학습과 개선 판정은 미완료다.
+
+## 최종 실행 경로
+
+Value-only diagnostic을 실제 static ray readout 경계에 연결한 source `5f26e42`로5개 arm 모두 `cohost-final-native-v4` 검증을 다시 완료했다. 각 arm의13개 numerical component SHA256이 실행 시작부터 종료까지 동일하다. Global/proj native 차이는 전부0,LoRA·fusion gate·retargeter output gradient는 양수이며 frozen matcher는 학습하지 않는다. Single-case peak allocated는4.714~4.744GiB다. 이 값으로 micro48 메모리가 보장된다고 해석하지 않는다.
+
+`ray_group_queue.py`는 frozen reference scheduler에서 새로운 checkout의 cwd/PYTHONPATH를 명시하여5개 학습을 실행한다. GPU0~3만2개씩 배정하고 Full/weighted를 먼저,그 다음 Top1/native-spatial,마지막 No-decoder 순으로 시작할 수 있게 구성했다. 각 학습은 원래SS4210에서 새로 시작하며 자체 native gate와2-update 실제 DDP48 benchmark를 먼저 통과해야 한다. 기존 진행 중인 reference 학습/평가는 보존한다.
+
+각 arm에5회 epoch audit·actual W&B scalar/PNG readback·final weight/optimizer audit·trained two-case RGB/BF16/CFG 검증·final128×3 generation·common32 value-address intervention을 연결했다. Ray saved-model 검증은 precomputed match cache가 없는 상태의 fresh ray retrieval 재현성을 확인하고 GT spatial/old2D match 입력은 거부한다. Static Top1/weighted에는 utility module이 없고 No-decoder는 decoder block이 없다. 최종 비교는 Full−Top1,weighted−Top1,Full−weighted,Full−native-spatial,Full−No-decoder 및 V1/두 zero-shot을 포함한다. 기존 query 단위가 다른 Top1-R은 맥락 비교로만 취급한다. 새 ray 구조의 성능 개선은 실제 학습·평가 전까지 미확인이다.
