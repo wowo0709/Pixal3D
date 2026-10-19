@@ -107,7 +107,14 @@ def validate_profile(cfg, root):
 def source_record():
     repo = Path(__file__).resolve().parents[2]
     return {'commit_at_entry': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip(),
-        'component_SHA256': {name: hashlib.sha256((repo / name).read_bytes()).hexdigest() for name in SOURCES}}
+        'component_SHA256': {name: hashlib.sha256((repo / name).read_bytes()).hexdigest() for name in SOURCES},
+        'runtime_backend': {key: os.environ.get(key) for key in ['ATTN_BACKEND', 'PYTORCH_CUDA_ALLOC_CONF']}}
+
+
+def validate_runtime_backend():
+    if (os.environ.get('ATTN_BACKEND') != 'sdpa'
+            or os.environ.get('PYTORCH_CUDA_ALLOC_CONF') != 'expandable_segments:True'):
+        raise ValueError('use the actual reference SS runtime:ATTN_BACKEND=sdpa,PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True')
 
 
 def main():
@@ -128,6 +135,7 @@ def main():
         print(json.dumps({'status': 'PREPARED_NOT_GPU_VERIFIED', 'arm': args.arm}), flush=True)
         return
     validate_profile(cfg, args.root)
+    validate_runtime_backend()
     if args.mode != 'proof' and (args.proof_output is not None or args.proof_memory_fraction is not None):
         parser.error('standalone proof output/memory limit are not training settings')
     visible, allowed = gpu_ids(os.environ.get('CUDA_VISIBLE_DEVICES', '')), gpu_ids(os.environ.get('MATCHING_V2_ALLOWED_GPUS', ''))

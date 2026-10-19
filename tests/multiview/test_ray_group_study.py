@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from experiments.deformnext_retargeting.ray_group_study import ARMS, recipe, validate_profile
+from experiments.deformnext_retargeting.ray_group_study import ARMS, recipe, validate_profile, validate_runtime_backend
 
 
 def source():
@@ -63,3 +63,13 @@ def test_module_control_cannot_silently_change_the_common_baseline(tmp_path, cha
         cfg['trainer']['args']['deform_conditioner']['task_attention']['score_prior'] = False
     with pytest.raises(ValueError):
         validate_profile(cfg, root)
+
+
+def test_gpu_entry_requires_the_observed_reference_backend_before_cuda_allocation(monkeypatch):
+    monkeypatch.delenv('ATTN_BACKEND', raising=False)
+    monkeypatch.delenv('PYTORCH_CUDA_ALLOC_CONF', raising=False)
+    with pytest.raises(ValueError, match='reference SS runtime'):
+        validate_runtime_backend()
+    monkeypatch.setenv('ATTN_BACKEND', 'sdpa')
+    monkeypatch.setenv('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+    validate_runtime_backend()
