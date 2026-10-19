@@ -208,3 +208,25 @@ Step384의 실제 model/optimizer·W&B 네 metric/PNG·file4 대조와 common32 
 F1−Top1+C1은 **+0.011pp,[−0.065,+0.089]pp**로 차이가 없었다. 기존 C1 대비−0.025pp,[−0.089,+0.032]pp,Full 대비+0.086pp,[−0.463,+0.550]pp였다. V1 대비는+1.569pp,[+0.105,+3.131]pp였다. Epoch3→4의 F1 변화는+0.647pp,[−0.001,+1.261]pp였으며,이는 서로 다른 모델의 추가 효과가 아니라 같은 모델의 시간 경과 비교다.
 
 따라서3에폭의 Top1 대비 양의 CI가 다음 에폭에서도 유지됐다고 해석할 수 없다. 현재 근거는 vanilla 대비 조합의 이득과,Top1+C1/기존 Top-K C1 대비 학습형 utility의 추가 이득을 구분해야 함을 보여준다. 고정 raw480/final128×3 기준을 유지하고 최종 결과로 재현 학습 여부를 판단한다. 중간에 optimizer를 바꾸거나 best epoch를 선택하지 않는다.
+
+## 실제 저장된 attention의 보정 크기
+
+`inspect_frozen_utility_mixing.py`로 실제 step384 conditioner를 읽었다. 원래 development128개·93source의9,883개 활성 query를 모두 사용했고,decoder/score24개 tensor가 원래 R9와 정확히 같음을 확인했다. CPU 두 core에서 저장된 FP16 cache 경계 이후의 head/value 계산을 FP32로 수행했으며,실제 GPU AMP forward의 수치 재현이나 새 SS 생성 평가는 아니다. Raw2048 Omega cache는 학습과 같은 `frame_raw`로 FRAME1024를 선택했다. 첫8개622query와 전체128개의 결과를 각각 보존한다.
+
+| 전체128개,step384 진단 | 값 |
+| --- | ---: |
+| Frozen prior의 평균 실효 후보 수 | 1.231470 |
+| Learned utility를 더한 평균 실효 후보 수 | 1.231408 |
+| Utility를 더한 뒤 prior argmax가 바뀐 query | 1.012% |
+| Prior와 learned attention 사이 평균 total variation | 0.011429 |
+| 가중합 DINO value의 전체 relative RMS 변화 | 1.227% |
+| Prior Top1–Top2 logit 차이의 median | 7.227585 |
+| Learned utility logit 범위의 median | 1.294625 |
+| Prior Top1 차이가 utility 범위보다 큰 query | 87.322% |
+| 실제 content scale,초기4 | 4.035332 |
+
+Utility만 읽은 counterfactual은 실효K59.32로 넓지만,현재 prior에 더한 결과는 여전히 Top1에 가깝다. 각 query에서 prior Top1 차이가 전체 utility 범위보다 크면 해당 utility로 Top1을 뒤집을 수 없다는 산술적 한계가 있다. 이는 correspondence 정확도나 품질 저하의 원인 증명이 아니다. 같은 prior를 유지한 zero-output utility는 학습의 softmax 연산 순서에서 probability 최대 오차0으로 재현됐다.
+
+Fresh frozen prior와 cached prior의 argmax는 전부 같았고,평균 total variation은1.17e-6,value relative RMS는1.05e-6이었다. 이 패널에서는 cache/head 불일치가 실질적인 설명이라는 근거가 없다. Task 경로와 기존 categorical 경로의 scale/max-subtraction 순서 차이는 probability 최대3.64e-6이었다. 이를 모델 구현 오류나 성능 차이로 해석하지 않는다.
+
+이 진단으로 다음 후보에서 utility의 보정 강도를 독립적으로 검증할 근거가 생겼다. 최종 F1 결과가 음성이면,frozen decoder/score·semantic64·T0.005·native 시작 출력·나머지 optimizer를 그대로 둔 채 utility 초기 scale만 높인 후보를 먼저 비교할 수 있다. 초기 output weight0이므로 scale을 높여도 시작 attention은 prior와 같아야 한다. 이는 아직 구현·GPU 검증·학습·품질 향상이 완료된 후보가 아니며,현재 F1이나 진행 중인 Top1+C1 seed202의 설정은 바꾸지 않는다.
