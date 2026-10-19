@@ -68,3 +68,23 @@ F1이 통과하면 fresh seed202 F1과 matched Top1+C1 seed202를 병렬 학습�
 F1 두 rank가51update를 완료했다. 실제 SS loss의 utility-attention gradient L1은 두 rank 모두0.0005894062601345951,decoder/score gradient는 모두0이었다. Fusion gate는0.003604,retarget residual RMS는 약0.00657/0.00679였다. 초기 step1의 utility gradient0 이후 실제 학습 신호가 흐르는 것을 확인한 것이며,품질 기여로 해석하지 않는다. 현재 batch의 effectiveK는1.228/1.212로 frozen T0.005의 강한 prior를 유지하는 구간이다. 서로 다른 batch의 수치를 직접 학습 전후 분포 변화로 해석하지 않는다.
 
 No-retargeter Top1 seed202는 첫 epoch의 실제 W&B 네 수치·PNG 및 optimizer361개·raw checkpoint/file4 대조를 통과했다. Common32/한 noise의 IoU는0.435216로 seed101의 같은 epoch0.435134와 비슷했다. 두 run 차이는+0.008pp,source-cluster CI[−0.212,+0.255]pp였다. 이 CI는 두 고정 run의 source-panel 차이에 대한 것이며 training-seed 모집단의 불확실성을 추정하지 않는다. 추가 seed의 최종5epoch 결과와 F1 첫 epoch·최종128×3 품질 판정은 남아 있다.
+
+## 실제 F1 첫 에폭
+
+F1의 첫96update·validation·실제 W&B 네 수치와PNG·optimizer371개 및 raw checkpoint/file4 대조가 통과했다. Saved conditioner의24개 decoder/score tensor는 초기 R9와 정확히 같았고,utility의5개 parameter는 모두 갱신됐다. Output weight의 L2 변화는0.015699,query/context/key projection은 각각0.019743/0.029429/0.037850이었다. 원래 native 시작 출력이 같은 상태에서 새 utility가 실제로 학습된 근거이며,그 품질 기여는 별도 비교가 필요하다.
+
+| 같은32개·noise0 | IoU |
+| --- | ---: |
+| Zero source4M0 | 0.394997 |
+| Zero edited1M1+source3M0 | 0.426715 |
+| V1,epoch1 | 0.432148 |
+| 기존 frozen C1 T0.005,epoch1 | 0.436335 |
+| Matched Top1+C1,epoch1 | 0.437187 |
+| Joint-trained Full,epoch1 | 0.438333 |
+| 새 F1,epoch1 | 0.436888 |
+
+F1−matched Top1+C1은 −0.030pp,95% source-cluster CI[−0.154,+0.072]pp였다. 기존 C1 대비 +0.055pp,[−0.018,+0.132]pp,V1 대비 +0.474pp,[−0.533,+1.372]pp,Joint-trained Full 대비 −0.144pp,[−0.332,+0.010]pp였다. 네 대조 모두0을 포함했다. Zero edited RGB 대비 +1.017pp,[−0.597,+2.569]pp,source4M0 대비 +4.189pp,[+1.120,+7.587]pp였다. 모두 common32·단일 sampling noise·고정 training seed101의 중간 비교다. 첫 에폭 결과로 모델을 채택하거나 중단하지 않고 raw480/fixed128×3 기준을 유지한다.
+
+최종 보고서에도 두 zero-shot의 기존128×3 실제 평가를 재사용한다. Source-only는4M0 RGB,edited-RGB는1M1+3M0 RGB이며 둘 다 같은 M1 GT에 대해 평가한다. 실제 기존 Top1+C1의 zero-shot 대비 세 noise paired 결과를 그대로 재현하는 reporting preflight가 통과했다. 이를 새 F1의 최종 성능 결과로 혼동하지 않는다.
+
+학습 후에는 동일 raw480 모델의 common32/noise0에서 score·attention weight·candidate support와 각 query의 source-value multiset을 유지하고,value-to-weight pairing만 바꾸는 진단을 추가한다. 이는 원래 spatial matching을 사용하는 사용자 No-corr 학습 arm과 구분한다. 새 residual-zero utility의 초기 및 nonzero output 상태에서 logits·weights·입력 보존,pooled value 변경,hook 원상복원 검사2개가 통과했다. 이 진단은 모델 품질 선정이나 semantic retrieval 전체의 필요성을 단독 판정하는 기준이 아니다.

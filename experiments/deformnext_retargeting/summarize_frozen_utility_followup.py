@@ -12,6 +12,7 @@ from .semantic_topk_search import write_new
 from .semantic_topk_selection import supported
 from .summarize_semantic_topk_search import aggregate, task_gradient_audit, validate_evaluation
 from .summarize_ss_module_study import audit_final_replay, audit_training
+from .semantic_topk_zero_replay import MODES, zero_paths, validate_zero
 
 
 NAME = 'frozen-utility-c1'
@@ -19,6 +20,17 @@ NAME = 'frozen-utility-c1'
 
 def read(path):
     return json.loads(path.read_text())
+
+
+def zero_records(campaign):
+    records, inputs = {}, []
+    for name, mode in MODES.items():
+        paths = zero_paths(campaign, campaign.parent, name)
+        records[name] = [read(path) for path in paths]
+        for value in records[name]:
+            validate_zero(value, mode)
+        inputs.extend(paths)
+    return records, inputs
 
 
 def validate_saved_audits(final, qa, epochs):
@@ -92,6 +104,9 @@ def summarize(root, campaign):
     for values in records.values():
         for value in values:
             validate_evaluation(value)
+    zeros, zero_inputs = zero_records(campaign)
+    records.update(zeros)
+    inputs.extend(zero_inputs)
     training['final128_replays_epoch32'] = audit_final_replay(training, records[NAME][0])
     training['task_branch_gradients'] = task_gradient_audit(root, NAME)
     final_folder = root / 'final-weight-audits-v1' / ('train-' + NAME)
@@ -113,7 +128,7 @@ def summarize(root, campaign):
             raise ValueError('closed audit bytes differ from the actual file4 receipt')
         inputs.extend([path, folder / 'audit.json'])
     contrasts = {name: compare([(str(n), records[name][n], records[NAME][n]) for n in range(3)])
-                 for name in sources}
+                 for name in [*sources, *MODES]}
     eligible = all(supported(contrasts[name]) for name in ['v1', 'static-top1-c1', 'top1-reference'])
     report = {
         'status': 'PROMISING_FROZEN_UTILITY_REQUIRES_CONFIRMATION' if eligible else 'NO_FROZEN_UTILITY_IMPROVEMENT_CONFIRMED',
@@ -124,6 +139,7 @@ def summarize(root, campaign):
                    for p in dict.fromkeys(inputs)],
         'selection_rule': 'Positive source-cluster 95% CI versus V1, same-retargeter Top1, and no-retargeter Top1; positive direction at all3noises. Fixed raw480 only.',
         'scope': 'Exploratory fixed128/93source/3noise, training seed101. Repeated generation noises are not independent training seeds. No multiplicity adjustment.',
+        'zero_shot_scope': 'Original SS4210;source-only uses four M0 RGBs,edited-RGB uses one M1+three M0 RGBs. Both score against the identical desired-state M1 GT. Reuse verified original3noise evaluations;no new zero-shot generation.',
         'first_round_negative_preserved': True, 'model_adopted': False, 'full_goal_complete': False,
         'next': 'Fresh seed202 utility and matched Top1+C1, then reserved121 source-disjoint validation.' if eligible
                 else 'Retain negative evidence and continue diagnosis/model search; no adoption.',
@@ -139,7 +155,7 @@ def summarize(root, campaign):
     for name, value in contrasts.items():
         lo, hi = value['paired_cluster_bootstrap_ci95']
         lines.append(f"| {name} | {100*value['gain']:+.3f} | [{100*lo:+.3f}, {100*hi:+.3f}] |")
-    lines += ['', report['scope'], '', report['selection_rule'], '', report['next']]
+    lines += ['', report['scope'], '', report['zero_shot_scope'], '', report['selection_rule'], '', report['next']]
     write_new(output, report)
     with output.with_suffix('.md').open('x') as stream:
         stream.write('\n'.join(lines) + '\n')
