@@ -612,3 +612,9 @@ Full−native-spatial은 +0.389pp, CI [−0.375,+1.259]pp로 불확실했다. Na
 동일 noise0·원래 순서의 첫8개 asset에서8개 학습 모델과 두 zero-shot의 GT/Pred 투영 이미지를 직접 확인했다. Source-only zero-shot이 학습 모델보다 나은 사례와 방법별 우열이 달라지는 사례가 모두 있었다. 투영 silhouette가 비슷해도3D IoU가 다를 수 있어 이 그림만으로 hidden-depth 오류나 축 정합 오류를 단정하지 않는다. 실제 PNG/PDF와 검토 기록은 `wave4-noise0-first8-v1/`에 보존했고 관련26개 파일의 실제 file4 SHA 검증이 통과했다.
 
 후속 실험은 [frozen matcher utility 계획](2026-10-19-frozen-matcher-utility-attention-followup-ko.md)에 따른다. Frozen decoder/score와 초기 가중합을 보존하고 zero-start utility attention만 추가해 검사한다. 원래 음성 결과는 보존하며,새 모델도 같은 retargeter의 Top1과 V1을 넘어서는지 raw480/fixed128×3로 판단한다.
+
+## 실제 semantic candidate의 RGB 위치 확인
+
+`matching-address-first8-v1/`의 PNG8개와 PDF는 원래 fixed128의 첫8개 asset을 그대로 사용한다. 각 asset의 foreground query를 row-major 순서의 네 mid-quantile에서 선택하고,frozen matching-score Top1·ranks2~4와 완료된 Task-full raw480의 최종 attention Top1을 같은 target M1·source M0 RGB canvas에 표시했다. 이는 현재 학습 중인 frozen-utility 모델의 결과가 아니다. CPU2개만 사용했고 SGD·추가 생성·GT correspondence label·예약121개를 사용하지 않았다.
+
+622개 active query의 실제 선택이 기존 saved128 진단과 일치하고,공유하는 transport/match/target RGB24개 file fingerprint도 기존 canonical 기록과 일치했다. 실제로 확인한 도끼·침대·책장 세 그림에서는 같은 넓은 부위에 모이는 후보와 반복 구조·가림에 따른 위치 모호성이 함께 보였다. 세 그림의 정성 관찰을 전체 데이터의 정답 매칭 정확도나 decoder/score 변경의 품질 인과 효과로 해석하지 않는다. Source-camera/row-major patch 주소를 직접 확인하는 자료이며,생성 품질 효과는 같은 retargeter의 Top1 및 native-spatial 대조와 구분해 평가한다.
