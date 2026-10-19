@@ -102,7 +102,7 @@ def validate_matched_recipe(candidate, control, arm):
     control_spec = right['args'].pop('deform_conditioner')
     if left != right:
         raise ValueError('confirmation control optimizer or trainer differs')
-    for key in ['implementation', 'key_dim', 'value_dim', 'query_dim', 'topk', 'head_checkpoint']:
+    for key in ['implementation', 'key_dim', 'value_dim', 'query_dim', 'topk', 'q2c_checkpoint']:
         if candidate_spec.get(key) != control_spec.get(key):
             raise ValueError('confirmation control matching input differs: ' + key)
     if arm == 'static-top1-c1':

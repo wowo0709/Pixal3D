@@ -129,6 +129,16 @@ def test_no_retargeter_control_has_its_declared_b2_dataset_consumer(tmp_path):
         validate_matched_recipe(cfg, control, 'top1-reference')
 
 
+@pytest.mark.parametrize('arm', CONTROLS)
+def test_controls_must_use_the_same_actual_q2c_checkpoint(tmp_path, arm):
+    cfg = confirmation_recipe(source(tmp_path), tmp_path)
+    cfg['trainer']['args']['deform_conditioner']['q2c_checkpoint'] = 'actual-initial-head.pt'
+    control = matched_control(cfg)
+    control['trainer']['args']['deform_conditioner']['q2c_checkpoint'] = 'different-head.pt'
+    with pytest.raises(ValueError, match='matching input differs: q2c_checkpoint'):
+        validate_matched_recipe(cfg, control, arm)
+
+
 @pytest.mark.parametrize('change', ['seed', 'RGB-source', 'model', 'batch', 'validation', 'retargeter'])
 def test_confirmation_rejects_unmatched_training_or_generation(change, tmp_path):
     cfg = confirmation_recipe(source(tmp_path), tmp_path)
