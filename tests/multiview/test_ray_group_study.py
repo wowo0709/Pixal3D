@@ -44,6 +44,7 @@ def test_every_arm_preserves_continuation_data_ray_unit_and_global96_budget(tmp_
     assert len({cfg['master_port'] for cfg in configs.values()}) == len(ARMS)
     assert configs['ray-top1']['trainer']['args']['deform_conditioner']['task_attention'] is None
     assert configs['ray-top1']['trainer']['args']['deform_conditioner']['candidate_aggregation'] == 'top1'
+    assert configs['ray-weighted']['trainer']['args']['deform_conditioner']['task_attention'] is None
     assert configs['ray-no-decoder']['trainer']['args']['deform_conditioner']['task_attention']['decoder'] is False
 
 

@@ -123,9 +123,11 @@ class RayGroupConditioner(DeformationAwareConditioner):
             ids, mask = indices.reshape(-1, width)[ix], valid.reshape(-1, width)[ix]
             prior = score[ix] / self.score_temperature
             if self.task_attention is None:
-                p = categorical_weights(score[ix], mask, self.score_temperature)
                 if self.ray_mode == 'semantic-top1':
                     p = F.one_hot(score[ix].argmax(-1), width).float() * mask.any(-1)[:, None]
+                else:
+                    # Match the full attention's divide-first FP32 prior order.
+                    p = categorical_weights(prior, mask, 1.)
                 values = flat_values[b[:, None], ids]
                 result = ((p[..., None] * values).sum(1), p, prior)
             elif native_spatial:

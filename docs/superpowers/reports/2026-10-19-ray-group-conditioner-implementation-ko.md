@@ -13,6 +13,7 @@ Semantic arm은 ray별 frozen Omega RAW Top64를 새로 찾고 같은 frozen D1/
 | Arm | 실제 대조 |
 |---|---|
 | ray-top1 | 동일 ray query/selected matcher/R/native projection. Score argmax의 feature 하나,utility 모듈 물리적으로 없음. 사용자 No-score 정의. |
+| ray-weighted | 동일 semantic64/score/R/projection,utility 모듈 없이 frozen score만으로 가중합. Top1과의 차이는 multi-candidate score-weighted fusion,Full과의 차이는 learned utility다. |
 | ray-full | 동일 query/R/projection에 semantic64+score prior+learned utility attention. |
 | ray-native-spatial | 동일 ray query/R/projection/attention이며 source evidence는 각 camera의 original native spatial projection을 ray-group으로 모은3후보다. 사용자 No-corr 정의이며64대3 자연 후보 수 차이를 명시한다. |
 | ray-no-decoder | 동일 semantic/full 구성에서 D1 block을 실제 제거한다. 기존 선택된 D1-trained scalar initialization은 유지하므로 optimalD0를 따로 학습한 비교라고 주장하지 않는다. |
@@ -20,3 +21,11 @@ Semantic arm은 ray별 frozen Omega RAW Top64를 새로 찾고 같은 frozen D1/
 CPU 검사23개에서 same-ray voxel 순서 불변성·view/batch 분리·empty-ray mask·Top1 one-feature·physical decoder removal·frozen head·AMP/gradient·native projection 선형성·원래4-view projection/global zero-start를 통과했다. Native projector를 통해 backward가 실제 fusion gate와 retargeter output에 도달하는지 검사했다. Config guard는 budget·R·GT/old-cache·score-prior drift를 거부한다.
 
 아직 actual GPU native/SS-loss proof,DDP48 memory/time benchmark,본 학습·최종128×3·training-seed replication은 남아 있다. CPU 통과는 새 모델의 SS 성능 개선이나 전체 실험 완료를 뜻하지 않는다. 기존 학습 checkout은 detached/frozen으로 보존하고 새 source는 `wowo0709/feature-retargeting`의 ray-group stage에서만 바꾼다.
+
+## 실제 GPU 첫 검증 및 weighted 기준 추가
+
+첫4개 arm은 실제 SS 모델·원래4RGB/정합GT·LoRA 상태로 GPU native/backward 검증을 통과했다. `global/proj`의 원래 모델 대비 최대 차이는0이고,실제 SS-loss gradient는 LoRA·fusion gate·retargeter output으로 연결됐다. Utility arm은 임시 output probe를 원복한 상태에서 attention gradient와 frozen matcher의0 gradient를 확인했다. Physical No-decoder는 block 수0이었다. GPU0의 할당량20% 제한 안에서 검증했고 single-case peak allocated는4.714~4.744GiB였다. 이는 DDP48 또는5에폭 학습의 메모리·품질 결과가 아니다.
+
+첫 시도는 standalone 환경에서 `ATTN_BACKEND`가 빠져 기본 FlashAttention import에 실패했다. 실행 중인 reference process의 실제 환경을 확인해 SDPA 및 `expandable_segments:True`로 맞췄고,CUDA 할당 전 이를 확인하는 guard를 추가했다. 실패 source/로그는 별도 보존하며 패키지나 기존 학습은 변경하지 않았다.
+
+Score-only weighted arm도 추가했다. Zero-utility Full과 score-only arm의 candidate weight·retargeter·ray delta가 exact한 CPU 대조를 추가해 총25개 검사를 통과했다. Weighted branch의 FP32 softmax는 Full의 divide-first prior 순서를 사용한다. 이 확장 후의 source/config snapshot과 hardware gate는 원래 첫 검증 버전과 구분한다. 아직 새 ray 모델의 실제 본 학습과 개선 판정은 미완료다.

@@ -93,6 +93,21 @@ def test_user_no_score_means_exactly_one_matched_feature_without_utility_paramet
     torch.testing.assert_close(result.base_evidence[valid], data['source_values'][0].flatten(0, 1)[ids], rtol=0, atol=0)
 
 
+def test_static_weighted_control_replays_zero_utility_prior_and_retargeter_exactly():
+    full, data = fixture()
+    static, _ = fixture('semantic-weighted')
+    static.load_state_dict({k: v for k, v in full.state_dict().items() if not k.startswith('task_attention.')}, strict=True)
+    with torch.no_grad():
+        full.fusion_gate.fill_(.2); static.fusion_gate.copy_(full.fusion_gate)
+        full.retargeter.net[-1].weight.normal_(std=.001)
+        static.retargeter.load_state_dict(full.retargeter.state_dict())
+    first, second = full(**data), static(**data)
+    assert static.task_attention is None
+    assert torch.equal(first.attention.candidate_indices, second.attention.candidate_indices)
+    torch.testing.assert_close(first.attention.candidate_weights, second.attention.candidate_weights, rtol=0, atol=0)
+    torch.testing.assert_close(first.map_delta, second.map_delta, rtol=0, atol=0)
+
+
 def test_native_spatial_control_consumes_explicit_projected_values_and_physical_no_decoder():
     model, data = fixture('native-spatial-attention', decoder=False)
     assert len(model.q2c.decoder.blocks) == 0
