@@ -141,10 +141,22 @@ R 생성 단계가 실패했다. 새 v2 plan은 factory에 Direct constructor �
    deformation-aware query를 더하는 두 arm을 사용하며 target-only 및 2×2는 추가하지 않는다.
 
 별도 legacy test508이 존재하고 train9149/validation508과 sample/source cluster/source UID가
-겹치지 않는 것은 metadata로 확인했다. 그러나 이 test는 아직 depth-target 및 legacy latent
-schema여서 현재 RGB/world-v4 모델의 최종 test로 바로 쓸 수 없다. Canonical file4의 기존
-RGB/cache 존재 여부를 조사하고 test 전용 전처리를 해야 한다. 후보를 고르기 전에
-test 모델 점수를 열지 않는다. Validation32/128/508은 이미 노출된 개발 데이터다.
+겹치지 않는 것은 metadata로 확인했다. 이 test의 원본 manifest는 depth-target 및 legacy
+latent schema이므로 그대로 현재 모델에 입력하지 않는다. 추가한 metadata 조사에서
+canonical file4에 508개 모두의 준비된 RGBA5장, camera JSON, geometry 및 PBR dump가
+있음을 확인했다. Export의 M0 camera11은 준비된 view04에 있으며 raw cycles 폴더의
+동일 이름 파일이 없는 것을 데이터 누락으로 해석하지 않는다.
+
+09:00 UTC 추가 기록: 기존6242개 파일(1,349,650,477 byte)을 재사용해 test508 전용
+world-frame metadata와 RGB manifest를 `test508-preparation-v2`에 만들었다.
+Target geometry의 canonical symlink를 그대로 복사한 v1 실패는 보존했고,
+v2에서는 명시적인 `rsync --copy-links`로 기존 파일을 복사했다. 준비된 다섯 RGBA와
+카메라8/9/10/11을 전부 검사했고 train/validation은 변경하지 않았다. Native SS/Shape/PBR
+latent·projection·matching cache는 아직 준비해야 하므로 manifest는 pending으로 유지한다.
+로컬 입력 SHA와 실제 file4의6242개 전체 파일 SHA256·byte 수가 모두 일치하는 것도
+`test508-input-byte-integrity-v1`에서 확인했다.
+후보를 고르기 전에 test 모델 점수를 열지 않는다. Validation32/128/508은 이미 노출된
+개발 데이터다.
 
 최종 모델 채택, full-stack 평가, 독립 학습 seed, 올바르게 전처리된 별도 test508,
 충분한 이미지 수의 FID/KID까지 남아 있으므로 전체 실험 목표는 계속 진행 중이다.
