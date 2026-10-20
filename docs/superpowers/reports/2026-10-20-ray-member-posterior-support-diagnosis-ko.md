@@ -163,3 +163,31 @@ PBR 설정·큐는 변경하지 않았다. 이 core는 아직 GPU 학습 큐에 
 별도 물리적 DQ arm은 이 No-DQ 경로의 실제 NN 검증 이후 순차로 추가해야 한다.
 
 원본 실행 결과와 소스는 `member-feature-source-ray-v1/CPU-core-v1`에 보관한다.
+
+## Four-head No-DQ runtime 연결
+
+별도 trainer와 native proof/capacity/science/evaluation entry를 추가했다.
+기존의7개 SS arm, 데이터/카메라/latent 처리, native LoRA/AdamW/AMP/sampler 및
+PBR 소스·설정은 보존한다. 새 arm은 원래 SS4210에서 fresh seed101,
+global96/micro96/accumulation1,480 update, 초기 및 매96 step validation32를 사용한다.
+추가된 학습 tensor는 기존 source/use10개에 실제 QKV head9개를 더한19개다.
+
+Native proof는 실제 SS loss에서 gate/R/LoRA 및 새 zero-output weight의 첫 gradient,
+활성화 후 source tensor19개의 gradient, 결손 입력 fallback, 실제32 예측의 native V1
+동일성과 BF16 FFN chunk 정합을 요구한다. Capacity는 같은 모델의 실제96개 입력으로
+3 update를 수행하고379개 Adam state의 step3, 모든 source gradient와 frozen weight
+정합 및 FFN의 실제 최대 expansion batch를 검사한다. 이 검사가 통과해야 본 학습한다.
+검사용 가중치나 optimizer state는 과학 실험의 초기화로 재사용하지 않는다.
+
+최종 평가는128개×3 sampling noise와 projected-V 교란32개다. 같은 forward의 실제
+Q/K/score에서 원래4-head 확률을 재구성해 정확히 비교하고, 원래 Top-1 feature와
+source-use도 확인한다. 이 교란은4-head feature 전달의 진단이며 재학습한 NoCorr는
+아니다. 정상 평가를 기존 member3개 및 mean/spatial4개 arm과 paired source-cluster
+bootstrap으로 비교한다.3개 sampling noise는 독립 학습 seed가 아니다.
+
+새 runtime/진단과 관련 기존 코드의40개 CPU 검사가7.68초에 통과했다.
+이는 GPU native proof 또는 capacity 통과가 아니다. 별도 실행 그래프는 native,
+capacity, science, 정상 평가3개, 값 교란, 비교 집계, W&B 게시의9개 작업으로 구성한다.
+GPU 작업은 진행 중인 PBR R-only 완료 후 기존 SS arm과 함께 배정하며, healthy PBR을
+중단하거나 승인되지 않은 GPU를 사용하지 않는다. 물리적 DQ를 추가한 다음 arm과
+새 생성물의 rendering metric 및 독립 학습 seed 검증은 이후 별도로 필요하다.
