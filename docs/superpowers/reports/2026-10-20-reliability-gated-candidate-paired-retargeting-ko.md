@@ -91,3 +91,17 @@ Canonical root는 기존 실험 아래 `feature-readout-v1/prior-anchored-QK-v1/
 다음 증거는 새 모델의 **실제 학습 후 matched R 대비 생성 품질**이다. 그 전에는 matching/retargeting의 추가 효과나 full 모델을 확정하지 않는다. 후보가 좋아지면 같은 초기 NN/R·Adam·학습 예산으로 frozen-mean, no-reliability, matched-Top1 payload, native-spatial correspondence, physical-NoDQ를 분리한다. 사용자 정의 NoScore는 uniform weights가 아닌 Top1 payload다. Native-spatial은 semantic Top64와 후보 개수/분포가 다르므로 semantic64용 reliability head를 그대로 적용해 OOD gate를 만드는 오류를 피해야 한다. Physical-NoDQ가 기존 R-only와 함수·학습 경로까지 동일하면 기존 matched R control을 재사용할 수 있다.
 
 현재 PBR V1 대 FullDirect는 stack 전체 비교이며 matching만의 독립 효과를 보여주려면 matched R-only가 필요하다. 신규 conditioner의 native PBR 통합은 아직 수행하지 않았다. 생성 noise 반복, 개발 VAL32, head AUROC를 독립 training seed나 최종 test508, 논문의10개 full-pipeline metric으로 대체하지 않는다.
+
+## 03:10 UTC 실행 갱신: 실제 candidate 학습과 PBR 메모리 복구
+
+새 candidate-paired SS는 GPU0/1에서 실제 NN/R 학습을 시작했다. 첫 scientific step97에서 **두 rank의 전체 loss 항목이 matched R control과 정확히 일치**했다. Rank0 loss는 .1305317134, rank1은 .1225043461이다. 임시 capacity 모델의 결과를 재사용해 학습이 시작됐다고 표기한 것이 아니다. `scientific-startup97-v1`에 실제 학습 로그·wrapper PID/생성 시각/명령·worker CPU 배정과 함께 actual file4 증거를 닫았다. GPU worker와 DataLoader worker는 CPU86/87, helper는84/85를 사용한다. 새 학습의 생성 품질 향상은 아직 판정하지 않았다.
+
+첫 구간192가 끝나면 원래32개 전체 패널에서 별도 native 평가를 실행한다. 같은192의 R/control, feature, DQ, Direct, geometry, NoDQ, V1, historical R 및 두4-RGB zero shot과 source-cluster paired 비교한다. 전체480 continuation도 실행 대기열에 연결했다. PBR 비교 후 같은192 checkpoint의367 Adam state, rank RNG, sampler, scheduler(last_epoch96)를 복원해193–480을 진행한다. 저장 config의 **validation만8→32로 복원**하며 학습 recipe는 유지한다. 480 평가32와128×3 및 비교도 연결했다. 과거 R의 post96 학습 stream 차이와 sampling noise 반복이 독립 학습 seed가 아니라는 제한은 그대로 남는다.
+
+Physical NoDQ는480을 정상 완료했다. VAL32 IoU는 **.4396122**, matched R은 .4465541이었다. Geometry-only480은 .4472968이었다. 이 결과들은 새로운 candidate-paired 모델의 학습 결과가 아니다.
+
+원래 PBR full-batch capacity는 **실제 CUDA OOM으로 실패**했다. World2/micro12는 V1과 Direct 모두, world4/micro6는 V1에서 실패했다. 실패 위치는 denoiser가 아닌 frozen DINO/NAF1024 이미지 특징 추출이었다. 이 실패를 PASS로 덮지 않고 `capacity-failure-v1`에 로그와 return code를 별도로 보관했다. PBR 성공 receipt에 걸려 있던 SS 첫 구간은 실제 실패 기록을 확인하는 새 실행 경로로 해제했다. 기존 FAILED capacity와 HELD activation 기록은 남긴다.
+
+새로운 `frozen_projection_streaming.py`는 frozen 이미지 encoder의 single-view 계산만 asset별로 순차 수행하고, native 크기의 projection 출력에 복사한다. Multiview 평균, denoiser batch, 학습 objective, LoRA, optimizer, pretrained weight와 전처리는 유지한다. 공유 extractor 파일은 수정하지 않고 새 PBR entry에서만 process-local adapter를 설치한다. **Gradient accumulation을 추가하지 않는다.** CPU 검사2개가 통과했다. 실제 world2 capacity의 두 rank에서 native batch2와 streaming의 global `[2,5,1024]`, projection `[2,262144,2048]` 특징값은 모두 bitwise 일치했다. 아직 전체 micro12 capacity가 통과했다고 주장하지 않는다.
+
+새 PBR 경로는 두 arm의 최대31900-token 반복 batch,4개 렌더 validation, 이후 추가 full-batch update를 다시 검사한다. World2가 실제 OOM이면 SS192 평가와 initial32 parity가 끝난 뒤 world4/micro6를 검사한다. 별도 initial32 평가에서 기존32개 기록·metric·34개 PNG가 모두 같은지도 다시 확인한다. 실제 두-arm capacity와 initial32가 통과한 경우에만 scalar SS/남은 SS 평가를 해제하고, 기존에 예정한 PBR762→1905 두-arm 학습·3개 평가·paired 요약을 새 경로로 연결한다. 신규 candidate-paired conditioner의 PBR 포팅과 이 기존 FullDirect PBR 비교는 별개다.
