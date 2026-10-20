@@ -96,7 +96,7 @@ Canonical root는 기존 실험 아래 `feature-readout-v1/prior-anchored-QK-v1/
 
 새 candidate-paired SS는 GPU0/1에서 실제 NN/R 학습을 시작했다. 첫 scientific step97에서 **두 rank의 전체 loss 항목이 matched R control과 정확히 일치**했다. Rank0 loss는 .1305317134, rank1은 .1225043461이다. 임시 capacity 모델의 결과를 재사용해 학습이 시작됐다고 표기한 것이 아니다. `scientific-startup97-v1`에 실제 학습 로그·wrapper PID/생성 시각/명령·worker CPU 배정과 함께 actual file4 증거를 닫았다. GPU worker와 DataLoader worker는 CPU86/87, helper는84/85를 사용한다. 새 학습의 생성 품질 향상은 아직 판정하지 않았다.
 
-첫 구간192가 끝나면 원래32개 전체 패널에서 별도 native 평가를 실행한다. 같은192의 R/control, feature, DQ, Direct, geometry, NoDQ, V1, historical R 및 두4-RGB zero shot과 source-cluster paired 비교한다. 전체480 continuation도 실행 대기열에 연결했다. PBR 비교 후 같은192 checkpoint의367 Adam state, rank RNG, sampler, scheduler(last_epoch96)를 복원해193–480을 진행한다. 저장 config의 **validation만8→32로 복원**하며 학습 recipe는 유지한다. 480 평가32와128×3 및 비교도 연결했다. 과거 R의 post96 학습 stream 차이와 sampling noise 반복이 독립 학습 seed가 아니라는 제한은 그대로 남는다.
+첫 구간192가 끝나면 원래32개 전체 패널에서 별도 native 평가를 실행한다. 같은192의 R/control, feature, DQ, Direct, geometry, NoDQ, V1, historical R 및 두4-RGB zero shot과 source-cluster paired 비교한다. 전체480 continuation도 실행 대기열에 연결했다. 같은192 checkpoint의367 Adam state, rank RNG, sampler, scheduler(last_epoch96)를 복원해193–480을 진행한다. 저장 config의 **validation만8→32로 복원**하며 학습 recipe는 유지한다. 480 평가32와128×3 및 비교도 연결했다. 과거 R의 post96 학습 stream 차이와 sampling noise 반복이 독립 학습 seed가 아니라는 제한은 그대로 남는다.
 
 Physical NoDQ는480을 정상 완료했다. VAL32 IoU는 **.4396122**, matched R은 .4465541이었다. Geometry-only480은 .4472968이었다. 이 결과들은 새로운 candidate-paired 모델의 학습 결과가 아니다.
 
@@ -113,3 +113,5 @@ Streaming을 적용한 **V1 world2/micro12/global24/acc1**은 최대31900-token 
 Streaming FullDirect의 world2/micro12는 denoiser backward에서 실제 OOM이 났다. 5.84GiB 요청 시 free5.14GiB였으며, 첫 frozen encoder OOM은 해결된 상태였다. 따라서 두 arm을 함께 통과했다고 표기하지 않는다. 실제 OOM 조건에 따라 world4/micro6 재검사를 연결했다. 현재 실행 중인 SS192와 streaming initial32 검증을 완료한 뒤 GPU0–3을 사용한다. 그 전 유휴 GPU에서는 기존 SS 평가를 진행하고, SS가180에 도달하면 새 평가 진입을 닫아4-GPU 검사 자리를 확보한다. 실행 중인 학습·평가를 중단하지 않는다.
 
 완료된 기존 feature-attention 대 matched R의 **128 asset ×3 sampling noise**,93 source-cluster 결과도 확인했다. R IoU는 .44029357, feature는 .43924182, 차이는 **−.10517pp**, source-cluster bootstrap95% CI는 **[−.22035,+.01103]pp**였다. 384개 paired target hash가 일치했다. 이 비교에서도 feature-attention 추가 이득은 확인되지 않았으며 새 candidate-paired 학습의 결과는 아니다. 새 모델의128×3 요약은 실제 evaluation job의 출력 경로를 읽는 `full-summary-plan-v2`로 연결했고 동일한 GT·noise·cluster 조건으로 비교한다.
+
+전체 C480의 현재 실행 순서는 `full-continuation-parallel-plan-v2`에 기록했다. 실제 두-arm PBR capacity와 기존 SS final 평가 및 C192 전체32 비교가 끝나면, **C193–480은 GPU0/1**, 기존 scalar SS는 GPU2/3에서 병렬 학습한다. C의 최근10 update compute 중앙값17.90초로288 update는 약86분, scalar capacity의 마지막 update21.57초로384 update는 약138분이다. 초기화·검증·I/O를 제외한 추정이며 완료 시각을 보장하지 않는다. 이를 통해 기존 scalar 학습 대기 구간을 활용한다. PBR762→1905 두-arm 비교도 유지한다. 이 배치 변경은 모델·optimizer·학습 budget을 바꾸지 않는다.
