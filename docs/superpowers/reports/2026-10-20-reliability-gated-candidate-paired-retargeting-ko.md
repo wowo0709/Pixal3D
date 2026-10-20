@@ -105,3 +105,11 @@ Physical NoDQ는480을 정상 완료했다. VAL32 IoU는 **.4396122**, matched R
 새로운 `frozen_projection_streaming.py`는 frozen 이미지 encoder의 single-view 계산만 asset별로 순차 수행하고, native 크기의 projection 출력에 복사한다. Multiview 평균, denoiser batch, 학습 objective, LoRA, optimizer, pretrained weight와 전처리는 유지한다. 공유 extractor 파일은 수정하지 않고 새 PBR entry에서만 process-local adapter를 설치한다. **Gradient accumulation을 추가하지 않는다.** CPU 검사2개가 통과했다. 실제 world2 capacity의 두 rank에서 native batch2와 streaming의 global `[2,5,1024]`, projection `[2,262144,2048]` 특징값은 모두 bitwise 일치했다. 아직 전체 micro12 capacity가 통과했다고 주장하지 않는다.
 
 새 PBR 경로는 두 arm의 최대31900-token 반복 batch,4개 렌더 validation, 이후 추가 full-batch update를 다시 검사한다. World2가 실제 OOM이면 SS192 평가와 initial32 parity가 끝난 뒤 world4/micro6를 검사한다. 별도 initial32 평가에서 기존32개 기록·metric·34개 PNG가 모두 같은지도 다시 확인한다. 실제 두-arm capacity와 initial32가 통과한 경우에만 scalar SS/남은 SS 평가를 해제하고, 기존에 예정한 PBR762→1905 두-arm 학습·3개 평가·paired 요약을 새 경로로 연결한다. 신규 candidate-paired conditioner의 PBR 포팅과 이 기존 FullDirect PBR 비교는 별개다.
+
+## 03:15 UTC capacity 및 비교 갱신
+
+Streaming을 적용한 **V1 world2/micro12/global24/acc1**은 최대31900-token 반복 asset에서4 update, 중간4개 렌더 validation, 이후 update 및 DDP 동일성 검사를 실제 통과했다. Peak는 **88.604963GiB**였다. 마지막 full update는 약75초였으며 고정 최대 크기 반복 batch의 시간이다. 전체 데이터의 평균 학습 속도를 의미하지 않는다.
+
+Streaming FullDirect의 world2/micro12는 denoiser backward에서 실제 OOM이 났다. 5.84GiB 요청 시 free5.14GiB였으며, 첫 frozen encoder OOM은 해결된 상태였다. 따라서 두 arm을 함께 통과했다고 표기하지 않는다. 실제 OOM 조건에 따라 world4/micro6 재검사를 연결했다. 현재 실행 중인 SS192와 streaming initial32 검증을 완료한 뒤 GPU0–3을 사용한다. 그 전 유휴 GPU에서는 기존 SS 평가를 진행하고, SS가180에 도달하면 새 평가 진입을 닫아4-GPU 검사 자리를 확보한다. 실행 중인 학습·평가를 중단하지 않는다.
+
+완료된 기존 feature-attention 대 matched R의 **128 asset ×3 sampling noise**,93 source-cluster 결과도 확인했다. R IoU는 .44029357, feature는 .43924182, 차이는 **−.10517pp**, source-cluster bootstrap95% CI는 **[−.22035,+.01103]pp**였다. 384개 paired target hash가 일치했다. 이 비교에서도 feature-attention 추가 이득은 확인되지 않았으며 새 candidate-paired 학습의 결과는 아니다. 새 모델의128×3 요약은 실제 evaluation job의 출력 경로를 읽는 `full-summary-plan-v2`로 연결했고 동일한 GT·noise·cluster 조건으로 비교한다.
