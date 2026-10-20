@@ -67,7 +67,9 @@ Decoder bypass에 DINO query를 대신 넣지 않는다. D1이 원래 입력받�
 
 실제10개 결과도 완료했다. Normal 대비 Geometry-off−.1444pp,Gate-off−.1046pp,×4−.0269pp,×16−3.6349pp,×64−11.4154pp,Mean-inputs−.0420pp,Native-Top1+.0861pp,Attention-Top1−.0481pp,Score-prior-off−.1144pp,attention decoder bypass+.0372pp였다. Native-Top1의 paired CI는[+.0205,+.1675]pp였고,×16/×64의 CI는 각각[−6.1482,−1.6587]pp/[−14.2281,−9.0972]pp였다. 개발 패널의 여러 진단 결과이며 재학습한 module 효과로 사용하지 않는다. 작은 보정을 크게 만드는 것만으로 성능이 회복되지는 않았다. 현재 payload 선택·결합을3D 목표에 맞추는 문제가 남아 있다.
 
-다음 후보는 기존 semantic prior7과 reliability4를 고정한 채 별도 Q/K2개만 학습하는 `TaskRayRetargetingConditioner`다. Query는 ray별 DINO1024,D1 context1024,실제 RAW deformation difference2048의4096 channel이다. Q는 zero weight로 시작하며 추가 score를±1로 제한하고 fixed semantic distribution에 대한 KL을.001 가중치로 적용한다. 기존 Top1/R,후보별 geometry retargeting,ray projection은 유지한다. 새369-state native micro2 engineering probe를 연결했다. 이 후보는 아직 별도 초기 생성·DDP capacity·과학적 학습 gate를 통과하지 않았으며 모델 채택 대상이 아니다. CPU 검사2개에서 prior 보존,실제 deformation query 사용,Q/K gradient와 score 제한을 확인했다.
+다음 후보는 기존 semantic prior7과 reliability4를 고정한 채 별도 Q/K2개만 학습하는 `TaskRayRetargetingConditioner`다. Query는 ray별 DINO1024,D1 context1024,실제 RAW deformation difference2048의4096 channel이다. Q는 zero weight로 시작하며 추가 score를±1로 제한하고 fixed semantic distribution에 대한 KL을.001 가중치로 적용한다. 기존 Top1/R,후보별 geometry retargeting,ray projection은 유지한다. CPU 검사2개에서 prior 보존,실제 deformation query 사용,Q/K gradient와 score 제한을 확인했다.
+
+새369-state native micro2 engineering probe도 정상 종료하고 `bounded-task-attention-v1/native-probe-v1`에 actual file4 증거를 보관했다. R96에서3회 disposable update를 수행했으며 첫 update의 기존 loss 항목은 원래 R96 probe와 정확히 일치했다. NN360/R6/projection1/QK2 tensor가 모두 변경됐고, frozen NN base·semantic prior·decoder·reliability는 정확히 보존됐다. 세 번째 update의 **SS MSE만으로 계산한** gradient L1은 projection .78860,Q .00248956,K 4.18895e−7이었다. Attention이 KL만 학습하는 상태는 아니다. Peak6.3705GiB,update 구간27.07초였다. 이3회는 버린 engineering probe이며 성능 평가용 학습이 아니다. 별도 초기 생성·DDP capacity·과학적 학습 gate는 아직 통과하지 않았으며 모델 채택 대상이 아니다.
 
 ## PBR 메모리 복구와 다음 실행 순서
 
@@ -79,4 +81,6 @@ Frozen image feature를 이미지별로 순차 처리하는 변경은 기존 ini
 
 이후 새 모델의480 평가32·128×3, 기존 비교, PBR V1/FullDirect762→1905 및3개 평가·paired 요약을 실행한다. PBR V1 대 FullDirect는 stack 비교다. Matching만의 독립 효과에는 matched R-only가 필요하며 새 candidate-paired conditioner의 native PBR 포팅은 아직 수행하지 않았다. 독립 training seed·test508·논문의10개 full-pipeline metric도 현재 단계의 결과로 대체하지 않는다.
 
-PBR quick 평가는GT target Shape 조건의 stage 평가다. 현재 crop_LPIPS는GT target render와의 거리를 기록하며, 논문의 source-preservation LPIPS는 source render 기준으로 별도 평가한다. 이전 프로토콜의 양성 후보fresh202 검증도 유지한다. 최종 cascade의 frozen Shape512/Shape1024를 읽기 위해 지정 checkpoint의 ACL을 별도로 요청했다. 두 파일은 실제로 존재하지만0600 mode이며 rvi 읽기 검사가 실패했다. 이 권한과 무관하게 SS/PBR stage 실험은 계속 진행한다.
+PBR quick 평가는GT target Shape 조건의 stage 평가다. 현재 crop_LPIPS는GT target render와의 거리를 기록하며, 논문의 source-preservation LPIPS는 source render 기준으로 별도 평가한다. 이전 프로토콜의 양성 후보fresh202 검증도 유지한다.
+
+사용자의 ACL 변경 후 Shape512 step4210·Shape1024 step16850과 두 config의 읽기·복사를 완료했다. 파일서버 원본과 로컬 복사본의 SHA256·크기가4개 모두 일치했다. 각 저장 config로 실제 `ElasticSLatFlowModel`을 구성하고 LoRA rank16/alpha16을 주입한 뒤, CPU에서1060 state의 key·shape·dtype와 strict weight loading을 확인했다. 모델별700 base state와360 adapter state가 있으며180개 LoRA B 모두 nonzero다. Config와 원본 weight는 수정하지 않았고 CUDA context도 만들지 않았다. 검증 기록은 `consistent-retargeting-v1/cascade-reference-v1`에 보관한다. 두 Shape 모델은 최종 cascade 평가에서 고정한다. 이는 full-cascade 생성·metric 평가가 이미 완료됐다는 뜻은 아니며, 해당 GPU 검증은 남아 있다. SS/PBR stage 실험은 계속 진행한다.
