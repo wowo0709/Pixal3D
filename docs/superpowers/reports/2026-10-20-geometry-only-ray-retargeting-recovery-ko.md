@@ -62,3 +62,11 @@ Matching도 독립적인 병목이다. 실제 native VAL32에서 추가 Q/K를 �
 기존 input-DQ와 FullDirect는480을 완료했다. 같은32 개발 패널에서 input-DQ0.44830316, FullDirect0.44678401, matched-R0.44655414, historical strong-R0.45402236, V10.43483711이다. FullDirect의 중간 하락 일부가 회복됐지만 matched-R보다 나아졌다는 증거는 없다(+0.0230pp, CI [−0.8433,+1.0055]pp). Strong-R를 넘지도 못했다. 따라서 새 geometry 구조를 이미 성공 모델로 선언하지 않고 고정480/128×3 평가까지 진행한다.
 
 Actual scientific startup 감사 1개 CPU job을 추가하여 queue478개로 연결했다. 추가 전477개 descriptor는 그대로다. 이 감사도 실제 기록을 비교하여 terminal0/실제 file4 closure까지 완료했다.
+
+## Fixed7 matching 결과: 순위와 확률 조합을 구분
+
+Q/K-only7epoch 및 실제 SS-VAL32/native256 matching 평가가 모두 terminal0와 실제 file4 closure까지 완료됐다. 새 SS 후보에는 이 가중치를 적용하지 않았다. 실제 VAL32에서 pretrained utility 대비 near1 Top1 적중률은 **47.8315%→51.2392%,+3.4077pp**, source-cluster paired CI **[+1.3022,+5.2601]pp**다. 그러나 near1 정답 확률질량은 **43.8084%→43.5293%,−0.2790pp**, CI [−1.4769,+0.8444]pp로 개선이 확인되지 않는다. Exact 정답 확률질량은−1.5615pp, CI [−2.3283,−0.8814]pp로 떨어졌다. 이 값들은 visible-source 관계1614개를 분모로 하며 앞의 ray-union 지표와 혼용하지 않는다.
+
+별도 SS-TRAIN calibration32의 near1 mass도−1.4668pp, CI [−2.6034,−0.4071]pp였다. 따라서 사전 정의한 probability-mass 개선 gate는 통과하지 않았다. 근접 Top1 ranking 개선은 의미 있는 별도 관측이지만, 이를 Top-K 정보 조합 또는 SS 성능 향상으로 바꾸어 주장하지 않는다. Rank·확률 보정·native feature 전달을 분리해야 한다는 근거다. Epoch7을 epoch1으로 사후 교체하지 않는다.
+
+GPU0/1에서 실행 중인 두 평가가 끝나면 NoDQ375-state capacity와 학습을 먼저 수행하도록, pending 평가50개의 실행 prerequisite에 NoDQ capacity closure를 추가했다. 계속 새 평가가 배정되어 GPU pair가 확보되지 않는 문제를 방지하는 scheduling-only 변경이다. 실행 중인 프로세스와 모든 과학 실험 command/config/output/dependency는 유지했다. Queue 총수는478개이며 이후 평가도 취소하지 않았다.
