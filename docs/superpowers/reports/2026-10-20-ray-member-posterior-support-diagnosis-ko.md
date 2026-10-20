@@ -230,3 +230,46 @@ correspondence 효과를 단독으로 분리하지 못한다. 또한 옛 Top1+R 
 차이는 value 변환과 attention을 함께 포함한다. 최종 기여 분석에는 같은4-head의
 원래 spatial3 대조와, 같은 V/output 변환에 실제 Top-1 feature만 주는 대조가 필요하다.
 현재 참고 결과를 이 두 효과의 단독 입증으로 보고하지 않는다.
+
+## 실제 Shape 입력으로의 전달과 생성 평가 연결
+
+SS stage는 decoded64 occupancy를 그대로 Shape512에 전달하지 않는다.
+원래 pipeline의 max-pooling을 통해32 support와 int32 좌표를 만든다.
+새 four-head archive는 원래 sampler를 유지하고, 완료된128 평가의 실제 처음32개
+record와64 occupancy counts/GT/noise를 정확히 재현해야 한다. Source runtime의
+No-DQ/DQ 구분, native4 RGB 입력·카메라 순서,480 step 및12-step CFG3도 확인한다.
+같은 실제64 occupancy에서 원래 support 함수를 호출한32 count·IoU·좌표 hash를
+추가로 기록한다. 이 계층의22개 CPU 검사가 통과했다.
+
+기존32개×V1/R/Direct의 실제 archive와 생성물96개도 직접 대조했다.
+모든 support32 token 수가 기존 generation 보고서의 실제 입력 수와 일치했다.
+다음은 같은32개 asset, sampling noise0의 aggregate다.128×3 결과가 아니다.
+
+| 기존 모델 | decoded SS64 IoU | 실제 Shape 입력 support32 IoU |
+|---|---:|---:|
+| V1 |0.434837|0.610379|
+| retargeting-only |0.446554|0.625877|
+| 기존 Direct |0.446784|0.621542|
+
+모든32개에서 모델 사이의 support32도 변했다. 따라서64의 변화가 pooling에서
+전부 사라졌다는 설명은 맞지 않는다. 이 subset에서는 Direct의 SS64 추가 이득이
+작고,32 support에서는 R보다 FP가839개 더 많고 TP는194개 더 많았다.
+Direct−R의 support32 IoU 차이는−0.004335, source-cluster CI는
+[−0.010121,+0.002480]으로0을 포함한다. 반대로 R−V1은+0.015498,
+CI[+0.000616,+0.030995]다. 이는32개 개발 subset과 decoded GT support에 대한
+보조 진단이며 raw mesh 품질·전체128×3 또는 실패 원인의 단독 입증은 아니다.
+원본96개 예측/생성물과 실제 file4 receipt는
+`feature-ray-cascade32-v1/support-transfer-audit-v1`에 보관한다.
+
+새 No-DQ/+DQ 각각32개에 대해 SS archive→사용자 Shape512/Shape1024→고정 V1 PBR762
+생성, 같은1M face 예산 rendering, 공유 원본 재질 GT·카메라8/9/10 비교를 연결한다.
+기존10개 모델의320개 완료/예정 사례를 재사용하고 새64개만 생성한다.
+PSNR/SSIM/LPIPS/M-IoU/CD/F-Score 및 공식 DreamSim/CLIP을 집계하고,
+같은 No-DQ 대비 DQ 및 기존 reference와 paired source-cluster CI를 비교한다.
+독립 학습 seed, 최종508 test와 FID/KID는 이32개 개발 평가와 별도다.
+
+이 연결은 새로운 GPU archive2개·생성64개·집계/공식 metric/W&B4개의70개 작업이다.
+원래 sampler, generation·render·통계 수식은 보존한다. Archive와 generation의
+support32 수 일치도 확인한다.4-GPU PBR Direct 학습 완료에 의존하도록 하여
+작은 GPU 평가 작업이 큰 학습의 GPU 배정을 막지 않게 한다.
+이 설명은 준비한 실행 그래프의 범위이며 새 예측·생성 metric 완료를 뜻하지 않는다.
