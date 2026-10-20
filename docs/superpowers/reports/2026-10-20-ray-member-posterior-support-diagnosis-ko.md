@@ -81,3 +81,37 @@ micro96 적합성은 아직 GPU에서 확인 전이다.
 `native-prior-source-ray-v1/member-proposal-audit-v1`과
 `native-prior-source-ray-v1/member-production-parity-v1`에 보관한다.
 새 학습 family 경로는 `member-posterior-source-ray-v1`이다.
+
+## 처음32개와 겹치지 않는 source cluster에서의 확인
+
+세 학습 arm과 설정을 고정해 큐에 넣은 다음, 미리 정의된 validation128 패널에서
+최초 진단의32개 source cluster를 전부 제외했다. 남은72개 asset/61개 cluster를
+원래 순서대로 사용했으며 label이나 점수로 asset을 선택하지 않았다.
+별도 test508은 사용하지 않았다.
+
+| 방식 | Exact Top-1 | Exact Top-16 | Exact Top-64 | 주변 1-patch Top-64 |
+|---|---:|---:|---:|---:|
+| 기존 평균 query | 8.41% | 38.20% | 52.26% | 82.86% |
+| 고정한 member posterior | **9.92%** | **58.29%** | **73.02%** | **96.49%** |
+
+109,682개 관측 가능 ray/patch 관계에서 사전에 정한 primary Exact Top-64 개선은
++20.7618 pp, source-cluster bootstrap CI는 [+16.5887, +24.9655] pp다.
+Cluster에 속하는 asset들의 count를 먼저 합쳐 cluster 단위로4,000번 resample했다.
+이 추가 결과는 query 구성의 개선이 최초32개에만 국한되지 않음을 지지한다.
+Validation 개발 확인이며 독립 test 또는 생성 품질 이득으로 해석하지 않는다.
+실행 소스·고정 패널·72개 record·실제 file4 SHA receipt는
+`native-prior-source-ray-v1/member-posterior-disjoint-clusters-v1`에 있다.
+
+## 생성물 metric을 위한 예측 보존
+
+현재 새 SS 최종 평가는 occupancy를 저장하지 않는다. 별도의 subset archive entry는
+그 sampler를 그대로 재실행해 최종128 평가의 처음32개와 모든 per-asset record를
+정확히 비교한다. Decode한 실제 예측 occupancy의 TP/FP/FN 및 GT/noise identity도
+검증하고, predicted latent와 occupancy를 저장한다. 원래128개 aggregate와32개
+aggregate를 같다고 요구하지 않는다. 원래 기록에 없는 prediction-grid hash까지
+일치가 증명됐다고 주장하지 않는다. 후속 generation은 저장한 예측만 입력으로 읽는다.
+이 경로의6개 CPU 검사가 통과했다.
+
+모델 수를 늘린 여섯/eight-metric 집계도 기존32개×3모델 실제 생성물에 적용했다.
+원래 means, paired source-cluster contrast/CI, per-asset 수치가 모두 정확히 보존됐다.
+새 SS의 GPU archive와 생성물 metric 측정은 실제 학습 완료 후 별도로 실행해야 한다.
