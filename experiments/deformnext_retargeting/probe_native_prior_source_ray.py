@@ -111,6 +111,18 @@ def main():
                 wrong,_ = trainer._encode_deform_views(pack['cond'],camera,transport)
             if torch.equal(wrong['proj'],normal['proj']) or not events:
                 raise ValueError('actual fixed-use wrong-value intervention must affect native source correction')
+            paired_losses={}
+            for role in ['normal','wrong-value-fixed-use']:
+                with torch.random.fork_rng(devices=[trainer.device]):
+                    torch.manual_seed(80217);torch.cuda.manual_seed(80217)
+                    if role=='normal':
+                        measured,_=trainer.training_losses(x_0=target,**pack)
+                    else:
+                        with fixed_use_value_control(module,events):
+                            measured,_=trainer.training_losses(x_0=target,**pack)
+                paired_losses[role]=float(measured['loss'])
+            if paired_losses['normal']==paired_losses['wrong-value-fixed-use']:
+                raise ValueError('same-noise native SS loss must respond to source value intervention')
             observed = transport['target_valid'].gather(1,transport['patch_grid'].flatten(1).long())
             delivered = int((((normal['proj']-native['proj']).abs().amax(-1)>0)&~observed).sum())
             if delivered<=0:
@@ -129,7 +141,8 @@ def main():
         initial_native_MV4_global_projection_negative_exact=equality,
         initial_SS_gradient_L1=initial,activated_SS_source_gradient_L1=gradients,
         no_query_or_source_preserves_native_MV4=True,target_only_fallback=False,
-        actual_fixed_use_wrong_value_events=events,native_correction_reaches_unobserved_target_voxels=delivered,
+        actual_fixed_use_wrong_value_events=events,actual_same_noise_SS_value_losses=paired_losses,
+        native_correction_reaches_unobserved_target_voxels=delivered,
         physical_voxel_visibility_write_gate=False,all_temporary_source_parameters_restored=True,
         matching_head_exact=True,optimizer_updates=0,physical_deformation_query_channels=0,
         ffn_chunks=trainer._native_ffn_chunk_report,actual_native_ffn_parity=ffn_parity)
