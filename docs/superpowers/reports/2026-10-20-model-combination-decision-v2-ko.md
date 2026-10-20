@@ -58,3 +58,9 @@ R-only의 자체 native micro1 learnability가 실제 통과했다. 임시3 upda
 32개 전체 paired 표·source-cluster CI·W&B metric/image 로깅을 연결했다. 기존 texture-stage 평가의 거의 고정된 GT-Shape mask IoU를 새 형상 성능으로 보고하지 않는다. Global 환경은 변경하지 않았고 평가 전용 DreamSim.2.1/PEFT.17.1 및 공식 가중치를 별도 경로에 두었다. 사용자는 기존 평가 가중치 경로가 없다고 확인했다.
 
 새80k나 raw dataset을 추가하지 않는다. 구축된 DeformNeXt split/cache와 제공된 LoRA checkpoint/config를 사용하고,계산은 사용자 지정GPU0–3만 사용한다. File4를 canonical 저장소로 유지한다. 현재 목표는 진행 중이며 최종 모델 채택과 독립 재현은 남아 있다.
+
+## 실행 중 새로 확인된 renderer 문제
+
+첫 사례의 V1/R/Direct 생성·3카메라 정합 검사와 paired 요약은 실제 통과했다. 다음 고밀도 Direct 사례도 SS5306→실제HR22857 tokens→1024 mesh 생성까지 완료됐고 peak16.274GiB였다. 그러나9,187,516 vertices·18,722,964 faces의 mesh를 native PBR depth-peeling renderer에 넣는 단계에서CUDA illegal memory access가 발생했다. CPU 검사에서는 vertices가 모두 finite이고 face index가 vertex 범위 안에 있었다. OOM으로 분류하거나 원인을 triangle limit로 확정하지 않는다.
+
+해당 사례의 원본 prediction.npz·generation.json·raw mesh CD/F-Score는 실제 file4에 보존돼 있다. 전체32개 후속 작업과 이를 기다리는 새 PBR activation은 현재 dependency HELD이며 학습 수치의 실패와 구분한다. 다음 작업은 생성 결과를 재사용해 renderer 원인을 확인하고 모든 모델에 동일한 렌더 규칙을 적용하는 복구 경로를 새 버전으로 연결하는 것이다. 원래 inference.py의GLB export에는decimation_target=1,000,000이 명시돼 있어 native 후처리의 일관된 적용을 검토할 수 있지만 아직 평가 설정으로 채택하거나 실제 검증한 것은 아니다. 고밀도 사례를 패널에서 제외하지 않는다.
