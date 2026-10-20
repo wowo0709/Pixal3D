@@ -191,3 +191,42 @@ capacity, science, 정상 평가3개, 값 교란, 비교 집계, W&B 게시의9�
 GPU 작업은 진행 중인 PBR R-only 완료 후 기존 SS arm과 함께 배정하며, healthy PBR을
 중단하거나 승인되지 않은 GPU를 사용하지 않는다. 물리적 DQ를 추가한 다음 arm과
 새 생성물의 rendering metric 및 독립 학습 seed 검증은 이후 별도로 필요하다.
+
+## 같은 four-head 모델에 물리적 DQ만 추가
+
+후속 arm은 `MemberFeatureDeformationSourceRayConditioner` 하나다. No-DQ와 같은
+R/use/head19개 weight와 호출자의 RNG 상태를 유지하고,2048→256 zero-init projection
+하나만 더한다. 실제 R 입력은4096 channel이며, No-DQ에는 없는 RAW 차이2048개가
+추가된다. 입력을0으로 채우는 방식이 아니다. 새 학습 source tensor는20개다.
+
+RAW 차이는 각 source-camera ray의 원래 unmasked target FRAME+GLOBAL 평균에서,
+같은64개 후보에 대해 feature head의 실제4-head 확률을 평균해 weighted sum한
+source RAW를 뺀 값이다. 후보나 matching을 다시 계산하지 않으며 GT 변위·깊이·매칭
+label은 읽지 않는다. RAW target pooling은 asset 하나씩 처리하고 활성 ray만 보관한다.
+
+`DeformNeXtMemberRawSS64`는 기존 C1 입력과 동일한 RGB/Omega 캐시에서 RAW를 읽는다.
+`match_root=None`, `task_matching_features=False`를 유지하고 old matching/deformation
+sidecar를 거부한다. 입력 hash, RAW의 finite 값, FRAME 앞1024 channel의 정확한
+일치를 검사한다. 새 데이터 다운로드나 RAW feature 재추출은 필요하지 않다.
+
+61개 CPU 검사가9.31초에 통과했다. 같은 source carrier의 cold native prior 및
+활성화한 No-DQ의 초기 출력 일치, 실제20개 source gradient, 결손 입력의 zero DDP edge,
+GLOBAL context만 바꿨을 때 matching/use는 유지되고 보정만 바뀌는 경우를 포함한다.
+Appearance가 같은 후보라도 score가 다른 RAW 대응을 고르면 DQ 정보가 달라진다.
+
+실제 cached DINO/Omega/카메라의556개 ray에서도10.62초에 이를 확인했다.
+RAW 차이 RMS는0.152482로0이 아니다. Projected V 교란은 원래4-head 확률, Top-1,
+source-use와 RAW 차이를 정확히 유지하면서 feature 보정 결과를 바꾼다.
+CPU core의 실제 file4 receipt는 `member-feature-deformation-source-ray-v1/CPU-core-v1`이다.
+
+실제 GPU native proof는 동일한 SS denoiser에서 활성 No-DQ reference를 잠시 연결해
+조건과 동일 noise의 loss가 DQ-zero와 정확히 같은지 추가로 요구한다. Probe의 임시
+module/RNG 상태는 복원한다. Fullbatch96 capacity는380개 Adam state의 step3 및
+20개 source gradient를 요구한다. 이 GPU 검사와 실제 학습은 아직 실행 전이다.
+No-DQ와 같은480 update 및128×3 평가 예산을 사용하며 R×DQ의2×2를 추가하지 않는다.
+
+현재의 옛 spatial control은5-tensor 확률 readout이므로 새4-head full의 semantic
+correspondence 효과를 단독으로 분리하지 못한다. 또한 옛 Top1+R 대비 새 feature arm의
+차이는 value 변환과 attention을 함께 포함한다. 최종 기여 분석에는 같은4-head의
+원래 spatial3 대조와, 같은 V/output 변환에 실제 Top-1 feature만 주는 대조가 필요하다.
+현재 참고 결과를 이 두 효과의 단독 입증으로 보고하지 않는다.
