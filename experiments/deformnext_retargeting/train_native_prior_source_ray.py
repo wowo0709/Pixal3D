@@ -13,11 +13,11 @@ NAME='NativePriorSourceRayImageConditionedProjFlowMatchingCFGTrainer'
 
 def validate_native_prior_recipe(cfg):
     if (cfg['trainer']['name']!=NAME
-            or cfg['trainer']['args'].get('ffn_chunk_assets')!=24
+            or cfg['trainer']['args'].get('ffn_chunk_assets') not in (12,24)
             or cfg['experiment'].get('conditioning_schema')!='native-prior-source-ray-v1'
             or cfg['experiment'].get('no_query_fallback')!='Native pretrained MV4 prior, zero source correction'
             or cfg['experiment'].get('initial_function')!='Exact native MV4 global/projection/negative; zero source correction'):
-        raise ValueError('explicit native-MV4 initialization, source-ray correction and FFN24 recipe required')
+        raise ValueError('explicit native-MV4 initialization, source-ray correction and bounded FFN chunk recipe required')
     # Retain the existing fixed scientific optimizer/LoRA/data/noise/batch
     # protocol. Only validate a copied constructor name; never mutate recipe.
     adapted=copy.deepcopy(cfg)
@@ -51,8 +51,8 @@ def main():
                     or len(names)!=360 or any('lora_' not in name for name in names)
                     or source!=(15 if arm in {'attention','spatial'} else 10)
                     or len(self.optimizer.state)!=0 or self._native_ffn_chunk_report is None
-                    or self._native_ffn_chunk_report['chunk_assets']!=24):
-                raise ValueError('fresh original LoRA/native source optimizer and SS96/FFN24 required')
+                    or self._native_ffn_chunk_report['chunk_assets']!=cfg['trainer']['args']['ffn_chunk_assets']):
+                raise ValueError('fresh original LoRA/native source optimizer and SS96/FFN chunks required')
             startup=dict(status='PASS_ACTUAL_FRESH_NATIVE_PRIOR_SOURCE_RAY_SS_STARTUP',arm=arm,
                 global_batch=96,microbatch=96,accumulation=1,world_size=1,seed=cfg['training_seed'],
                 trainable_NN_LoRA_tensors=len(names),trainable_source_tensors=source,optimizer_states=0,

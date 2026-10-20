@@ -22,6 +22,7 @@ def main():
         evaluation.validate_recipe=saved_validate
     if hashlib.sha256(Path(__file__).read_bytes()).hexdigest()!=digest:
         raise ValueError('native-prior evaluator changed during execution')
+    config=json.loads(Path(sys.argv[sys.argv.index('--arm-config')+1]).read_text())
     path=Path(sys.argv[sys.argv.index('--output')+1])/'evaluation.json'
     result=json.loads(path.read_text());native=result.pop('observed_query_target_first')
     native.pop('native_target_global_and_negative_condition')
@@ -29,7 +30,7 @@ def main():
         target_carrier_is_native_four_view_V1=True,
         no_query_fallback='Native pretrained MV4 prior, zero source correction',
         source_correction='sum_v Proj_v[u*g*(E-original_own_view_S)+u*R]/4',
-        ffn_chunk_assets=24,FFN_eval_no_grad_native_unmodified=True,
+        ffn_chunk_assets=config['trainer']['args']['ffn_chunk_assets'],FFN_eval_no_grad_native_unmodified=True,
         native_prior_adapter_SHA256=digest)
     result['native_prior_source_ray']=native
     path.write_text(json.dumps(result,indent=2)+'\n')

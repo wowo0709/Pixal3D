@@ -14,8 +14,9 @@ def main():
     parser.add_argument('--config',type=Path,required=True)
     args=parser.parse_args()
     cfg=json.loads(args.config.read_text())
-    if cfg['trainer']['name']!=Trainer.__name__ or cfg['trainer']['args'].get('ffn_chunk_assets')!=24:
-        raise ValueError('explicit native-prior/fullmicro96/FFN24 recipe required')
+    chunk=cfg['trainer']['args'].get('ffn_chunk_assets')
+    if cfg['trainer']['name']!=Trainer.__name__ or chunk not in (12,24):
+        raise ValueError('explicit native-prior/fullmicro96/bounded-FFN recipe required')
     captured=[];batches=[];handles=[]
 
     class Captured(Trainer):
@@ -35,7 +36,7 @@ def main():
         original.ObservedQueryTargetFirstRayImageConditionedProjFlowMatchingCFGTrainer=saved
         for handle in handles:
             handle.remove()
-    if len(captured)!=1 or not batches or max(batches)>24:
+    if len(captured)!=1 or not batches or max(batches)>chunk:
         raise ValueError('actual native forward/backward must not expand full96 inside FFN')
     path=Path(cfg['output_dir'])/'capacity.json'
     report=json.loads(path.read_text())
