@@ -1,6 +1,6 @@
 # Semantic ray attention 및 생성 shape PBR 평가 진행 기록
 
-2026-10-20 08:29 UTC 기준. 작업 브랜치는 `wowo0709/feature-retargeting`이며,
+2026-10-20 08:42 UTC 기준. 작업 브랜치는 `wowo0709/feature-retargeting`이며,
 실제 데이터·설정·체크포인트·결과는 file4의 `retargeting-v1/rgb_matching_v2/semantic-topk-search-v1` 아래에 보관한다.
 로컬 파일은 해당 file4 결과의 캐시다. 사용 GPU는 물리 GPU 0–3으로 제한한다.
 
@@ -21,6 +21,7 @@ SS 평가다. 새로운 full 후보의 학습 seed는 101 하나이며, sampling
 | Direct retargeting 조합 | **44.3692%** |
 | Scalar Top-K + retargeting | 44.0329% |
 | Candidate별 paired correction + reliability | 44.1322% |
+| Bounded task ray attention + paired correction | 44.1089% |
 
 Direct−Vanilla는 +1.1042 percentage point, source-cluster paired bootstrap 95% CI는
 [+0.6120, +1.6301] pp다. 그러나 Direct−같은 예산 retargeting은 +0.3399 pp,
@@ -31,7 +32,7 @@ fine-tuning의 이득을 지지하지만, semantic matching/attention의 독립�
 
 ## 현재 학습하는 attention
 
-`TaskRay369`가 SS 480/480 step에 도달했고 마지막 native validation을 진행 중이다.
+`TaskRay369`의 SS 480/480 step 학습, native32 및 최종128×3 평가가 완료됐다.
 공통 R96에서 추가 384 update, GPU 2·3 DDP, global batch 96, microbatch 48/rank,
 accumulation 1이다. 최근 실제 update는 약 18.7–19.1초, peak 할당 메모리는
 rank별 약 51 GiB였다. 관찰된 정상 학습을 상태 확인 시간 초과 때문에 재시작하지 않는다.
@@ -45,8 +46,19 @@ rank별 약 51 GiB였다. 관찰된 정상 학습을 상태 확인 시간 초과
   query/key gradient L1 각각 0.09052/0.00909를 확인했다.
 
 일반 conditioner 로그의 Top-1 appearance 경로 통계와 추가 attention의 통계를 구분한다.
-이 실험은 matcher 자체를 새로 학습하는 실험과 구별되며, 최종 native32 및
-128×3 평가가 끝나기 전에는 추가 성능 향상을 주장하지 않는다.
+마지막96 update의 실제 추가 attention 유효 K 평균은 5.6633, confidence 평균은
+0.43293이었다. 현재 TaskRay에서 Top-K attention은 candidate별 deformation correction을
+혼합하며, 공통 appearance carrier는 Top-1을 유지한다. Appearance feature 자체의
+추가 readout은 앞선 feature/Direct arm에서 별도로 비교했다. 이 실험은 matcher 자체를
+새로 학습하는 실험과도 구별한다.
+
+최종 TaskRay IoU는 44.1089%, matched R 대비 +0.0796 pp,
+source-cluster CI [−0.0837, +0.2417] pp다. Task attention이 없는 paired correction 대비는
+−0.0232 pp, CI [−0.1072, +0.0452] pp다. 이전 positive R 대비도 −0.1668 pp,
+CI [−0.4818, +0.1426] pp다. 추가 attention의 이득이 입증되지 않았으며 이 후보를
+full로 채택하거나 추가 epoch를 자동 실행하지 않는다. 기존 summary를 보존하고,
+historical R을 추가한 `final128x3-strong-references-v2`에서 원래 비교 수치가
+모두 정확히 유지됨을 확인했다.
 
 ## 32개 생성 결과와 여덟 metric
 
@@ -100,16 +112,30 @@ Shape decoder는 texture guide hierarchy를 얻는 데 사용한다. 원본 raw 
 geometry 평가를 보존하고, decoder voxel address의 순서만 정확한 정수 좌표 join으로
 맞춘다. 가까운 점 보간이나 shape 보정은 허용하지 않는다. PBR noise는 모델별로
 초기화가 끝난 뒤 동일 seed로 새로 추출하는 별도 replay 프로토콜이다.
-CPU 테스트 10개가 통과했고, 실제 native/R-zero/Direct-zero export 비교를 예약했다.
-학습된 step1905의 최종 생성물 평가까지 완료된 상태로 해석하면 안 된다.
+CPU 테스트 10개가 통과했고, 실제 native/R-zero/Direct-zero export 비교도 완료했다.
+첫 시도에서 Vanilla는 성공했지만 R-only 설정을 Direct prototype factory에 전달해
+R 생성 단계가 실패했다. 새 v2 plan은 factory에 Direct constructor 설정을 전달하고,
+생성되는 실제 C1 설정이 기존 native R 설정과 정확히 같음을 확인한다. Native 수치
+소스·weight·sampler는 수정하지 않았고 첫 실패와 성공한 Vanilla 결과도 보존했다.
+수정된 세 arm은 실제 12-step sampler와 native texture VAE를 거쳐, 원본 geometry뿐
+아니라 새 texture latent 및 약120만 voxel의 attribute까지 모두 정확히 일치했다.
+각 arm은 약64초, peak16.26–16.31 GiB였다. 결과와 actual file4 SHA/size 검증은
+`generated-PBR-replay-export-v2`에 남겼다. 이 검증은 초기 zero 경로의 정확성에 대한
+증거이며, 학습된 step1905의 최종 생성물 평가까지 완료된 상태로 해석하면 안 된다.
 
 ## 남은 실험과 최종 평가
 
-1. TaskRay480 최종128×3와 두 retargeting 기준 비교를 완료한다.
+1. TaskRay480 최종128×3와 두 retargeting 기준 비교는 완료했다. 현재 설정의
+   추가 이득은 입증되지 않았다. Direct의 수치상 최고 결과와 두 R 기준을 유지한다.
 2. 32×3 공통 렌더링 및 여덟 metric을 완료한다.
 3. PBR 자체 DDP4 capacity 검사 후 세 arm의 같은 예산 continuation을 진행한다.
 4. 학습된 PBR checkpoint를 실제 generated shape에서 비교하고, GT-shape 고정 stage와
-   full-stack 결과를 구분한다. 긍정적인 후보에는 독립 학습 seed와 모듈별 대조를 추가한다.
+   full-stack 결과를 구분한다. 세 PBR1905 학습·stage summary의 실제 file4 receipt와
+   zero-export GPU 검증을 기다리는 자동 후속 추론을 연결했다. SS variant별 shape와
+   PBR을 함께 바꾸는 96건, 동일한 generated V1 shape에 R/Direct PBR만 추가로 적용하는
+   64건을 준비하며, 후자의 Vanilla는 앞의 결과를 재사용한다. 160개 metadata 경로를
+   검사했다. 이 단계는 추론 연결이며, 학습된160개 출력의 생성 및 후속 렌더링·여덟 metric
+   집계까지 완료됐다는 뜻은 아니다. 긍정적인 후보에는 독립 학습 seed와 모듈별 대조를 추가한다.
 5. No-score는 Top-1 correspondence feature, No-corr는 native spatial correspondence,
    No-DQ는 channel/projection의 물리적 제거로 정의한다. Retargeting-only 다음에
    deformation-aware query를 더하는 두 arm을 사용하며 target-only 및 2×2는 추가하지 않는다.
