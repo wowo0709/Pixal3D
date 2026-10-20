@@ -115,3 +115,17 @@ aggregate를 같다고 요구하지 않는다. 원래 기록에 없는 predictio
 모델 수를 늘린 여섯/eight-metric 집계도 기존32개×3모델 실제 생성물에 적용했다.
 원래 means, paired source-cluster contrast/CI, per-asset 수치가 모두 정확히 보존됐다.
 새 SS의 GPU archive와 생성물 metric 측정은 실제 학습 완료 후 별도로 실행해야 한다.
+
+## 기존 Direct와의 구조 구분
+
+새 SS attention은 `TaskCandidateAttention`으로 후보 확률을 학습해 재가중한다.
+기존 수치상 최고 Direct의 `RayFeatureReadout`은4-head Q/K/V와 zero-init output으로
+feature 자체를 변환한다. 초기7-epoch utility를 불러오고, 변환한 feature의 bounded
+correction을 semantic gate 밖의 retargeting residual로 직접 전달한다.
+원래 Top-1 carrier는 유지한다. 두 readout을 동일한 모듈의 재현이라고 해석하면 안 된다.
+
+Query도 기존 Direct의 edited-target patch ray와 새 후보의 source-camera ray group이
+다르다. 현재 일곱 SS arm은 새 query 및 확률 조합의 대조로 보존한다.
+기존 feature 변환·직접 전달 경로와 맞춘 대조, 그 다음의 물리적 DQ 추가 검증은
+별도로 필요하다. 대기 중인 PBR Direct는 기존 feature 변환 경로를 사용한다.
+실제 source/config 대조와 SHA receipt는 `source-ray-cascade32-v1/readout-lineage-audit-v1`에 있다.
