@@ -129,3 +129,37 @@ Query도 기존 Direct의 edited-target patch ray와 새 후보의 source-camera
 기존 feature 변환·직접 전달 경로와 맞춘 대조, 그 다음의 물리적 DQ 추가 검증은
 별도로 필요하다. 대기 중인 PBR Direct는 기존 feature 변환 경로를 사용한다.
 실제 source/config 대조와 SHA receipt는 `source-ray-cascade32-v1/readout-lineage-audit-v1`에 있다.
+
+## Four-head feature 경로의 source-ray 이식: CPU core 검증
+
+`MemberFeatureSourceRayConditioner`는 기존 `RayFeatureReadout` 클래스를 그대로
+호출한다. Member posterior의 같은64개 후보에서 실제 Top-1 feature를 carrier로
+유지하고,4-head Q/K/V의 변환 feature를 R 입력과 별도 bounded residual로 전달한다.
+보정은 semantic fusion gate 밖에 있으며 source-use 판단은 원래 Top-1을 사용한다.
+이 arm에는 DQ 입력이나 projection이 없고, R 입력은 실제2048 channel이다.
+
+새 feature output이0이면 cold native MV4 correction도0이고, 이미 활성화한
+Top-1/R/source-use 대조의 출력과도 정확히 같다. 두 기존 correction 경로가0인
+첫 backward에서도 새 output weight에 gradient가 들어간다. Toy gradient 검사에서
+semantic gate와 R을 갱신하지 않고도3 update 이내에9개 head tensor 모두 gradient를
+받았다. 관련 기존 검사까지20개 CPU 검사가7.71초에 통과했다.
+
+실제 validation asset의 cached DINO/Omega, 원래 카메라와 ProjGrid를 사용한
+556개 활성 source ray에서도 초기 correction0, 활성 Top-1/R 대조 일치,
+source/query 결손 시 correction0을 확인했다. 기존 Direct의 완전한7-epoch/112-update
+utility5개 tensor를 SHA 검증 후 정확히 읽었다. 이 utility는 학습 초기화이며,
+향후 joint head 학습에서 고정하도록 설계한 것은 아니다.
+
+새 saved-weight 진단은4-head의 projected V만 재배치한다. 같은 forward의
+matching/4-head weights, Top-1 carrier와 source-use를 정확히 유지한 상태에서
+실제 ray projection 결과가 바뀌는 것을 확인했다. 정적 Top-1 aggregation만
+재배치하는 기존 진단으로 변환 feature branch까지 검증했다고 주장하지 않는다.
+
+이것은 source-camera query에 이전 feature 연산·직접 전달 경로를 이식한 CPU core다.
+기존 Direct의 target-patch query 또는 R96 optimizer/sampler warmup 재현은 아니다.
+실제 native SS denoiser 초기32 예측/gradient, GPU BF16 정합과 micro96 capacity,
+별도 trainer/runtime 연결 및 학습은 아직 남아 있다. 기존7개 SS arm과 진행 중인
+PBR 설정·큐는 변경하지 않았다. 이 core는 아직 GPU 학습 큐에 추가하지 않았다.
+별도 물리적 DQ arm은 이 No-DQ 경로의 실제 NN 검증 이후 순차로 추가해야 한다.
+
+원본 실행 결과와 소스는 `member-feature-source-ray-v1/CPU-core-v1`에 보관한다.
