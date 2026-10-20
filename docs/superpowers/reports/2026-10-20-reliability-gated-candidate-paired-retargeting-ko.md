@@ -63,15 +63,19 @@ CUDA 배포 port는 실제 VAL32의 2,510개 known ray를 native query partition
 
 실제 초기 생성도 **R96 / VAL32 / generation batch8**로 완료했다. IoU **.43718718977498344**, precision .5517037762, recall .6780659337, F1 .6083928286이 기준 R과 정확히 같았다. 32개 sample의 기존 GT/source/seed/TPFPFN/metric 필드도 모두 같았다. 전체 voxel-mask byte 동일성을 검사한 것은 아니다. Peak5.8334 GiB, 생성 측정 구간230.29초였다.
 
-실제 global96 / DDP2 / GPU당48 / accumulation1 capacity를 GPU2/3에 연결했다. 현재 geometry SS가 끝나고 자체 초기32 receipt가 닫혀야 시작한다. 총367 state, 양 rank 동기화, 첫97의 전체 loss 필드가 matched R control과 같은지까지 확인한다. 기존374/375/376-state 증명을 재사용하지 않는다. PBR actual capacity의 우선순위는 이 검사보다 높게 유지했다.
+실제 global96 / DDP2 / GPU당48 / accumulation1 capacity도 GPU2/3에서 완료했다. Peak는 rank0 **49.7909 GiB**, rank1 **49.7876 GiB**, warm-up 이후 update는 약17.6초였다. 총367 state의 실제 업데이트와 양 rank 동기화를 확인했다. 첫97의 전체 loss 필드는 matched R control과 정확히 같았다: rank0 .13053171336650848, rank1 .1225043460726738. Native/wrapper 모두 종료0, 실제 file4 receipt도 닫혔다. 기존374/375/376-state 증명을 재사용하지 않았다.
 
-Full480 학습 recipe는 공통 R96부터384 update 추가, NN LR1e-5 / R LR1e-4 / 신규 projection LR1e-4·warm5, seed101, TRAIN9149로 준비했다. **새 모델의 장기 학습은 아직 queue에 추가하지 않았다.** 배치 검사를 마친 뒤 실제 가용 시간과 PBR 순서를 기준으로 실행 시점을 정한다. 현재2개 SS와 기존 scalar/final evaluation/PBR 계획은 유지한다.
+Full480 학습 recipe는 공통 R96부터384 update 추가, NN LR1e-5 / R LR1e-4 / 신규 projection LR1e-4·warm5, seed101, TRAIN9149로 준비했다. 새 모델의 장기480 학습은 아직 queue에 추가하지 않았다. 대신 **첫96 update만96→192로 실행하는 유한 단계**를 연결했다. Model/data/objective/optimizer/LR schedule은 full480 recipe 그대로이며 loop 경계만192다. 완료 시 common Adam은192, 신규 projection Adam은96, scheduler position은96이어야 한다. 두 rank의 RNG·sampler와 checkpoint trio를 보존해 나머지288 update를 이어갈 수 있다.192 완료를 full480 완료로 표시하지 않는다.
+
+이미 닫힌 초기32 생성과 실제 양 rank 첫97 parity를 재사용해 초기96 생성을 반복하지 않는다. 이 짧은 단계는 기존 panel의 첫8개·동일 seed map·batch8로 최종192 추세만 빠르게 본다. 8개 결과를 기존 R32 평균과 직접 비교하지 않으며 동일8개 baseline을 추출한다. 이후 실제32 평가와 full480·128×3 비교는 남아 있다. Full continuation 시 validation panel을32로 복원해야 한다.
+
+시작 조건은 현재 평가들을 중단하지 않고 남는2/3 시간에 예상 단계 길이와 PBR margin이 들어가는 것이다. 실제02:29:35 판단에서 NoDQ402의 예상 잔여1,744.82초가 단계1,911.10초+margin120초보다 짧아 **학습을 시작하지 않고 defer**했다. 대신 PBR actual capacity 뒤 GPU0/1에서 첫96 update를 실행하고 기존 scalar SS는2/3에서 병렬 실행하도록 연결했다. 먼저 실행됐다면 재학습하지 않고192 checkpoint를 재사용한다. PBR main activation은 이 단계와 기존 scalar/final evaluation 완료를 기다리며, 새로운 장기480 학습은 PBR 뒤로 유지한다.
 
 ## 기존 SS 추세와 실행 속도
 
 Geometry step384의 VAL32 IoU는 .447438, matched R은 .447489였다. 추가 이득은 확인되지 않았다. Physical Direct-NoDQ step288은 .436987이었다. 이 결과를 새 candidate-paired 모델의 성능으로 혼동하지 않는다. 최종480, 기존128×3/replay32/strong R/V1/두4-RGB zero shot 비교는 계속 진행한다.
 
-NoDQ가 느린 별도 원인은 CPU contention이었다. Geometry는 data worker2, NoDQ는 worker0이고, 두 GPU 학습 그룹과 helper가 CPU84/85를 공유했다. 실제 유휴86/87을 확인한 뒤 **GPU0/1의 기존 NoDQ DDP worker 두 프로세스만** 모든 thread를86/87로 옮겼다. PID/생성 시각/명령, OMP2, GPU 배정은 같으며 helper는84/85를 유지했다. 코드·config·sampling·optimizer를 직접 바꾸거나 프로세스를 재시작하지 않았다.
+NoDQ가 느린 별도 원인은 CPU contention이었다. Geometry는 data worker2, NoDQ는 worker0이고, 두 GPU 학습 그룹과 helper가 CPU84/85를 공유했다. 실제 유휴86/87을 확인한 뒤 **GPU0/1의 기존 NoDQ DDP worker 두 프로세스만** 모든 thread를86/87로 옮겼다. PID/생성 시각/명령, `OMP_NUM_THREADS=2` 환경변수, GPU 배정은 같으며 framework의 thread 설정은 직접 바꾸지 않았다. Helper는84/85를 유지했다. 코드·config·sampling·optimizer를 직접 바꾸거나 프로세스를 재시작하지 않았다.
 
 | 관찰 구간 | rank0 load 중앙값 | rank1 load 중앙값 | update load+compute 중앙값 |
 |---|---:|---:|---:|
@@ -82,7 +86,7 @@ NoDQ가 느린 별도 원인은 CPU contention이었다. Geometry는 data worker
 
 ## 재현 위치와 남은 작업
 
-Canonical root는 기존 실험 아래 `feature-readout-v1/prior-anchored-QK-v1/reliability-head-v1`이다. `fit-fixed7-v1`, `overlap-capacity-v1`, `overlap-scheduling-v1`, `overlap-restored-v1`, `deployed-port-v1`, `NoDQ-CPU-affinity-v1`과 `consistent-retargeting-v1/{SS-gradient-v1,joint-profile-v1,initial-state-v1,initial32-parity-v1,prelaunch-v1,capacity-queue-v1}`을 실제 file4의 SHA256/size와 대조해 보관했다. 새 capacity 결과는 아직 pending이다.
+Canonical root는 기존 실험 아래 `feature-readout-v1/prior-anchored-QK-v1/reliability-head-v1`이다. `fit-fixed7-v1`, `overlap-capacity-v1`, `overlap-scheduling-v1`, `overlap-restored-v1`, `deployed-port-v1`, `NoDQ-CPU-affinity-v1`과 `consistent-retargeting-v1/{SS-gradient-v1,joint-profile-v1,initial-state-v1,initial32-parity-v1,prelaunch-v1,capacity-v1,segment-plan-v1,phase1-decision-v1,segment-after-capacity-plan-v1}`을 실제 file4의 SHA256/size와 대조해 보관했다. 실제 첫96 update 학습 결과는 아직 pending이다.
 
 다음 증거는 새 모델의 **실제 학습 후 matched R 대비 생성 품질**이다. 그 전에는 matching/retargeting의 추가 효과나 full 모델을 확정하지 않는다. 후보가 좋아지면 같은 초기 NN/R·Adam·학습 예산으로 frozen-mean, no-reliability, matched-Top1 payload, native-spatial correspondence, physical-NoDQ를 분리한다. 사용자 정의 NoScore는 uniform weights가 아닌 Top1 payload다. Native-spatial은 semantic Top64와 후보 개수/분포가 다르므로 semantic64용 reliability head를 그대로 적용해 OOD gate를 만드는 오류를 피해야 한다. Physical-NoDQ가 기존 R-only와 함수·학습 경로까지 동일하면 기존 matched R control을 재사용할 수 있다.
 
