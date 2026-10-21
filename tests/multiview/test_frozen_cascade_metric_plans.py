@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -66,7 +67,8 @@ def completed_case(tmp_path, request):
         model_freeze=freeze,source_inputs=guards,phases=phases))
     close_unit(folder,tmp_path)
     kwargs=dict(alias='candidate',model={'texture_protocol':request.param},source_inputs=guards,
-        prepared_receipt=str(folder/'file4-closure.json'),SS_receipt=str(tmp_path/'SS'/'file4-closure.json'),closed=ClosedInputs(tmp_path))
+        prepared_receipt=str(folder/'file4-closure.json'),SS_receipt=str(tmp_path/'SS'/'file4-closure.json'),closed=ClosedInputs(tmp_path),
+        surface_references=SimpleNamespace(join=lambda *a,**k:{'unit_metadata_GT_join':True}))
     return case,kwargs,root,tmp_path
 
 
@@ -220,7 +222,8 @@ def test_full508_metadata_assembly_and_completed_metric_binding_keep_both_zero_c
         dict(status='PASS_OFFICIAL_PERCEPTUAL_WEIGHT_SOURCE_CACHE_AND_CPU_LOAD',files=[]))
     plan=dict(scope='final-test508',case_manifest=compiled_spec,prepared_cases_receipt=str(compiled_root/'file4-closure.json'),
         SS_evaluation_receipts={alias:'/unit-unused-SS-receipt' for alias in freeze['models']},
-        canonical_local_root=str(tmp_path),metric_registry=registry)
+        canonical_local_root=str(tmp_path),metric_registry=registry,
+        GT_surface_reference={'unit_reference':True},GT_surface_reference_receipt='/unit-unused-reference-receipt')
     _,audit=paired_images(np.zeros((3,512,512),np.float32),np.ones((3,512,512),np.float32),np.ones((512,512),np.float32))
     def lower(spec,*,alias,**kwargs):
         sid=spec['path'].removeprefix('/unit-descriptor/')
@@ -232,6 +235,7 @@ def test_full508_metadata_assembly_and_completed_metric_binding_keep_both_zero_c
             images[0]['image_audit']['original_float_GT_SHA256']='different-reference'
         return row,images
     monkeypatch.setattr(factory,'bind_case',lower)
+    monkeypatch.setattr(factory,'SurfaceReferences',lambda *a,**k:SimpleNamespace(unit_only=True))
     out=tmp_path/'metric-prepared'
     if problem is not None:
         with pytest.raises(ValueError):factory.prepare(plan,out)
@@ -257,5 +261,6 @@ def test_full508_metadata_assembly_and_completed_metric_binding_keep_both_zero_c
     result=factory.bind_completed(dict(path=str(out/'manifest.json'),SHA256=sha(out/'manifest.json')))
     assert tuple(result['models'])==tuple(freeze['models']) and len(result['perceptuals'])==5
     assert result['cache_QA']==source['cache_QA'] and result['cache_QA_plan']==source['cache_QA_plan']
+    assert result['GT_surface_reference']==plan['GT_surface_reference']
 
 

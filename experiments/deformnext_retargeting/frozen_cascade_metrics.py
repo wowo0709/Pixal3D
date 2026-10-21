@@ -21,6 +21,7 @@ from .pbr_replay_artifacts import GEOMETRY_FIELDS
 from .metric_image_identity import scored_image_observation
 from .summarize_frozen_inception_pools import validate_frozen_models
 from .bind_generated_pbr_dataset import validate_binding as validate_PBR_dataset_binding
+from .bind_native_surface_reference import SurfaceReferences
 
 
 class PinnedFiles:
@@ -249,6 +250,8 @@ def collect(plan):
             for key in ['config', 'checkpoint']: pins.check(stage[key])
     pins.check(binding['render_protocol']['environment_map'])
     closed = ClosedInputs(plan['canonical_local_root'])
+    surface_references = (SurfaceReferences(plan['GT_surface_reference'], receipt=plan['GT_surface_reference_receipt'],
+        closed=closed, ids=ids, clusters=clusters) if plan['scope'] == 'final-test508' else None)
     perceptual, protocol = {}, None
     for path, receipt in plan['perceptuals'].items():
         closed.check(path, receipt); report = json.loads(Path(path).read_text())
@@ -283,6 +286,10 @@ def collect(plan):
                 verify_test_SS_binding(ss, model, freeze_spec=plan['model_freeze'], manifest_spec=plan['manifest'],
                                        seed_map_SHA256=population['seed_map_SHA256'])
             verify_native_composition(native, original, ss, model, sample_id=sid, seed=population['cascade_seeds_by_sample'][sid])
+            if surface_references is not None:
+                root = Path(row['shape_generation'] if model['texture_protocol'] == 'native-replay' else row['generation']).parent
+                require(row['GT_surface_binding'] == surface_references.join(native, original, generation_root=root),
+                        'final native surface scores must join the same actual stored common GT points/normalization')
             require(native['row']['conditioning_input_sha256'] == manifest_rows[sid]['conditioning_input_sha256'], 'Native generation RGB input identity differs')
             verify_RGB_inputs(native, manifest_rows[sid], mode=model['ss64']['conditioning_mode'], file4_cache_root=plan['file4_cache_root'])
             for path, digest in native['inputs_SHA256'].items():
@@ -367,6 +374,8 @@ def collect(plan):
         model_freeze=plan.get('model_freeze'), manifest=plan['manifest'], native_stage_weight_hashes_verified=True,
         source_preservation_reference='Original M0 material identity on edited M1 geometry; source-view scores measure edit adaptation, not M0 geometry preservation',
         raw20k_surface_CD_and_F_at_point02_source_bbox_noICP=True, native512_common1M_face_render=True,
+        common_GT_surface_reference=plan.get('GT_surface_reference'),
+        actual_native_metric_GT_surface_join_verified=surface_references is not None,
         source_cluster_CIs_condition_on_one_training_seed=True, intervals_uncorrected_for_multiple_contrasts=True,
         no_neural_model_forward_or_training=True, FID_KID_still_required=True, model_adopted=False, full_goal_complete=False)
     return summary

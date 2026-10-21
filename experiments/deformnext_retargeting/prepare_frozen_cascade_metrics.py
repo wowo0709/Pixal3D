@@ -18,6 +18,7 @@ from .evaluate_bound_population import pinned, sha
 from .frozen_cascade_metrics import PinnedFiles, read_terminal
 from .perceptual_image_inputs import paired_images
 from .summarize_frozen_inception_pools import validate_frozen_models
+from .bind_native_surface_reference import SurfaceReferences
 
 
 PACKAGE = 'experiments.deformnext_retargeting.'
@@ -45,7 +46,7 @@ def image_input(path, *, alias, sample_id, cluster, closed):
 
 
 def bind_case(spec, *, alias, model, source_inputs, prepared_receipt,
-              SS_receipt, closed):
+              SS_receipt, closed, surface_references):
     path = pinned(spec)
     closed.check(path, prepared_receipt)
     case = json.loads(path.read_text())
@@ -112,6 +113,9 @@ def bind_case(spec, *, alias, model, source_inputs, prepared_receipt,
         row.update(shape_generation=str(Path(native['generation']['output'])/'generation.json'),
             PBR_replay_plan=phases['PBR']['native_plan']['path'],
             PBR_replay_terminal=str(Path(native['PBR']['output'])/'terminal.json'), PBR_IO_binding=IO['PBR'])
+    original = json.loads((Path(native['generation']['output'])/'generation.json').read_text())
+    row['GT_surface_binding'] = surface_references.join(native['generation'], original,
+        generation_root=Path(native['generation']['output']))
     observations = [image_input(Path(row['render']).parent/f'camera{cid:02d}.npz', alias=alias,
                     sample_id=case['sample_id'], cluster=case['source_cluster_id'], closed=closed) for cid in (8,9,10)]
     return row, observations
@@ -140,6 +144,8 @@ def prepare(plan, output):
             'native metric population must retain the exact frozen manifest order/clusters')
     closed = ClosedInputs(plan['canonical_local_root'])
     closed.check(plan['case_manifest']['path'], plan['prepared_cases_receipt'])
+    surface_references = SurfaceReferences(plan['GT_surface_reference'], receipt=plan['GT_surface_reference_receipt'],
+        closed=closed, ids=ids, clusters=clusters)
     pins = PinnedFiles()
     registry_path = pins.check(plan['metric_registry'])
     require(registry_path.name == 'registry.json', 'official perceptual registry.json required')
@@ -158,7 +164,8 @@ def prepare(plan, output):
         rows, observations = [], []
         for descriptor in compiled['cases'][alias]:
             row, images = bind_case(descriptor['plan'], alias=alias, model=model, source_inputs=source,
-                prepared_receipt=plan['prepared_cases_receipt'], SS_receipt=plan['SS_evaluation_receipts'][alias], closed=closed)
+                prepared_receipt=plan['prepared_cases_receipt'], SS_receipt=plan['SS_evaluation_receipts'][alias],
+                closed=closed, surface_references=surface_references)
             require(row['sample_id'] == descriptor['sample_id'] and row['source_cluster_id'] == clusters[row['sample_id']],
                     'actual case sample/source cluster differs')
             for image in images:
@@ -191,6 +198,7 @@ def prepare(plan, output):
         source_inputs=plan, native_source_inputs=source, model_freeze=source['model_freeze'],
         models=models, perceptuals=descriptors, assets=508, source_clusters=134,
         total_cases=len(models)*508, total_perceptual_views=len(models)*1524,
+        common_GT_surface_native_array_and_point_identity_verified=True,
         no_model_selection_or_neural_metric_execution=True, full_goal_complete=False)
     dump(output/'manifest.json', result)
     return result
@@ -222,7 +230,9 @@ def bind_completed(manifest_spec):
     return dict(scope='final-test508', models=prepared['models'], perceptuals=perceptuals,
         model_freeze=source['model_freeze'], manifest=source['manifest'], cache_QA=source['cache_QA'],
         cache_QA_plan=source['cache_QA_plan'], file4_cache_root=source['file4_cache_root'],
-        canonical_local_root=prepared['source_inputs']['canonical_local_root'], prepared_metric_manifest=manifest_spec)
+        canonical_local_root=prepared['source_inputs']['canonical_local_root'], prepared_metric_manifest=manifest_spec,
+        GT_surface_reference=prepared['source_inputs']['GT_surface_reference'],
+        GT_surface_reference_receipt=prepared['source_inputs']['GT_surface_reference_receipt'])
 
 
 def main():
