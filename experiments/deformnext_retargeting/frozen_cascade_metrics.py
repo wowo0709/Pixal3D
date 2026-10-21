@@ -132,10 +132,16 @@ def read_terminal(terminal, native_path, binding, *, read, module):
     else:
         expected = ('experiments.deformnext_retargeting.pbr_remote_results' if module.endswith('replay_pbr_on_generated_shape')
                     else 'experiments.deformnext_retargeting.cascade_remote_results')
-        require(actual_module == expected and actual_plan == binding, 'Executed remote IO binding differs')
+        bound_zero = actual_module == 'experiments.deformnext_retargeting.bound_zero_shot_cascade'
+        require((actual_module == expected or (bound_zero and module.endswith('cascade_zero_shot_from_ss_artifact')))
+                and actual_plan == binding, 'Executed remote IO binding differs')
         io = read(binding)
         require(io['native_plan'] == native_path and io['native_plan_SHA256'] == sha(native_path),
                 'Remote IO binding changed the actual native generation plan')
+        if bound_zero:
+            require(io['stage'] == 'zero-generation'
+                    and io['bound_zero_adapter_source_SHA256'] == sha(Path(__file__).with_name('bound_zero_shot_cascade.py')),
+                    'Executed full508 zero-shot metadata guard source differs')
 
 
 def verify_RGB_inputs(native, row, *, mode, file4_cache_root):
