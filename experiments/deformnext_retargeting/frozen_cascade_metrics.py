@@ -18,6 +18,7 @@ from .cascade_view_roles import (
 )
 from .evaluate_bound_population import sha
 from .pbr_replay_artifacts import GEOMETRY_FIELDS
+from .metric_image_identity import scored_image_observation
 from .summarize_frozen_inception_pools import validate_frozen_models
 
 
@@ -233,10 +234,10 @@ def collect(plan):
             key = (row['arm'], row['sample_id'], row['camera_id'])
             require(key not in perceptual, 'Duplicate perceptual observation')
             perceptual[key] = row
-    references, records, expected_keys, compositions = {}, {}, set(), {}
+    references, records, expected_keys, compositions, scored_pixels = {}, {}, set(), {}, {}
     for alias, cases in plan['models'].items():
         require([r['sample_id'] for r in cases] == ids, 'Complete ordered frozen case population required: '+alias)
-        model = binding['models'][alias]; records[alias] = []; compositions[alias] = []
+        model = binding['models'][alias]; records[alias] = []; compositions[alias] = []; scored_pixels[alias] = []
         for row in cases:
             sid = row['sample_id']; cluster = row['source_cluster_id']
             require(cluster == clusters[sid], 'Case source cluster differs')
@@ -302,6 +303,8 @@ def collect(plan):
                             'Explicit native512 FP32 RGB/alpha schema required')
                     identity = tuple(hashlib.sha256(arrays[name].tobytes()).hexdigest() for name in ['prediction', 'GT_shared_renderer', 'GT_alpha'])
                     predicted_pixels = prediction_pixel_identity(arrays, native=False)
+                    scored_pixels[alias].append(scored_image_observation(arrays, sample_id=sid, camera_id=cid,
+                        source_cluster_id=cluster, archive=pixels, archive_SHA256=digest))
                 native_pixels = Path(row['render_camera_audit']).parent/f'camera{cid:02d}.npz'
                 closed.check(native_pixels, native_pixels.parent/'file4-closure.json')
                 with np.load(native_pixels, allow_pickle=False) as arrays:
@@ -325,6 +328,7 @@ def collect(plan):
     summary.update(status='PASS_ACTUAL_BOUND_CASCADE_EIGHT_METRICS', scope=plan['scope'],
         actual_completed_cases=sum(len(rows) for rows in records.values()), actual_perceptual_views=len(perceptual),
         model_bindings=binding['models'], native_case_compositions=compositions, input_SHA256=closed.inputs,
+        scored_image_observations=scored_pixels,
         model_freeze=plan.get('model_freeze'), manifest=plan['manifest'], native_stage_weight_hashes_verified=True,
         source_preservation_reference='Original M0 material identity on edited M1 geometry; source-view scores measure edit adaptation, not M0 geometry preservation',
         raw20k_surface_CD_and_F_at_point02_source_bbox_noICP=True, native512_common1M_face_render=True,

@@ -87,7 +87,7 @@ def summarize(plan):
         raise ValueError('explicitly isolated official torch-fidelity0.3.0 package required')
     reference, ref_audit = load_frozen_pool(plan['reference'], role='shared-original-material-GT',
         binding=freeze['reference_binding'], sample_ids=ids, clusters=clusters)
-    metrics, provenance = {}, {}
+    metrics, provenance, observations = {}, {}, {}
     for alias, spec in plan['predictions'].items():
         prediction, audit = load_frozen_pool(spec, role='generated-prediction',
             binding=freeze['models'][alias], sample_ids=ids, clusters=clusters)
@@ -96,6 +96,7 @@ def summarize(plan):
         metrics[alias] = official_distribution_metrics(prediction, reference,
                                                        subset_size=1000, subsets=100, seed=42017)
         provenance[alias] = spec
+        observations[alias] = audit['observations']
     deltas = {a+'_minus_'+b: {metric: metrics[a][metric]-metrics[b][metric]
               for metric in ['frechet_inception_distance', 'kernel_inception_distance_mean']}
               for a, b in contrasts}
@@ -105,6 +106,7 @@ def summarize(plan):
         assets=508, source_clusters=134, images_per_pool=1524, views=[8, 9, 10], metrics=metrics,
         point_contrasts=deltas, model_bindings=freeze['models'], reference_binding=freeze['reference_binding'],
         actual_feature_inputs=provenance, reference_input=plan['reference'], model_freeze=plan['model_freeze'],
+        feature_image_observations=observations, reference_image_observations=ref_audit['observations'],
         selected_candidate=freeze['selected_candidate'], comparison_roles=freeze['comparison_roles'],
         all_frozen_controls_retained=True, FID_finite_sample_estimate=True, KID_subset_std_is_not_CI=True,
         unbiased_KID_not_clamped=True, distribution_metrics_not_pairwise_preservation_metrics=True,

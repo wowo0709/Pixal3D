@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .evaluate_bound_population import pinned
 from .summarize_frozen_inception_pools import validate_frozen_models
+from .metric_image_identity import validate_metric_image_join
 
 
 # Prespecified camera roles follow the user's metric purposes. All-view scores
@@ -42,10 +43,13 @@ def assemble(eight, distribution, freeze, freeze_spec):
             or eight['model_freeze'] != freeze_spec or distribution['model_freeze'] != freeze_spec
             or eight['manifest']['SHA256'] != freeze['population']['manifest_SHA256']
             or eight['model_bindings'] != distribution['model_bindings'] or eight['model_bindings'] != freeze['models']
+            or distribution['reference_binding'] != freeze['reference_binding']
             or tuple(distribution['metrics']) != tuple(freeze['models'])
             or not eight['native_stage_weight_hashes_verified']
             or not distribution['unbiased_KID_not_clamped'] or not distribution['KID_subset_std_is_not_CI']):
         raise ValueError('all scores must bind the same frozen complete model compositions and population')
+    image_identity = validate_metric_image_join(eight, distribution, sample_ids=ids, clusters=clusters,
+                                                models=freeze['models'])
     for role in ['target8', 'source9_10', 'all8_9_10']:
         for model in freeze['models']:
             rows = eight['per_asset'][role][model]
@@ -91,6 +95,7 @@ def assemble(eight, distribution, freeze, freeze_spec):
             purpose=purpose, better=direction, unit=unit) for label, role, metric, purpose, direction, unit in METRICS},
         source_preservation_reference='Original M0 material identity rendered on edited M1 geometry; not unchanged M0 geometry pixels',
         reference_binding=freeze['reference_binding'], global_distribution_estimates_not_pairwise_CIs=True,
+        same_scored_image_identity=image_identity,
         source_cluster_intervals_condition_on_each_model_training_seed=True,
         allview_table_keeps_prior_reporting_convention=True, no_metric_rescaling_or_KID_clamping=True,
         statistical_table_does_not_itself_establish_module_attribution_or_training_replication=True,

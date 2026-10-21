@@ -1,4 +1,5 @@
 import copy
+import hashlib
 
 import pytest
 
@@ -34,6 +35,32 @@ def fixture():
         unbiased_KID_not_clamped=True, KID_subset_std_is_not_CI=True,
         metrics={name:dict(frechet_inception_distance=2.,kernel_inception_distance_mean=-.002,kernel_inception_distance_std=.001) for name in models},
         point_contrasts={a+'_minus_'+b:dict(frechet_inception_distance=-.3,kernel_inception_distance_mean=-.0001) for a,b in pairs})
+    digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+    eight['input_SHA256'] = {}
+    eight['scored_image_observations'] = {}
+    distribution['reference_binding'] = copy.deepcopy(freeze['reference_binding'])
+    distribution['feature_image_observations'] = {}
+    for model in models:
+        scored, features = [], []
+        for sid in ids:
+            for cid in (8, 9, 10):
+                label = f'{model}/{sid}/{cid}'; shared = f'{sid}/{cid}'
+                row = dict(sample_id=sid, camera_id=cid, source_cluster_id=clusters[sid],
+                    archive='/fixture-not-scientific/'+label+'.npz', archive_SHA256=digest(label+'archive'),
+                    prediction_float_RGB_SHA256=digest(label+'float'), reference_float_RGB_SHA256=digest(shared+'GT'),
+                    reference_alpha_SHA256=digest(shared+'alpha'), prediction_CHW_uint8_SHA256=digest(label+'uint8'),
+                    reference_CHW_uint8_SHA256=digest(shared+'GTuint8'))
+                scored.append(row); eight['input_SHA256'][row['archive']] = row['archive_SHA256']
+                features.append(dict(sample_id=sid, camera_id=cid, source_cluster_id=clusters[sid],
+                    archive=row['archive'], archive_SHA256=row['archive_SHA256'], array='prediction',
+                    original_float_RGB_SHA256=row['prediction_float_RGB_SHA256'],
+                    converted_CHW_uint8_SHA256=row['prediction_CHW_uint8_SHA256']))
+        eight['scored_image_observations'][model] = scored
+        distribution['feature_image_observations'][model] = features
+    distribution['reference_image_observations'] = [dict(sample_id=r['sample_id'], camera_id=r['camera_id'],
+        source_cluster_id=r['source_cluster_id'], archive=r['archive'], archive_SHA256=r['archive_SHA256'],
+        array='GT_shared_renderer', original_float_RGB_SHA256=r['reference_float_RGB_SHA256'],
+        converted_CHW_uint8_SHA256=r['reference_CHW_uint8_SHA256']) for r in eight['scored_image_observations']['V1']]
     return eight, distribution, freeze, spec
 
 
@@ -49,6 +76,8 @@ def test_ten_metrics_keep_requested_purposes_and_both_role_and_allview_tables():
     assert result['paired_contrasts']['feature-DQ_minus_V1']['LPIPS']['CI95'] == [-.01,.03]
     assert list(result['primary_camera_role_table']) == ['V1','matched-R','feature-DQ','zero-source4']
     assert not result['model_adopted'] and values == before
+    identity = result['same_scored_image_identity']
+    assert identity['prediction_images'] == 4*1524 and identity['reference_images'] == 1524
 
 
 @pytest.mark.parametrize('problem', ['development', 'different-freeze', 'different-manifest', 'checkpoint', 'view-drop',
@@ -67,4 +96,31 @@ def test_final_table_rejects_mixed_model_population_and_uncertainty_interpretati
     elif problem == 'KID-clamped': distribution['unbiased_KID_not_clamped'] = False
     elif problem == 'KID-std-CI': distribution['KID_subset_std_is_not_CI'] = False
     else: distribution['metrics']['feature-DQ']['frechet_inception_distance'] = float('nan')
+    with pytest.raises(ValueError): assemble(*values)
+
+
+@pytest.mark.parametrize('problem', ['no-provenance', 'model-swap', 'different-rerender', 'unbound-archive',
+    'prediction-float', 'prediction-conversion', 'GT-float', 'GT-conversion', 'GT-alpha', 'different-GT-pool',
+    'wrong-GT-binding', 'source', 'duplicate', 'view-drop', 'extra-model', 'prediction-as-reference'])
+def test_final_table_rejects_distribution_features_from_different_scored_pixels(problem):
+    values = fixture(); eight, distribution, freeze, spec = values
+    scored = eight['scored_image_observations']['feature-DQ'][0]
+    pred = distribution['feature_image_observations']['feature-DQ'][0]
+    reference = distribution['reference_image_observations'][0]
+    if problem == 'no-provenance': distribution.pop('feature_image_observations')
+    elif problem == 'model-swap': distribution['feature_image_observations']['feature-DQ'] = distribution['feature_image_observations']['matched-R']
+    elif problem == 'different-rerender': pred['archive'] = '/same-model-but-fresh-native-LOD-rerender.npz'
+    elif problem == 'unbound-archive': eight['input_SHA256'].pop(scored['archive'])
+    elif problem == 'prediction-float': pred['original_float_RGB_SHA256'] = 'different-float-pixels'
+    elif problem == 'prediction-conversion': pred['converted_CHW_uint8_SHA256'] = 'different-conversion'
+    elif problem == 'GT-float': reference['original_float_RGB_SHA256'] = 'different-reference'
+    elif problem == 'GT-conversion': reference['converted_CHW_uint8_SHA256'] = 'different-reference-conversion'
+    elif problem == 'GT-alpha': scored['reference_alpha_SHA256'] = 'different-alpha'
+    elif problem == 'different-GT-pool': reference['archive'] = '/unscored-GT-render.npz'
+    elif problem == 'wrong-GT-binding': distribution['reference_binding'] = dict(materials='M1', geometry='M1')
+    elif problem == 'source': pred['source_cluster_id'] = 'another-source'
+    elif problem == 'duplicate': distribution['feature_image_observations']['feature-DQ'][-1] = copy.deepcopy(pred)
+    elif problem == 'view-drop': distribution['reference_image_observations'].pop()
+    elif problem == 'extra-model': distribution['feature_image_observations']['unfrozen-model'] = []
+    else: reference['array'] = 'prediction'
     with pytest.raises(ValueError): assemble(*values)
