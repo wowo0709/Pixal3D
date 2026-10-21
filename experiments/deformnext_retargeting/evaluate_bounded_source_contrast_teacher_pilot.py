@@ -98,6 +98,9 @@ def main():
             or result['sampling_steps'] != 12 or result['guidance'] != 3.
             or (local.require_native_identity and not identity)):
         raise ValueError('actual same32/noise native frozen-SS evaluation without updates required')
+    result['base_recipe_arm'] = result['arm']
+    result['arm'] = local.pilot_variant
+    result['source_input_design'] = local.pilot_variant
     result['source_feature_teacher_pilot'] = dict(variant=local.pilot_variant,
         source_tensors=19,
         extra_source_reference_channels=0,
