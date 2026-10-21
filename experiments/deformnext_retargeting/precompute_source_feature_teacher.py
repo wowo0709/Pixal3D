@@ -57,6 +57,24 @@ def main():
     assert not any(parameter.requires_grad for parameter in extractor.parameters())
     before = module_sha(extractor)
     start = time.monotonic()
+    parity = []
+    with torch.inference_mode():
+        for bound in plan['original_source_parity']:
+            frames = [load_rgba(Path(p), 512)[0] for p in bound['RGB_paths']]
+            with np.load(bound['transport']) as saved:
+                reference = torch.from_numpy(saved['source_values'][:2].copy()).float()
+            with torch.autocast('cuda', enabled=False):
+                actual = pixal_patches(extractor, torch.stack(frames).cuda()).half().cpu().float()
+            difference = actual-reference
+            relative = float(difference.square().mean().sqrt()/reference.square().mean().sqrt())
+            maximum = float(difference.abs().max())
+            if maximum > .015625 or relative > .0002:
+                raise ValueError('Frozen teacher encoder differs from original source-value cache')
+            parity.append(dict(sample_id=bound['sample_id'], maximum_abs=maximum,
+                relative_RMS=relative, all_values_bit_exact=bool(torch.equal(actual, reference))))
+    if len(parity) != 3:
+        raise ValueError('three predetermined original source-value parity checks required')
+    (root/'original-source-encoder-parity.json').write_text(json.dumps(parity, indent=2)+'\n')
     index = []
     with torch.inference_mode():
         for offset in range(0, len(rows), plan['batch_assets']):
@@ -102,6 +120,7 @@ def main():
         camera_ids=[9, 10], schema='source-feature-teacher-TRAIN-v1', physical_GPU=gpu,
         validation_source_overlap=0, teacher_sources='TRAIN M1 RGB only',
         native_DINO_FP32_encoding_FP16_storage=True, frozen_DINO_state_SHA256=before,
+        actual_original_source_cache_parity=parity,
         encoder_unchanged=True, optimizer_updates=0, SS_or_PBR_training_started=False,
         test_split_accessed=False, inference_GT_input_added=False, full9149_scope_retained=True,
         elapsed_seconds=time.monotonic()-start,
