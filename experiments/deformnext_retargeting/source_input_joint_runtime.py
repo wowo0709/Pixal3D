@@ -4,11 +4,43 @@ GPU mechanics/capacity and source-disjoint quality confirmation remain
 separate admission requirements; availability of this entry grants neither.
 """
 import argparse
+from contextlib import contextmanager
+import copy
 import json
 from pathlib import Path
 import sys
 
 from .source_teacher_initialization import source_input_binding
+
+COLD_INITIAL_FUNCTION = 'Exact native MV4 global/projection/negative; zero source correction'
+TEACHER_INITIAL_FUNCTION = 'Original SS4210 denoiser + exact TRAIN1536 source teacher112; learned source correction'
+
+
+@contextmanager
+def science_recipe_binding(training_module, *, variant, teacher_enabled):
+    """Keep honest warm metadata; validate native numeric fields on a copy.
+
+    The sealed original validator requires a cold initialization description.
+    Only that metadata string is adapted for its existing checks. The actual
+    config and native startup report retain the warm teacher description.
+    """
+    previous = training_module.validate_feature_recipe
+
+    def validate(config):
+        exp = config['experiment']
+        expected = TEACHER_INITIAL_FUNCTION if teacher_enabled else COLD_INITIAL_FUNCTION
+        if (exp.get('initial_function') != expected or exp.get('source_input_design') != variant
+                or exp.get('additional_source_teacher_supervision') is not teacher_enabled):
+            raise ValueError('honest source teacher/cold initial function and declared design required')
+        adapted = copy.deepcopy(config)
+        adapted['experiment']['initial_function'] = COLD_INITIAL_FUNCTION
+        return previous(adapted)
+
+    try:
+        training_module.validate_feature_recipe = validate
+        yield
+    finally:
+        training_module.validate_feature_recipe = previous
 
 
 def main():
@@ -27,15 +59,20 @@ def main():
         raise ValueError('explicit fresh source-input design and teacher supervision declaration required')
     if phase == 'native' and local.source_teacher_init_spec is not None:
         raise ValueError('cold native identity probe cannot assert identity for a warm source teacher')
+    teacher_enabled = local.source_teacher_init_spec is not None
+    if experiment.get('initial_function') != (TEACHER_INITIAL_FUNCTION if teacher_enabled else COLD_INITIAL_FUNCTION):
+        raise ValueError('warm source teacher is a learned initial function, not native zero correction')
     teacher = (json.loads(local.source_teacher_init_spec.read_text())
                if local.source_teacher_init_spec is not None else None)
     from pixal3d.trainers.flow_matching import member_feature_source_ray as trainer_module
-    from . import member_feature_runtime
+    from . import member_feature_runtime, train_member_feature_source_ray
     argv = sys.argv
     try:
         sys.argv = [sys.argv[0], *remaining]
         with source_input_binding(trainer_module, variant=local.source_input_design, teacher=teacher) as instances:
-            member_feature_runtime.main()
+            with science_recipe_binding(train_member_feature_source_ray, variant=local.source_input_design,
+                                       teacher_enabled=teacher_enabled):
+                member_feature_runtime.main()
     finally:
         sys.argv = argv
     if not instances or any(module._source_input_initialization is None for module in instances):

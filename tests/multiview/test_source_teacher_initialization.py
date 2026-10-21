@@ -115,3 +115,37 @@ def test_joint_entry_rejects_ambiguous_or_false_initial_identity_before_gpu(tmp_
         '--source-teacher-init-spec', str(tmp_path/'intentionally-not-read.json'),
         '--phase', 'native' if case == 'warm-native-identity' else 'capacity', '--config', str(cp)])
     with pytest.raises(ValueError): main()
+
+
+@pytest.mark.parametrize('teacher_enabled', [False, True])
+def test_science_validation_preserves_honest_metadata_and_all_native_settings(teacher_enabled):
+    from experiments.deformnext_retargeting.source_input_joint_runtime import (
+        science_recipe_binding, COLD_INITIAL_FUNCTION, TEACHER_INITIAL_FUNCTION,
+    )
+    variant = 'source-contrast-NoDQ'
+    actual = dict(experiment=dict(initial_function=(TEACHER_INITIAL_FUNCTION if teacher_enabled else COLD_INITIAL_FUNCTION),
+        source_input_design=variant, additional_source_teacher_supervision=teacher_enabled),
+        trainer=dict(args=dict(batch_size_per_gpu=96, optimizer=dict(name='AdamW', args=dict(eps=1e-8)))))
+    before = json.dumps(actual, sort_keys=True)
+    def sealed_validator(config):
+        assert config is not actual and config['experiment']['initial_function'] == COLD_INITIAL_FUNCTION
+        assert config['trainer'] == actual['trainer']
+        return 'feature-direct-nodq'
+    training = SimpleNamespace(validate_feature_recipe=sealed_validator)
+    with science_recipe_binding(training, variant=variant, teacher_enabled=teacher_enabled):
+        assert training.validate_feature_recipe(actual) == 'feature-direct-nodq'
+    assert json.dumps(actual, sort_keys=True) == before
+    assert training.validate_feature_recipe is sealed_validator
+
+
+def test_warm_science_cannot_record_cold_function_and_validator_restores_on_failure():
+    from experiments.deformnext_retargeting.source_input_joint_runtime import (
+        science_recipe_binding, COLD_INITIAL_FUNCTION,
+    )
+    def sealed_validator(_): raise AssertionError('must reject before sealed validator')
+    training = SimpleNamespace(validate_feature_recipe=sealed_validator)
+    with pytest.raises(ValueError, match='honest source'):
+        with science_recipe_binding(training, variant='source-contrast-NoDQ', teacher_enabled=True):
+            training.validate_feature_recipe(dict(experiment=dict(initial_function=COLD_INITIAL_FUNCTION,
+                source_input_design='source-contrast-NoDQ', additional_source_teacher_supervision=True)))
+    assert training.validate_feature_recipe is sealed_validator

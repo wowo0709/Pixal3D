@@ -87,8 +87,11 @@ Teacher optimizer에서는 작은 Q/K gradient의 상당 부분이 Adam epsilon 
    teacher state를 로드하고, 그 뒤 원래 optimizer를 생성한다. 역순이면 학습한
    score selector가 덮어써질 수 있으므로 순서를 고정했다. 19 tensors, frozen matcher,
    schema marker, 파일 hash, 112-update TRAIN audit와 전체 state 일치를 검사한다.
+   warm 초기 함수는 config와 native startup report에 별도로 기록하며, 원래
+   validator의 cold 설명 비교만 복사본에서 대응시킨다. optimizer/data 관련 필드는
+   그대로 검증하고 실제 config는 변경하지 않는다.
 3. 실제 두 teacher checkpoint의 CPU tensor roundtrip, frozen matcher, RNG 보존과
-   16개 CPU regression check가 통과했다. GPU native SS gradient/micro96 capacity와
+   19개 CPU regression check가 통과했다. GPU native SS gradient/micro96 capacity와
    warm-source inference 동등성 검사는 아직 실행하지 않았다. warm teacher에
    cold native identity를 주장하는 실행은 거부한다. 새 full SS 학습도 아직 예약하지
    않았다. 기존 PBR/queue/registry는 변경하지 않았다.
@@ -116,7 +119,7 @@ Campaign의 `feature-readout-v1/` 아래 canonical 결과:
 - `failure-driven-diagnostics-v1/final-controls-and-teacher-optimizer-v1/`
 - `bounded-prior-member-source-ray-v1/final128x3-comparison-v1/`
 - `source-feature-teacher-pilot-v1/source-contrast-input-pilot-v1/three-pilot-comparison-v1/`
-- `source-feature-teacher-pilot-v1/native-joint-loader-readiness-v1/`
+- `source-feature-teacher-pilot-v1/native-joint-loader-readiness-v2/`
 - `source-feature-teacher-pilot-v1/source-disjoint72-confirmation-v1/prelaunch-v1/`
 
 각 완료 결과의 `file4-closure.json`이 실제 원격 파일의 hash와 size를 검증한다.
