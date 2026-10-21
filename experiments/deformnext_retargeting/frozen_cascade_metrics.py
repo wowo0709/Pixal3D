@@ -172,6 +172,16 @@ def prediction_pixel_identity(arrays, *, native):
     return tuple(hashlib.sha256(value.tobytes()).hexdigest() for value in (rgb, alpha))
 
 
+def verify_test_SS_binding(ss, model, *, freeze_spec, manifest_spec, seed_map_SHA256):
+    require('bound_population' in ss, 'Final SS must come from an explicitly frozen full-test evaluation')
+    bound = ss['bound_population']
+    require(bound['scope'] == 'final-test508' and bound['assets'] == 508 and bound['source_clusters'] == 134
+            and bound['manifest'] == manifest_spec and bound['seeds']['SHA256'] == seed_map_SHA256
+            and bound['model_freeze'] == freeze_spec and bound['model_binding'] == model['ss64']
+            and ss['native_SS_artifacts']['archived_asset_count'] == 508,
+            'Final SS predictions must bind the same pre-test model freeze, manifest and noise population')
+
+
 def collect(plan):
     pins = PinnedFiles()
     if plan['scope'] == 'final-test508':
@@ -240,6 +250,9 @@ def collect(plan):
                       else 'experiments.deformnext_retargeting.cascade_from_ss_artifact')
             read_terminal(terminal, row['native_generation_plan'], row.get('generation_IO_binding'), read=read, module=module)
             ss = read(native['SS_evaluation'])
+            if plan['scope'] == 'final-test508':
+                verify_test_SS_binding(ss, model, freeze_spec=plan['model_freeze'], manifest_spec=plan['manifest'],
+                                       seed_map_SHA256=population['seed_map_SHA256'])
             verify_native_composition(native, original, ss, model, sample_id=sid, seed=population['cascade_seeds_by_sample'][sid])
             require(native['row']['conditioning_input_sha256'] == manifest_rows[sid]['conditioning_input_sha256'], 'Native generation RGB input identity differs')
             verify_RGB_inputs(native, manifest_rows[sid], mode=model['ss64']['conditioning_mode'], file4_cache_root=plan['file4_cache_root'])

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from experiments.deformnext_retargeting.frozen_cascade_metrics import (
-    PinnedFiles, read_terminal, verify_native_composition, verify_RGB_inputs, verify_texture_replay, verify_shared_reference, prediction_pixel_identity,
+    PinnedFiles, read_terminal, verify_native_composition, verify_RGB_inputs, verify_texture_replay, verify_shared_reference, prediction_pixel_identity, verify_test_SS_binding,
 )
 from experiments.deformnext_retargeting.evaluate_bound_population import sha
 from experiments.deformnext_retargeting.pbr_replay_artifacts import GEOMETRY_FIELDS
@@ -131,6 +131,24 @@ def test_actual_native_shaded_alpha_and_shared_prediction_arrays_have_identical_
     assert prediction_pixel_identity(native, native=True) == prediction_pixel_identity(shared, native=False)
     shared['prediction'][0, 0, 0] = 0
     assert prediction_pixel_identity(native, native=True) != prediction_pixel_identity(shared, native=False)
+
+
+@pytest.mark.parametrize('problem', [None, 'development', 'noise', 'freeze', 'checkpoint', 'subset'])
+def test_final_SS_is_bound_to_the_frozen_test_population_not_just_a_matching_model_label(problem):
+    model = dict(ss64=dict(checkpoint='synthetic-actual-model'))
+    freeze = dict(path='/synthetic-freeze', SHA256='freeze')
+    manifest = dict(path='/synthetic-test-manifest', SHA256='manifest')
+    ss = dict(bound_population=dict(scope='final-test508', assets=508, source_clusters=134, manifest=manifest,
+              seeds=dict(SHA256='noise'), model_freeze=freeze, model_binding=copy.deepcopy(model['ss64'])),
+              native_SS_artifacts=dict(archived_asset_count=508))
+    if problem == 'development': ss.pop('bound_population')
+    elif problem == 'noise': ss['bound_population']['seeds']['SHA256'] = 'posthoc-noise'
+    elif problem == 'freeze': ss['bound_population']['model_freeze'] = dict(path='/other-freeze',SHA256='other')
+    elif problem == 'checkpoint': ss['bound_population']['model_binding']['checkpoint'] = 'another-model'
+    elif problem == 'subset': ss['native_SS_artifacts']['archived_asset_count'] = 507
+    if problem is None: verify_test_SS_binding(ss, model, freeze_spec=freeze, manifest_spec=manifest, seed_map_SHA256='noise')
+    else:
+        with pytest.raises(ValueError): verify_test_SS_binding(ss, model, freeze_spec=freeze, manifest_spec=manifest, seed_map_SHA256='noise')
 
 
 @pytest.mark.parametrize('problem', [None, 'geometry', 'partial-geometry-audit', 'GT-support', 'checkpoint', 'conditioner', 'noise', 'source-SS'])
