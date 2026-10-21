@@ -20,6 +20,7 @@ from .evaluate_bound_population import sha
 from .pbr_replay_artifacts import GEOMETRY_FIELDS
 from .metric_image_identity import scored_image_observation
 from .summarize_frozen_inception_pools import validate_frozen_models
+from .bind_generated_pbr_dataset import validate_binding as validate_PBR_dataset_binding
 
 
 class PinnedFiles:
@@ -183,6 +184,25 @@ def verify_test_SS_binding(ss, model, *, freeze_spec, manifest_spec, seed_map_SH
             'Final SS predictions must bind the same pre-test model freeze, manifest and noise population')
 
 
+def verify_test_PBR_binding(replay, model, *, cache_QA, cache_QA_plan, manifest):
+    """Bind the physical replay constructor and its held-out RGB/matching data."""
+    require(model.get('pbr_runtime_arm') in {'vanilla','retargeting','direct'}
+            and replay['arm'] == model['pbr_runtime_arm'],
+            'Final native PBR replay constructor differs from the frozen model')
+    condition = model['pbr_conditioner_checkpoint']
+    require((condition is None) == (model['pbr_runtime_arm'] == 'vanilla'),
+            'Final native PBR constructor/physical conditioner presence differs')
+    if condition is None:
+        return None
+    require('pbr_dataset_binding' in model and 'pbr_conditioner_config' in model,
+            'Final PBR conditioner requires a frozen dataset-only test-cache binding')
+    require(replay['conditioner_config'] == model['pbr_conditioner_config']['path'],
+            'Executed PBR conditioner config differs from the frozen bound config')
+    return validate_PBR_dataset_binding(model['pbr_dataset_binding'],
+        conditioner_config=model['pbr_conditioner_config'], cache_QA=cache_QA,
+        cache_QA_plan=cache_QA_plan, manifest=manifest)
+
+
 def collect(plan):
     pins = PinnedFiles()
     if plan['scope'] == 'final-test508':
@@ -206,6 +226,8 @@ def collect(plan):
     require(len(manifest_rows) == len(manifest) and all(sid in manifest_rows and manifest_rows[sid]['source_cluster_id'] == clusters[sid] for sid in ids),
             'Actual metric manifest IDs or source clusters differ')
     if expected_split == 'test':
+        require('cache_QA_plan' in plan, 'Final PBR data binding requires the exact completed cache QA plan')
+        pins.check(plan['cache_QA_plan'])
         require([row['sample_id'] for row in manifest] == ids and plan['manifest']['SHA256'] == population['manifest_SHA256'],
                 'Every prescribed test508 asset must be retained in order')
         qa = json.loads(pins.check(plan['cache_QA']).read_text())
@@ -267,6 +289,13 @@ def collect(plan):
                 read_terminal(read(row['PBR_replay_terminal']), row['PBR_replay_plan'], row.get('PBR_IO_binding'), read=read,
                               module='experiments.deformnext_retargeting.replay_pbr_on_generated_shape')
                 verify_texture_replay(replay, generated, original, model, seed=population['texture_seeds_by_sample'][sid])
+                if plan['scope'] == 'final-test508':
+                    data_binding = verify_test_PBR_binding(replay, model,
+                        cache_QA=plan['cache_QA'], cache_QA_plan=plan['cache_QA_plan'], manifest=plan['manifest'])
+                    if data_binding is not None:
+                        for spec in [model['pbr_dataset_binding'], model['pbr_conditioner_config'],
+                                     data_binding['original_conditioner_config'], data_binding['matching_head']]:
+                            pins.check(spec)
             camera_audit = read(row['render_camera_audit'])
             render_plan = read(row['native_render_plan'])
             read_terminal(read(row['render_terminal']), row['native_render_plan'], row.get('render_IO_binding'), read=read,
