@@ -145,4 +145,3 @@ class SurfaceReferences:
             native_metrics=metrics,actual_existing_native_scores_unchanged=True,
             no_prediction_archive_download_or_neural_forward=True,
             GT_reference_not_used_for_model_conditioning=True)
-

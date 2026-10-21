@@ -103,4 +103,3 @@ def test_partial_reference_population_cannot_be_promoted_to_final508(tmp_path):
     folder=tmp_path/'reference';folder.mkdir();spec=put(folder/'audit.json',report);close_unit(folder,tmp_path)
     with pytest.raises(ValueError,match='complete common'):
         SurfaceReferences(spec,receipt=str(folder/'file4-closure.json'),closed=ClosedInputs(tmp_path),ids=[],clusters={})
-
