@@ -46,6 +46,20 @@ SS conditioner의 feature가 학습된 PBR conditioner로 이어지는 실험이
 PBR 모듈 자체의 source appearance 적응 효과는 별도 학습·평가가 필요하다.
 현재 계획된 PBR continuation 및 최종 stage 조합 평가를 유지한다.
 
+현재 source-ray SS의 전달식은 native MV4 condition에
+`sum_source Proj[u*g*(E-S) + u*R_total]/4`를 더한다.
+`S`는 원래 source feature, `E`는 correspondence carrier다.
+따라서 target projection 항은 유지하면서 source 항을 수정하고,
+global/negative condition도 그대로 둔다. 매칭이 없으면 source 보정은
+0이고 native MV4 prior를 사용한다. 이 구조적 보존은 최종 RGB 보존을
+보장하는 loss나 실험 결과와 같지 않다. 실제 보존 여부는 위의 역할별
+지표로 판정해야 한다.
+
+또한 SS voxel IoU의 GT는 정합된 SS latent의 decoder reconstruction이고,
+surface CD/F-Score의 GT는 M1 mesh다. 두 metric의 절대 크기는 서로
+교환해서 해석할 수 없다. 최종 결론에는 실제 생성 surface와 렌더링
+평가를 함께 사용한다.
+
 새 bounded 모델은 기존 member-feature NoDQ와 같은 native480/global96
 조건에서 학습 중이다. Learned content가 matching posterior를 과도하게
 좁힌다는 가설을 확인하기 위해, 초기 진단 32개에 포함된 source UID를
