@@ -70,6 +70,12 @@ def main():
     original_panel, original_binding = loader.validate_panel, loader.cold_source_binding
     captured, consumer_events = [], []
 
+    class ObservedIntervention(SavedRMediatedIntervention):
+        def after(self, module, module_args, kwargs, result):
+            super().after(module, module_args, kwargs, result)
+            from .r_native_signal_probe import matching_signal
+            self.events[-1]['matching_signal'] = matching_signal(module, result)
+
     def panel(p, b, c):
         validate_protocol(p, b)
         contract = copy.deepcopy(p)
@@ -82,7 +88,7 @@ def main():
             yield modules
             if len(modules) != 1:
                 raise ValueError('one actual native source module required')
-            captured.append(SavedRMediatedIntervention(modules[0], control))
+            captured.append(ObservedIntervention(modules[0], control))
 
     from pixal3d.trainers.flow_matching import member_posterior_source_ray as consumer
     from .r_native_signal_probe import consumer_signal
