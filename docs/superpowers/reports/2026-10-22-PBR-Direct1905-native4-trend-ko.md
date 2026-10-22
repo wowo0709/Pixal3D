@@ -1,5 +1,8 @@
 # PBR Direct1905 학습 종료와 native4 최종 경향
 
+이 문서는 빠른4개 monitor의 관측이다. 이후 완료된32개 평가에서는 Direct가 V1/R보다
+약했다. 최종 판단은 [stage32 분석](2026-10-22-PBR-Direct1905-stage32-analysis-ko.md)을 따른다.
+
 PBR Direct+DQ의 학습·최종 validation이 완료됐고 wrapper가 returncode0으로 종료됐다.
 최종 checkpoint3개와 config·validation·초기화 기록 등12개 artifact,
 2,995,237,703byte의 실제 file4 SHA256/size 검증이 통과했다. 최종 stage32 평가와
