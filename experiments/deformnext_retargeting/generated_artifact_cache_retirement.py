@@ -15,9 +15,12 @@ def pending_raw_reads(jobs,states,root):
         if '--plan'not in command:continue
         path=Path(command[command.index('--plan')+1])
         if not path.is_file():raise ValueError('unreadable pending plan prevents raw-cache retirement: '+job['name'])
+        document=json.loads(path.read_text())
+        metadata_summary=document.get('phase')=='summary'or document.get('worker_mode')=='summary'
         def scan(value,key=None):
             if isinstance(value,str):
-                if value in files or key in{'generation_root','generated_shape_root'}and value==str(root):
+                metadata_only=metadata_summary and key=='generation'
+                if value in files or value==str(root)and not metadata_only:
                     readers.add(job['name'])
             elif isinstance(value,list):
                 for item in value:scan(item,key)
@@ -26,7 +29,7 @@ def pending_raw_reads(jobs,states,root):
                     if k in{'input_SHA256','closed_inputs','future_closed_inputs'}and isinstance(item,dict):
                         for raw in item:scan(raw)
                     elif k not in{'verified_inputs','files','source_SHA256'}:scan(item,k)
-        scan(json.loads(path.read_text()))
+        scan(document)
     return sorted(readers)
 
 

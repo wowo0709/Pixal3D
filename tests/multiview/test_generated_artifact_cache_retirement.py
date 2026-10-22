@@ -9,7 +9,8 @@ def test_protects_raw_root_consumers_but_summary_generation_metadata_is_not_raw(
     root=tmp_path/'generated';root.mkdir();plan=tmp_path/'plan.json'
     job=dict(name='consumer',command=['worker','--plan',str(plan)])
     for value in[dict(generation_root=str(root)),dict(generated_shape_root=str(root)),
-                 dict(closed_inputs={str(root/'prediction.npz'):'receipt'}),dict(path=str(root/'geometry-evaluation.npz'))]:
+                 dict(closed_inputs={str(root/'prediction.npz'):'receipt'}),dict(path=str(root/'geometry-evaluation.npz')),
+                 dict(unfamiliar_future_loader_field=str(root))]:
         plan.write_text(json.dumps(value))
         assert pending_raw_reads([job],{},root)==['consumer']
         assert not pending_raw_reads([job],{'consumer':{'status':'completed'}},root)
