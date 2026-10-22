@@ -27,14 +27,15 @@ def generation(name):
             original_multiview_steps=dict(ss64=4210, shape512=4210, shape1024=16850, pbr1024=16850),
             actual_RGB_input_files=[dict(path=f'{i}.png', sha256='a' * 64) for i in range(4)])
     else:
-        arm = 'v1' if name == 'full-v1' else ('direct' if name.endswith('Direct') else 'retargeting')
+        # Producer metadata uses "vanilla", whereas the presentation alias is full-v1.
+        arm = 'vanilla' if name == 'full-v1' else ('direct' if name.endswith('Direct') else 'retargeting')
         g.update(status='PASS_ACTUAL_NATIVE_PBR_REPLAY_ON_GENERATED_SHAPE',
             GT_sparse_latents_or_projection_cache_used=False,
             GT_evaluation_artifact_copied_only_after_prediction_saved=True,
             raw_surface_metrics_unchanged=True, geometry_array_byte_identity=dict(vertices=True),
             conditioning_preserves_CPU_and_CUDA_RNG=True, training_updates=0,
             original_cascade_texture_noise_reused=False, PBR_checkpoint_SHA256='checkpoint',
-            PBR_arm=arm, additional_PBR_conditioner=(arm != 'v1'), sampler_class='native',
+            PBR_arm=arm, additional_PBR_conditioner=(arm != 'vanilla'), sampler_class='native',
             sampler_params=dict(steps=12), PBR_replay_seed=17, PBR_noise_protocol='reset',
             geometry_evaluation_SHA256='geometry', SS_prediction_SHA256='ss',
             actual_initial_texture_noise_SHA256='noise', generated_shape_source='shape')

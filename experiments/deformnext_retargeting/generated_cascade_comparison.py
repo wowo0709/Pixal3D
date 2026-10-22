@@ -64,8 +64,8 @@ def validate_generation(name, generation, sample_id, expected_checkpoint_sha=Non
                 and not g['original_cascade_texture_noise_reused']
                 and g['PBR_checkpoint_SHA256'] == expected_checkpoint_sha,
                 'Trained PBR replay contract differs')
-        arm = 'v1' if name == 'full-v1' else ('direct' if name.endswith('Direct') else 'retargeting')
-        require(g['PBR_arm'] == arm and g['additional_PBR_conditioner'] == (arm != 'v1'),
+        arm = 'vanilla' if name == 'full-v1' else ('direct' if name.endswith('Direct') else 'retargeting')
+        require(g['PBR_arm'] == arm and g['additional_PBR_conditioner'] == (arm != 'vanilla'),
                 'PBR arm label differs from actual generation')
 
 
