@@ -2,7 +2,7 @@ import hashlib
 
 import pytest
 
-from experiments.deformnext_retargeting.pbr_source_transfer_summary import KEYS,SOURCE_FIELDS,summarize
+from experiments.deformnext_retargeting.pbr_source_transfer_summary import KEYS,SOURCE_FIELDS,summarize,validate_normal_pair
 from test_native_pbr_stage_summary import aggregate,metrics
 
 
@@ -20,7 +20,7 @@ def record(key):
             actual_camera_SHA256={'camera':digest(i)},actual_prediction_PBR_latent_SHA256=digest((i,control)),
             metrics=metrics(20.+effect)))
     return dict(status='PASS_ACTUAL_NATIVE_PBR1900_SOURCE_TRANSFER_READOUT_FIXED4',diagnostic_key=key,
-        control=control,model_mode='top1-only',actual_trained_model_updates=1900,optimizer_updates_in_diagnostic=0,
+        control=control,physical_GPU='1' if key=='normal-repeat' else '0',model_mode='top1-only',actual_trained_model_updates=1900,optimizer_updates_in_diagnostic=0,
         unused_eval_optimizer_states=0,actual_deterministic_algorithms=True,all_weights_unchanged=True,
         frozen_original_base_and_matcher_exact=True,fixed_GT_target_shape=True,full_cascade=False,source_preservation=False,
         actual_model_files={'denoiser':{'path':'own1900','SHA256':digest('weight')},'deform_conditioner':{'path':'source1900','SHA256':digest('source')}},
@@ -35,6 +35,19 @@ def record(key):
 
 
 def records():return {k:record(k) for k in KEYS}
+
+
+def test_normal_parity_gate_needs_no_fabricated_control_results():
+    r=validate_normal_pair({k:record(k) for k in KEYS[:2]})
+    assert r['no_control_quality_results_claimed'] is True
+
+
+@pytest.mark.parametrize('mutation',['same_GPU','changed_consumer'])
+def test_normal_gate_rejects_wrong_device_or_unstable_actual_consumer(mutation):
+    r={k:record(k) for k in KEYS[:2]}
+    if mutation=='same_GPU':r['normal-repeat']['physical_GPU']='0'
+    else:r['normal-repeat']['consumer_events'][0]['actual_delta_RMS']=.2
+    with pytest.raises(ValueError):validate_normal_pair(r)
 
 
 def test_negative_control_effect_is_retained_without_quality_adoption():

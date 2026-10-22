@@ -11,8 +11,50 @@ SOURCE_FIELDS={'candidate_indices','matching_logits','candidate_weights','Top1_c
                'computed_R','source_use','fusion_scale'}
 
 
+def validate_normal_pair(records):
+    require(tuple(records)==KEYS[:2],'two actual independent normal records required')
+    left,right=records.values()
+    require(left.get('physical_GPU')=='0' and right.get('physical_GPU')=='1',
+            'predeclared normal loads on distinct assigned GPUs0 and1 required')
+    for key,r in records.items():
+        require(r.get('status')=='PASS_ACTUAL_NATIVE_PBR1900_SOURCE_TRANSFER_READOUT_FIXED4'
+            and r.get('diagnostic_key')==key and r.get('control')=='normal'
+            and r.get('model_mode')=='top1-only' and r.get('actual_trained_model_updates')==1900
+            and r.get('optimizer_updates_in_diagnostic')==0 and r.get('unused_eval_optimizer_states')==0
+            and r.get('actual_deterministic_algorithms') is True and r.get('all_weights_unchanged') is True
+            and r.get('frozen_original_base_and_matcher_exact') is True
+            and r.get('fixed_GT_target_shape') is True and r.get('full_cascade') is False
+            and r.get('source_preservation') is False,'actual deterministic own1900 normal protocol required')
+        require(len(r['per_asset'])==4 and all(len(r[k])==4 for k in
+            ('module_events','consumer_events','condition_events','panel_pixel_SHA256')),
+            'complete actual normal4 records required')
+        pooled=aggregate([a['metrics'] for a in r['per_asset']])
+        require(all(math.isclose(v,r['quick_metrics'][k],rel_tol=0,abs_tol=1e-12) for k,v in pooled.items()),
+                'actual normal pooled metrics differ from per-asset measurements')
+    require(set(left['actual_model_files'])=={'denoiser','deform_conditioner'}
+        and set(left['actual_model_state_SHA256'])=={'denoiser','deform_conditioner'}
+        and all(is_digest(v) for v in left['actual_model_state_SHA256'].values())
+        and is_digest(left['actual_frozen_encoder_SHA256'])
+        and left['actual_model_files']==right['actual_model_files']
+        and left['actual_model_state_SHA256']==right['actual_model_state_SHA256']
+        and left['actual_frozen_encoder_SHA256']==right['actual_frozen_encoder_SHA256'],
+        'independent normal loads used different weights')
+    for i,(a,b) in enumerate(zip(left['per_asset'],right['per_asset'])):
+        require(all(a[k]==b[k] for k in IDENTITY)
+            and a['actual_prediction_PBR_latent_SHA256']==b['actual_prediction_PBR_latent_SHA256']
+            and a['metrics']==b['metrics'],'independent normal actual inputs/prediction/metrics differ')
+        for name in ('module_events','consumer_events','condition_events','panel_pixel_SHA256'):
+            require(left[name][i]==right[name][i],'independent normal forward/render event differs')
+    return dict(status='PASS_ACTUAL_NATIVE_PBR1900_TWO_NORMAL_GPU_REPEATS_FIXED4',
+        assets=4,physical_GPUs=['0','1'],actual_trained_updates=1900,diagnostic_optimizer_updates=0,
+        actual_predictions_metrics_GT_and_pred_pixels_exact=True,
+        original_epoch_prediction_exact=left['actual_original_epoch_prediction_exact'],
+        no_control_quality_results_claimed=True,quality_gain_proven=False,full_goal_complete=False)
+
+
 def summarize(records):
     require(tuple(records)==KEYS,'two independent normal loads and all three saved-weight controls required')
+    validate_normal_pair({k:records[k] for k in KEYS[:2]})
     normal=records['normal'];reference=normal['per_asset'];curves={}
     require(len(reference)==4 and len({r['sample_id'] for r in reference})==4,'four distinct actual assets required')
     for key,record in records.items():

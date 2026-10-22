@@ -24,7 +24,7 @@ forward하고, 후보·score·Top-1 carrier·계산된 R·use·gate를 고정한
 ## 실행·재현 조건
 
 실제 Top-1 PBR1900 종료0·네 rank의 budget/frozen/DDP 증명·canonical 완료
-snapshot 이후에만 GPU0–3에서 실행한다. 두 Normal을 먼저 실행하고 나머지
+snapshot 이후에만 GPU0–3에서 실행한다. GPU0·1의 두 Normal과 CPU parity gate를 먼저 통과한 뒤 나머지
 세 개입을 연결한다. 모델당 고정4개·GT Shape 조건·target camera8·native12 step,
 CFG3, render256을 사용한다. 현재 학습 및 기존 재현 SS/PBR의 budget은 유지한다.
 
@@ -55,6 +55,6 @@ Source preservation·predicted-geometry isolation·full cascade·최종508/10 me
 남은 PBR feature/Top-K 비교는 계속 필요하다.
 
 Signed gate·source subtraction·R 분리·native 복원, 입력/weight/negative/GT 변경,
-독립 Normal 불일치 및 잘못된 step/update를 거부하는 CPU 검사24개가 통과했다.
+독립 Normal 불일치 및 잘못된 step/update를 거부하는 CPU 검사27개가 통과했다.
 새 GPU entry와 wrapper는 구문 검증했다. 실제 trained1900 GPU 실행·Normal 반복
 및 최종 진단 결과는 아직 완료되지 않았으며 canonical 준비/queue와 구분한다.
