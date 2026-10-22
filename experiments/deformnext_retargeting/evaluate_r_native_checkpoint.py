@@ -88,7 +88,7 @@ def main():
     cfg = json.loads(Path(bundle['native_config']).read_text())
     variant = validate_bundle(bundle, cfg)
     ids, seeds = validate_panel(plan, bundle, cfg)
-    bound = dict(plan['source_SHA256'])
+    bound = {**plan['source_SHA256'], **plan.get('input_SHA256', {})}
     if any(file_sha256(p) != digest for p, digest in bound.items()):
         raise ValueError('native evaluator or bound training runtime changed')
     gpu = os.environ.get('CUDA_VISIBLE_DEVICES', '')
