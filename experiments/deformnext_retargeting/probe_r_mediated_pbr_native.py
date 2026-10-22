@@ -6,6 +6,7 @@ All variants start from the declared original complete MV PBR16850+LoRA.
 import argparse
 from contextlib import contextmanager, nullcontext
 import copy
+import hashlib
 import json
 import math
 import os
@@ -197,6 +198,7 @@ def main():
     guard()
     report = dict(status='PASS_ACTUAL_NATIVE_PBR_COLD_IDENTITY_AND_MICRO1_LEARNABILITY',
         mode=mode, physical_GPU=visible, sample_id=plan['sample_id'], actual_TRAIN_assets=len(dataset),
+        actual_TRAIN_order_SHA256=hashlib.sha256(json.dumps(ids, separators=(',', ':')).encode()).hexdigest(),
         actual_PBR_tokens=len(item['coords']), source_multiview_step=16850,
         complete_original_PBR_LoRA_continuation=True, fresh_optimizer_states=0,
         initial_LoRA_SHA256=initial_lora, initial_common_R10_SHA256=initial_common,
