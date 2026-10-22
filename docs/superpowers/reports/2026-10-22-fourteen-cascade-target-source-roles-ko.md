@@ -61,6 +61,12 @@ SSIM을 포함한14행 전체8 metric은 canonical `target-source-metrics.csv`�
 | Feature DQ − Feature NoDQ | Source LPIPS ↓ | **−.001929** | **[−.003663, −.000482]** | Query가 source 외형 적응에 도움을 줄 가능성 |
 | Feature DQ − Feature NoDQ | Source DreamSim ↓ | −.002315 | [−.006347, +.001972] | 다른 perceptual metric에서는 불확실 |
 | Feature DQ − Feature NoDQ | Target PSNR ↑ | +.1305dB | [−.1621, +.4360] | Target 개선은 미확인 |
+| Feature DQ − V1 | Source LPIPS ↓ | **−.001115** | **[−.002195, −.000132]** | V1 대비에도 source LPIPS 개선 관측 |
+| Feature DQ − V1 | CD ↓ | **−.000245** | **[−.000469, −.000020]** | 생성 geometry 개선 관측 |
+| Feature DQ − V1 | F-Score ↑ | **+.008207** | **[+.002156, +.014489]** | 생성 geometry 개선 관측 |
+| Feature DQ − V1 | Target SSIM ↑ | **−.001447** | **[−.003091, −.000012]** | Target 보존과의 tradeoff 존재 |
+| Feature DQ − Retargeting | Source LPIPS ↓ | −.002001 | [−.004280, −.000167] | 기존 R 대비에도 LPIPS 개선 관측 |
+| Feature DQ − Retargeting | Target M-IoU ↑ | −.005722 | [−.009957, −.001664] | 기존 R의 target alignment를 넘지 못함 |
 
 Feature DQ는 저장된 실제 runtime schema상 RAW deformation query2048 channel,
 R 입력4096 channel을 갖는다. NoDQ는 해당 query가 물리적으로 없다. 과거 predicted
@@ -69,8 +75,11 @@ query로 취급하지 않는다. Source LPIPS의 한 탐색적 양성 결과로 
 
 Member candidate recall 개선과 final quality 개선을 계속 구분한다. 이번 역할 분리도
 semantic matching+matching-aware attention의 안정적인 최종 이득을 입증하지 못했다.
-반면 SS IoU만으로 query의 모든 효과를 부정해서도 안 된다. Source appearance에 대한
-부분적 이득 가능성을 이후 동일 조건의 재현과 독립 확인에서 검토할 근거가 생겼다.
+반면 SS IoU만으로 query의 모든 효과를 부정해서도 안 된다. Feature DQ 조합의 source LPIPS와
+geometry 개선은 V1 대비에도 관측됐다. 그러나 target SSIM이 낮아지고 기존 R 대비
+target M-IoU도 낮다. 같은 DQ의 Feature Top-1 대비 source LPIPS 차이 CI는0을 포함한다.
+따라서 조합의 부분적 개선을 semantic Top-K/attention의 독립적 기여로 해석하지 않는다.
+이 후보의 역할별 tradeoff를 동일 조건의 재현과 적절한 독립 확인에서 검토해야 한다.
 
 현재 native SS128×3의 Top-1+R 대조와 이14개 legacy arm은 구조·학습 계열이 다르다.
 Native의 module attribution을 대신하지 않으며, 진행 중인 PBR과 이후 faithful SS,
