@@ -35,7 +35,10 @@ peak20.096GiB다. Top-1+R v2도 같은 입력/noise/velocity/loss를 재현하�
 이것은 첫 lazy initialization이 cold RNG 검사에 섞인 문제를 해결했다는 실제 근거다.
 Micro12 capacity나 본학습, 품질 개선은 이 두 micro1 실행으로 입증하지 않는다.
 
-Feature/raw 모드의 별도 micro1, 네 모드의cold32와 DDP2/micro12 capacity를 이어 실행한다.
+이후 Feature/raw 모드도 각각 같은 검사를 통과했다. Source19개를 포함한optimizer379개가
+실제로3회 update됐으며 두모드 모두peak20.275GiB다. 네모드CPU gate는 초기LoRA,
+공통R10, TRAIN9139 순서·입력과3개noise/timestep/global trace가 같음을 확인해완료했다.
+네 모드의cold32와 DDP2/micro12 capacity는 아직 남아 있다.
 원래 FAILED/HELD state는 바꾸지 않는다. 실제 v2 micro proof의 새 CPU gate는 기존과
 동일한 의미의 통합 검사를 통과해야 하며, 이후 아직 실행하지 않은16개 작업은
 원래 plan/command/output을 유지하는 새alias로 연결했다. 본학습 config와 예산은 같다.
