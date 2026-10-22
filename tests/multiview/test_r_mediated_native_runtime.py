@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from experiments.deformnext_retargeting.r_mediated_native_runtime import native_condition_only,tensor_sha
+from experiments.deformnext_retargeting.r_mediated_native_runtime import dataset_identity,native_condition_only,tensor_sha
 
 
 def test_native_trace_hash_keeps_bfloat_dtype_and_shape_identity():
@@ -11,6 +11,20 @@ def test_native_trace_hash_keeps_bfloat_dtype_and_shape_identity():
     assert tensor_sha(value)==tensor_sha(value.detach().clone())
     assert tensor_sha(value)!=tensor_sha(value.reshape(1,2))
     assert tensor_sha(torch.zeros(1,dtype=torch.float32))!=tensor_sha(torch.zeros(1,dtype=torch.int32))
+
+
+def test_complete_training_identity_detects_late_ordering_or_filtering_changes():
+    class Dataset:
+        def __init__(self):self.rows=[dict(sample_id=str(i))for i in range(9149)]
+        def __len__(self):return len(self.rows)
+    a,b=Dataset(),Dataset()
+    assert dataset_identity(a)==dataset_identity(b)
+    b.rows[-2:]=reversed(b.rows[-2:])
+    assert dataset_identity(a)!=dataset_identity(b)
+    b.rows.pop()
+    with pytest.raises(ValueError,match='TRAIN9149'):dataset_identity(b)
+    b=Dataset();b.rows[-1]=b.rows[0]
+    with pytest.raises(ValueError,match='TRAIN9149'):dataset_identity(b)
 
 
 @pytest.mark.parametrize('fail',[False,True])
