@@ -33,7 +33,7 @@ def main():
 
     cfg_path = Path(remaining[remaining.index('--arm-config')+1])
     cfg = json.loads(cfg_path.read_text()); validate_feature_recipe(cfg)
-    captured, identity = [], []
+    captured, identity, delivery_events = [], [], []
 
     class Contrasted(Parent):
         def init_models_and_more(self, *, ray_feature_utility, **kwargs):
@@ -58,13 +58,14 @@ def main():
     class Evaluation(selected):
         def init_models_and_more(self, **kwargs):
             super().init_models_and_more(**kwargs); captured.append(self)
-            if local.require_native_identity:
-                def observe(module, args, output):
-                    module._bounded_last_output = output
-                self.deform_conditioner.register_forward_hook(observe)
+            def observe(module, args, output):
+                module._bounded_last_output = output
+            self.deform_conditioner.register_forward_hook(observe)
 
         def _encode_deform_views(self, images, camera, transport, **kwargs):
             result, negative = super()._encode_deform_views(images, camera, transport, **kwargs)
+            delivery_event = assert_R_only(self.deform_conditioner, self.deform_conditioner._bounded_last_output)
+            delivery_events.append(delivery_event)
             if local.require_native_identity:
                 cpu_rng, cuda_rng = torch.random.get_rng_state(), torch.cuda.get_rng_state()
                 native, native_negative = ImageConditionedProjMixin._encode_deform_views(self, images, camera, None)
@@ -76,7 +77,6 @@ def main():
                 if (not all(equality.values()) or not torch.equal(cpu_rng, torch.random.get_rng_state())
                         or not torch.equal(cuda_rng, torch.cuda.get_rng_state())):
                     raise ValueError('cold module must preserve actual native global/proj/negative/RNG exactly')
-                delivery_event = assert_R_only(self.deform_conditioner, self.deform_conditioner._bounded_last_output)
                 identity.append(dict(**equality, **prior_event, **delivery_event))
             return result, negative
 
@@ -111,6 +111,7 @@ def main():
         retargeter_input_mode=local.appearance_mode+'-minus-own-native-source',
         appearance_mode=local.appearance_mode, feature_delivery='R-only-no-head-bypass',
         R_mediated_checkpoint_marker=MARKERS[local.appearance_mode],
+        actual_R_only_delivery_events=delivery_events,
         source_contrast_checkpoint_marker=True, bounded_source_contrast_checkpoint_marker=True,
         residual_logit_bound=local.residual_logit_bound,
         cold_initializer_design_preserves_matching_prior=True,
