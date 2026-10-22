@@ -38,6 +38,13 @@ def rng_identity():
         python=hashlib.sha256(repr(random.getstate()).encode()).hexdigest())
 
 
+def dataset_identity(dataset):
+    ids=[r['sample_id']for r in dataset.rows]
+    if len(dataset)!=9149 or len(ids)!=9149 or len(set(ids))!=9149:
+        raise ValueError('exact complete unique TRAIN9149 required, no transport-specific asset filtering')
+    return hashlib.sha256(json.dumps(ids,separators=(',',':')).encode()).hexdigest()
+
+
 @contextmanager
 def native_condition_only(trainer):
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import ImageConditionedProjMixin
@@ -86,6 +93,7 @@ def proof(cfg, args, variant):
     setup_rng(0, cfg['training_seed'])
     torch.use_deterministic_algorithms(True)
     dataset = getattr(datasets, cfg['dataset']['name'])(cfg['data_dir'], **cfg['dataset']['args'])
+    manifest_order=dataset_identity(dataset)
     indices = [i for i, r in enumerate(dataset.rows) if r['sample_id'] == args.sample_id]
     if (len(indices) != 1 or dataset.rows[indices[0]]['split'] != 'train'
             or dataset.rows[indices[0]]['conditioning_input_sha256'] != args.expected_conditioning_sha256):
@@ -159,7 +167,7 @@ def proof(cfg, args, variant):
         raise ValueError('proof must perform no optimizer update or weight mutation')
     report = dict(status='PASS_ACTUAL_COLD_NATIVE_SS_FLOW_IDENTITY_AND_BACKWARD', variant=variant,
         sample_id=args.sample_id,conditioning_input_sha256=args.expected_conditioning_sha256,
-        TRAIN_assets=len(dataset),probe_batch=1,source_tensors=len(source),LoRA_tensors=len(lora),
+        TRAIN_assets=len(dataset),TRAIN_order_SHA256=manifest_order,probe_batch=1,source_tensors=len(source),LoRA_tensors=len(lora),
         fields_equal_to_native=equality,actual_CPU_CUDA_numpy_python_RNG_preserved=True,
         same_noise_velocity_SHA256=predictions[0],same_noise_native_flow_loss=losses[0],
         actual_native_loss=float(result['loss']),source_gradient_L1=gradients,LoRA_gradient_L1=nn_gradient,
@@ -193,7 +201,7 @@ def native_training(cfg, phase, variant):
                 raise ValueError('fresh native world1/micro96/accum1 and declared FFN chunks required')
             out = Path(self.output_dir)
             initial = dict(initial_LoRA_SHA256=state_sha(lora.items()),initial_source19_SHA256=state_sha(source.items())if source else None,
-                post_constructor_RNG=rng_identity(),source_teacher_updates=0)
+                post_constructor_RNG=rng_identity(),source_teacher_updates=0,TRAIN_order_SHA256=dataset_identity(self.dataset))
             self._paired_trace_active=False;self._paired_trace=[]
             def trace(module,inputs):
                 if self._paired_trace_active:
