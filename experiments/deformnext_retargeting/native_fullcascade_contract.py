@@ -1,6 +1,5 @@
 """Bind the four native480 SS archives to actual matched native1900 PBR."""
 import hashlib
-from pathlib import Path
 
 
 PAIRS={'vanilla':'vanilla','R_top1_only':'top1-only','R_feature':'top1-plus-feature','R_raw_topk':'raw-topk-plus-feature'}

@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 import pytest
 
 from experiments.deformnext_retargeting.native_fullcascade_contract import PAIRS,validate_archives,validate_original_stages
