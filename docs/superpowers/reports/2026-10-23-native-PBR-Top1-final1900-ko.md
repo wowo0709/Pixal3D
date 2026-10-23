@@ -60,13 +60,36 @@ Top-1+R 0.2598259192로 차이는−0.0001315010이다. 같은 update의 차이 
 R residual RMS는0.0208841, fusion gate는0.0264482다. 이는 고정 Bed의 보정량이나
 인과적 원인 분석이 아니다.
 
-## 후속 비교와 완료 범위
+## 저장된 모델의 전달 경로 제어
 
 추가 학습 없이 실행한 PBR normal 두 GPU 반복은 네 예측·metric·GT/Pred 픽셀이
 정확히 같고 원래1900 예측도 모두 정확히 재현했다. SS spatial480 normal32도
-기존 archive의 predicted latent·voxel을 정확히 재현했다. 이 기준을 유지하면서
-PBR의 R-off/direct Top-1 shift-off/both-off와 SS의 prior-only/Top-1/value 제어를
-비교한다. Inference 제어의 조건부 기여를 재학습 arm의 독립적 효과로 확대하지 않는다.
+기존 archive의 predicted latent·voxel을 정확히 재현했다.
+
+PBR의 세 전달 제어도 실제 완료했고, 다섯 개의 독립 GPU 실행은 모두 자식 session
+종료와 file4 저장을 확인했다. 같은 NN/source weight, 후보·matching score·Top-1 carrier,
+계산된 R·source-use·fusion gate·RGB·GT·noise·camera를 유지하고 전달 항만 끈다.
+두 전달을 모두 끈 조건은 실제 consumer correction RMS가 네 자산 모두0이었다.
+
+| 제어 − Normal | Pooled PSNR 차이 (dB) | Target LPIPS 차이 | Crop LPIPS 차이 |
+|---|---:|---:|---:|
+| R 전달 off | −0.300740 | +0.00054480 | +0.00348281 |
+| Direct Top-1 shift 전달 off | −0.014535 | +0.00001714 | +0.00018126 |
+| 두 전달 모두 off | −0.293023 | +0.00053626 | +0.00338017 |
+
+이 고정 모델과 네 샘플에서는 R 전달을 제거하면 평균 PSNR·LPIPS가 나빠진다.
+Direct Top-1 전달의 평균 반응은 더 작다. 다만 direct 전달 off에서도 R은 원래
+Top-1 evidence를 입력으로 받으므로 semantic matching 자체를 제거한 비교가 아니다.
+두 전달 off도 같은 학습된 LoRA를 사용하므로 V1 checkpoint를 뜻하지 않는다.
+
+R-off의 Bed는 PSNR−0.237755dB인 반면 LPIPS−0.00070023으로 지표 방향이
+서로 다르다. 평균 R-off 악화를 모든 자산·지표의 개선으로 확대하지 않는다.
+이 결과는 현재 모델 내부에서 R 전달의 조건부 기여를 보여주며, 재학습한 R-vs-no-R
+효과나 V1 대비 일관된 최종 개선의 증거가 아니다. 저장된 다섯 record로 실제 원본
+요약을 독립 재계산했고 모든 조건·집계가 일치했다. SS prior-only/Top-1/value 제어는
+후속 실제 결과를 따로 확인한다.
+
+## 후속 비교와 완료 범위
 
 PBR 최종 저장과 중간 로컬 cache 정리 후 historical SS 실행 조건도 실제 통과했다.
 공통 R96 checkpoint에서 출발해480까지 이어가는 retargeting 및 direct-NoDQ는
@@ -85,6 +108,9 @@ Canonical 결과는 `PBR-native-science-runtime-v1/` 아래의
 `completed1900-2models-fixed4-comparison-v1`,
 `top1-final1900-actual-review-v1` 및
 `historical-SS-early-boundary-revision-v1/actual-admission-v1`에 있다.
+전달 제어는 `Top1-native1900-source-transfer-controls-fixed4-v1/`의
+`normal-parity-v1`, `summary-v1`, `independent-review-v1`에서 확인한다.
 각 실제 file4 closure와 원래 실패 이력을 유지한다.
 
 [W&B 최종 두 모델 비교](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/native-pbr-stage1900-quick4-2models-v1).
+[W&B 고정 모델 전달 제어](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/pbr-native-top1-1900-transfer-controls4-v1).
