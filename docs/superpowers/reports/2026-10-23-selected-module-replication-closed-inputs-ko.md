@@ -23,3 +23,7 @@ Frozen base 검사는 CPU에서 mmap으로 checkpoint tensor data만 비교한�
 같은 시각 SS Top1-V가 480 update와 마지막 validation을 완료했다. 동일 DEV32 한 noise의 mean-asset IoU는 V1 0.4732792, Top1+R 0.4769671, Full 0.4782431, Top1-V 0.4790365다. Top1-V의 이 패널에서는 긍정적인 경향이 있지만, 다른 모집단인 최종 DEV128×3 결과와 섞어서 순위를 매기지 않는다. Fixed Top-K와 나머지 controls, 독립 seed, 실제 cascade 비교는 진행 중이다.
 
 18:44 UTC에는 PBR feature의 파일서버4 최종 보존이 끝났고, GPU0–3에서 C_RAW/C_SPATIAL/C_D1_COS/C_DECODER_NO_R의 실제 proof가 완료돼 capacity 단계가 병렬 실행되는 것을 확인했다. GPU6·7에서는 Top1-V의 seal 및 예정된 최종 평가와 Fixed Top-K, 후속 design control이 기존 큐 순서로 진행된다. 검증용 collector 구현을 위해 진행 중인 NN을 재시작하거나 배치를 줄이지 않았다.
+
+마지막으로 Fixed Top-K의 480-step validation도 완료돼 다섯 모델의 같은 DEV32/한 noise 비교가 모였다. Mean-asset IoU는 V1 0.4732792, Top1+R 0.4769671, Top1-V 0.4790365, Fixed Top-K 0.4791069, Full 0.4782431이다. Top1-V−Top1+R은 +0.0020694, Fixed Top-K−Top1-V는 +0.0000704, Full−Fixed Top-K는 −0.0008638이다. 실제 32개 source cluster의 paired bootstrap 4000회 신뢰구간은 세 차이 모두 0을 포함한다. 반복 관찰을 보정한 확증 검사가 아니며, 모듈의 필요성을 입증한 것으로 해석하지 않는다. 이 snapshot과 실제 PBR1900 세 모델의 입력/RGB/GT/카메라/초기 noise 정합 검사는 `focused-status-v175`의 파일서버4 receipt에 보존했다.
+
+18:51 UTC에는 GPU0–3의 C_RAW/C_SPATIAL/C_D1_COS/C_DECODER_NO_R 본학습 네 작업이 모두 실행 중이다. V1/Top1+R/Full의 첫 공통-PBR cascade 사례에서도 failure 기록이 없으며, 실행 종료 후 파일서버4에 보존된 실제 사례는 별도로 검사해야 한다. GPU6·7은 두 projected 비교군의 final128 noise0 평가를 각각 실행하고 있다. 이 시점에는 128×3 결과가 아직 완성되지 않았다.
