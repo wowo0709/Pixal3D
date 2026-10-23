@@ -240,7 +240,21 @@ def native_training(cfg, phase, variant):
                 source_tensors=len(source),**source_metadata(self.deform_conditioner),LoRA_tensors=len(lora),global_batch=96,microbatch=96,accumulation=1,
                 actual_optimizer_states=0,ffn_chunks=self._native_ffn_chunk_report)
             (out/'startup.json').write_text(json.dumps(startup,indent=2)+'\n')
+            self._paired_reference_trace=None
             if phase=='science':
+                reference_root=Path(cfg['experiment']['paired_reference_native_root'])
+                reference=json.loads((reference_root/'startup.json').read_text())
+                for key in ['initial_LoRA_SHA256','post_constructor_RNG','TRAIN_order_SHA256']:
+                    if initial[key]!=reference[key]:
+                        raise ValueError('actual scientific startup differs from paired V1: '+key)
+                for name in ['cold_proof_json','micro96_capacity_json']:
+                    own=json.loads(Path(cfg['experiment'][name]).read_text())
+                    if any(initial[key]!=own[key] for key in ['initial_LoRA_SHA256','initial_source_SHA256']):
+                        raise ValueError('actual scientific initial weights differ from own GPU proof/capacity')
+                self._paired_reference_trace=[json.loads(line) for line in
+                    (reference_root/'training-noise-trace.jsonl').read_text().splitlines()[:5]]
+                if len(self._paired_reference_trace)!=5:
+                    raise ValueError('actual completed V1 five-update reference required')
                 frozen_before={n:_frozen_digest(m) for n,m in self.models.items()}
                 result=super().run()
                 if self.step==480:
@@ -298,6 +312,16 @@ def native_training(cfg, phase, variant):
                 raise ValueError('one native fullbatch forward per update required')
             record=dict(step=self.step+1,asset_ids=ids,**self._paired_trace[0])
             with(Path(self.output_dir)/'training-noise-trace.jsonl').open('a')as stream:stream.write(json.dumps(record)+'\n')
+            if phase=='science' and self.step<5:
+                if record!=self._paired_reference_trace[self.step]:
+                    raise ValueError('actual scientific assets/noise/timestep/global input differ from paired V1')
+                if self.step==4:
+                    (Path(self.output_dir)/'paired-V1-startup-and-five-update-prefix.json').write_text(json.dumps(dict(
+                        status='PASS_ACTUAL_V1_STARTUP_AND_FIVE_TRAIN_UPDATE_PREFIX',
+                        actual_LoRA_RNG_TRAIN_order_equal=True, own_GPU_proof_capacity_weights_equal=True,
+                        actual_first_five_assets_noise_timesteps_global_inputs_equal=True,
+                        reference_native_root=cfg['experiment']['paired_reference_native_root'],
+                        quality_gain_proven=False,full_goal_complete=False),indent=2)+'\n')
             if phase=='science'and variant!='vanilla'and(self.step+1)%10==0:
                 module=self.deform_conditioner
                 grad=lambda parameters:sum(float(p.grad.detach().float().abs().sum())for p in parameters if p.grad is not None)
