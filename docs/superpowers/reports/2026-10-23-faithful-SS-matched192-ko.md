@@ -68,8 +68,15 @@ GPU0·1과2·3에서 각 DDP2/global96/micro48/accumulation1로 실행한다.
 학습 update가 없다. 최종 frozen tensor·DDP identity를 이 중간 audit의 증거로
 주장하지 않는다.
 
+추가한 실제192 checkpoint CPU 대조에서는 두 모델 모두 공통 R96의 frozen NN
+tensor701개와 q2c matching tensor24개가 정확히 유지됐다. LoRA360개와 기존
+R/fusion6개는 각각 모두 변경됐고 공통 trainable tensor는 유한했다. 이 검토는
+모델을 생성하거나 실행하지 않고 저장된 rank0 tensor를 비교한 것이다. Rank1의
+최종 parameter 일치나480-step 완료를 대신하지 않는다.
+
 Canonical 경로는 `PBR-native-science-runtime-v1/` 아래
 `historical-SS-actual-initial96-v1`, `historical-SS-matched-RNG-through192-v2`,
 `historical-SS-matched-epochs-v1/{retargeting,direct-nodq}/step0000192`,
 `historical-SS-matched-epochs-v1/two-arm-step192-comparison-v1`이다.
+Frozen tensor 대조는 `historical-SS-checkpoint-integrity-v1/step0000192`에 있다.
 전체 실험·독립 학습 확인·선택 조합과 최종508개10 metric은 아직 완료되지 않았다.
