@@ -138,6 +138,11 @@ class GatedDirectNoQueryJointTrainer(GatedDirectDeliveryMixin, DirectNoQueryJoin
             initial_common_step=96, additional_updates=384), indent=2)+'\n')
 
     def run(self):
+        if not hasattr(self, '_gated_initial_frozen'):
+            initial = json.loads((Path(self.output_dir)/f'gated-delivery-stage-initialization.rank{self.rank}.json').read_text())
+            if initial['direct_delivery_policy'] != POLICY or initial['initial_common_step'] != 96:
+                raise ValueError('resume requires this run original gated initialization proof')
+            self._gated_initial_frozen = initial['actual_initial_frozen_parameter_snapshot']
         if self.step == 96 and not self.anchor_stage.get('diagnostic_profile', False):
             from experiments.multiview_finetune.runtime import evaluate
             if self.is_master:
