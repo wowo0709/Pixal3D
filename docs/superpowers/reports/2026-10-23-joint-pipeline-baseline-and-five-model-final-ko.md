@@ -47,3 +47,9 @@ Canonical 경로는 기존 `PBR-native-science-runtime-v1/unified-module-pipelin
 또한 `member_ray_posteriors`는 member별 context를 평균해 ray context로 반환한다. Readout의 Q는 ray로 pool한 native feature와 이 평균 context를 사용하고, 후보별로 어느 member가 대응을 제안했는지의 명시적 association은 받지 않는다. 이 평균이 필요한 정보를 얼마나 줄이는지는 실험으로 확인해야 한다. 현재 실행 중인 QK-only와 voxel-query 비교를 유지한다. 실제 현재 ray 단위 GT 정답 집합의 prior mass와 유효 후보 수를 측정하기 전에는 위 제한이 데이터의 몇 %에서 문제인지 주장하지 않는다. Point-level Top1 통계를 ray-level prior mass로 대신하지도 않는다.
 
 이 source/math audit은 `attention-design-audit-v1`에 보존했다. 현재 학습 소스나 설정은 수정하지 않았고 새 학습 arm을 추가하지 않았다. 이후 모델 개선은 이와 같은 명확한 병목과 실제 rendering 결과를 근거로 결정해야 한다.
+
+두 번째 source audit에서는 Full raw-TopK 경로의 readout과 carrier가 다르다는 것을 확인했다. 네 head posterior로 만든 raw Top-K aggregate와 learned feature change가 R 입력에 들어가지만, 반환 numerator의 base carrier는 hard Top1이고 evidence-use classifier도 target query와 hard Top1을 받는다. R 자체는 `appearance - own native source`와 target query를 입력받는다. 따라서 Top1이 틀렸을 때 Top-K가 더 좋은 evidence를 골라도 그 결과가 carrier/use에 직접 반영되는 구조는 아니다. 이것이 성능 저하의 원인인지는 아직 실증하지 않았다.
+
+AA parameter가 동결된 문제는 아니다. 실제 Full480 source checkpoint를 CPU tensor data로 읽어 Q/K·utility의 일곱 parameter가 frozen initial anchor에서 모두 변했음을 확인했다. Max absolute 변화는 약 0.00277–0.01285다. R의 zero-output 마지막 layer를 경유하는 현재 경로에서는 정확한 초기 시점의 AA task gradient가 0이라는 chain-rule 성질이 있지만, 이를 영구적인 gradient 소실로 주장하지 않는다. 이 기록은 `attention-carrier-source-audit-v2`에 보존했다.
+
+성능 개선을 위한 다음 구현은 하나의 선택 evidence를 carrier·use·R에 일관되게 전달하는 작은 후속 비교로 좁힌다. Frozen matching score로 raw Top-K를 합치는 모델과, 같은 raw feature 공간에서 matching prior에 initial-function-anchored learned score를 더하는 모델을 순차 비교하는 구성이 적절하다. 불필요한 learned V/output 변환을 먼저 필수라고 가정하지 않고, naked feature correction bypass를 추가하지 않으며, target/native branch·source-ray query·불일치 시 native fallback은 유지한다. 기존 열두 arm과 통계 family는 보존하고 후속 비교를 별도로 구분해야 한다. 이 후속 모델은 이 시점에는 구현·GPU 실행되지 않았으며, 새로운 runtime/checkpoint family와 실제 초기 native32 parity·capacity 검증이 먼저 필요하다.
