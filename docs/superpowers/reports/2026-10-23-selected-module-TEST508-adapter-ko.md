@@ -25,7 +25,7 @@ TEST 실행 조건은 기존 native population 검사를 그대로 유지한다.
 
 - 새 계약 직접 테스트 59개와 기존 population 검사 33개, 총 **92개 통과**.
 - 실제 12개 scientific config 모두 기존 전용 evaluator에 연결되고 TEST dataset 선택만 바꾼 뒤 나머지 값·JSON type을 정확히 복원함을 확인했다.
-- 12개 모두 frozen TRAIN q2c와 준비된 TEST cache가 일치함을 확인했다.
+- Matcher fingerprint를 요구하는 설정에서 frozen TRAIN q2c와 준비된 TEST cache가 일치함을 확인했다. V1처럼 matcher를 사용하지 않는 설정에는 matcher 조건을 추가하지 않는다.
 - 이미 완료된 V1·Top‑1+R·Full 세 모델은 실제 file4 closure와 일치하는 config/denoiser/source bytes를 확인하고 새 binding을 구성했다.
 - 나머지 9개의 최종 checkpoint가 완료됐다는 주장은 하지 않는다. 이들은 원본 scientific recipe의 경로 연결만 검사했다.
 - CPU/GPU neural forward, TEST 품질 계산, 새 GPU 작업 추가는 모두 **0회**다.
