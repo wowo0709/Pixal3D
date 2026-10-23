@@ -39,3 +39,11 @@ Primary statistic은 asset별 IoU를 noise 세 개에 대해 평균한 뒤 asset
 Canonical 경로는 기존 `PBR-native-science-runtime-v1/unified-module-pipeline-v1/joint-retarget-SS-PBR-native32-v176`이다. 실제 파일서버4 SHA256/size 검증은 prelaunch 134개 파일, queue 계획 2개, 적용 기록 1개, 연결 후 실제 입력 compatibility 검증 1개에 완료했다. GPU replay 결과와 32개 전체의 joint 품질 개선은 아직 관측하지 않았다.
 
 현재 GPU0–3의 C_RAW/C_SPATIAL/C_D1_COS/C_DECODER_NO_R와 GPU6·7의 FULL_QK_ONLY/FULL_VOXEL_Q가 계속 진행 중이다. 이 핵심 비교와 실제 stage/joint cascade 결과를 기다리며, 임의의 추가 sweep이나 성능이 확인되지 않은 모듈을 필수 요소로 고정하지 않는다. 남은 요구는 선택된 정확한 조합의 DEV 측정, 독립 seed 확인, actual validation36/tail4 parity, 현재 finite12에 맞는 최종 model/population/metric freeze 구현 및 TEST508의 10개 metric·두 zero-shot 대조군 평가다. 최종 모델은 아직 확정하지 않았다.
+
+추가 source audit에서 두 설계 제약을 확인했다. Native recipe는 `residual_logit_bound=1`을 validation과 constructor 양쪽에서 강제한다. `bounded_probabilities`의 각 후보 logit 보정은 (−1,+1)에 있어, 두 후보 사이 attention odds를 prior 대비 최대 exp(2)≈7.389배까지만 바꿀 수 있다. 잘못된 Top1의 prior가 특정 정답 후보의 7.389배를 넘으면 그 후보가 attention 순위에서 Top1을 뒤집을 수 없다. Head 네 개를 평균하는 raw-appearance 경로에도 같은 odds 제약이 유지된다.
+
+정답 후보 집합의 prior mass가 p라면, 어떤 Q/K를 학습해도 해당 집합의 attention mass 상한은 `exp(2)*p/(1-p+exp(2)*p)`다. Prior의 정답 집합 mass가 0.1192 미만이면 과반의 attention mass를 받을 수 없다. Uniform Top64에서 정답 후보가 하나뿐인 경우 상한은 약 0.1050이다. 따라서 Top-K에 정답이 들어오는 비율이 높아졌다는 사실만으로 현재 head가 그 정보를 충분히 선택할 수 있다고 가정할 수 없다. 이는 posterior의 수학적 제한이며, learned V와 R이 낮은 mass를 보상할 수 있으므로 end-to-end 실패의 증명은 아니다.
+
+또한 `member_ray_posteriors`는 member별 context를 평균해 ray context로 반환한다. Readout의 Q는 ray로 pool한 native feature와 이 평균 context를 사용하고, 후보별로 어느 member가 대응을 제안했는지의 명시적 association은 받지 않는다. 이 평균이 필요한 정보를 얼마나 줄이는지는 실험으로 확인해야 한다. 현재 실행 중인 QK-only와 voxel-query 비교를 유지한다. 실제 현재 ray 단위 GT 정답 집합의 prior mass와 유효 후보 수를 측정하기 전에는 위 제한이 데이터의 몇 %에서 문제인지 주장하지 않는다. Point-level Top1 통계를 ray-level prior mass로 대신하지도 않는다.
+
+이 source/math audit은 `attention-design-audit-v1`에 보존했다. 현재 학습 소스나 설정은 수정하지 않았고 새 학습 arm을 추가하지 않았다. 이후 모델 개선은 이와 같은 명확한 병목과 실제 rendering 결과를 근거로 결정해야 한다.
