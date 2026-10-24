@@ -1,5 +1,7 @@
 # 논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계
 
+22:43 UTC 실행 갱신: [최종 Fixed correspondence 구현·등록](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)에 따라 아래 M 세 arm의 native recipe/runtime/evaluator/cascade binding과257개 검사가 완료됐다. 실제 checkpoint 생성자의 cold core10/RNG/물리적 matcher 제거도 확인했다. GPU6/7의 기존 작업 뒤 own proof/capacity/480/SS128×3의21개 작업을 등록했으며, 새3개 GPU proof와 품질은 아직 미완료다.
+
 22:10 UTC 후속 실행: [실제 DEV128 완료와 Fixed 문맥 대조·독립 확인](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md). 기존 cascade8개 metric은 완료됐고, Fixed SS+Top-1 R PBR를 **working candidate**로 기록했다. F-Score의 탐색용 paired 개선은 양수지만 source appearance 개선/비열등성은 미확인이다. GPU6 No-R와 GPU7 Uniform-K의 실제480 학습을 유지하고, Fixed seed202만 추가 등록했다. 아래21:49 snapshot의 pending 항목 중 해당 작업은 이 후속 기록을 우선한다. TEST freeze는 남아 있다.
 
 2026-10-24 21:49 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
@@ -98,16 +100,16 @@ Uniform-K의 구체적인 적용 범위도 실행 전에 고정한다. 후보 �
 
 ### 신규 학습의 최소 실행 행렬과 입장 조건
 
-현재 working Fixed에 맞춘 구체적인 실행 범위는 아래6개 SS 학습이다. 앞의 두 개는 실제 실행 중, 세 번째는 등록, 마지막 세 개는 구현/검증이 남았다. 기존 Top-1/Fixed/Learned SS와 원래12모델을 다시 학습하는 목록이 아니다.
+현재 working Fixed에 맞춘 구체적인 실행 범위는 아래6개 SS 학습이다. 앞의 두 개는 실제 실행 중, 세 번째는 등록, 마지막 세 개는 구현·단위/생성자 검사를 완료해 own GPU 검사·학습·평가를 등록했다. 기존 Top-1/Fixed/Learned SS와 원래12모델을 다시 학습하는 목록이 아니다.
 
 | Arm/역할 | 상태 | 핵심 질문 |
 |---|---|---|
 | A_FIXED_UNIFORM | GPU7 실제480 학습 | 같은 support/value의 score-guided weighting |
 | A_FIXED_NO_R | GPU6 실제480 학습 | 같은 weighted Fixed 경로의 retargeter 제거 |
 | E_FIXED_RAW seed202 | Own proof/capacity/480/128×3 등록 | 선택 후보의 독립 training seed 재현 |
-| M_FIXED_SPATIAL (계획 이름) | 구현·GPU proof/capacity·학습/평가 필요 | 최종 전달 경로의 원래 spatial 대응 |
-| M_FIXED_RAW (계획 이름) | 구현·GPU proof/capacity·학습/평가 필요 | 최종 전달 경로의 raw semantic descriptor |
-| M_FIXED_D1_COS (계획 이름) | 구현·GPU proof/capacity·학습/평가 필요 | Decoder descriptor와 scalar score 분리 |
+| M_FIXED_SPATIAL | 구현·생성자 검사 완료; own GPU/학습/평가 등록 | 최종 전달 경로의 원래 spatial 대응 |
+| M_FIXED_RAW | 구현·생성자 검사 완료; own GPU/학습/평가 등록 | 최종 전달 경로의 raw semantic descriptor |
+| M_FIXED_D1_COS | 구현·생성자 검사 완료; own GPU/학습/평가 등록 | Decoder descriptor와 scalar score 분리 |
 
 M 세 arm은 같은 Fixed carrier/use/R·identity value·최초 common10·SS LoRA/data/optimizer/noise 계약을 유지한다. 기존 raw/member/D1-cosine posterior helper와 원래 camera-projected spatial 후보를 재사용하되 최종 가중 결합으로 전달한다. Scalar matcher baseline은 이미 완료된 E_FIXED_RAW다. Spatial은 원래3개 projection 후보, semantic은64개 budget이며 이를 숨기거나 fake64로 늘리지 않는다. 이는 correspondence module substitution이고 fixed-K 주소 효과가 아니다. Cosine→scalar는 최종 support 재선택도 포함할 수 있으므로, 같은 support의 weighting 효과는 별도 Uniform-K↔Fixed로 검증한다.
 
