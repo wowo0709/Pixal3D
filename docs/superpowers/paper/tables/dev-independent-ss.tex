@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrrr}
+\toprule
+Training seed&Vanilla IoU&Top-1 branch IoU&Paired change&Cluster CI95\\
+\midrule
+101&0.467355&0.472600&+0.005245&[0.001674, 0.009030]\\
+202&0.467177&0.472346&+0.005169&[0.001780, 0.008677]\\
+\bottomrule
+\end{tabular}
+\caption{Completed independent SS training pairs on DEV128 (93 source clusters),
+each averaged over three paired generation noises. The branch combines
+Top-1 semantic matching and retargeting. These exploratory intervals resample
+source clusters and condition on the trained checkpoints; generation noise
+and training seed are distinct. This is neither a retargeter-only ablation
+nor a held-out cascade comparison.}
+\label{tab:independent-ss}
+\end{table}

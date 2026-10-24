@@ -164,9 +164,11 @@ The SS development panel contains 128 examples from 93 source-asset clusters,
 evaluated using three paired generation-noise seeds and 12 sampling steps.
 Generation-noise repetitions are averaged within an example before inference
 over source clusters. They are not independent training seeds. The completed
-SS results in this draft use training seed 101; training seed 202 confirmation
-is a separate experiment. Rendering development uses a fixed 32-example
-panel and one generation-noise realization.
+main SS ablation results use training seed 101. A completed, separate seed202
+experiment confirms vanilla and the Top-1 semantic-matching/retargeting branch;
+the selected combined candidate and PBR require their own confirmation.
+Rendering development uses a fixed 32-example panel and one generation-noise
+realization, with a paired 128-example expansion in progress.
 
 Final model choice uses both geometric alignment and source preservation,
 rather than SS IoU alone. Required validation fresh-load/cache checks,
@@ -327,17 +329,23 @@ does not establish the necessity of refinement. Its change from vanilla is
 the learned candidate's actual cascade is evaluated below, while independent
 training confirmation remains pending.
 
-\paragraph{Independent vanilla training readout.}
-The completed seed202 vanilla run reaches macro SS IoU 0.467177, compared
-with 0.467355 for seed101 on the same 128 assets, 93 source clusters, and
-three generation noises. The seed202-minus-seed101 change is $-0.000178$,
-with an exploratory source-cluster interval $[-0.001809,0.001317]$.
-Actual 480-update traces and startup RNGs differ, while the original LoRA
-initialization and native numerical/data recipe agree. Similar point
-estimates support baseline repeatability in these two runs, but do not
-establish equivalence. This readout does not complete independent
-retargeting, selected-model, or PBR/cascade confirmation; the interval
-conditions on these checkpoints rather than a population of training seeds.
+\paragraph{Independent training of the Top-1 branch.}
+Table~\ref{tab:independent-ss} reports two complete 480-update training pairs
+on the same 128 assets, 93 source clusters, and three generation noises.
+The Top-1 semantic-matching and retargeting branch improves macro SS IoU
+over vanilla by 0.005245 and 0.005169 in training seeds101 and202,
+respectively. Their within-seed source-cluster intervals are positive.
+The improvement averaged over these two fixed seeds is 0.005207, with
+an exploratory source-cluster interval $[0.001826,0.008678]$.
+Actual input/noise/timestep traces agree within each training pair and differ
+between training seeds, while the original LoRA initialization agrees.
+All 701 frozen neural-network tensors in each final checkpoint match the
+original pretrained base. These results support repeatability of the
+combined branch in these two SS training pairs, rather than isolating
+the retargeter or matching decoder. The intervals condition on these
+checkpoints and do not estimate uncertainty over a population of training
+seeds. Selected-model, PBR/cascade, and held-out confirmation remain pending.
+\input{tables/dev-independent-ss.tex}
 
 In the actual DEV32 fixed-evidence composition, however,
 its geometry and appearance move in different directions. Relative to the
@@ -422,8 +430,11 @@ be attributed solely to shared routing without a matching routing control.
 
 \section{Limitations and pending claims}
 Final ray-versus-voxel and complete-family analysis, broader paired cascade
-confirmation, the final-context matched controls, independent training seed
-confirmation, and held-out test results are pending. Geometric improvement
+confirmation, the final-context matched controls, independent training of
+the selected candidate and PBR, and held-out test results are pending.
+Two training pairs confirm the combined Top-1 branch at the SS stage;
+they do not isolate each component or establish cascade generalization.
+Geometric improvement
 does not ensure source appearance improvement. Preserving the direct target
 stream does not guarantee unchanged target output. Input-alpha support is not
 surface visibility, and the source-use gate is not a calibrated occlusion

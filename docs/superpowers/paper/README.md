@@ -43,6 +43,11 @@
 
 ## 남은 writing
 
+완료 갱신: `tables/dev-independent-ss.tex`와 본문의 독립 학습 문단에
+실제 V1/Top-1 branch seed101·202의 DEV128×3 결과를 반영했다.
+개선은 각각+0.005245/+0.005169이며 combined branch의 SS 재현성으로
+한정한다. 선택 모델과 PBR·cascade·TEST의 독립 확인은 별도다.
+
 1. 최종 선택 구조에 맞춰 검증한 Related Work와 현재24개 인용의 표현을 정리. Metric7개 원논문과 실제 protocol 정의 대조는 완료.
 2. 최종 선택 구조에 맞춰 Method의 fixed/learned 후보 설명을 정리.
 3. 최종-context ablation과 독립 확인의 수치·CI·정성 사례 반영.
