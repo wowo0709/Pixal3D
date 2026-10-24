@@ -37,11 +37,16 @@
 | `tables/dev-paired-pbr32.tex` | 같은 E_FIXED_RAW SS geometry에서 vanilla/R PBR의 실제 짝비교 |
 | `dev-qualitative.tex` | 실제 DEV render의 trade-off 그림과 선택 규칙; 외부 figure asset staging 필요 |
 | `tables/final-main-template.tex` | TEST508의10개 metric 양식; 전부 미측정 |
-| `tables/final-ablation-template.tex` | 최종 구조 안의 matched ablation 양식; 전부 미측정 |
+| `tables/final-ablation-template.tex` | Matching ladder/aggregation/R 대조; 실제 Fixed/Top-1 두 행만 측정 |
 
 결과 표는 실제 file4 SHA256/size closure가 있는 audit에서 내보냈다. DEV32 표를 TEST 표에 복사하지 않는다. 최종 모델이 확정되면 불필요한 conditional ablation 행은 제거하고, 동일한 조건으로 확인된 기존 실험만 재사용한다. 기준 baseline이 다른 study의 수치를 한 개의 matched 비교처럼 섞지 않는다.
 
 ## 남은 writing
+
+최종 Fixed correspondence3개는 구현·257개 검사·actual checkpoint 생성자 정합을
+완료하고 own GPU/학습/SS 평가를 등록했다. 새 품질 수치는 아직 없다.
+Ablation 표는 adjacent matching ladder와 Fixed 기준 대조를 분리하고,
+실제 Fixed/Top-1 두 행만 채웠다. GPU proof나 생성자 검사로 성능을 주장하지 않는다.
 
 DEV128의 R/Fixed/Learned 실제 cascade8개 metric을 `tables/dev-joint128.tex`와
 본문에 반영했다. Fixed/R PBR가 working candidate이며 최종 freeze는 아니다.

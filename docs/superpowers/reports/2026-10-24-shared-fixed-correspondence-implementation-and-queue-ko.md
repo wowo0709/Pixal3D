@@ -46,7 +46,13 @@ Global NN-forward hook으로 CPU neural forward를 금지한 상태에서 수행
 
 GPU0–3의 필수 PBR DDP4, GPU6 No-R, GPU7 Uniform-K를 중단/재시작하지 않았다. 새21개는 기록 시 모두 pending이며 실제 GPU proof·본 학습·품질 평가는 아직 시작 전이다. Capacity 실패 시 과학 학습을 자동 재시도하거나 성공으로 간주하지 않는다. 각 phase는 session drain·frozen-state·source hash·실제 file4 closure를 유지한다.
 
-## 5. 남은 전체 목표
+## 5. 논문 표와 실제 PDF 갱신
+
+Matching ladder는 인접 행끼리, aggregation/retargeting은 Fixed 기준으로 비교하도록 표를 재구성했다. Spatial을 decoder+scalar Full에서 semantic 하나만 제거한 것으로 서술하지 않는다. Actual Fixed/Top-1의10개 cell만 채우고 새 control25개 cell은 pending으로 유지했다. SS128×3와 cascade128×1의 noise scope를 caption에 구분했다.
+
+`paper-draft-Fixed-correspondence-ablation-v302`의 실제 컴파일은12pages/24refs/warning0이고9·10페이지를 렌더링해 직접 검수했다. 두 행의10개 값이 실제 closed SS/cascade 통계와 표시 정밀도까지 일치하며28개 artifact를 실제 file4 SHA/size로 보존했다. 최신 preview는 `/root/dev/.cache/deformnext-retargeting/paper-preview-20261024-v302.pdf`다.
+
+## 6. 남은 전체 목표
 
 1. 진행 중인 Uniform-K/No-R와 새3개 correspondence arm의 실제 proof/capacity/480·SS128×3를 완료한다.
 2. 학습된 own SS archive를 같은 frozen Shape/Top-1 R PBR에 연결해 CD/F-Score·LPIPS/DreamSim을 포함한 실제 downstream 평가를 한다. Case binding 구현과 실제 cascade 품질 완료를 구분한다.
