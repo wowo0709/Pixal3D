@@ -47,7 +47,12 @@ micro96 capacity를 실제 통과해 본 학습을 시작했다. Fixed seed202�
 - `tables/dev-joint128.tex`: 동일128/93 source·noise1의 R/Fixed/Learned 실제3개 cascade·8metric. Working Fixed 선택과 appearance 한계를 함께 보고하며 TEST나 generation-noise3회 평균이 아니다.
 - `tables/dev-matching32.tex`: 재사용한 matching 진단의 observable relation coverage. GT visibility는 진단 분모에만 사용하며 모델의 write gate가 아니다.
 - `tables/final-main-template.tex`: TEST508, 사용자 지정10개 metric. 미측정은 대시로 남긴다.
-- `tables/final-ablation-template.tex`: 최종 구조에서의 ablation. 기존 조건부 비교로 빈 행을 자동 채우지 않는다.
+- `tables/final-ablation-template.tex`: Matching ladder의 adjacent 비교와 Fixed 기준 aggregation/R 대조를 구분한다. Actual Fixed/Top-1 두 행만 채웠고 새 control은 pending이다. Spatial을 scalar Full의 단일 제거 대조로 쓰지 않는다.
+
+최종 Fixed correspondence3개는 own native recipe/runtime/evaluator/cascade binding까지
+구현했다.257개 검사와 실제 checkpoint 기반 생성자 정합이 통과했고21개 gated 작업을
+등록했다. GPU proof/capacity/science/실제 quality는 아직 미완료다. 이전 Top-1 ladder의
+수치를 이 최종 문맥으로 대체하지 않는다. [구현·실행 기록](../reports/2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)을 따른다.
 
 ## Writing에서 지킬 해석
 

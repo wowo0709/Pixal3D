@@ -449,6 +449,16 @@ ablation, independent confirmation, and TEST508 remain necessary.
 \section{Ablation and final-table completion}
 \input{tables/final-main-template.tex}
 \input{tables/final-ablation-template.tex}
+The working-candidate ablation separates an additive matching ladder from
+aggregation/retargeting controls. Spatial RAW-cosine candidates are compared
+with RAW semantic candidates before adding contextual decoder descriptors
+and scalar scores. Comparing spatial directly with scalar Fixed would change
+both retrieval and the matching network, so that comparison is not treated
+as a one-component removal. All rows retain the same Fixed carrier/use/R
+and identity values. The three correspondence controls now have own native
+training/evaluation entries and checkpoint schemas, but their GPU proof,
+capacity, training and downstream results remain pending. Constructor and
+unit-check success are not empirical quality evidence.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a
