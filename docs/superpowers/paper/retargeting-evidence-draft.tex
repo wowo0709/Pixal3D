@@ -246,7 +246,8 @@ two module contrasts is [-0.000409,0.003161], so this positive point estimate
 does not establish the necessity of refinement. Its change from vanilla is
 0.007439 with the corresponding two-contrast pipeline interval
 [0.002585,0.012504]. These are development results from one training seed;
-the learned candidate's actual cascade and independent confirmation are pending.
+the learned candidate's actual cascade is evaluated below, while independent
+training confirmation remains pending.
 
 In the actual DEV32 fixed-evidence composition, however,
 its geometry and appearance move in different directions. Relative to the
@@ -265,6 +266,24 @@ increase is 0.00974, despite a positive F-Score change of 0.00854. These
 examples illustrate why geometry and appearance must be measured separately;
 they do not identify the causal source of the appearance differences.
 \input{dev-qualitative.tex}
+
+The anchored learned candidate's DEV32 cascade is now complete. Relative to
+Top-1 retargeting, source LPIPS changes by 0.000790 (exploratory interval
+[-0.000014,0.001637]), DreamSim by 0.003929 ([-0.000371,0.008541]),
+Chamfer distance by 0.00008462 ([-0.00014377,0.00030834]), and F-Score
+by 0.002813 ([-0.004362,0.010418]). None of these intervals excludes zero.
+Relative to fixed evidence, the learned candidate has better source LPIPS
+and DreamSim point estimates but worse CD and F-Score point estimates.
+The highest SS128 three-noise IoU therefore does not establish the best
+complete pipeline.
+
+This comparison also involves different stage-measurement panels. On the
+exact 32 assets and generation noise used for the cascades, macro SS IoU is
+0.476967 for retargeting, 0.478940 for fixed evidence, and 0.477442 for the
+learned candidate. The learned-versus-fixed SS ranking on this matched subset
+is opposite to the full128 three-noise ranking. Panel and noise differences
+must therefore be separated from a causal claim about a failure to transfer
+occupancy improvements downstream.
 
 The contextual matching descriptor has a positive SS point estimate relative
 to raw semantic descriptors, whereas adding the scalar matching score has a
@@ -303,8 +322,8 @@ the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 
 \section{Limitations and pending claims}
-Final ray-versus-voxel and complete-family analysis, cascade confirmation
-of learned versus fixed evidence, the final-context matched controls, independent training seed
+Final ray-versus-voxel and complete-family analysis, broader paired cascade
+confirmation, the final-context matched controls, independent training seed
 confirmation, and held-out test results are pending. Geometric improvement
 does not ensure source appearance improvement. Preserving the direct target
 stream does not guarantee unchanged target output. Input-alpha support is not

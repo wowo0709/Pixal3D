@@ -8,7 +8,7 @@
 | Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 구조/downstream 연결; 진단32와 SS128을 같은 paired 실험으로 혼동하지 않음 | Descriptor와 scalar score의 효과를 분리 |
 | Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 동일 Top-K support/value 경로의 score 대조가 필요 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
 | Top-K attention이 Top-1보다 유효하다 | Fixed-K의 SS +0.000527 및 별도 DEV32 mask +0.003717 | 최종 경로의 matched 비교·독립 확인 | 후보 수와 결합의 묶음 효과로 한정 |
-| 추가 learned attention이 필요하다 | 기존 FULL의 SS 점추정 음수; 새 anchored E_LEARNED_RAW는 최종128×3 IoU0.474794로 fixed보다+0.001323, module-family CI[−0.000409,+0.003161] | 실제 cascade와 독립 확인; 최종 문맥의 비교 | 새 경로의 양의 점추정 확인; 필수성·전반적 preservation 개선은 미확정 |
+| 추가 learned attention이 필요하다 | 새 anchored SS128×3 IoU0.474794로 fixed보다+0.001323, CI는0 포함; 완료된 cascade32는 R보다 LPIPS/DreamSim/CD 점추정 열위·F-Score 우위, 모두 CI는0 포함 | 더 넓은 paired cascade와 독립 확인; 최종 문맥의 비교 | SS 최고점이 pipeline 우위를 입증하지 않으며 필수성·전반적 preservation 개선은 미확정 |
 | Ray 단위 처리가 품질을 개선한다 | 설계와 실제 구현 확인 | FULL_VOXEL_Q의480/128×3 및 최종 경로 일치 | 원리 설명 가능, 독립 성능 기여 미확정 |
 | Member 후보가 품질을 개선한다 | 별도 matching DEV32의 exact@64 50.76%→73.36%; 그러나 완료된 FULL mean 제어 IoU0.472679 대 member FULL0.472078 | 원래 finite-family 통계와 최종 identity-value 경로의 matched 확인·downstream 연결 | 후보 coverage 개선은 확인; 기존 FULL에서 생성 품질의 양의 점추정은 아님 |
 | Retargeting이 유효하다 | C_NO_R→C_DECODER SS +0.003929; 실제 V1/R joint 완료 | 독립 학습 seed, 최종 경로의 R 제거 비교 | 현재 matched 설정의 효과로 한정 |
@@ -31,3 +31,5 @@
 Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이다. CLIP은 semantic 보조 지표이고 FID/KID는 global naturalness다. “All metrics improve”, “all modules are necessary”, “learned attention is essential”은 현재 근거에 없는 문장이다. 원래 비교 family와 이후 탐색적 follow-up, training seed와 generation noise를 구분한다. 음의 결과와 실패 사례도 discussion에 보존한다.
 
 `dev-qualitative.tex`의 실제 render figure는 Fixed 대 R의 F-Score 증가 최대와 source LPIPS 증가 최대 사례다. 결과 조건으로 선택한 설명용 사례이므로 평균 효과나 성공 빈도의 근거로 사용하지 않는다. Full-frame GT pixel 일치와 기존 metric annotations를 검증했으며, appearance 차이의 causal mechanism이나 final Ours/TEST 품질을 입증하지 않는다.
+
+실제 cascade와 같은32 asset/noise에서 SS IoU는 R0.476967·Fixed0.478940·Learned0.477442다. Full128×3의 learned/fixed 순위와 다르다. 서로 다른 panel/noise의 순위 차이만으로 모듈 구현 오류나 loss의 causal failure를 결론내리지 않는다.

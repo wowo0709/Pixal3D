@@ -42,3 +42,11 @@ Canonical 근거는 `candidate-seed202-preparation-v229`의 owner observation, a
 ## 다음 판단
 
 필수 learned cascade의 전체8개 metric과 voxel control의 최종 평가가 필요하다. 이 결과 이후 최종 후보·필요한 최종-context 대조·독립 확인을 결정한다. 현재 준비한 config나 정성 그림을 모델 채택·일반화·전체 목표 완료의 근거로 사용하지 않는다.
+
+## Learned DEV32 집계 연결의 실제 수정
+
+32개 PBR·render가 모두 완료된 뒤 기존 coverage 집계기가 실패했다. GPU6 분산 완료 proxy에는 `reused=true`가 기록되고 `returncode`가 없는데, 집계기가 그 필드를 직접 읽었기 때문이다. 이는 metadata 연결 오류이며 생성 실패가 아니다.
+
+원래 failed phase와 closure를 보존하고 `learned-DEV32-metrics-proxy-recovery-v234`에 successor를 만들었다. 해당10개 proxy에 대해 실제 GPU6 queue의 같은 command·completed·returncode0·owner 종료와 각 case의3개 실제 child returncode0/session drain을 검증했다. Coverage의 completion-record 처리 외의 원래 worker byte는 유지하고, 공식 perceptual 평가와 수치 집계는 기존 worker를 그대로 사용했다. SS·Shape·PBR 생성 재실행은0이다.
+
+수정 후 실제 coverage가96개 case·288개 view로 통과했고 공식 GPU DreamSim/CLIP 평가가 시작됐다. 실패를 성공으로 덮어쓰지 않았으며 최종 결과는 새 root의 `summary-v1/audit.json`을 사용해야 한다. 원래 v216의 미완성 summary 경로와 혼동하지 않는다.

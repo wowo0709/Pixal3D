@@ -90,3 +90,11 @@ Learned 후보의 DEV32 Shape 생성은31개 완료·1개 실행 상태를 확�
 [후속 기록](2026-10-24-actual-qualitative-and-independent-seed-preparation-ko.md)에 실제 DEV32 render4개 사례와 성공·실패 선택 규칙, 논문용 compact figure, figure를 포함한8쪽 PDF 빌드·시각 검수·file4 closure를 기록했다. Source LPIPS 악화 사례를 포함하며, 사례 선택을 population 효과로 해석하지 않는다.
 
 실제 실행 중인 V1 seed202의 PID/birth/command와 최초5개 update를 보존하고, 두 E 후보의 seed202 config6개를 기존 factory로 검증했다. 이들은 queue에 넣지 않았고 실제 후보 선택·자체 GPU proof/capacity가 필요하다. 최초 metadata-only wrapper schema 불일치는 별도 실패 기록으로 보존했으며 NN 재시작은0이다. 아직 최종 후보 선정과 TEST가 완료된 것은 아니다.
+
+## Learned cascade 완료와 panel 진단
+
+[실제8개 metric과 동일 panel 진단](2026-10-24-learned-cascade-complete-and-same-panel-diagnosis-ko.md)을 추가했다. Learned는 R보다 source LPIPS/DreamSim/CD 점추정이 나쁘고 F-Score는 좋지만 해당 CI가 모두0을 포함했다. 같은32개/noise에서 SS IoU도 Fixed0.478940·Learned0.477442로, Full128×3와 순위가 다르다. 패널이 다른 순위 비교만으로 구현/목적함수 실패를 단정하지 않는다.
+
+외부분산 완료 proxy의 returncode 필드 차이로 생긴 coverage 실패를 보존하고, 실제 GPU6 command·성공 exit·case terminal을 검증하는 metadata-only successor v234로 복구했다. 이후 공식288 view와 원래 수치 집계를 완료했다. 새 SS·Shape·PBR 생성은0이다. Five-pipeline baseline 일치 감사 v235와 same-panel 진단 v236도 file4에 닫았다.
+
+새 module 조합 대신 기존 R·Fixed·Learned 세 조합의 실제128/noise1 paired cascade로 panel을 확장하는 것을 다음 핵심 측정으로 구체화했다. 기존32개는 재사용하고 추가96개만 필요하다. 현재는 데이터·prediction binding·runtime 준비가 필요하며 새128-case 실행 완료나 최종 모델 선정을 뜻하지 않는다. 기존 독립 V1/R 학습과 voxel 대조는 유지한다.
