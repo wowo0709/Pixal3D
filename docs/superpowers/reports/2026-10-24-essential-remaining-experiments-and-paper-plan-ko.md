@@ -4,6 +4,8 @@
 
 추가 갱신: [Learned cascade32 완료와 동일 panel 진단](2026-10-24-learned-cascade-complete-and-same-panel-diagnosis-ko.md)을 반영한다. 새 training arm보다 기존 R/Fixed/Learned 세 pipeline을 동일 DEV128/noise로 비교하는 평가 확장을 우선 준비하며 기존32개는 재사용한다. 이 확장은 아직 실행 완료가 아니다.
 
+실행 갱신: [동일 DEV128 실제 실행과 재사용](2026-10-24-paired-DEV128-actual-launch-and-reuse-ko.md)에 따라 세 모델의 초기 사례가 통과했고 추가 평가와 전체 metric chain을 연결했다. 같은128 asset/93 source, noise1회의 결과는 아직 미측정이다.
+
 2026-10-24 13:35 UTC 실제 상태 기준. 목적은 개별 요소의 조건부 효과를 확인하고, 효과가 있는 요소로 구성한 실제 파이프라인을 검증하는 것이다. 모든 모듈이 필수라는 결론을 미리 정하지 않는다. 기존 실험을 재사용하고 최종 구조에서 빠진 대조군만 보완한다.
 
 ## 1. 현재 진행 중인 필수 비교를 마무리

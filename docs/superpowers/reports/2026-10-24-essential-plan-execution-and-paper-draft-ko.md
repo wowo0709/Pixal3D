@@ -98,3 +98,9 @@ Learned 후보의 DEV32 Shape 생성은31개 완료·1개 실행 상태를 확�
 외부분산 완료 proxy의 returncode 필드 차이로 생긴 coverage 실패를 보존하고, 실제 GPU6 command·성공 exit·case terminal을 검증하는 metadata-only successor v234로 복구했다. 이후 공식288 view와 원래 수치 집계를 완료했다. 새 SS·Shape·PBR 생성은0이다. Five-pipeline baseline 일치 감사 v235와 same-panel 진단 v236도 file4에 닫았다.
 
 새 module 조합 대신 기존 R·Fixed·Learned 세 조합의 실제128/noise1 paired cascade로 panel을 확장하는 것을 다음 핵심 측정으로 구체화했다. 기존32개는 재사용하고 추가96개만 필요하다. 현재는 데이터·prediction binding·runtime 준비가 필요하며 새128-case 실행 완료나 최종 모델 선정을 뜻하지 않는다. 기존 독립 V1/R 학습과 voxel 대조는 유지한다.
+
+## 동일 DEV128 실행 연결 완료
+
+[실제 실행과 재사용 기록](2026-10-24-paired-DEV128-actual-launch-and-reuse-ko.md)에 R128 capture exact replay, file4의1,040개 입력 검증, 실제 세 모델 초기 사례 통과,17개 테스트, 잔여285개 case와 전체 metric chain 연결을 기록했다. GPU2/3/6에서 같은 R/Fixed/Learned 조합을 확장하며 기존32개씩과 official288 view는 재사용한다. Metadata schema 오류는 실패를 보존한 뒤 실제 생성 결과를 재사용해 수정했다. 기존 학습을 재시작하거나 새 arm을 추가하지 않았다.
+
+최종 결과는 `paired-DEV128-stage-evaluation-v240/metrics-v250/summary-v1/audit.json`에 기록될 예정이며 아직 미측정이다. 실제128 평가가 끝난 것으로 해석하지 않는다.
