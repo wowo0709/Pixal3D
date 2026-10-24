@@ -1,5 +1,7 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-24 22:43 UTC 실행 갱신: 남은 Fixed correspondence3개를 실제로 구현하고257개 검사·실제 checkpoint 생성자 정합을 확인했다. Own GPU proof/capacity/480/128×3의21개 작업을 기존 NN 뒤에 연결했다. [구현과 실행 근거](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)를 따르며 실제 GPU 검사·학습·downstream·독립 확인·TEST·최종 논문은 계속 남아 있다.
+
 2026-10-24 22:10 UTC 갱신: DEV128 실제8개 metric 집계가 완료돼 Fixed SS+Top-1 R PBR를 working candidate로 삼았다. 선택 문맥의 Uniform-K와 물리적 No-R는 각각 GPU7/6에서480 학습 중이며 Fixed seed202의 own proof→capacity→480→128×3을 등록했다. [결과와 실행 근거](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md), [전체 필수 계획](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 따라 남은 Fixed matching ladder·downstream·독립 확인·TEST·논문을 계속한다. 최종 TEST freeze는 아니다.
 
 2026-10-24 21:52 UTC 실행 갱신: 원래12모델의 DEV128×3 family 통계가 완료됐고 모든10개 module-family CI는0을 포함한다. Uniform-K는 GPU7에서 실제 micro96 capacity를 통과해480-step 과학 학습을 시작했다. 전체 통계와 독립 V1/R 두 seed 결과를 반영한11페이지 논문 초안을 컴파일·검수했다. 현재 실행과 남은 전체 범위는 [후속 기록](2026-10-24-uniform-score-control-and-independent-paper-results-ko.md) 및 [통합 계획](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)을 따른다.

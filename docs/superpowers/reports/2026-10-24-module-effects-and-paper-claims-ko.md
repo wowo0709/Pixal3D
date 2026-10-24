@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-24 22:43 UTC 실행 갱신: 최종 Fixed의 spatial/raw/D1-cosine 대조를 [구현·검증·등록](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)했다. 동일 core10/전달 경로의 own trainer/evaluator/cascade binding,257개 검사, actual checkpoint 생성자 정합까지 통과했다. GPU6/7의 기존 작업 뒤 own proof→capacity→480→SS128×3를21개 작업으로 연결했으며, 새3개 arm의 GPU 품질 근거는 아직 없다. 원래 Top-1 ladder를 새 weighted 문맥의 결과로 대체하지 않는다.
+
 2026-10-24 22:10 UTC 갱신: [실제 DEV128 cascade·선택 문맥 대조·독립 확인](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md)을 완료/연결했다. R/Fixed/Learned의8개 metric 집계에서 Fixed F-Score는0.844058 대 R0.840095, 탐색용 ΔCI[+0.001011,+0.007314]지만 source LPIPS/DreamSim의 개선·비열등성은 미확인이다. Fixed SS+Top-1 R PBR를 working candidate로 기록했다. No-R는 GPU6에서 실제 micro96 capacity를 통과해480 학습을 시작했고 Uniform-K는 GPU7에서 학습한다. Fixed seed202의 own proof/capacity/480/128×3도 등록했다. TEST freeze와 최종 문맥 matching ladder는 아직 남아 있다.
 
 2026-10-24 21:49 UTC 추가 결과: 원래12모델 DEV128×3 통계가 완료됐다. FULL ray0.472078 대 voxel0.472314이며 ray−voxel은−0.000236, ten-contrast CI[−0.000878,+0.000351]이다. 원래10개 module-family CI가 모두0을 포함하므로 개별 모듈의 필수성을 확정하지 않는다. 원래 FULL−V1의 양의 family CI 및 Top-1 combined branch 두 seed 재현과 구별한다. 아래 최초 결과의 “pending” 설명은 해당 시점 기록이며 [완료된 family와 실행 기록](2026-10-24-uniform-score-control-and-independent-paper-results-ko.md)의 후속 결과를 우선한다.
