@@ -68,18 +68,34 @@ FID/KID, 다른 training seed, 완료되지 않은 원래 SS 대조군, 공통 �
 
 관련 CPU50개 검사도 통과했다. Pilot 성공 후 남은93개 GPU render-only case, 전체128개 case의 exact-geometry CPU gate, coverage, official384-view metric 평가와 최종 집계를 실제 큐에 연결했다. Source snapshot과 plan·queue receipt는 file4에 보관했다. 원래 학습·sampling 작업과 source pin은 유지했다.
 
-## 고정 mesh에서의 PBR retargeting DEV32 중간 결과
+## 고정 mesh에서의 PBR 3개 모델 DEV32 중간 결과
 
-11:17 UTC에 vanilla와 Top-1 retargeting PBR 각각32개의 수정 평가가 완료됐다. 같은 V1 SS·생성 Shape와 asset별 고정 렌더 triangles, native guide, 초기 texture noise·sampler를 사용한다.32개 asset/source cluster, training seed101, 생성 noise1회다. 원본 native sampling 성공 기록과 수정 render/shared-score의 실제 성공 terminal을 각각 확인했다. CPU에서64개 실제 렌더 mesh와192개 view의 GT float RGB/alpha를 다시 읽어 일치함을 확인했다.
+11:41 UTC에 vanilla, Top-1 retargeting, Top-1+feature PBR 각각32개의 수정 평가가 완료됐다. 같은 V1 SS·생성 Shape와 asset별 고정 렌더 triangles, native guide, 초기 texture noise·sampler를 사용한다.32개 asset/source cluster, training seed101, 생성 noise1회다. 원본 native sampling 성공 기록과 수정 render/shared-score의 실제 성공 terminal을 각각 확인했다. CPU에서96개 실제 렌더 mesh와288개 view의 GT float RGB/alpha를 다시 읽어 일치함을 확인했다. Canonical file4 receipt에 결합된737개 입력을 확인했고, 앞서 측정한 vanilla/Top-1 두 모델의 평균도1e−12 이내로 재현했다.
 
-| Metric | Vanilla PBR | Top-1 retargeting PBR | 차이 |
-|---|---:|---:|---:|
-| Source9/10 full-frame LPIPS ↓ | 0.05309933 | 0.05298409 | −0.00011524 |
-| Target8 full-frame PSNR ↑ | 24.47068 | 24.54852 | +0.07784 |
-| Target8 full-frame SSIM ↑ | 0.9504881 | 0.9505851 | +0.0000970 |
-| Target8 alpha-mask IoU ↑ | 0.8809446 | 0.8809821 | +0.0000375 |
-| Target8 foreground PSNR（보조）↑ | 12.36167 | 12.44070 | +0.07903 |
+| Metric | Vanilla | Top-1 R | Top-1 R+feature | Feature − Top-1 R |
+|---|---:|---:|---:|---:|
+| Source9/10 full-frame LPIPS ↓ | 0.05309933 | 0.05298409 | 0.05301938 | +0.00003530 |
+| Target8 full-frame PSNR ↑ | 24.47068 | 24.54852 | 24.51148 | −0.03704 |
+| Target8 full-frame SSIM ↑ | 0.9504881 | 0.9505851 | 0.9505358 | −0.0000493 |
+| Target8 alpha-mask IoU ↑ | 0.8809446 | 0.8809821 | 0.8810029 | +0.0000208 |
+| Target8 foreground PSNR（보조）↑ | 12.36167 | 12.44070 | 12.40322 | −0.03748 |
 
-LPIPS·PSNR·SSIM 각각에서 개선된 asset은17/32개다. 평균 변화가 작아 retargeting의 강한 PBR 성능 향상을 입증한 결과로 취급하지 않는다. Mask 차이는1개 asset에서 발생했으며, geometry와 raw surface CD/F-Score는 동일하므로 opacity에 따른 차이로 해석한다. DreamSim·CLIP과 원래4개 모델 전체 paired CI는 아직 이 중간 읽기에 포함하지 않았다. 추가 통계 검정이나 모델 선정도 수행하지 않았다.
+Top-1 R은 vanilla 대비 source LPIPS −0.00011524, target PSNR +0.07784 dB이며 LPIPS·PSNR·SSIM 각각에서 개선된 asset은17/32개다. 평균 변화가 작아 retargeting의 강한 PBR 성능 향상을 입증한 결과로 취급하지 않는다. Feature head를 더하면 Top-1 R 대비 source LPIPS 개선15/32개, target PSNR·SSIM 개선13/32개이며, 세 평균은 소폭 악화했다. 현재 이 전달 방식에서 learned feature correction의 추가 이득은 확인되지 않았다. Raw mode는 아직 완료되지 않았다.
+
+세 모델의 mask 차이는1개 asset에서 발생했으며, geometry와 raw surface CD/F-Score는 동일하므로 opacity에 따른 차이로 해석한다. DreamSim·CLIP과 원래4개 모델 전체 paired CI는 아직 이 중간 읽기에 포함하지 않았다. 추가 통계 검정이나 모델 선정도 수행하지 않았다.
 
 이 PBR 비교는 원본 cascade에서의 noise를 그대로 재사용하지 않고, 같은 generated geometry에서 공통 seed로 texture noise를 새로 만들어 네 PBR 모델에 동일하게 전달한다. 따라서 위 vanilla 수치를 앞부분 SS5개 모델 평가의 vanilla 수치와 섞어 비교하지 않는다. FID/KID와 독립 training seed, 최종 TEST508도 여전히 필요하다.
+
+## PBR arm 이름과 실제 attention 전달 경로
+
+현재 실행 소스 `pixal3d/modules/r_mediated_pbr_source.py`와 `r_mediated_source_contrast.py`의 `_input_chunk`를 대조했다. PBR query/key는1024-D이고 DINO+NAF value는2048-D다. R 입력은 appearance2048 + target-context1024 =3072채널이며 deformation-query placeholder는 없다.
+
+| PBR mode | R에 전달되는 appearance 입력 | 학습 source tensor 수 |
+|---|---|---:|
+| `top1-only` | 선택된 단일 semantic feature `v1` | 10 |
+| `top1-plus-feature` | `v1 + Δv_attention` | 19 |
+| `raw-topk-plus-feature` | `v_raw_weighted + Δv_attention` | 19 |
+
+두 feature mode 모두 같은64후보 기반의4-head learned feature readout을 실행한다. Raw mode의 `v_raw_weighted`는 그 readout의 같은 posterior를 head 평균해 원본 value를 가중 합한 것이며, feature magnitude를 그대로 유지한다. 두 mode 모두 consumer 쪽 carrier와 독립 source-use 판단은 Top-1을 유지하고, feature correction은 R을 통해 전달한다. R 밖으로 직접 더하는 attention correction 경로는 없다.
+
+따라서 `top1-plus-feature`라는 이름은 전체 경로가 후보1개만 사용한다는 뜻이 아니다. 이 mode와 Raw mode의 비교는 **동일한 attention head에서 R에 원본 가중 feature를 전달하는 방식의 효과**다. Attention의 물리적 유무는 `top1-only`와 feature mode를 비교하며, 이 비교에는 learned feature transform도 함께 추가된다. SS의 `C_TOP1_V`와 동일한 arm이라고 해석하지 않는다. 이 구분은 새 실험을 추가하지 않고, 현재 PBR 비교의 인과적 설명 범위를 명확히 하기 위한 것이다.
