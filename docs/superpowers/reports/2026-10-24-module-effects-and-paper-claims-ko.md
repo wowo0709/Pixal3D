@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-24 22:10 UTC 갱신: [실제 DEV128 cascade·선택 문맥 대조·독립 확인](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md)을 완료/연결했다. R/Fixed/Learned의8개 metric 집계에서 Fixed F-Score는0.844058 대 R0.840095, 탐색용 ΔCI[+0.001011,+0.007314]지만 source LPIPS/DreamSim의 개선·비열등성은 미확인이다. Fixed SS+Top-1 R PBR를 working candidate로 기록했다. No-R는 GPU6에서 실제 micro96 capacity를 통과해480 학습을 시작했고 Uniform-K는 GPU7에서 학습한다. Fixed seed202의 own proof/capacity/480/128×3도 등록했다. TEST freeze와 최종 문맥 matching ladder는 아직 남아 있다.
+
 2026-10-24 21:49 UTC 추가 결과: 원래12모델 DEV128×3 통계가 완료됐다. FULL ray0.472078 대 voxel0.472314이며 ray−voxel은−0.000236, ten-contrast CI[−0.000878,+0.000351]이다. 원래10개 module-family CI가 모두0을 포함하므로 개별 모듈의 필수성을 확정하지 않는다. 원래 FULL−V1의 양의 family CI 및 Top-1 combined branch 두 seed 재현과 구별한다. 아래 최초 결과의 “pending” 설명은 해당 시점 기록이며 [완료된 family와 실행 기록](2026-10-24-uniform-score-control-and-independent-paper-results-ko.md)의 후속 결과를 우선한다.
 
 최종 문맥의 [코드·config 재사용 감사와 실제 대조 구현](2026-10-24-final-context-reuse-and-physical-controls-ko.md)을 반영한다. 기존 matching controls는 Top-1 전달이고 새 Fixed/Learned는 weighted shared evidence라 최종 문맥 대조로 자동 대체할 수 없다. Fixed에는 learned Q/K가 없으며 Uniform-K↔Fixed, Fixed↔Learned, 같은 learned head의 additive-prior 제거를 구분한다. 후속 구현은 native trainer/evaluator·4개 실제 GPU 초기 함수/backward 검사·cascade binding을 포함한169개 검사까지 진행했다. Uniform-K는 GPU7에서 기존 voxel 평가 후 micro96 capacity → 조건부480 학습 → DEV128×3 평가를 연결했다. 본 학습과 실제 cascade 품질 평가는 아직 미완료다.

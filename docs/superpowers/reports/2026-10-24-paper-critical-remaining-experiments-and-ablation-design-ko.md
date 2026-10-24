@@ -1,5 +1,7 @@
 # 논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계
 
+22:10 UTC 후속 실행: [실제 DEV128 완료와 Fixed 문맥 대조·독립 확인](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md). 기존 cascade8개 metric은 완료됐고, Fixed SS+Top-1 R PBR를 **working candidate**로 기록했다. F-Score의 탐색용 paired 개선은 양수지만 source appearance 개선/비열등성은 미확인이다. GPU6 No-R와 GPU7 Uniform-K의 실제480 학습을 유지하고, Fixed seed202만 추가 등록했다. 아래21:49 snapshot의 pending 항목 중 해당 작업은 이 후속 기록을 우선한다. TEST freeze는 남아 있다.
+
 2026-10-24 21:49 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
 
 ## 1. 지금 확정한 사실과 아직 결정하지 못한 것
@@ -42,6 +44,8 @@ SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·
 평가·문서 작성은 결과가 나올 때 병행한다. 마지막에 한꺼번에 metric을 계산하거나, SS IoU 순위만으로 모델을 고르지 않는다. 새 구조를 TEST에서 고르지 않는다.
 
 ## 3. 최종 Ours를 어떻게 결정할 것인가
+
+실제 DEV128을 보고 Fixed/RPBR를 다음 검증의 working candidate로 정했다. 아래 선정 기준은 유지한다. Required matched 대조·독립 확인·fresh load를 마치기 전 최종 TEST freeze나 preservation 비열등성 주장을 하지 않는다.
 
 현재의 R, Fixed, Learned 세 pipeline을 동일 DEV128/noise·공통 frozen Shape·공통 Top-1 R PBR로 비교한다. Primary geometry는 CD/F-Score, primary source preservation은 LPIPS/DreamSim이다. CLIP과 SS IoU는 보조 근거다. 임의의 metric 가중합으로 승자를 만들지 않는다.
 
@@ -93,6 +97,21 @@ Uniform-K의 구체적인 적용 범위도 실행 전에 고정한다. 후보 �
 권장 표 열은 `Correspondence / Aggregation / Query / Retargeting | CD↓ / F-Score↑ / LPIPS↓ / DreamSim↓ / SS IoU↑`다. 같은 learned descriptor에서 scalar score 사용 여부도 명시한다. 모든 arm에 PBR 재학습을 추가하지 않는다. 추론 때 모듈을 끄는 결과는 진단이며 matched 재학습 결과와 구분한다.
 
 ### 신규 학습의 최소 실행 행렬과 입장 조건
+
+현재 working Fixed에 맞춘 구체적인 실행 범위는 아래6개 SS 학습이다. 앞의 두 개는 실제 실행 중, 세 번째는 등록, 마지막 세 개는 구현/검증이 남았다. 기존 Top-1/Fixed/Learned SS와 원래12모델을 다시 학습하는 목록이 아니다.
+
+| Arm/역할 | 상태 | 핵심 질문 |
+|---|---|---|
+| A_FIXED_UNIFORM | GPU7 실제480 학습 | 같은 support/value의 score-guided weighting |
+| A_FIXED_NO_R | GPU6 실제480 학습 | 같은 weighted Fixed 경로의 retargeter 제거 |
+| E_FIXED_RAW seed202 | Own proof/capacity/480/128×3 등록 | 선택 후보의 독립 training seed 재현 |
+| M_FIXED_SPATIAL (계획 이름) | 구현·GPU proof/capacity·학습/평가 필요 | 최종 전달 경로의 원래 spatial 대응 |
+| M_FIXED_RAW (계획 이름) | 구현·GPU proof/capacity·학습/평가 필요 | 최종 전달 경로의 raw semantic descriptor |
+| M_FIXED_D1_COS (계획 이름) | 구현·GPU proof/capacity·학습/평가 필요 | Decoder descriptor와 scalar score 분리 |
+
+M 세 arm은 같은 Fixed carrier/use/R·identity value·최초 common10·SS LoRA/data/optimizer/noise 계약을 유지한다. 기존 raw/member/D1-cosine posterior helper와 원래 camera-projected spatial 후보를 재사용하되 최종 가중 결합으로 전달한다. Scalar matcher baseline은 이미 완료된 E_FIXED_RAW다. Spatial은 원래3개 projection 후보, semantic은64개 budget이며 이를 숨기거나 fake64로 늘리지 않는다. 이는 correspondence module substitution이고 fixed-K 주소 효과가 아니다. Cosine→scalar는 최종 support 재선택도 포함할 수 있으므로, 같은 support의 weighting 효과는 별도 Uniform-K↔Fixed로 검증한다.
+
+Working Fixed에는 learned Q/K head가 없으므로 Learned No-R/no-logit-prior의 본 학습이나 무효한 voxel-Q toggle은 추가하지 않는다. 기존 learned 대조·원래 ray/voxel 결과는 그대로 보고하며 positive necessity claim은 하지 않는다. Member 독립 생성 성능 기여를 채택하지 않으므로 별도 mean 재학습도 현재 핵심 목록에 추가하지 않는다.
 
 필요한 **비교 수**와 **새로 학습할 arm 수**를 구분한다. 같은 최종 구조에서 완료된 Top-1/Fixed/Learned는 재사용하고 다음 누락분만 보완한다.
 
