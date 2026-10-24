@@ -1,0 +1,31 @@
+\section{Related work}
+\paragraph{Image-conditioned 3D generation.}
+TRELLIS.2 learns a compact native representation of geometry and material
+attributes using sparse voxels~\cite{xiang2025trellis2}.
+Pixal3D lifts image features into a back-projected conditioning volume and
+extends this mechanism to multiple views~\cite{li2026pixal3d}.
+Our implementation continues the supplied multi-view Pixal3D checkpoints
+and adapts their source-conditioning path. The separately implemented
+multi-view prior and checkpoint lineage are specified in our protocol;
+we do not identify every implementation detail with the original paper branch.
+
+\paragraph{Image-conditioned editing.}
+ShapeUP learns supervised latent translation from a source 3D shape and an
+edited image to an edited 3D shape~\cite{gat2026shapeup}.
+Our evaluated input instead consists of an edited target image and undeformed
+source images with calibrated cameras. This input distinction motivates our
+study of appearance evidence under conflicting geometric states. It does not
+establish a performance advantage over source-shape-conditioned editing;
+no such quantitative comparison has yet been executed in this study.
+
+\paragraph{Representations for correspondence.}
+Zhang et al. examine complementary correspondence properties of diffusion
+and DINO features~\cite{zhang2023twofeatures}.
+VGGT-$\Omega$ learns geometry-aware representations through reconstruction
+training~\cite{wang2026vggtomega}. RoMa-$\Omega$ distinguishes zero-shot
+feature matching from learned matching on feed-forward 3D
+representations~\cite{nordstrom2026romaomega}.
+These works motivate separating raw descriptor quality, learned matching,
+and candidate aggregation. Our experiments additionally ask whether their
+correspondence evidence improves generated geometry and source appearance
+when delivered through the pretrained projection-conditioning path.

@@ -11,8 +11,9 @@
 \noindent\textbf{Draft status.} Method and protocol text below describe implemented
 candidate designs. The final architecture is not yet selected. All populated
 results are development measurements, not held-out test results. Empty entries
-remain unmeasured. Related-work citations, the final abstract, and claims of
-generalization must be completed after the planned confirmation experiments.
+remain unmeasured. Core related-work references have been checked against
+primary sources; the broader literature review remains open. The final
+abstract and generalization claims require the planned confirmation experiments.
 
 \section{Problem and design motivation}
 We study multi-view 3D editing from one edited target RGB image and three
@@ -28,6 +29,8 @@ multi-view conditioning function at initialization. The design separates
 candidate retrieval, candidate aggregation, ray-based feature delivery, and
 retargeting. This separation permits matched comparisons of individual choices
 and prevents a gain from one component from being attributed to another.
+
+\input{related-work-verified.tex}
 
 \section{Method}
 \subsection{Pretrained multi-view carrier and ray groups}
@@ -246,4 +249,6 @@ stream does not guarantee unchanged target output. Input-alpha support is not
 surface visibility, and the source-use gate is not a calibrated occlusion
 predictor. The final abstract, concluding superiority claims, quantitative
 contribution statements, and final model label must follow these experiments.
+\bibliographystyle{plain}
+\bibliography{references}
 \end{document}
