@@ -1,6 +1,8 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
-최종 문맥의 [코드·config 재사용 감사와 실제 대조 구현](2026-10-24-final-context-reuse-and-physical-controls-ko.md)을 반영한다. 기존 matching controls는 Top-1 전달이고 새 Fixed/Learned는 weighted shared evidence라 최종 문맥 대조로 자동 대체할 수 없다. Fixed에는 learned Q/K가 없으며 Uniform-K↔Fixed, Fixed↔Learned, 같은 learned head의 additive-prior 제거를 구분한다. 새 제어 경로는 생성자/trainer factory와53개 검사까지 준비됐고 GPU flow·capacity·학습/평가 binding은 남아 있다.
+최종 문맥의 [코드·config 재사용 감사와 실제 대조 구현](2026-10-24-final-context-reuse-and-physical-controls-ko.md)을 반영한다. 기존 matching controls는 Top-1 전달이고 새 Fixed/Learned는 weighted shared evidence라 최종 문맥 대조로 자동 대체할 수 없다. Fixed에는 learned Q/K가 없으며 Uniform-K↔Fixed, Fixed↔Learned, 같은 learned head의 additive-prior 제거를 구분한다. 후속 구현은 native trainer/evaluator·4개 실제 GPU 초기 함수/backward 검사·cascade binding을 포함한169개 검사까지 진행했다. Uniform-K는 GPU7에서 기존 voxel 평가 후 micro96 capacity → 조건부480 학습 → DEV128×3 평가를 연결했다. 본 학습과 실제 cascade 품질 평가는 아직 미완료다.
+
+독립 seed 갱신: V1/Top-1 semantic matching+retargeting의 SS 학습·평가가 seed101과202 모두 완료됐다. V1 대비 IoU 개선은 각각+0.005245/+0.005169이며 각 source-cluster CI95는 양수다. 이는 combined branch의 SS 재현성으로, R/decoder 단독 효과나 최종 cascade/TEST의 증명이 아니다. 실제 수치와 다음 작업은 [최신 핵심 계획](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md), 논문 반영·실행 연결은 [후속 기록](2026-10-24-uniform-score-control-and-independent-paper-results-ko.md)을 따른다.
 
 최신 남은 작업 정리: [논문 완성을 위한 핵심 실험·ablation·writing 설계](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md). 최종 문맥의 대조와 기존 조건부 효과를 구별하고, 실제 cascade 평가 후 최종 모델을 결정한다.
 
