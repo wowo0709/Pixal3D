@@ -70,4 +70,4 @@ def validate_generation(base, replay, *, sample_id, SS_prediction_SHA256):
         'own predicted SS, original cascade, scoring-only GT and unchanged coordinate frame required')
     require(replay.get('status') == 'PASS_ACTUAL_R_PBR_REPLAY_ON_GENERATED_SHAPE'
         and replay.get('sample_id') == sample_id
-        and replay.get('mode') == 'top1-only', 'own measured Top-1 R texture replay required')
+        and replay.get('PBR_arm') == 'top1-only', 'own measured Top-1 R texture replay required')

@@ -67,8 +67,19 @@ def test_good_metrics_cannot_override_GT_generation_or_result_alignment(field):
     base = dict(status='PASS_ACTUAL_SS_TO_SHAPE512_SHAPE1024_PBR1024_GENERATION', sample_id='x',
         SS_prediction_SHA256='a'*64, GT_geometry_or_coords_used_in_generation=False,
         GT_loaded_only_after_generation=True, per_output_alignment=False)
-    replay = dict(status='PASS_ACTUAL_R_PBR_REPLAY_ON_GENERATED_SHAPE', sample_id='x', mode='top1-only')
+    replay = dict(status='PASS_ACTUAL_R_PBR_REPLAY_ON_GENERATED_SHAPE', sample_id='x', PBR_arm='top1-only')
     validate_generation(base, replay, sample_id='x', SS_prediction_SHA256='a'*64)
     base[field] = True
+    with pytest.raises(ValueError):
+        validate_generation(base, replay, sample_id='x', SS_prediction_SHA256='a'*64)
+
+
+def test_replay_uses_the_actual_native_PBR_arm_field_not_an_invented_mode():
+    base = dict(status='PASS_ACTUAL_SS_TO_SHAPE512_SHAPE1024_PBR1024_GENERATION', sample_id='x',
+        SS_prediction_SHA256='a'*64, GT_geometry_or_coords_used_in_generation=False,
+        GT_loaded_only_after_generation=True, per_output_alignment=False)
+    replay = dict(status='PASS_ACTUAL_R_PBR_REPLAY_ON_GENERATED_SHAPE', sample_id='x', PBR_arm='top1-only')
+    validate_generation(base, replay, sample_id='x', SS_prediction_SHA256='a'*64)
+    replay['mode'] = replay.pop('PBR_arm')
     with pytest.raises(ValueError):
         validate_generation(base, replay, sample_id='x', SS_prediction_SHA256='a'*64)
