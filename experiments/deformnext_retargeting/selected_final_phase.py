@@ -28,6 +28,8 @@ def validate_binding(binding, native):
     require(binding.get('schema') == SCHEMA and binding.get('kind') in ENTRIES,
             'one explicit supported original numerical phase required')
     kind = binding['kind']; root = Path(__file__).resolve().parent
+    require(kind == 'assigned-native-render' or 'frozen_generated_render_geometry' not in native,
+            'frozen rendering geometry cannot alter a model generation or scoring phase')
     for key in ['native_source','native_plan']:validate_spec(binding[key])
     entry = root/(ENTRIES[kind]+'.py')
     require(binding.get('native_source') == dict(path=str(entry),SHA256=native['source_SHA256'].get(str(entry))),
@@ -60,8 +62,16 @@ def run_original(kind, path, native, binding):
         module = importlib.import_module('experiments.deformnext_retargeting.'+ENTRIES[kind])
         tree,proof = adapt_guard(source.read_text(),native['assigned_GPUs'])
         namespace = dict(module.__dict__); exec(compile(tree,str(source),'exec'),namespace)
+        override = None
+        if kind == 'assigned-native-render' and 'frozen_generated_render_geometry' in native:
+            from .selected_shared_render_geometry import FrozenGeometryNumpy
+            override = FrozenGeometryNumpy(namespace['np'], native)
+            namespace['np'] = override
         sys.argv = [str(source),'--plan',str(path)]; namespace['main']()
-        return dict(numerical_entry_AST_device_literal_only=proof)
+        result = dict(numerical_entry_AST_device_literal_only=proof)
+        if override is not None:
+            result['frozen_generated_render_geometry'] = override.verify()
+        return result
     finally:
         sys.argv = old_argv
 

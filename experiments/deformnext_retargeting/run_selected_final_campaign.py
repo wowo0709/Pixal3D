@@ -37,6 +37,7 @@ def required_sources():
     root=Path(__file__).resolve().parent
     return sorted(set(case_sources()) | set(retirement_sources()) | {
         str(root/(n+'.py')) for n in ['run_selected_final_campaign','run_selected_campaign_case','selected_campaign_resources',
+        'selected_shared_render_geometry','fixed_pbr_render_geometry',
             'prepare_selected_final_campaign']})
 
 
