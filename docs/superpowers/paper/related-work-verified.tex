@@ -9,6 +9,16 @@ and adapts their source-conditioning path. The separately implemented
 multi-view prior and checkpoint lineage are specified in our protocol;
 we do not identify every implementation detail with the original paper branch.
 
+ReconViaGen combines reconstruction and generative priors for multi-view
+object reconstruction~\cite{chang2025reconviagen}. RecGen3D coordinates
+reconstruction and generation within a shared canonical
+space~\cite{huang2026recgen3d}; GenRecon uses projected multi-view conditioning
+to extend object-level generation to scene
+reconstruction~\cite{schmid2026genrecon}. These approaches establish the
+importance of conditioning and coordinate alignment. Our experiments focus
+on adapting evidence across an intentional edit, rather than claiming
+multi-view conditioning or projection itself as a new mechanism.
+
 \paragraph{Image-conditioned editing.}
 ShapeUP learns supervised latent translation from a source 3D shape and an
 edited image to an edited 3D shape~\cite{gat2026shapeup}.
@@ -18,7 +28,36 @@ study of appearance evidence under conflicting geometric states. It does not
 establish a performance advantage over source-shape-conditioned editing;
 no such quantitative comparison has yet been executed in this study.
 
+Direct mesh editing is another related setting. GeoStyle deforms a source
+mesh using an image style reference~\cite{choi2026geostyle}; APAP combines
+user-controlled deformation with diffusion-based plausibility
+priors~\cite{yoo2024apap}. SpaceControl instead introduces test-time spatial
+guidance into a pretrained 3D generator~\cite{fedele2025spacecontrol}.
+TextureDreamer transfers appearance from sparse reference images to a given
+target shape~\cite{yeh2024texturedreamer}. In our evaluated setup the desired
+state is supplied through target RGB, and the output geometry is predicted.
+A target mesh is used for supervision and scoring, not supplied to the
+generative pipeline at inference. These different inputs and objectives
+must be reconciled before quantitative comparisons.
+
+\paragraph{Multi-view generation and correspondence-aware aggregation.}
+MV-Adapter adds multi-view generation to pretrained text-to-image models and
+supports camera or geometry guidance~\cite{huang2025mvadapter}.
+MVDiffusion uses given pixel correspondences to exchange information across
+views~\cite{tang2023mvdiffusion}. CorrAdapter extracts correspondences from
+intermediate diffusion features and aggregates matching regions to improve
+multi-image consistency~\cite{zhang2026corradapter}.
+Correspondence-guided attention is therefore an established mechanism.
+Our study concerns its use in a different setting: observed source and target
+images intentionally depict different geometries, and retrieved evidence is
+delivered into a pretrained 3D projection-conditioning path. We test candidate
+aggregation, the camera-ray sharing unit, and source retargeting separately;
+we do not infer their necessity from the existence of correspondence-aware
+attention in image generators.
+
 \paragraph{Representations for correspondence.}
+Diffusion features can expose image correspondence without task-specific
+matching supervision~\cite{tang2023dift}.
 Zhang et al. examine complementary correspondence properties of diffusion
 and DINO features~\cite{zhang2023twofeatures}.
 VGGT-$\Omega$ learns geometry-aware representations through reconstruction

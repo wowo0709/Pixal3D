@@ -12,6 +12,8 @@
 
 후속 `paper-draft-utilization-protocol-v260`은 planned evidence-utilization protocol과 명시적 Uniform-K ablation 행을 포함한8쪽 revision이다. Compiler returncode0이며4/8쪽을 시각 검수했다. Utilization·전체 DEV128·TEST 수치를 새로 채우지 않았고 모두 해당 상태를 유지했다. 최신 구현/실행 범위는 [기전 관측 준비 기록](../reports/2026-10-24-trained-attention-utilization-preparation-and-paper-ko.md)을 참고한다.
 
+현재 `paper-draft-related-work-v263`은 관련 문헌17개를 포함한9쪽 revision이다. 원래 PDF의24개 문헌 identity/task와 필요한 abstract 수준의 method 설명을 primary source와 대조했고, UniRecGen→현재 RecGen3D 제목 갱신도 반영했다. Compiler returncode0·TeX warning/미해결 인용0이며1/2/9쪽을 시각 검수했다. [문헌별 원문과 claim 범위](../reports/2026-10-24-paper-primary-literature-and-claim-scope-ko.md)에 근거를 남겼다. 이 작업은 외부 방법들과의 정량 실험이나 모든 원문의 세부 구현 검증을 대신하지 않는다.
+
 이번 도구는 [공식0.17.0 release](https://github.com/tectonic-typesetting/tectonic/releases/tag/tectonic%400.17.0)의 Linux musl asset을 배포 SHA256과 대조했으며 전역 패키지는 변경하지 않았다. PDF·log·source snapshot은 Git에 넣지 않고 file4의 실험 결과로 보관한다.
 
 기존 `_CVPR2026_7__Image_based_3D_Editing (1).pdf`의 다섯 페이지를 읽어 문제 정의와 Table 1의10개 metric 구성을 확인했다. 기존 PDF를 덮어쓰지 않았다. 핵심6개 참고문헌을 primary source로 확인해 Related Work 초안에 통합했으며, 기존 문헌 전체의 검증·통합은 남아 있다. 기존 abstract의 최종 우위 표현과 user-study placeholder는 현재 수행한 실험의 증거가 아니다.
@@ -35,7 +37,7 @@
 
 ## 남은 writing
 
-1. 기존 PDF의 나머지 관련 연구를 primary source와 대조하고 필요한 bibliographic entry를 추가.
+1. 검증한 related work와 최종 선택 구조의 표현을 맞추고, 평가 지표의 원논문 인용을 필요한 범위에서 보완.
 2. 최종 선택 구조에 맞춰 Method의 fixed/learned 후보 설명을 정리.
 3. 최종-context ablation과 독립 확인의 수치·CI·정성 사례 반영.
 4. Protocol freeze 후 TEST508·10개 metric 결과로 Main Results 작성.

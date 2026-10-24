@@ -37,3 +37,5 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 실제 cascade와 같은32 asset/noise에서 SS IoU는 R0.476967·Fixed0.478940·Learned0.477442다. Full128×3의 learned/fixed 순위와 다르다. 서로 다른 panel/noise의 순위 차이만으로 모듈 구현 오류나 loss의 causal failure를 결론내리지 않는다.
 
 학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측하는 [활용 진단을 구현·연결했다](../reports/2026-10-24-trained-attention-utilization-preparation-and-paper-ko.md). 실제 GPU 결과는 pending이다. Top-1 miss/Top-K hit subset의 GT mass·source-use·실제 correction과 기존 downstream metric의 association을 읽으며, diagnostic Uniform-K를 matched 학습 ablation으로 대체하지 않는다.
+
+[원래24개 문헌의 primary-source 대조](../reports/2026-10-24-paper-primary-literature-and-claim-scope-ko.md)를 반영해 correspondence-aware attention과 projection conditioning 자체를 신규 기여로 주장하지 않는다. 현재의 입력은 edited-target RGB와 source RGB이며 GT target mesh를 추론 입력으로 서술하지 않는다. 외부 editing/texturing 방법의 입력 차이는 문제 설정 설명이며, 실행하지 않은 비교의 성능 우위 근거가 아니다.
