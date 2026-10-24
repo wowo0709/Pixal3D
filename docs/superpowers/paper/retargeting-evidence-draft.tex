@@ -407,8 +407,16 @@ Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a
 combined candidate-count/aggregation effect; isolating scalar score utility
-requires the same Top-K support and value path; the Uniform-K row provides
-this control separately from actual Top-1. Likewise, differences between
+requires the same Top-K support and value path. Uniform-K versus Fixed
+provides this weighting control separately from actual Top-1. A learned
+head without its additive logit prior retains the same Q/K and utility
+parameters, candidates and matching context; replacing the entire learned
+readout by Uniform-K would remove refinement as well. Raw-to-D1-cosine and
+D1-cosine-to-scalar matching contrasts separate descriptor and scalar-score
+changes. The original voxel-Q control concerns the original learned readout;
+Fixed has no learned Q/K head, so changing only that query cannot establish
+a quality effect in Fixed. Its ray-pooled retargeting/use queries remain
+part of the architecture. Likewise, differences between
 the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 

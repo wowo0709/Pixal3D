@@ -47,6 +47,8 @@ Same-SS vanilla/R PBR의 기존 실제 짝비교는 재사용한다. 최종 SS�
 
 ## 4. 논문용 matched ablation 표
 
+후속 코드 감사와 구현: [최종 문맥 재사용·실제 제거 대조](2026-10-24-final-context-reuse-and-physical-controls-ko.md). 아래7행은 고정된 신규 학습 수가 아니다. Fixed에는 learned Q/K가 없어 기존 voxel-Q 변경만으로 독립 효과를 검증할 수 없고, Learned→Uniform-K는 prior와 refinement를 함께 바꾼다. 최종 모델에 따라 유효한 대조만 실행한다. Decoder descriptor와 scalar score를 따로 주장하려면 D1-cosine 중간 행도 필요하다.
+
 최종 모델 한 행과 아래 다섯 대조가 핵심이다. 학습은 원본 MV LoRA checkpoint, DeformNeXt split, 동일 seed·optimizer·480 updates·global batch96을 유지한다. 이름이 같다는 이유로 이전 arm을 재사용하지 않고 config·코드 경로·입출력·학습/평가 계약이 같은지 확인한다.
 
 | 표의 행 | Full에서 바꾸는 요소 | 입증할 질문 | 기존 결과의 재사용 조건 |
@@ -67,14 +69,18 @@ Raw/decoder 비교에서 candidate support 자체의 변화는 retrieval 설계�
 | Uniform-K | **Matching score 자체의 효과를 핵심 claim으로 유지할 때 필요** | 같은 Top-K 후보/value/전달 경로에서 posterior weighting만 equal weighting으로 교체 |
 | Fixed probability | Learned Q/K·utility를 최종 모델에 채택할 때 | 같은 후보·identity V·carrier/use/R에서 learned refinement만 제거; Fixed/Learned 기존 근거 재사용 |
 | Mean-ray descriptor | Member 후보 구성을 독립 기여로 주장할 때 | 최종 경로에서 member 구성만 평균 descriptor로 교체 |
+| D1-cosine matching | Raw→decoder descriptor와 scalar score의 효과를 각각 주장할 때 | 같은 후속 구조에서 Raw→D1-cosine→D1-score를 나누어 비교 |
+| Learned without additive logit prior | Learned 모델의 attention-logit prior 효과를 주장할 때 | 같은 Q/K·utility7개와 후보/context를 유지하고 additive prior만 제거; Uniform-K와 구분 |
 
-현재 요청처럼 matching score의 사용과 효과까지 검증하려면 **Uniform-K를 이번 핵심 계획에 포함**한다. 따라서 기본 표는 Full와 다섯 대조, Uniform-K의7개 행이다. 이 중 기존 결과를 재사용할 수 있는 행을 뺀 만큼만 신규 학습한다. Learned/Member의 추가 행은 최종 모델에 실제 채택할 때만 더한다. 이 표는 최종 구조 안에서 한 요소씩 바꾸는 표이며, 기존 spatial→raw→decoder의 누적 ladder는 동기·선행 개발 근거로 보조 자료에 남긴다. 서로 다른 구조의 증가량을 더해 full의 효과로 계산하지 않는다.
+현재 요청처럼 matching score의 사용과 효과까지 검증하려면 **같은 후보의 Uniform-K↔Fixed 비교를 이번 핵심 계획에 포함**한다. 최종 matching ladder와 전달 경로의 대조를 구분해 표를 구성하고, 선택한 구조에서 실제로 유효한 query/head/member 행만 더한다. 기존 결과를 재사용할 수 있는 행을 뺀 만큼만 신규 학습한다. 원래 Top-1 문맥의 spatial→raw→decoder ladder는 그 조건부 근거로 보조 자료에 남기며, 최종 문맥에서도 필요한 비교가 있으면 같은 전달 경로로 보완한다. 서로 다른 구조의 증가량을 더해 full의 효과로 계산하지 않는다.
 
 사용자 정의 **No-score는 실제 Top-1**, **No-corr는 원래 spatial 대응**이다. Uniform-K는 별개의 score 대조다. 제거한 channel을0으로 채우지 않는다. 최종 구조에 deformation query가 없다면 해당 제거 arm을 추가하지 않는다.
 
 Top-1↔Top-K만으로는 matching score 자체의 이득을 분리할 수 없다. Score 사용의 효과는 Uniform-K 비교로, 추가 학습 attention의 효과는 Fixed↔Learned로 나눈다. Shared posterior 전달은 현재 method의 구조로 설명하며 독립 causal claim을 하지 않는다. 그 claim을 채택하지 않으면 split/shared 추가 학습도 필요 없다.
 
 Uniform-K의 구체적인 적용 범위도 실행 전에 고정한다. 후보 주소·valid mask·value·query·retargeter·source-use 정의를 유지하고, 정의한 aggregation posterior만 uniform으로 바꾼다. 같은 posterior가 여러 경로로 공유되는 구조라면 **어느 소비 경로까지 함께 바뀌는지**를 config에 기록한다. 여러 경로가 함께 바뀌면 claim은 공통 score-weighted evidence의 효과로 한정하고, 순수 attention-logit 한 곳의 효과라고 쓰지 않는다. Support가 달라지는 decoder 비교 역시 후보 탐색과 weighting을 모두 바꿨다면 decoder 모듈의 묶음 효과다.
+
+고정된 후보의 Uniform-K↔Fixed를 score weighting 비교로 사용한다. Learned를 채택하면 Fixed↔Learned가 추가 refinement 비교이고, additive prior만의 효과에는 같은 learned head의 별도 no-logit-prior 대조를 쓴다. Matching ladder는 이웃 행끼리 비교하고, 최종 전달 구조의 대조는 Full와 비교할 수 있다. 모든 행을 무조건 Full에서 단일 parameter 하나만 제거한 실험이라고 설명하지 않는다.
 
 ### Ablation의 실제 평가
 

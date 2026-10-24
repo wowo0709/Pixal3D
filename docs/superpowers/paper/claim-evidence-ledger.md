@@ -23,6 +23,8 @@
 
 ## 결과 표의 역할
 
+최종 대조의 [코드·config 재사용 감사](../reports/2026-10-24-final-context-reuse-and-physical-controls-ko.md)를 반영한다. 기존 matching controls는 Top-1 appearance이며 E의 weighted Top-K와 자동으로 같지 않다. Uniform-K↔Fixed는 weighting, Fixed↔Learned는 refinement, 같은 learned head의 additive-logit-prior 제거는 직접 prior 항의 대조다. Raw→D1-score만으로 descriptor와 scalar score를 따로 입증하지 않는다. Fixed에 없는 learned Q/K의 voxel-query 필요성도 주장하지 않는다. 새 네 constructor/control과 trainer factory는 구현·53개 검사·actual matcher 생성자 검증까지이며 GPU flow/capacity/학습·평가 binding은 미완료다.
+
 - `tables/dev-ss128.tex`: 동일 SS panel의 완료된13개 endpoint와 조건부 비교. 원래 core family와 새 exploratory follow-up은 통계적으로 구분하고 Micro IoU와 섞지 않는다.
 - `tables/dev-joint32.tex`: V1/R/D1-cos/E_FIXED_RAW/E_LEARNED_RAW의 실제5개 조합 비교. V1/R baseline의 per-asset 일치 검증을 거친 결과다.
 - `tables/dev-matching32.tex`: 재사용한 matching 진단의 observable relation coverage. GT visibility는 진단 분모에만 사용하며 모델의 write gate가 아니다.

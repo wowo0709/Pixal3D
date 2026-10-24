@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+최종 문맥의 [코드·config 재사용 감사와 실제 대조 구현](2026-10-24-final-context-reuse-and-physical-controls-ko.md)을 반영한다. 기존 matching controls는 Top-1 전달이고 새 Fixed/Learned는 weighted shared evidence라 최종 문맥 대조로 자동 대체할 수 없다. Fixed에는 learned Q/K가 없으며 Uniform-K↔Fixed, Fixed↔Learned, 같은 learned head의 additive-prior 제거를 구분한다. 새 제어 경로는 생성자/trainer factory와53개 검사까지 준비됐고 GPU flow·capacity·학습/평가 binding은 남아 있다.
+
 최신 남은 작업 정리: [논문 완성을 위한 핵심 실험·ablation·writing 설계](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md). 최종 문맥의 대조와 기존 조건부 효과를 구별하고, 실제 cascade 평가 후 최종 모델을 결정한다.
 
 최신 후속 결과: E_LEARNED_RAW의480/DEV128×3는 IoU0.474794, 원래 FULL mean 제어는0.472679로 완료됐다. Learned−Fixed의 CI는0을 포함하고, 원래 FULL의 member−mean 점추정은−0.000601이다. 아래의11개 완료/후보 학습 중 설명은 최초 관측 기록이다. 최신 상태와 필요한 matched 대조는 [최종 파이프라인 계획](2026-10-24-final-pipeline-essential-experiments-and-writing-ko.md), 실제 figure·PDF·독립 seed 준비는 [후속 기록](2026-10-24-actual-qualitative-and-independent-seed-preparation-ko.md)을 따른다.
@@ -20,7 +22,7 @@ Learned의 실제 cascade32도 완료됐으며 R 대비 source LPIPS/DreamSim/CD
 | Learned V/output transform | C_DECODER → C_TOP1_V | 0.472600 → 0.472218 | −0.000382 | Voxel 지표에서는 개선 없음 |
 | 같은 V/O에서 Top-1 → fixed Top-K | C_TOP1_V → C_FIXED_TOPK | 0.472218 → 0.472745 | +0.000527 | 불확실한 후보의 결합에 긍정적 신호 |
 | Fixed 결합 → learned Q/K·utility | C_FIXED_TOPK → FULL | 0.472745 → 0.472078 | −0.000667 | 기존 learned attention의 SS IoU 추가 이득 없음 |
-| Attention 내부 matching prior | FULL_QK_ONLY → FULL | 0.472446 → 0.472078 | −0.000368 | Confidence prior의 추가 이득 미확인 |
+| Readout 내부 matching prior | FULL_QK_ONLY → FULL | 0.472446 → 0.472078 | −0.000368 | 해당 readout의 prior 사용 추가 이득 미확인; utility 입력도 바뀌는 기존 대조 |
 | Retargeter의 물리적 추가 | C_DECODER_NO_R → C_DECODER | 0.468671 → 0.472600 | +0.003929 | 현재 가장 큰 명확한 matched 점추정 |
 | 개별 voxel query → ray query | FULL_VOXEL_Q → FULL | 최종 비교 진행 중 | 미정 | Best에 포함됐다는 사실만으로 독립 기여를 확정하지 않음 |
 
