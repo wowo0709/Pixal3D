@@ -13,7 +13,7 @@
 | Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 동일 Top-K support/value 경로의 score 대조가 필요 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
 | Top-K attention이 Top-1보다 유효하다 | Fixed-K의 SS +0.000527 및 별도 DEV32 mask +0.003717 | 최종 경로의 matched 비교·독립 확인 | 후보 수와 결합의 묶음 효과로 한정 |
 | 추가 learned attention이 필요하다 | 새 anchored SS128×3 IoU0.474794로 fixed보다+0.001323, CI는0 포함; 완료된 cascade32는 R보다 LPIPS/DreamSim/CD 점추정 열위·F-Score 우위, 모두 CI는0 포함 | 더 넓은 paired cascade와 독립 확인; 최종 문맥의 비교 | SS 최고점이 pipeline 우위를 입증하지 않으며 필수성·전반적 preservation 개선은 미확정 |
-| Ray 단위 처리가 품질을 개선한다 | 설계와 실제 구현 확인; FULL_VOXEL_Q480 학습 완료·평가 연결 복구 | DEV128×3 집계 및 최종 경로 일치 | 원리 설명 가능, 독립 성능 기여 미확정 |
+| Ray 단위 처리가 품질을 개선한다 | 원래 FULL의 DEV128×3 완료: ray0.472078, voxel0.472314, Δ−0.000236; ten-contrast CI[−0.000878,+0.000351] | 최종 경로에 유효한 matched 대조 | 원래 FULL에서 양의 품질 효과 미확인. Ray 구조 설명 가능; 필수성·동등성 주장 불가 |
 | Member 후보가 품질을 개선한다 | 별도 matching DEV32의 exact@64 50.76%→73.36%; 그러나 완료된 FULL mean 제어 IoU0.472679 대 member FULL0.472078 | 원래 finite-family 통계와 최종 identity-value 경로의 matched 확인·downstream 연결 | 후보 coverage 개선은 확인; 기존 FULL에서 생성 품질의 양의 점추정은 아님 |
 | Retargeting이 유효하다 | C_NO_R→C_DECODER SS +0.003929; 실제 V1/R joint 및 combined branch 두 seed 재현 완료 | 최종 weighted 경로의 물리적 R 제거 비교; 단독 R 효과의 독립 seed는 미확인 | 현재 matched 설정의 효과로 한정; V1/R seed 반복은 R 단독 ablation 아님 |
 | Shared evidence 전달 자체가 개선 원인이다 | E_FIXED_RAW SS0.473471; FULL과는 복수 차이 | 동일 후보/가중치/R/V의 split-vs-shared 대조가 있어야 인과 주장 | 현재는 구조 설명; 독립 causal claim 보류 |
@@ -24,9 +24,16 @@
 
 ## 결과 표의 역할
 
+원래12모델/10개 module contrast/2개 pipeline contrast의 전체 통계가 완료됐다.
+모든10개 module-family 보정 CI는0을 포함하며, R 제거의+0.003929도
+보정 CI[−0.000525,+0.008987]다. 원래 FULL−V1의 보정 CI는 양수지만
+이를 개별 모듈의 필수성으로 해석하지 않는다. Top-1 combined branch의
+두 seed 재현과 최종 identity-value 구조의 후속 실험은 각각 별도 근거다.
+
 최종 대조의 [코드·config 재사용 감사](../reports/2026-10-24-final-context-reuse-and-physical-controls-ko.md)를 반영한다. 기존 matching controls는 Top-1 appearance이며 E의 weighted Top-K와 자동으로 같지 않다. Uniform-K↔Fixed는 weighting, Fixed↔Learned는 refinement, 같은 learned head의 additive-logit-prior 제거는 직접 prior 항의 대조다. Raw→D1-score만으로 descriptor와 scalar score를 따로 입증하지 않는다. Fixed에 없는 learned Q/K의 voxel-query 필요성도 주장하지 않는다. 새 네 대조는 native trainer/evaluator까지 구현했고115개 검사와4개 실제 GPU 초기 함수·backward proof를 통과했다. Micro96 capacity·480 학습·새 대조 cascade binding/실제 평가가 남아 있으며 성능 개선의 근거는 아직 없다. [최신 필수 실행 행렬](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 선택 모델별 학습 범위와 증거를 기록했다.
 
-- `tables/dev-ss128.tex`: 동일 SS panel의 완료된13개 endpoint와 조건부 비교. 원래 core family와 새 exploratory follow-up은 통계적으로 구분하고 Micro IoU와 섞지 않는다.
+- `tables/dev-ss128.tex`: 동일 SS panel의 완료된14개 endpoint와 조건부 비교. 원래 core family와 새 exploratory follow-up은 통계적으로 구분하고 Micro IoU와 섞지 않는다.
+- `tables/dev-original-module-effects.tex`: 완료된 원래12모델의10개 module-family 보정 CI. 최종 구조의 missing matched 대조를 대신하지 않는다.
 - `tables/dev-joint32.tex`: V1/R/D1-cos/E_FIXED_RAW/E_LEARNED_RAW의 실제5개 조합 비교. V1/R baseline의 per-asset 일치 검증을 거친 결과다.
 - `tables/dev-matching32.tex`: 재사용한 matching 진단의 observable relation coverage. GT visibility는 진단 분모에만 사용하며 모델의 write gate가 아니다.
 - `tables/final-main-template.tex`: TEST508, 사용자 지정10개 metric. 미측정은 대시로 남긴다.

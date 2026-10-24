@@ -1,0 +1,27 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrr}
+\toprule
+Original study contrast&Paired IoU change&Ten-contrast family CI95\\
+\midrule
+Spatial to raw semantic&+0.001117&[-0.003255, +0.004969]\\
+Raw to decoder descriptor&+0.000648&[-0.003386, +0.005441]\\
+Decoder cosine to scalar score&-0.000408&[-0.002740, +0.001883]\\
+Value transform&-0.000382&[-0.004135, +0.003479]\\
+Top-1 to fixed Top-K&+0.000527&[-0.000955, +0.001938]\\
+Learned attention&-0.000667&[-0.002299, +0.000777]\\
+Original matching-prior control&-0.000368&[-0.002372, +0.001694]\\
+Ray versus voxel query&-0.000236&[-0.000878, +0.000351]\\
+Retargeting at Top-1&+0.003929&[-0.000525, +0.008987]\\
+Member versus mean proposal&-0.000601&[-0.002246, +0.001262]\\
+\bottomrule
+\end{tabular}
+\caption{Completed original twelve-model DEV128 experiment, training seed101,
+three paired generation noises. All ten prespecified module-family adjusted
+intervals include zero. Contrasts retain their original contexts: retargeting
+is tested at Top-1, ray queries in the original learned readout, and the
+original prior control also changes utility inputs. Spatial-to-semantic
+substitution changes support from spatial3 to semantic64. These results do
+not replace final-context matched controls of the shared identity-value design.}
+\label{tab:original-module-effects}
+\end{table}

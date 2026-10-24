@@ -312,11 +312,27 @@ treated as one paired downstream experiment.
 
 The completed mean-descriptor control in the original FULL family reaches
 macro SS IoU 0.472679, compared with 0.472078 for its member-based counterpart.
-The member-minus-mean point estimate is -0.000601; the original complete-family
-analysis awaits the voxel-query endpoint. Thus the observed candidate-coverage
+The member-minus-mean point estimate is -0.000601; its completed ten-contrast
+family interval is $[-0.002246,0.001262]$. Thus the observed candidate-coverage
 gain is not a demonstrated generative benefit in that family. This comparison
 also does not identify the effect of member proposals inside the newer
 identity-value evidence architecture.
+
+\paragraph{Completed original module comparison family.}
+The original voxel-query endpoint reaches macro IoU 0.472314. Ray minus
+voxel query in the original FULL architecture is $-0.000236$, with the
+ten-contrast family interval $[-0.000878,0.000351]$. This experiment does not
+establish a positive quality effect of ray grouping. All ten original
+module-family intervals include zero (Table~\ref{tab:original-module-effects});
+this is neither evidence of equivalence nor a reason to attribute their
+effects to the newer shared-evidence design. The original FULL improves
+over vanilla by 0.004723, with its two-pipeline-contrast family interval
+$[0.000288,0.009394]$, but its change from Top-1 retargeting is $-0.000522$
+with interval $[-0.003339,0.002567]$. A positive pipeline comparison therefore
+does not establish necessity of its individual modules. Final-context
+weighting, physical retargeter removal, and valid query controls remain
+separate required experiments.
+\input{tables/dev-original-module-effects.tex}
 
 The fixed-evidence candidate improves development SS macro IoU from 0.467355
 for vanilla fine-tuning to 0.473471. Anchored learned probability refinement
@@ -429,8 +445,8 @@ the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 
 \section{Limitations and pending claims}
-Final ray-versus-voxel and complete-family analysis, broader paired cascade
-confirmation, the final-context matched controls, independent training of
+The original twelve-model, ten-module-contrast family is complete. Broader
+paired cascade confirmation, the final-context matched controls, independent training of
 the selected candidate and PBR, and held-out test results are pending.
 Two training pairs confirm the combined Top-1 branch at the SS stage;
 they do not isolate each component or establish cascade generalization.
