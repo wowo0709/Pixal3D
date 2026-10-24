@@ -30,6 +30,10 @@
 이를 개별 모듈의 필수성으로 해석하지 않는다. Top-1 combined branch의
 두 seed 재현과 최종 identity-value 구조의 후속 실험은 각각 별도 근거다.
 
+추가 실행: 새 대조의 cascade binding까지169개 단위/계약 검사가 통과했고,
+Uniform-K는 실제 micro96/accum1·3-update capacity를 완료해480-step 과학 학습을
+시작했다. 실제 본 학습 결과와 새 대조의 full-cascade 품질은 아직 미측정이다.
+
 최종 대조의 [코드·config 재사용 감사](../reports/2026-10-24-final-context-reuse-and-physical-controls-ko.md)를 반영한다. 기존 matching controls는 Top-1 appearance이며 E의 weighted Top-K와 자동으로 같지 않다. Uniform-K↔Fixed는 weighting, Fixed↔Learned는 refinement, 같은 learned head의 additive-logit-prior 제거는 직접 prior 항의 대조다. Raw→D1-score만으로 descriptor와 scalar score를 따로 입증하지 않는다. Fixed에 없는 learned Q/K의 voxel-query 필요성도 주장하지 않는다. 새 네 대조는 native trainer/evaluator까지 구현했고115개 검사와4개 실제 GPU 초기 함수·backward proof를 통과했다. Micro96 capacity·480 학습·새 대조 cascade binding/실제 평가가 남아 있으며 성능 개선의 근거는 아직 없다. [최신 필수 실행 행렬](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 선택 모델별 학습 범위와 증거를 기록했다.
 
 - `tables/dev-ss128.tex`: 동일 SS panel의 완료된14개 endpoint와 조건부 비교. 원래 core family와 새 exploratory follow-up은 통계적으로 구분하고 Micro IoU와 섞지 않는다.

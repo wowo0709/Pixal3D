@@ -55,6 +55,8 @@ GPU case worker는 기존 native Shape/PBR/render 호출을 유지하고 own bin
 
 ## 5. 다음 종료 조건
 
+21:52 UTC 후속: Uniform-K capacity가 실제 완료됐다. Global96/micro96/accum1·임시3 updates·optimizer states370·frozen base exact·모든 source gradient positive finite·initial native32 identity가 통과했고 native/wrapper의 file4 closure가 있다. Peak allocated89.624GiB/reserved93.980GiB이며 update2/3 시간은36.563/36.850초다. 이는3-update capacity 결과이고 장기 학습 무OOM 보장은 아니다. 이어 GPU7 science wrapper1857793/child1857820가 실제 실행돼 initial validation부터 시작했다. 과학 학습480과 그 후의 SS/cascade 품질 평가는 아직 미완료다.
+
 21:49 UTC 후속: 원래12모델/10모듈/2 pipeline 비교 통계가 실제 완료·file4 보존·[W&B 로깅](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-unified-twelve-model128x3-s101-v166)됐다. Uniform-K capacity도 GPU7 wrapper1854741/child1854782에서 실제 실행 중이다. 아래의 original family 완료 항목은 해소됐다.
 
 | 원래 구조의 비교 | Δ macro IoU | 보정 family CI95 |
