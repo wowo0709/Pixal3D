@@ -67,3 +67,19 @@ FID/KID, 다른 training seed, 완료되지 않은 원래 SS 대조군, 공통 �
 11:03 UTC에 실제 GPU pilot3개가 모두 성공했다. Baseline을 포함한4개 렌더의 실제 vertices/faces가 모두 동일한998,920-face mesh였고,12개 view의 GT float RGB/alpha buffer도 정확히 같았다. 첫 case에서 기존 모델별2–12 pixel의 binary-alpha 차이는 수정 후0이었다. 이것은 렌더 조건이 통제됐다는 증거이며 모델 성능 순위의 증거는 아니다. Opacity 자체는 각 모델의 원래 값을 유지하므로 다른 asset에서는 재질에 따른 alpha 차이가 가능하다.
 
 관련 CPU50개 검사도 통과했다. Pilot 성공 후 남은93개 GPU render-only case, 전체128개 case의 exact-geometry CPU gate, coverage, official384-view metric 평가와 최종 집계를 실제 큐에 연결했다. Source snapshot과 plan·queue receipt는 file4에 보관했다. 원래 학습·sampling 작업과 source pin은 유지했다.
+
+## 고정 mesh에서의 PBR retargeting DEV32 중간 결과
+
+11:17 UTC에 vanilla와 Top-1 retargeting PBR 각각32개의 수정 평가가 완료됐다. 같은 V1 SS·생성 Shape와 asset별 고정 렌더 triangles, native guide, 초기 texture noise·sampler를 사용한다.32개 asset/source cluster, training seed101, 생성 noise1회다. 원본 native sampling 성공 기록과 수정 render/shared-score의 실제 성공 terminal을 각각 확인했다. CPU에서64개 실제 렌더 mesh와192개 view의 GT float RGB/alpha를 다시 읽어 일치함을 확인했다.
+
+| Metric | Vanilla PBR | Top-1 retargeting PBR | 차이 |
+|---|---:|---:|---:|
+| Source9/10 full-frame LPIPS ↓ | 0.05309933 | 0.05298409 | −0.00011524 |
+| Target8 full-frame PSNR ↑ | 24.47068 | 24.54852 | +0.07784 |
+| Target8 full-frame SSIM ↑ | 0.9504881 | 0.9505851 | +0.0000970 |
+| Target8 alpha-mask IoU ↑ | 0.8809446 | 0.8809821 | +0.0000375 |
+| Target8 foreground PSNR（보조）↑ | 12.36167 | 12.44070 | +0.07903 |
+
+LPIPS·PSNR·SSIM 각각에서 개선된 asset은17/32개다. 평균 변화가 작아 retargeting의 강한 PBR 성능 향상을 입증한 결과로 취급하지 않는다. Mask 차이는1개 asset에서 발생했으며, geometry와 raw surface CD/F-Score는 동일하므로 opacity에 따른 차이로 해석한다. DreamSim·CLIP과 원래4개 모델 전체 paired CI는 아직 이 중간 읽기에 포함하지 않았다. 추가 통계 검정이나 모델 선정도 수행하지 않았다.
+
+이 PBR 비교는 원본 cascade에서의 noise를 그대로 재사용하지 않고, 같은 generated geometry에서 공통 seed로 texture noise를 새로 만들어 네 PBR 모델에 동일하게 전달한다. 따라서 위 vanilla 수치를 앞부분 SS5개 모델 평가의 vanilla 수치와 섞어 비교하지 않는다. FID/KID와 독립 training seed, 최종 TEST508도 여전히 필요하다.
