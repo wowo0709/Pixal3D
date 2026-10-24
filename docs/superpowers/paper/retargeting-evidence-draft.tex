@@ -1,0 +1,249 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.8in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx,hyperref}
+\newcommand{\pending}{\textemdash}
+\title{Ray-Based Semantic Evidence Retargeting for Multi-View 3D Editing}
+\author{Working manuscript; title and final model subject to confirmation}
+\date{Development draft, 24 October 2026 UTC}
+\begin{document}
+\maketitle
+
+\noindent\textbf{Draft status.} Method and protocol text below describe implemented
+candidate designs. The final architecture is not yet selected. All populated
+results are development measurements, not held-out test results. Empty entries
+remain unmeasured. Related-work citations, the final abstract, and claims of
+generalization must be completed after the planned confirmation experiments.
+
+\section{Problem and design motivation}
+We study multi-view 3D editing from one edited target RGB image and three
+undeformed source RGB images with calibrated cameras. The target specifies a
+geometric edit, while the sources provide complementary appearance evidence.
+Unchanged spatial projection can associate a source feature with an incorrect
+location after deformation. Semantic retrieval offers an alternative, but a
+single retrieved correspondence can be unreliable, and a better correspondence
+score does not by itself establish an improvement in the generated asset.
+
+We investigate a source-adaptation path that preserves the pretrained
+multi-view conditioning function at initialization. The design separates
+candidate retrieval, candidate aggregation, ray-based feature delivery, and
+retargeting. This separation permits matched comparisons of individual choices
+and prevents a gain from one component from being attributed to another.
+
+\section{Method}
+\subsection{Pretrained multi-view carrier and ray groups}
+Let $T$ be the native target feature map, $S_j$ the native feature map of source
+view $j\in\{1,2,3\}$, and $P_j$ its calibrated projection into the SS conditioning
+grid. We retain the original four-view carrier $C_{\mathrm{MV4}}$, including
+its native target contribution and global-conditioning tokens. For a source
+camera and image patch $p$, define a ray group
+\begin{equation}
+ \mathcal R_{j,p}=\{x:\pi_j(x)=p\}.
+\end{equation}
+Voxels assigned to this camera ray share an image-space evidence decision.
+Native bilinear projection distributes the resulting map to the grid. This is
+different from predicting an independent attention output for each voxel.
+The grouping is determined by the input cameras; it does not require a target
+surface depth or a surface-visibility test at inference.
+
+\subsection{Semantic proposals and member-preserving matching}
+For each observed target patch $m$, raw semantic similarity retrieves an
+initial set of $K=64$ source patches across the three source images. A frozen
+matching decoder contextualizes the target descriptor, and its score head
+produces a categorical distribution $p_m(k)$ on these proposals. We separately
+evaluate raw semantic descriptors, learned contextual descriptors, and use of
+the scalar matching score; these are distinct design choices.
+
+One source-camera ray may intersect grid sites assigned to different target
+patches. Let $\mathcal M_r$ contain the distinct observed target patches of ray
+$r$. The member-based candidate construction averages their normalized
+distributions before retaining a final $K$-element support:
+\begin{equation}
+ \bar p_r(k)=\frac{1}{|\mathcal M_r|}\sum_{m\in\mathcal M_r}p_m(k),\qquad
+ p_r(k)=\frac{\bar p_r(k)}{\sum_{l\in\mathcal K_r}\bar p_r(l)},\quad k\in\mathcal K_r.
+\end{equation}
+Here $\mathcal K_r=\operatorname{TopK}(\bar p_r)$; missing entries in an
+individual member distribution have zero mass. Duplicate occurrences of the
+same target patch vote once. This retains complementary candidate modes
+before the final truncation, rather than matching one averaged descriptor.
+The observation support uses input image alpha and camera addresses. It is
+not an inferred surface-visibility mask.
+
+\subsection{Matching-aware evidence aggregation}
+The fixed-evidence candidate aggregates original source values $v_k$ as
+\begin{equation}
+ E_r=\sum_{k\in\mathcal K_r}p_r(k)v_k.
+\end{equation}
+The value features retain their native magnitude. The same evidence is used
+by the carrier update, source-use decision, and retargeter. Thus matching
+weights influence attention without requiring an additional learned value or
+output projection.
+
+We also evaluate a learned refinement with four heads and identity values.
+For head $h$, the learned score difference is anchored to its initial score:
+\begin{equation}
+ a_{rhk}=\operatorname{softmax}_{k\in\mathcal K_r}
+ [\log p_r(k)+s_{rhk}(\theta)-s_{rhk}(\theta_0)],\qquad
+ E_r=\sum_k\left(\frac14\sum_h a_{rhk}\right)v_k.
+\end{equation}
+The implementation centers the score difference by its prior-weighted mean,
+which does not change the softmax. Zero prior support remains zero. This
+initializes the learned candidate to exactly the fixed matching distribution.
+Additional learned refinement is a tested option, not a prerequisite assumed
+by the method description. Comparisons with learned value/output transforms
+are reported separately.
+
+\subsection{Source contrast retargeting and native fallback}
+Let $u_r$ be a learned source-use probability and $g$ a signed, bounded fusion
+gate. The retargeter receives the displacement between retrieved evidence and
+the source feature already present in the native carrier, together with
+target context:
+\begin{equation}
+ R_r=R_\phi([E_r-S_r,\,T_r]),\qquad
+ \Delta_r=u_r\{g(E_r-S_r)+R_r\}.
+\end{equation}
+The resulting SS conditioning is
+\begin{equation}
+ C=C_{\mathrm{MV4}}+\frac14\sum_{j=1}^3P_j(\Delta_j).
+\end{equation}
+Subtracting $S_r$ is appropriate here because that feature is present in
+$C_{\mathrm{MV4}}$. It would not be appropriate for a target-only carrier.
+At initialization, $g=0$ and the retargeter output is zero, restoring the
+native conditioning function. Rays without matching evidence contribute zero
+correction and retain the native multi-view prior. This fallback does not
+write a zero-valued observation into the source feature map.
+
+The target feature extraction and its direct conditioning path are retained.
+The source branch is the only adapted image-conditioning path. This structural
+property does not guarantee exact target RGB preservation by the generated
+asset, which remains an empirical evaluation question. No extra
+surface-visibility write mask is introduced.
+
+\subsection{Stage composition}
+SS64 and PBR1024 continue the supplied multi-view LoRA checkpoints and their
+matching configurations. Shape512 and Shape1024 remain frozen. The matching
+backbone and decoder are frozen during these generative fine-tuning runs.
+PBR retargeting is compared with vanilla PBR on identical generated geometry,
+archived native guides, texture sampling noise, and rendering triangles.
+The PBR feature-correction candidates are distinct from the SS identity-value
+aggregation above; no shared positive effect across stages is presumed.
+
+\section{Experimental protocol}
+\subsection{Data and initialization}
+Deformation fine-tuning uses the constructed DeformNeXt-10k split, with 9,149
+SS training examples, 508 validation examples, and 508 test examples. PBR
+training uses 9,139 examples after the recorded training-only exclusion of ten
+oversized cases. Source-asset identities are disjoint across these deformation
+splits. This does not establish disjointness from the earlier multi-view
+pretraining data. The mixed385 subset (80,892 training assets and 950 validation
+assets) describes that earlier multi-view fine-tuning, not the deformation
+fine-tuning population.
+
+The supplied multi-view checkpoints are SS64 step 4,210 and PBR1024 step
+16,850. Both frozen base weights and LoRA weights are loaded using their
+original configurations. The frozen shape checkpoints are Shape512 step
+4,210 and Shape1024 step 16,850. The matching backbone uses the selected
+VGGT-Omega epoch-7 checkpoint. Exact weight and input identities are retained
+in the experimental records.
+
+SS comparisons use 480 optimizer updates with global batch 96, LoRA rank and
+alpha 16, denoiser learning rate $10^{-5}$, and conditioner learning rate
+$10^{-4}$. PBR comparisons use 1,900 updates with global batch 24, denoiser
+learning rate $5\times10^{-6}$, and conditioner learning rate $10^{-4}$.
+These budgets correspond to approximately five passes through their respective
+training populations. Ablation inputs, initialization, budget, sampler, and
+evaluation pairing are held fixed. Removed components are physically absent;
+absent channels are not replaced by zero placeholders.
+
+\subsection{Development, independent confirmation, and final test}
+The SS development panel contains 128 examples from 93 source-asset clusters,
+evaluated using three paired generation-noise seeds and 12 sampling steps.
+Generation-noise repetitions are averaged within an example before inference
+over source clusters. They are not independent training seeds. The completed
+SS results in this draft use training seed 101; training seed 202 confirmation
+is a separate experiment. Rendering development uses a fixed 32-example
+panel and one generation-noise realization.
+
+Final model choice uses both geometric alignment and source preservation,
+rather than SS IoU alone. Required validation fresh-load/cache checks,
+independent-training confirmation, model selection, and protocol freezing
+precede evaluation on all 508 test examples. The final table compares
+source-only zero-shot, edited-target zero-shot, vanilla fine-tuning,
+retargeting, and the selected combined model when it is distinct. Source-only
+zero-shot uses four undeformed M0 RGB views, including the original target
+camera. Edited-target input uses M1 RGB at camera 8 and M0 RGB at cameras
+9, 10, and 11.
+
+\subsection{Metrics and statistical scope}
+Source appearance is evaluated by LPIPS and DreamSim at cameras 9 and 10,
+with CLIP as a complementary semantic measure. References preserve the
+original material identity on the edited M1 geometry; they are not undeformed
+M0 RGB images. Target alignment is evaluated by PSNR, SSIM, and 2D alpha-mask
+IoU at camera 8, together with Chamfer distance and surface F-Score in 3D.
+Surface evaluation uses 20,000 points and F-Score threshold 0.02 in the fixed
+normalized frame, without a result-specific ICP alignment. Voxel IoU is an SS
+diagnostic and is not substituted for these mesh/rendering endpoints.
+
+FID and KID assess the global rendered-image distribution using the full
+prescribed final panel. They are not per-asset scores. The finite-sample KID
+estimate is reported with its sign. Official perceptual/inception evaluation
+uses FP32 with TF32 and autocast disabled. All models use the same reference,
+camera, rendering, and image preprocessing protocols. Cameras 8--10 are input
+camera evaluations; these results are not evidence of novel-view performance.
+
+Paired uncertainty estimates resample source-asset clusters, retaining the
+dependence between deformations of an asset and between generation noises.
+The original finite ablation family and the subsequent evidence follow-up
+are reported as separate studies. The DEV32 intervals in this draft are
+exploratory and unadjusted; they are not final test confirmation. Primary
+geometry endpoints are CD/F-Score, and primary appearance endpoints are
+LPIPS/DreamSim. Positive CLIP results do not change that priority after the fact.
+
+\section{Development results and bounded interpretation}
+\input{tables/dev-joint32.tex}
+\input{tables/dev-ss128.tex}
+
+The fixed-evidence candidate improves development SS macro IoU from 0.467355
+for vanilla fine-tuning to 0.473471. In the actual DEV32 composition, however,
+its geometry and appearance move in different directions. Relative to the
+retargeting composition, Chamfer distance decreases by 0.00008579 and surface
+F-Score increases by 0.005146, while source LPIPS increases by 0.001186 and
+DreamSim increases by 0.005393. The exploratory paired interval for the LPIPS
+change is [0.000224, 0.002275]; the F-Score interval is
+[-0.000163, 0.011128]. Therefore this candidate is not established as a general
+improvement over retargeting. It also illustrates why stage-level occupancy
+accuracy is insufficient for selecting a complete editing pipeline.
+
+The contextual matching descriptor has a positive SS point estimate relative
+to raw semantic descriptors, whereas adding the scalar matching score has a
+negative point estimate in that tested Top-1 path. Fixed Top-K aggregation and
+additional learned Q/K refinement are consequently separate hypotheses.
+Earlier learned attention improves source CLIP in one exploratory rendering
+comparison while LPIPS/DreamSim do not improve. These results support reporting
+endpoint-specific tradeoffs rather than a universal preservation claim.
+
+The PBR same-geometry comparison does not currently establish an additional
+benefit from feature correction or raw Top-K appearance input over Top-1
+retargeting. Stage-specific composition and independent training confirmation
+remain required before selecting the final pipeline.
+
+\section{Ablation and final-table completion}
+\input{tables/final-main-template.tex}
+\input{tables/final-ablation-template.tex}
+Only a missing matched control in the selected architecture requires new
+ablation training. An inference-time module deletion is a diagnostic, not a
+replacement for matched training. Top-1 versus weighted Top-K identifies a
+combined candidate-count/aggregation effect; isolating scalar score utility
+requires the same Top-K support and value path. Likewise, differences between
+the original FULL implementation and a shared-evidence implementation cannot
+be attributed solely to shared routing without a matching routing control.
+
+\section{Limitations and pending claims}
+Final ray-versus-voxel, mean-versus-member, and learned-versus-fixed evidence
+results, the final-context matched controls, independent training seed
+confirmation, and held-out test results are pending. Geometric improvement
+does not ensure source appearance improvement. Preserving the direct target
+stream does not guarantee unchanged target output. Input-alpha support is not
+surface visibility, and the source-use gate is not a calibrated occlusion
+predictor. The final abstract, concluding superiority claims, quantitative
+contribution statements, and final model label must follow these experiments.
+\end{document}

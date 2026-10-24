@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lr}
+\toprule
+SS model&Macro voxel IoU$\uparrow$\\
+\midrule
+V1&0.467355\\
+C\_SPATIAL&0.471242\\
+C\_RAW&0.472360\\
+C\_D1\_COS&0.473008\\
+C\_DECODER&0.472600\\
+C\_DECODER\_NO\_R&0.468671\\
+C\_TOP1\_V&0.472218\\
+C\_FIXED\_TOPK&0.472745\\
+FULL&0.472078\\
+FULL\_QK\_ONLY&0.472446\\
+E\_FIXED\_RAW&0.473471\\
+\bottomrule
+\end{tabular}
+\caption{Eleven completed SS endpoints on DEV128, 93 source clusters, three generation noises, training seed 101, and 480 updates. The noises are averaged per example. Ray/voxel, mean/member, and learned-evidence endpoints remain pending and are not fabricated. FULL is an implementation identifier, not the final selected model.}
+\label{tab:dev-ss128}
+\end{table}
