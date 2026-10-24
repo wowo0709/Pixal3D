@@ -63,3 +63,7 @@ FID/KID, 다른 training seed, 완료되지 않은 원래 SS 대조군, 공통 �
 후속 PBR4 평가의 첫 공통 case를 실제 배열로 대조했다. 네 모델의 raw vertices/faces와 native guide·초기 texture noise는 같았지만, 원본 renderer가 각 case에서 native mesh simplification을 별도로 실행해 최종 렌더 triangles가 달라졌다. 같은2,966,356-face raw mesh에서 renderer face 수가998,920/998,470/999,948/998,620으로 달랐다. 원본 surface 지표는 유지되지만 PBR만의 렌더 효과를 분리할 때에는 같은 face budget만으로 충분하지 않다.
 
 이를 해결하는 `fixed-render-geometry-PBR4-native32-v203` successor는 asset별 vanilla의 실제 단순화 mesh를 한 번 고정한다. 각 모델의 원래 PBR attributes·sparse support를 그대로 유지한 render-only 입력을 만들고, 기존 renderer를 수정 없이 호출한다. 입력이 이미 budget 안에 있으므로 추가 simplification을 건너뛴다. 실제 렌더 vertices/faces가 고정 mesh와 정확히 같은지 검사하며, 원래 sampling 결과·raw mesh·surface metric은 보존한다. 원래 공통-geometry PBR4 렌더 결과는 같은 budget의 탐색 결과로 보존하고, PBR 선정에는 이 수정 평가를 요구한다. 새 학습 arm이나 SS/Shape/PBR generation forward는 추가하지 않는다.
+
+11:03 UTC에 실제 GPU pilot3개가 모두 성공했다. Baseline을 포함한4개 렌더의 실제 vertices/faces가 모두 동일한998,920-face mesh였고,12개 view의 GT float RGB/alpha buffer도 정확히 같았다. 첫 case에서 기존 모델별2–12 pixel의 binary-alpha 차이는 수정 후0이었다. 이것은 렌더 조건이 통제됐다는 증거이며 모델 성능 순위의 증거는 아니다. Opacity 자체는 각 모델의 원래 값을 유지하므로 다른 asset에서는 재질에 따른 alpha 차이가 가능하다.
+
+관련 CPU50개 검사도 통과했다. Pilot 성공 후 남은93개 GPU render-only case, 전체128개 case의 exact-geometry CPU gate, coverage, official384-view metric 평가와 최종 집계를 실제 큐에 연결했다. Source snapshot과 plan·queue receipt는 file4에 보관했다. 원래 학습·sampling 작업과 source pin은 유지했다.
