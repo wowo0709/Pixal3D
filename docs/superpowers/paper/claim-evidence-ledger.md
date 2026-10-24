@@ -54,6 +54,11 @@ micro96 capacity를 실제 통과해 본 학습을 시작했다. Fixed seed202�
 등록했다. GPU proof/capacity/science/실제 quality는 아직 미완료다. 이전 Top-1 ladder의
 수치를 이 최종 문맥으로 대체하지 않는다. [구현·실행 기록](../reports/2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)을 따른다.
 
+진행 중인 Fixed 문맥 No-R/Uniform의 첫 epoch quick32 readout에서는 초기 macro IoU가
+모두0.458358로 일치한다. Step96 No-R0.463828 대 Fixed0.461789의 양의 점추정이 있어
+최종 R 필요성을 가정하지 않는다. 아직5epoch/DEV128×3가 아니며 ablation의 최종
+수치로 채우지 않는다. Global occupancy IoU와 macro mean asset IoU도 구별한다.
+
 ## Writing에서 지킬 해석
 
 Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이다. CLIP은 semantic 보조 지표이고 FID/KID는 global naturalness다. “All metrics improve”, “all modules are necessary”, “learned attention is essential”은 현재 근거에 없는 문장이다. 원래 비교 family와 이후 탐색적 follow-up, training seed와 generation noise를 구분한다. 음의 결과와 실패 사례도 discussion에 보존한다.

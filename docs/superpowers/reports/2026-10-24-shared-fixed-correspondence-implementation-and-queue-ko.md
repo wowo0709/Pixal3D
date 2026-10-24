@@ -54,6 +54,8 @@ Matching ladder는 인접 행끼리, aggregation/retargeting은 Fixed 기준으�
 
 ## 6. 남은 전체 목표
 
+23:12 UTC 첫 epoch readout: V1/Fixed/Uniform/No-R의 동일 quick32·noise1·GT pairing을 확인했다. 초기 macro IoU는 네 모델 모두0.458358이며 초기 함수 하락은 없다. Step96의 macro IoU는 V1 0.463801, Fixed0.461789, Uniform0.461136, No-R0.463828이다. No-R가 이 초기 panel에서 Fixed보다+0.002039이며, 이로부터 최종 R 필요성을 주장하지 않는다. 같은 step의 global occupancy IoU는 각각0.433979/0.431676/0.431575/0.433038로 macro와 다르다. 이 값들을 최종 DEV128×3 수치와 혼합하지 않는다.5에폭을 유지하고 최종 matched 평가를 기다린다. 실제 완료된0/96 entry snapshot과 file4 closure는 `shared-Fixed-first-epoch-readout-v304`에 보존했다.
+
 1. 진행 중인 Uniform-K/No-R와 새3개 correspondence arm의 실제 proof/capacity/480·SS128×3를 완료한다.
 2. 학습된 own SS archive를 같은 frozen Shape/Top-1 R PBR에 연결해 CD/F-Score·LPIPS/DreamSim을 포함한 실제 downstream 평가를 한다. Case binding 구현과 실제 cascade 품질 완료를 구분한다.
 3. 선택 Fixed seed202 및 필수 PBR vanilla/R seed202를 완료하고 실제 checkpoint/trace/두 seed 통계·fresh-load를 검증한다.
