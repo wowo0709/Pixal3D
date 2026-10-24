@@ -36,6 +36,8 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 
 실제 cascade와 같은32 asset/noise에서 SS IoU는 R0.476967·Fixed0.478940·Learned0.477442다. Full128×3의 learned/fixed 순위와 다르다. 서로 다른 panel/noise의 순위 차이만으로 모듈 구현 오류나 loss의 causal failure를 결론내리지 않는다.
 
-학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측하는 [활용 진단을 구현·연결했다](../reports/2026-10-24-trained-attention-utilization-preparation-and-paper-ko.md). 실제 GPU 결과는 pending이다. Top-1 miss/Top-K hit subset의 GT mass·source-use·실제 correction과 기존 downstream metric의 association을 읽으며, diagnostic Uniform-K를 matched 학습 ablation으로 대체하지 않는다.
+학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측한 활용 진단이 완료됐다. Native BF16의50,516개 observable relation 중 Top-1 miss/Top-K hit31,408개에서 exact GT mass는 Uniform-K1.6266%, Fixed6.4601%, Learned6.1756%다. Learned−Fixed는−0.2844pp, 탐색용 cluster CI95 [−0.9776,+0.4890]pp로 추가 이득을 확인하지 못했다. Prior 대비 확률 변화 자체는 실제로 관측됐다. 따라서 matching prior의 후보 활용과 learned refinement의 추가 효과를 나누어 서술한다.
+
+과거 CPU FP32 진단50,493개와 actual BF16 관계50,516개는 projection precision의 patch rounding 차이로 분모가 다르며, native GPU 주소의 실제 재구성으로 원인을 확인했다. 기존 CPU core parity를 GPU precision parity로 확대 해석하지 않는다. 저장 관측의 source-use·correction 및 downstream association은 진단이며, diagnostic Uniform-K는 matched 학습 ablation을 대신하지 않는다. 실제 audit/closure와 남은 실험은 [최신 핵심 계획](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)의 기전 항목에 연결했다.
 
 [원래24개 문헌의 primary-source 대조](../reports/2026-10-24-paper-primary-literature-and-claim-scope-ko.md)를 반영해 correspondence-aware attention과 projection conditioning 자체를 신규 기여로 주장하지 않는다. 현재의 입력은 edited-target RGB와 source RGB이며 GT target mesh를 추론 입력으로 서술하지 않는다. 외부 editing/texturing 방법의 입력 차이는 문제 설정 설명이며, 실행하지 않은 비교의 성능 우위 근거가 아니다.

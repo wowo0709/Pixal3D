@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .cascade_view_roles import ClosedInputs, file_sha256
 from .dev128_pipeline_contract import validate_archive128
-from .ray_attention_utilization import utilization, summarize_counts, mass_intervals
+from .ray_attention_utilization import utilization, summarize_counts, mass_intervals, validate_native_population
 
 
 def main():
@@ -195,12 +195,12 @@ def main():
                           SS_noise0=index['SS_archives'][arm]['path'])
             records[arm].append(record); write(out/arm/'records'/f'{i:02d}.json',record)
     summaries = {arm:summarize_counts(rows) for arm,rows in records.items()}
-    if any(s['observable_relations'] != matching_reference['observable_relations'] for s in summaries.values()):
-        raise ValueError('native observation changed existing observable-relation denominator')
+    population = validate_native_population(records, matching_reference, read(plan['ray_address_evidence']))
     guard()
     report = dict(status='PASS_ACTUAL_TRAINED_RAY_ATTENTION_UTILIZATION_DEV32',assets=32,source_clusters=32,
                   models=model_proofs,summaries=summaries,records=records,
                   recoverable_mass_intervals={arm:mass_intervals(rows) for arm,rows in records.items()},
+                  actual_relation_population=population,
                   actual_all_NN_forward_device='cuda',
                   physical_GPU=gpu,GPU_name=torch.cuda.get_device_name(0),actual_TF32=torch.backends.cuda.matmul.allow_tf32,
                   peak_allocated_GiB=torch.cuda.max_memory_allocated()/2**30,

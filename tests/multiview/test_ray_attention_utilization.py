@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from experiments.deformnext_retargeting.ray_attention_utilization import utilization, summarize_counts, mass_intervals
+from experiments.deformnext_retargeting.ray_attention_utilization import utilization, summarize_counts, mass_intervals, validate_native_population
 
 
 def example():
@@ -79,3 +79,41 @@ def test_mass_intervals_cluster_all_deformations_and_expose_empty_resamples():
     out = mass_intervals(rows,draws=100)
     assert out['source_clusters'] == 2
     assert 0 < out['excluded_empty_subset_draws'] < 100
+
+
+def native_population():
+    records = {a: [] for a in ['E_FIXED_RAW','E_LEARNED_RAW']}; old = []; proofs = []
+    for i in range(32):
+        row = dict(sample_id=str(i),source_cluster_id=str(i),GT_fingerprint='label',
+                   input_tensor_SHA256={'rays':'same'},SHA256='actual_observation',counts={'observable_relations':3})
+        for arm in records: records[arm].append(dict(row))
+        old.append(dict(sample_id=str(i),source_cluster_id=str(i),GT_fingerprint='label',
+                        modes={'member-point-D1-mixture64':{'counts':{'observable_ray_target_patch_pairs':2}}}))
+        proofs.append(dict(sample_id=str(i),source_array_SHA256='actual_observation',
+                           observable_relations={'CPU_FP32':2,'GPU_BF16':3,'actual_saved_native':3},
+                           ray_address_equality_to_saved_native={'GPU_BF16':True}))
+    evidence = dict(status='PASS_ACTUAL_OLD_CPU_AND_SAVED_NATIVE_CAMERA_ADDRESS_DIAGNOSIS',assets=32,
+                    old_CPU_diagnostic_all32_relation_counts_exact=True,original_native_code_unmodified=True,
+                    NN_forward_or_training=0,all_assets_exact_native_address_modes=['GPU_BF16'],records=proofs,
+                    CPU_to_native_ray_address_differences=32,CPU_to_native_relation_symmetric_difference=32)
+    return records, {'records':old}, evidence
+
+
+def test_native_population_change_requires_explicit_actual_address_evidence():
+    records, old, proof = native_population(); result = validate_native_population(records,old,proof)
+    assert result['historical_CPU_FP32_relations'] == 64
+    assert result['actual_native_BF16_relations'] == 96
+    assert result['historical_and_native_ray_addresses_identical'] is False
+    with pytest.raises(ValueError): validate_native_population(records,old,{})
+
+
+@pytest.mark.parametrize('damage',['pair','proof','GT','address','duplicate'])
+def test_native_pair_and_provenance_cannot_be_relaxed_to_match_only_total(damage):
+    records, old, proof = native_population()
+    if damage=='pair': records['E_LEARNED_RAW'][0]['counts']={'observable_relations':2}
+    elif damage=='proof': proof['records'][0]['source_array_SHA256']='wrong'
+    elif damage=='GT': records['E_LEARNED_RAW'][0]['GT_fingerprint']='wrong'
+    elif damage=='address': proof['records'][0]['ray_address_equality_to_saved_native']['GPU_BF16']=False
+    else:
+        for arm in records: records[arm][1]=dict(records[arm][0])
+    with pytest.raises(ValueError): validate_native_population(records,old,proof)

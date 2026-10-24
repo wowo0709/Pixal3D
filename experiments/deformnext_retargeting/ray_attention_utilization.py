@@ -126,3 +126,41 @@ def mass_intervals(records, *, draws=4000, seed=20261024):
                 nonempty_bootstrap_draws=int(nonempty.sum()),
                 excluded_empty_subset_draws=int((~nonempty).sum()),bootstrap_seed=seed,
                 exploratory_not_multiple_comparison_corrected=True)
+
+
+def validate_native_population(records, historical, address_evidence):
+    """Require actual address parity instead of equating CPU and native counts."""
+    arms = ['E_FIXED_RAW', 'E_LEARNED_RAW']
+    if (list(records) != arms or address_evidence.get('status') !=
+            'PASS_ACTUAL_OLD_CPU_AND_SAVED_NATIVE_CAMERA_ADDRESS_DIAGNOSIS'
+            or address_evidence.get('assets') != 32
+            or address_evidence.get('old_CPU_diagnostic_all32_relation_counts_exact') is not True
+            or address_evidence.get('original_native_code_unmodified') is not True
+            or address_evidence.get('NN_forward_or_training') != 0
+            or 'GPU_BF16' not in address_evidence.get('all_assets_exact_native_address_modes', [])):
+        raise ValueError('actual no-NN native-BF16/historical-FP32 address parity proof required')
+    ids = [r['sample_id'] for r in historical['records']]
+    if (len(ids) != 32 or len(set(ids)) != 32
+            or [r['sample_id'] for r in address_evidence['records']] != ids
+            or any([r['sample_id'] for r in records[a]] != ids for a in arms)):
+        raise ValueError('the same ordered32 actual assets required')
+    old_total = native_total = 0
+    for i, (old, proof) in enumerate(zip(historical['records'], address_evidence['records'])):
+        fixed, learned = (records[a][i] for a in arms)
+        old_count = old['modes']['member-point-D1-mixture64']['counts']['observable_ray_target_patch_pairs']
+        current = fixed['counts']['observable_relations']
+        if (learned['counts']['observable_relations'] != current
+                or fixed['source_cluster_id'] != learned['source_cluster_id'] or fixed['source_cluster_id'] != old['source_cluster_id']
+                or fixed['GT_fingerprint'] != learned['GT_fingerprint'] or fixed['GT_fingerprint'] != old['GT_fingerprint']
+                or fixed['input_tensor_SHA256'] != learned['input_tensor_SHA256']
+                or proof['source_array_SHA256'] != fixed['SHA256']
+                or proof['observable_relations']['CPU_FP32'] != old_count
+                or proof['observable_relations']['GPU_BF16'] != current
+                or proof['observable_relations']['actual_saved_native'] != current
+                or not proof['ray_address_equality_to_saved_native']['GPU_BF16']):
+            raise ValueError('per-asset actual native address/GT/model population differs')
+        old_total += old_count; native_total += current
+    return dict(historical_CPU_FP32_relations=old_total,actual_native_BF16_relations=native_total,
+                native_pair_relation_population_equal=True,
+                historical_and_native_ray_addresses_identical=address_evidence['CPU_to_native_ray_address_differences']==0,
+                historical_to_native_relation_symmetric_difference=address_evidence['CPU_to_native_relation_symmetric_difference'])

@@ -1,6 +1,6 @@
 # 논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계
 
-2026-10-24 18:09 UTC 전후 실제 결과/queue 기준. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다.
+2026-10-24 19:27 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
 
 ## 1. 지금 확정한 사실과 아직 결정하지 못한 것
 
@@ -11,11 +11,12 @@ SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·
 | 항목 | 실제 상태 | 남은 의미 |
 |---|---|---|
 | 기존 SS 모델들 | 13개 endpoint의 480/DEV128×3 완료 | 원래 비교 family 통계는 voxel endpoint 이후 마무리 |
-| FULL_VOXEL_Q | 394/480 학습 중 | 원래 FULL 문맥의 ray/voxel 대조; 새 최종 구조와의 일치도 별도 점검 |
+| FULL_VOXEL_Q | 429/480 학습 중 | 원래 FULL 문맥의 ray/voxel 대조; 새 최종 구조와의 일치도 별도 점검 |
 | V1/R/D1-cos/Fixed/Learned DEV32 cascade | 5개 조합과8개 metric 완료 | 작은 개발 panel이며 최종 TEST 아님 |
 | 같은 Fixed SS의 vanilla/R PBR | 실제32개 짝비교 완료 | 같은 geometry에서도 source appearance 문제가 해결됐다고 볼 근거 없음 |
-| R/Fixed/Learned DEV128 cascade 확장 | 기존32개씩 재사용; 추가288개 중19개 완료,3개 실행,266개 대기 | 동일128/noise에서 geometry·appearance 비교 필요; 전체 metric 미완료 |
-| 독립 SS seed202 V1/R | GPU1/0 학습 중 | 모델 간 이득의 독립 학습 재현성 |
+| R/Fixed/Learned DEV128 cascade 확장 | 기존32개씩 재사용; 추가288개 중82개 완료,3개 실행,203개 대기 | 동일128/noise에서 geometry·appearance 비교 필요; 전체 metric 미완료 |
+| 독립 SS seed202 V1/R | V1의480 학습 및 DEV128×3 평가 완료, 집계 대기; R은 GPU0 학습 중 | V1의 seed 비교 집계를 연결하고 R 종료 후 모델 간 이득의 독립 재현성 확인 |
+| 실제 Fixed/Learned 활용 진단 | 같은32개 모델별 관측·native 분모 대조·집계·file4 보존 완료 | Score prior는 유효 후보에 mass를 배분하지만, 추가 learned refinement의 이득은 미확인 |
 | 독립 PBR seed202 vanilla/R | 준비돼 있으나 본 학습 미완료 | 필수 확인 대상; 선택하지 않은 PBR grid는 추가하지 않음 |
 | 최종 TEST508 | 품질 평가 미실행 | 모델·protocol freeze 뒤 실행 |
 
@@ -65,11 +66,13 @@ Raw/decoder 비교에서 candidate support 자체의 변화는 retrieval 설계�
 | Fixed probability | Learned Q/K·utility를 최종 모델에 채택할 때 | 같은 후보·identity V·carrier/use/R에서 learned refinement만 제거; Fixed/Learned 기존 근거 재사용 |
 | Mean-ray descriptor | Member 후보 구성을 독립 기여로 주장할 때 | 최종 경로에서 member 구성만 평균 descriptor로 교체 |
 
-현재 요청처럼 matching score의 사용과 효과까지 검증하려면 **Uniform-K를 이번 핵심 계획에 포함**한다. 따라서 기본 표는 Full와 다섯 대조, Uniform-K의7개 행이다. 이 중 기존 결과를 재사용할 수 있는 행을 뺀 만큼만 신규 학습한다. Learned/Member의 추가 행은 최종 모델에 실제 채택할 때만 더한다.
+현재 요청처럼 matching score의 사용과 효과까지 검증하려면 **Uniform-K를 이번 핵심 계획에 포함**한다. 따라서 기본 표는 Full와 다섯 대조, Uniform-K의7개 행이다. 이 중 기존 결과를 재사용할 수 있는 행을 뺀 만큼만 신규 학습한다. Learned/Member의 추가 행은 최종 모델에 실제 채택할 때만 더한다. 이 표는 최종 구조 안에서 한 요소씩 바꾸는 표이며, 기존 spatial→raw→decoder의 누적 ladder는 동기·선행 개발 근거로 보조 자료에 남긴다. 서로 다른 구조의 증가량을 더해 full의 효과로 계산하지 않는다.
 
 사용자 정의 **No-score는 실제 Top-1**, **No-corr는 원래 spatial 대응**이다. Uniform-K는 별개의 score 대조다. 제거한 channel을0으로 채우지 않는다. 최종 구조에 deformation query가 없다면 해당 제거 arm을 추가하지 않는다.
 
 Top-1↔Top-K만으로는 matching score 자체의 이득을 분리할 수 없다. Score 사용의 효과는 Uniform-K 비교로, 추가 학습 attention의 효과는 Fixed↔Learned로 나눈다. Shared posterior 전달은 현재 method의 구조로 설명하며 독립 causal claim을 하지 않는다. 그 claim을 채택하지 않으면 split/shared 추가 학습도 필요 없다.
+
+Uniform-K의 구체적인 적용 범위도 실행 전에 고정한다. 후보 주소·valid mask·value·query·retargeter·source-use 정의를 유지하고, 정의한 aggregation posterior만 uniform으로 바꾼다. 같은 posterior가 여러 경로로 공유되는 구조라면 **어느 소비 경로까지 함께 바뀌는지**를 config에 기록한다. 여러 경로가 함께 바뀌면 claim은 공통 score-weighted evidence의 효과로 한정하고, 순수 attention-logit 한 곳의 효과라고 쓰지 않는다. Support가 달라지는 decoder 비교 역시 후보 탐색과 weighting을 모두 바꿨다면 decoder 모듈의 묶음 효과다.
 
 ### Ablation의 실제 평가
 
@@ -89,11 +92,25 @@ Top-1↔Top-K만으로는 matching score 자체의 이득을 분리할 수 없�
 
 GT correspondence/visibility는 평가 분모와 진단에만 사용한다. 추론 feature에 GT visibility gate를 넣지 않는다. Native target 경로 유지, 초기 baseline 함수 복원, 무매칭 영역에서 native source fallback, 같은 SS 비교의 mesh 동일성은 기능 검사로 확인한다. 이 기능 검사는 새 학습 arm이 아니다.
 
+### 완료된 실제 활용 진단과 남은 질문
+
+같은32개에서 Fixed/Learned의 실제 native conditioning forward64회를 관측했다. Hook 유무의 conditioning 동일성, 두 모델의 입력·후보·prior 일치와 저장된 관측 재집계가 통과했다. 실제 GPU BF16 projection의 관측 가능 관계는50,516개이고, 과거 CPU FP32 진단의50,493개와는 다르다. CPU/GPU projection precision에 따른 patch rounding 차이를 별도로 재현했으므로 두 분모를 섞지 않는다. 이 차이를 고치기 위해 학습된 모델의 수치 경로나 데이터를 바꾸지 않았다.
+
+| Top-1 오답·Top-K 정답 포함 subset | 정답 후보 exact probability mass |
+|---|---:|
+| 같은 support의 Uniform-K 진단 | 1.6266% |
+| Fixed matching prior | 6.4601% |
+| Learned attention | 6.1756% |
+
+분모는 해당 subset의31,408개 관계다. Learned−Fixed는−0.2844 percentage point, 탐색용 source-cluster CI95 [−0.9776,+0.4890]pp다. Learned 확률은 prior에서 실제로 달라지지만, 추가 정답 mass 개선은 확인되지 않았다. Fixed−Uniform은+4.8335pp, CI95 [+4.3219,+5.3534]pp다. 이는 **확률 활용의 기전 근거**이며 Uniform-K matched 학습 대비 최종 생성 성능의 증명이 아니다. Exact patch mass만으로 모든 semantic 후보의 유용성을 설명할 수도 없다.
+
+따라서 남은 기전 작업은 새 matching head 탐색이 아니라, 이 관측을 같은 사례의 surface/source-render 오차와 연결하고 Uniform-K matched 학습의 downstream 결과로 검증하는 것이다. Source-use가 거의1이라는 관측만으로 calibration 실패나 최종 오차의 원인을 확정하지 않는다.
+
 Oracle 학습, backbone 교체, gate/temperature grid, 새로운 head의 대량 탐색은 지금 추가하지 않는다.
 
 ## 6. 독립 확인과 최종 TEST
 
-현재 seed202 V1/R SS를 완료하고, 최종 후보가 다르면 그 후보 하나만 같은 seed로 확인한다. PBR vanilla/R의 필수 seed202도 완료한다. 모든 ablation을 여러 학습 seed로 반복하지 않는다. 학습 seed2개와 생성 noise3개를 혼동하지 않는다.
+Seed202 V1 SS의480 학습과 DEV128×3 평가는 완료됐으므로, 기존 seed101과 동일한 macro 집계의 readout을 먼저 연결한다. R SS를 완료하고, 최종 후보가 다르면 그 후보 하나만 같은 seed로 확인한다. PBR vanilla/R의 필수 seed202도 완료한다. 모든 ablation을 여러 학습 seed로 반복하지 않는다. 학습 seed2개와 생성 noise3개를 혼동하지 않는다. Quick epoch IoU를 최종 DEV128×3 macro IoU와 비교하지 않는다.
 
 TEST 전 동결 항목은 실제 checkpoint/config/code identity, DeformNeXt split, camera·RGB 입력, native sampler·generation seed, Shape/PBR composition, metric registry와 reference, contrast family 및 source-cluster CI 규칙이다. 현재 VAL36의 V1/R binding 검증과 Learned fresh-load2회 검사는 완료돼 있으며 선택 모델에 맞게 필요한 정합만 보완한다. TEST508 cache/loader QA 통과는 품질 측정 완료를 뜻하지 않는다.
 
@@ -126,6 +143,8 @@ CD/F-Score는 공통 normalization·20k surface sampling·threshold0.02, 결과�
 
 Paired 통계 단위는 source cluster다. DEV32 screening 뒤 확장한 DEV128은 탐색적임을 표시한다. TEST contrast/CI 기준은 TEST 전에 확정한다. 불리한 metric을 숨기거나 결과를 본 뒤 primary metric을 교체하지 않는다.
 
+현재 구현의 최종 비교 family는 selected 대 V1/R의 중복 없는 C개 contrast에 대해8개 per-asset metric×C이며 Bonferroni-adjusted source-cluster interval을 사용한다. FID/KID는 별도의 global descriptive 값이다. CI가0을 포함하는 것은 동등성이나 비열등성을 증명하지 않는다. 현재 camera8/9/10은 입력 camera 평가이므로 새 시점 일반화 claim의 근거로 사용하지 않는다. Metric 원논문·실제 preprocessing·표면 거리 정의는 [metric 대조 기록](2026-10-24-metric-definitions-citations-and-independent-V1-ko.md)에 정리했다.
+
 ## 8. 논문 산출물과 현재 가능한 writing
 
 | 산출물 | 내용 | 아직 필요한 근거 |
@@ -137,6 +156,8 @@ Paired 통계 단위는 source cluster다. DEV32 screening 뒤 확장한 DEV128�
 | Supplement | 기존 ladder·seed 확인·negative results·protocol | 기존 family 통계와 독립 seed 완료 |
 
 Method와 protocol은 이미 작성 중이며 DEV 표·정성 그림을 포함한 compiled 초안이 있다. 그러나 최종 Abstract/Results/Conclusion의 수치와 주장 강도는 확정하지 않았다. 기존 코드 이름 FULL을 논문의 최종 Ours로 자동 채택하지 않는다.
+
+지금부터 writing은 결과와 함께 갱신한다. Method에는 실제 선택 경로와 target/source의 역할을 고정하고, Ablation에는 각 대조의 단일 변경과 재사용 근거를 명시한다. Results는 `edited 입력/FT → 최종 pipeline → 모듈 대조 → 기전` 순서로 쓴다. Discussion에는 geometry/appearance trade-off와 learned refinement의 음의 결과를 남긴다. TEST 전에는 Abstract/Conclusion에 최종 우위 수치를 넣지 않는다. 모든 표의 수치는 실제 audit에서 가져오고, PDF 컴파일·표/그림 clipping·citation을 최종 검수한다.
 
 현재 사용할 수 있는 problem/method 설명:
 
@@ -167,4 +188,4 @@ Method와 protocol은 이미 작성 중이며 DEV 표·정성 그림을 포함�
 - [Claim-evidence 원장](../paper/claim-evidence-ledger.md)
 - [현재 논문 소스](../paper/retargeting-evidence-draft.tex)
 
-실행 관측: `agent-handoff.json`의 실제 `PBR_NATIVE_SCIENCE_RUNTIME` 아래 `unified-module-pipeline-v1/paired-DEV128-stage-evaluation-v240` index/queue 및 `voxel-query-FFN12-recovery-v188/FULL_VOXEL_Q/science-v1/native/progress.json`. DEV128 전체 `metrics-v250/summary-v1/audit.json`은 관측 시 없었다. 이 문서는 계획 정리이며 새 학습 등록이나 TEST 완료를 뜻하지 않는다.
+실행 관측: `agent-handoff.json`의 실제 `PBR_NATIVE_SCIENCE_RUNTIME` 아래 `unified-module-pipeline-v1/paired-DEV128-stage-evaluation-v240` index/queue 및 `voxel-query-FFN12-recovery-v188/FULL_VOXEL_Q/science-v1/native/progress.json`. 현재 후속 집계는 `metrics-v257`이며 전체 `summary-v1/audit.json`은 관측 시 없었다. 실제 활용 진단은 `trained-ray-utilization-mechanism-v259/native-reduction-v270/audit.json`과 인접 `file4-closure.json`, geometry 차이 검증은 `address-audit-v269/audit.json`에 보존했다. 이 문서는 계획 정리이며 새 학습 등록이나 TEST 완료를 뜻하지 않는다.

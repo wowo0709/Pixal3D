@@ -179,21 +179,48 @@ camera. Edited-target input uses M1 RGB at camera 8 and M0 RGB at cameras
 9, 10, and 11.
 
 \subsection{Metrics and statistical scope}
-Source appearance is evaluated by LPIPS and DreamSim at cameras 9 and 10,
-with CLIP as a complementary semantic measure. References preserve the
+Source appearance is evaluated by VGG-based LPIPS~\cite{zhang2018lpips} and
+the official DreamSim ensemble~\cite{fu2023dreamsim} at cameras 9 and 10.
+Image--image cosine similarity from a separate original OpenAI CLIP
+ViT-B/16 encoder~\cite{radford2021clip} is a complementary semantic measure;
+it is not a text--image caption score. References preserve the
 original material identity on the edited M1 geometry; they are not undeformed
-M0 RGB images. Target alignment is evaluated by PSNR, SSIM, and 2D alpha-mask
+M0 RGB images. Target alignment is evaluated by PSNR, SSIM~\cite{wang2004ssim}, and 2D alpha-mask
 IoU at camera 8, together with Chamfer distance and surface F-Score in 3D.
 Surface evaluation uses 20,000 points and F-Score threshold 0.02 in the fixed
 normalized frame, without a result-specific ICP alignment. Voxel IoU is an SS
 diagnostic and is not substituted for these mesh/rendering endpoints.
 
-FID and KID assess the global rendered-image distribution using the full
+More precisely, for area-weighted surface point samples $A$ and $B$, we use
+$d(a,B)=\min_{b\in B}\lVert a-b\rVert_2$ and
+\begin{equation}
+ \mathrm{CD}(A,B)=\frac12\left[\frac1{|A|}\sum_{a\in A}d(a,B)
+ +\frac1{|B|}\sum_{b\in B}d(b,A)\right].
+\end{equation}
+We report this symmetric, unsquared Euclidean CD. Surface F-Score is the harmonic mean of
+the fractions of points within $\tau=0.02$ of the opposite surface, with zero
+assigned when both fractions are zero~\cite{tatarchenko2019surface}.
+Our declared sampling count and threshold are specific to this protocol.
+Mask IoU thresholds both rendered alpha maps at 0.5. Pixel and VGG metrics
+use archived float RGB with nominal unit range; SSIM uses an 11-pixel
+Gaussian window with standard deviation 1.5. The pinned DreamSim, CLIP, and
+Inception paths convert RGB to rounded, clamped 8-bit images before their
+respective official preprocessing. Full-frame scores are primary;
+GT-only foreground crops are supplementary.
+
+FID~\cite{heusel2017fid} and KID~\cite{binkowski2018kid} assess the global rendered-image distribution using the full
 prescribed final panel. They are not per-asset scores. The finite-sample KID
-estimate is reported with its sign. Official perceptual/inception evaluation
+estimate is reported with its sign. Official DreamSim/CLIP and Inception evaluation
 uses FP32 with TF32 and autocast disabled. All models use the same reference,
 camera, rendering, and image preprocessing protocols. Cameras 8--10 are input
 camera evaluations; these results are not evidence of novel-view performance.
+The final pool contains 1,524 images per model (508 assets at three cameras),
+using the same-count original-material reference pool. Pinned
+torch-fidelity 0.3.0 reduces 2,048-dimensional Inception features in
+float64; KID uses 100 subsets of 1,000 images with seed 42017. Its subset
+standard deviation is not a source-cluster confidence interval. Distribution
+values are descriptive under this renderer and reference population, rather
+than a human-study result or a per-asset significance test.
 
 Paired uncertainty estimates resample source-asset clusters, retaining the
 dependence between deformations of an asset and between generation noises.
@@ -202,21 +229,48 @@ are reported as separate studies. The DEV32 intervals in this draft are
 exploratory and unadjusted; they are not final test confirmation. Primary
 geometry endpoints are CD/F-Score, and primary appearance endpoints are
 LPIPS/DreamSim. Positive CLIP results do not change that priority after the fact.
+Main scalar means weight deformation examples equally after averaging the
+two source cameras where applicable; equal-source means are also retained.
+The final contract includes the eight pairwise endpoints in the selected
+model's comparisons with V1 and retargeting, omitting a self-comparison if
+selection merges models. Its primary family size is $8C$ for $C$ such
+contrasts, with Bonferroni-adjusted source-cluster bootstrap intervals.
+Descriptive input/baseline contrasts remain separate. An interval containing
+zero is not evidence of equivalence or non-inferiority. Independent training
+confirmation is reported separately from uncertainty conditional on the main
+checkpoint and generation protocol.
 
-\subsection{Planned evidence-utilization analysis}
-To connect retrieval with its use, we will observe the trained fixed and
+\subsection{Evidence-utilization analysis}
+To connect retrieval with its use, we observed the trained fixed and
 learned conditioners on the same 32 development assets used by the cascade
-and correspondence diagnostics. Native batch-eight conditioning is retained;
-an observer must reproduce the unobserved conditioning tensors exactly.
-Topology label arrays are opened only after both models' forwards finish.
-We then measure exact-match probability mass on ray--target-patch relations
+and correspondence diagnostics. All 64 native conditioning forwards completed.
+Native batch-eight conditioning was retained, and the observer reproduced
+the unobserved conditioning tensors exactly. Topology label arrays were opened
+only after the corresponding paired model forwards finished.
+We measured exact-match probability mass on ray--target-patch relations
 whose prior Top-1 is incorrect but whose retained Top-K contains a match,
 together with source-use probability and the magnitude of the actual source
-map correction. Inputs, candidate addresses, and frozen priors must match
-between models. Per-asset observations are joined to existing geometry and
-source-render measurements; this association is not a causal intervention.
+map correction. Inputs, candidate addresses, and frozen priors matched
+between models. Per-asset observations were joined to existing geometry and
+source-render measurements; such associations are not causal interventions.
 Uniform-K mass is a diagnostic reference and does not replace the separately
-matched Uniform-K training ablation. Utilization results remain pending.
+matched Uniform-K training ablation.
+
+The native observation population contains 50,516 observable relations.
+Its addresses were reproduced by the GPU BF16 projection used during native
+conditioning; the historical CPU FP32 diagnostic has a different population
+because projection rounding changes patch addresses. We preserve both scopes
+and do not silently substitute one denominator for the other. Among the
+31,408 native relations with a wrong prior Top-1 but a match in Top-K,
+exact-match mass is 1.6266\% for uniform weighting, 6.4601\% for the fixed
+matching prior, and 6.1756\% for learned attention. The learned-minus-fixed
+change is $-0.2844$ percentage points, with an exploratory unadjusted
+source-cluster interval of $[-0.9776,0.4890]$ percentage points. The learned
+head changes probabilities, but additional exact-match mass is not established.
+The prior's larger mass than uniform supports its use of candidate evidence;
+it does not establish generated-quality improvement over a matched uniform
+model. Exact patch correspondence also does not capture every potentially
+useful semantic candidate.
 
 \section{Development results and bounded interpretation}
 \input{tables/dev-joint32.tex}
@@ -224,7 +278,7 @@ matched Uniform-K training ablation. Utilization results remain pending.
 \input{tables/dev-matching32.tex}
 
 \paragraph{Candidate coverage versus generated quality.}
-The reused matching diagnostic contains 50,493 observable
+The reused CPU FP32 matching diagnostic contains 50,493 observable
 source-camera-ray/target-patch relations from 32 development source clusters.
 On the same raw 64-candidate support, exact relation coverage at rank one
 increases from 1.25\% for raw cosine to 7.73\% for the contextual D1 descriptor
@@ -233,7 +287,8 @@ on this fixed support. Member-posterior proposals increase exact coverage at
 rank 64 from 50.76\% to 73.36\%, with a paired exploratory interval of
 [15.99,30.12] percentage points for the change. The matching checkpoint is
 identical across these diagnostics and the current conditioning candidate;
-production parity was checked separately.
+CPU candidate-core parity was checked separately; native GPU projection
+population agreement is addressed by the utilization audit above.
 
 For the member proposals, 31,393 relations have a wrong Top-1 but a GT match
 inside the retained Top-64: 62.17\% of all observable relations and 70.00\% of
