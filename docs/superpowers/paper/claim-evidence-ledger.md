@@ -1,5 +1,7 @@
 # 논문 claim과 필요한 근거
 
+최신 실행 근거: [최종 Fixed 대조의 실제 cascade·metric 연결](../reports/2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 원래 R/Fixed baseline의116개 평균값과128개 GT 재사용을 실제 검증했고 다섯 own SS 이후 cascade/official8metric connector와 최종7모델 집계를 등록했다.48-comparison DEV family의 보정 구간을 사전 지정했다. 등록은 새 control의 quality 완료가 아니며 해당 결과는 여전히 pending이다.
+
 최신 남은 작업과 산출물: [핵심 실험 행렬·최종 평가·writing](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md). 최종 문맥 신규5개 대조는 실제 downstream 평가까지 완료해야 하며, 기대한 모듈별 positive claim을 결과에 앞서 확정하지 않는다.
 
 이 문서는 결과를 본 뒤 유리한 metric으로 주장을 바꾸지 않기 위한 원장이다. 아래 empirical claim은 DEV 단계의 해석이며, 최종 TEST claim으로 승인된 것이 아니다. 현재 두 리포트의 계획을 유지한다.

@@ -243,6 +243,15 @@ zero is not evidence of equivalence or non-inferiority. Independent training
 confirmation is reported separately from uncertainty conditional on the main
 checkpoint and generation protocol.
 
+For the pending final Fixed-context development study, we predeclare six
+contrasts: the three adjacent matching-ladder differences, Fixed versus
+actual Top-1, Fixed versus Uniform-K, and Fixed versus physical retargeter
+removal. Across the eight camera-role endpoints above, these define a
+48-comparison family. Its planned Bonferroni percentile intervals use 48,000
+source-cluster bootstrap draws; unadjusted development intervals are retained
+separately. This family is distinct from the final held-out $8C$ family.
+These controls have not yet produced downstream results.
+
 \subsection{Evidence-utilization analysis}
 To connect retrieval with its use, we observed the trained fixed and
 learned conditioners on the same 32 development assets used by the cascade
@@ -454,7 +463,7 @@ aggregation/retargeting controls. Spatial RAW-cosine candidates are compared
 with RAW semantic candidates before adding contextual decoder descriptors
 and scalar scores. Comparing spatial directly with scalar Fixed would change
 both retrieval and the matching network, so that comparison is not treated
-as a one-component removal. All rows retain the same Fixed carrier/use/R
+as a one-component removal. All matching-ladder rows retain the same Fixed carrier/use/R
 and identity values. The three correspondence controls now have own native
 training/evaluation entries and checkpoint schemas, but their GPU proof,
 capacity, training and downstream results remain pending. Constructor and
@@ -469,7 +478,11 @@ head without its additive logit prior retains the same Q/K and utility
 parameters, candidates and matching context; replacing the entire learned
 readout by Uniform-K would remove refinement as well. Raw-to-D1-cosine and
 D1-cosine-to-scalar matching contrasts separate descriptor and scalar-score
-changes. The original voxel-Q control concerns the original learned readout;
+changes. Scalar matching can change the retained support as well as its
+probabilities. The same-support Uniform-K control instead changes the shared
+weighting consumed by the carrier, source-use decision and retargeter; it
+does not isolate a logit term in an otherwise learned attention head.
+The original voxel-Q control concerns the original learned readout;
 Fixed has no learned Q/K head, so changing only that query cannot establish
 a quality effect in Fixed. Its ray-pooled retargeting/use queries remain
 part of the architecture. Likewise, differences between
