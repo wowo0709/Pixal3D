@@ -43,6 +43,11 @@
 
 ## 남은 writing
 
+DEV128의 R/Fixed/Learned 실제 cascade8개 metric을 `tables/dev-joint128.tex`와
+본문에 반영했다. Fixed/R PBR가 working candidate이며 최종 freeze는 아니다.
+F-Score 개선의 탐색용 CI는 양수지만 appearance 비열등성은 입증되지 않았다.
+선택 문맥의 No-R/Uniform-K, Fixed seed202, 필수 PBR 확인과 TEST가 남아 있다.
+
 원래12모델의 전체 family 집계도 완료했다. `tables/dev-original-module-effects.tex`에
 10개 module-family CI를 실제 통계에서 내보냈으며 모든 CI가0을 포함한다.
 Ray−voxel은−0.000236, 보정 CI[−0.000878,+0.000351]이다.
