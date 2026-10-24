@@ -59,16 +59,27 @@ Voxel-query FFN12 재실행은 실제147·148번째 optimizer update를 OOM 없�
 
 ## PBR 경향과 남은 판정
 
-완료된 기준 PBR의 실제1900-step fixed4 로그에서 Top-1 retargeting crop LPIPS는4에폭0.091200에서5에폭0.085186으로 회복됐다. V1의5에폭은0.086454다. 반면 foreground PSNR은 Top-1 15.74925, V1 15.76565여서 metric별 우열이 다르다. 현재 Raw Top-K의1900-step 결과는 아직 없다. 4에폭 악화만으로 과적합이나 matching 실패를 확정하지 않는다.
+Raw Top-K PBR도 실제1900 update·마지막 검증·네 rank의 종료와 저장을 완료했다. 네 모델의 전체1900-update/rank 입력 trace, 모든 시점의 실제 RGB·GT Shape/PBR latent·camera·noise 대응을 확인했다. 새 explicit-seed snapshot도 실제 성공해 Raw 자신의 seed101·checkpoint byte·6개 epoch·runtime·initial proof·GT panel을 검증했다.
+
+| PBR arm | Foreground PSNR ↑ | Crop LPIPS ↓ | Crop SSIM ↑ |
+|---|---:|---:|---:|
+| V1 | 15.76565 | 0.086454 | 0.953675 |
+| Top-1 retargeting | 15.74925 | 0.085186 | 0.954216 |
+| Top-1 + feature | 15.71515 | 0.086537 | 0.953868 |
+| Raw Top-K + feature | **16.18082** | **0.083294** | **0.955793** |
+
+Raw Top-K 조합은 V1 대비 PSNR+0.41517dB, LPIPS−0.003161이고 Top-1 retargeting 대비 PSNR+0.43158dB, LPIPS−0.001892다. LPIPS가 나아진 사례는 각 비교에서4개 중3개다. Top-1 + feature 대비로는2승2패다. GT Shape 조건·target camera8·사례4개·training seed1개에 한정된 조합 결과이며, learned attention 단독 효과나 source preservation·생성 geometry 성능을 입증하지 않는다. Top-1에 feature correction만 더한 arm은 LPIPS가 더 나빴다. 현재 결과로 어떤 추가 경로가 필수라고 주장하지 않는다.
+
+Top-1 retargeting LPIPS도4에폭0.091200에서5에폭0.085186으로 회복됐다. Raw의4에폭 악화 역시 최종 결과에서는 유지되지 않았다. 4에폭 한 점으로 과적합이나 matching 실패를 확정하지 않는다. [실제 W&B 최종표·6개 시점 곡선·사례별 결과·GT/Pred 패널](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/pbr-native-final1900-fixed4-matched-v200)의 원격 완료를 확인했다.
 
 네 mode의 초기 상태와380/760/1140/1520 update 패널80개를 읽어, mode 내부에서 GT의 uint8 RGB 픽셀이 모든 시점에 동일하고 네 사례 모두 비어 있지 않음을 확인했다. Float render tensor까지 bitwise 같다는 주장은 아니다. 이 평가는 GT Shape·target camera8에 한정되므로 alpha-IoU1을 생성 geometry의 정확도로 해석하거나 source preservation을 입증했다고 보고하지 않는다.
 
-진행 중인 Raw PBR이 실제 완료된 뒤 기존 public explicit-seed stage reader를 실행하는 CPU 작업도 연결했다. 기존 reader·worker는 수정하지 않았다. 실제 자기 seed101·네 rank·1900 trace/runtime·6개 epoch·원본 initial proof·checkpoint byte와 GT panel을 검사해 catalog를 생성한다. 미래 결과의 SHA나 PASS는 만들지 않았다. 새 학습 arm이나 GPU 실험은 추가하지 않았다.
+Raw 완료 뒤의 public explicit-seed stage reader는 기존 reader·worker 수정 없이 실제 실행·완료됐다. 미래 결과의 SHA나 PASS를 먼저 만들지 않았다. GPU0–3의 Raw 독점 실행 gate도 실제 해제됐고, GPU0에서 기존 mean-matching arm의 학습이, GPU1–3에서 기존 공통 생성 geometry 평가가 실제 시작됐다. GPU6은 E_LEARNED_RAW, GPU7은 voxel-query 비교군이 사용한다.
 
-실제 DEV128×3을 완료한 E_FIXED_RAW와 기존 RETARGET baseline의 정확히 같은 Top-1 PBR1900을 묶은 DEV32 실행도 실제 큐에 연결했다. 자신의 SS prediction archive와 원본 Shape512/1024 checkpoint를 사용하며, SS에서의 향상이 생성 geometry와 rendering/source preservation에도 이어지는지 확인하는 candidate 평가다.65개 GPU 작업과2개 CPU 작업으로 구성되며, GPU0–3의 현재 Raw PBR이 끝난 뒤 실행하도록 기존 자원 gate를 유지했다. Source pin414개와 실제 pending job67개를 확인했다. 새 학습 arm이나 TEST 실행, 최종 모델 채택은 아니다.
+실제 DEV128×3을 완료한 E_FIXED_RAW와 기존 RETARGET baseline의 정확히 같은 Top-1 PBR1900을 묶은 DEV32 실행도 실제 큐에 연결했다. 자신의 SS prediction archive와 원본 Shape512/1024 checkpoint를 사용하며, SS에서의 향상이 생성 geometry와 rendering/source preservation에도 이어지는지 확인하는 candidate 평가다.65개 GPU 작업과2개 CPU 작업으로 구성되며, 등록 시 Raw 완료 이후 실행하도록 기존 자원 gate를 유지했다. 등록 당시 source pin414개와 pending job67개를 확인했다. 새 학습 arm이나 TEST 실행, 최종 모델 채택은 아니다. Raw PBR의 최종 fixed4 우위만으로 이 조합의 PBR까지 Raw로 바꾸지 않는다. 공통 생성 geometry DEV32 결과가 먼저 필요하다.
 
 GPU6에서 기존 DEV 이미지4개를 사용한 공식 metric entry 호환성 확인도 실제 완료됐다. 기존 경로와 새 공식 entry의 DreamSim·CLIP 점수 차이는0이었고, 같은 GPU6을 서로 다른 허용 GPU 집합으로 실행했을 때 Inception feature4×2048이 bitwise 같았다. 이는 entry/assignment 확인이며 모델 간 성능 비교나 전체10개 metric 완료가 아니다.
 
 다음 판정에는 E_LEARNED_RAW의 실제 DEV128×3, 원래 core12의 미완료 두 arm, 공통 생성 geometry의 PBR 비교와 SS→Shape→PBR joint DEV가 필요하다. 이후 실제 독립 training seed 확인·VAL36 재로딩 검증·closed selection을 마친 뒤 TEST508 및10개 metric을 계산한다. 현재 최종 모델을 채택하지 않았다.
 
-실제 file4 증거는 `PBR-native-science-runtime-v1/unified-module-pipeline-v1/` 아래 `consistent-fixed-final-endpoint-readout-v199/actual-final128x3-v1/`, `consistent-fixed-final128x3-WandB-v200/`, `consistent-fixed-completed480-DEV32-v200/`, `voxel-query-FFN12-recovery-v188/actual-past-original-OOM-v200/`, `consistent-fixed-Top1-joint-native32-v200/`, `raw-PBR-explicit-stage-readout-v200/`에 있다. 별도로 same-epoch DEV32 표28개 scalar와 artifact의 [W&B 원격 완료](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-consistent-fixed-epoch480-all-controls-v200)도 확인했다. 기존 core12·followup summary와 finite statistical family는 바꾸지 않았다.
+실제 file4 증거는 `PBR-native-science-runtime-v1/unified-module-pipeline-v1/` 아래 `consistent-fixed-final-endpoint-readout-v199/actual-final128x3-v1/`, `consistent-fixed-final128x3-WandB-v200/`, `consistent-fixed-completed480-DEV32-v200/`, `voxel-query-FFN12-recovery-v188/actual-past-original-OOM-v200/`, `consistent-fixed-Top1-joint-native32-v200/`, `raw-PBR-explicit-stage-readout-v200/`, `PBR-final1900-four-arm-fixed4-matched-v200/`, `PBR-final1900-four-arm-fixed4-WandB-v200/`에 있다. 별도로 same-epoch DEV32 표28개 scalar와 artifact의 [W&B 원격 완료](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-consistent-fixed-epoch480-all-controls-v200)도 확인했다. 기존 core12·followup summary와 finite statistical family는 바꾸지 않았다.
