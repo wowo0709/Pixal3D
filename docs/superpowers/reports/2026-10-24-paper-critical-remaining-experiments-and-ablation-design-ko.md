@@ -1,5 +1,7 @@
 # 논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계
 
+최신 통합 정리: [남은 핵심 실험 행렬과 논문 산출물](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md). 신규5개 SS ablation, 선택 SS 독립 seed, 필수 PBR 독립 확인, 실제 cascade8metric, TEST508의10metric, 표·writing의 종료 조건을 모았다. 아래는 설계 근거와 이전 시점의 실행 이력이다. 실행 상태는 새 문서의 관측 시각을 기준으로 구분한다.
+
 22:43 UTC 실행 갱신: [최종 Fixed correspondence 구현·등록](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)에 따라 아래 M 세 arm의 native recipe/runtime/evaluator/cascade binding과257개 검사가 완료됐다. 실제 checkpoint 생성자의 cold core10/RNG/물리적 matcher 제거도 확인했다. GPU6/7의 기존 작업 뒤 own proof/capacity/480/SS128×3의21개 작업을 등록했으며, 새3개 GPU proof와 품질은 아직 미완료다.
 
 22:10 UTC 후속 실행: [실제 DEV128 완료와 Fixed 문맥 대조·독립 확인](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md). 기존 cascade8개 metric은 완료됐고, Fixed SS+Top-1 R PBR를 **working candidate**로 기록했다. F-Score의 탐색용 paired 개선은 양수지만 source appearance 개선/비열등성은 미확인이다. GPU6 No-R와 GPU7 Uniform-K의 실제480 학습을 유지하고, Fixed seed202만 추가 등록했다. 아래21:49 snapshot의 pending 항목 중 해당 작업은 이 후속 기록을 우선한다. TEST freeze는 남아 있다.

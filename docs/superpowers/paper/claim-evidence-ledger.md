@@ -1,5 +1,7 @@
 # 논문 claim과 필요한 근거
 
+최신 남은 작업과 산출물: [핵심 실험 행렬·최종 평가·writing](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md). 최종 문맥 신규5개 대조는 실제 downstream 평가까지 완료해야 하며, 기대한 모듈별 positive claim을 결과에 앞서 확정하지 않는다.
+
 이 문서는 결과를 본 뒤 유리한 metric으로 주장을 바꾸지 않기 위한 원장이다. 아래 empirical claim은 DEV 단계의 해석이며, 최종 TEST claim으로 승인된 것이 아니다. 현재 두 리포트의 계획을 유지한다.
 
 남은 실행과 표·writing의 최신 통합 계획은 [논문 완성을 위한 핵심 실험 정리](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)를 따른다. Matching score 효과를 검증하기 위해 동일 Top-K의 Uniform-K 대조를 핵심 계획에 포함하며 사용자 정의 No-score=Top-1과 구분한다.
