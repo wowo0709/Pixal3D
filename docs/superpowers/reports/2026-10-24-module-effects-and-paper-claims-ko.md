@@ -68,3 +68,5 @@ V1 SS+V1 PBR 대비 C_DECODER SS+Top-1 R PBR을 실제 연결한 DEV32 결과도
 남은 필수 근거는 query/member 대조군과 E_LEARNED_RAW의480/128×3, D1-cos/E_FIXED_RAW joint cascade, 독립 training seed, VAL36 fresh-load/cache QA, 실제 선택을 동결한 뒤 TEST508의10개 metric과 source-cluster 통계다. FID/KID는 아직 이 DEV 비교에 포함되지 않았다.
 
 근거: [SS128×3](2026-10-24-SS-fixed-evidence-completed480-and-final-evaluation-ko.md), [SS cascade와 고정 mesh 평가 프로토콜](2026-10-24-core5-common-PBR-DEV32-eight-metric-results-ko.md), [PBR4 corrected W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR-core4-frozen-render-geometry32-v203), [V1/R joint W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/joint-V1-retarget-SS-PBR-native-guides32-v176).
+
+후속 E_FIXED_RAW joint의 실제 geometry/appearance tradeoff와 남은 실험 실행, 논문 초안은 [필수 계획 실행 기록](2026-10-24-essential-plan-execution-and-paper-draft-ko.md)을 참고한다. 위 표의 최초 관측을 이후 결과로 소급해 바꾸지 않는다.

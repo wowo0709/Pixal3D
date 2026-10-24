@@ -103,3 +103,5 @@ CD/F-Score는 같은 normalization·surface sampling·threshold로 측정하고 
 ## 실행 우선순위
 
 현재3개 학습/자동 평가 → E_FIXED_RAW joint와 후보 축소 → 선택 SS에서 PBR 짝비교 → 빠진 최종-context ablation → 필요한 독립 확인 → source/protocol freeze와 TEST508 → 표·그림·최종 writing 순서다. 평가와 문서 갱신은 각 결과가 나올 때 병행한다. Backbone 교체, temperature/gate grid, 전 SS×PBR 조합과 모든 arm의 PBR 재학습은 지금 범위에 넣지 않는다.
+
+후속 실제 실행과 논문 초안은 [필수 계획 실행 기록](2026-10-24-essential-plan-execution-and-paper-draft-ko.md)에 기록한다. 이 문서의 최초 상태와 이후 완료된 결과를 구별한다.

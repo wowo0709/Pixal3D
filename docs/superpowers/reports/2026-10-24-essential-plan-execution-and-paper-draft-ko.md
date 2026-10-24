@@ -56,3 +56,13 @@ E_LEARNED_RAW는 실제480-update science 학습과 file4 closure를 마쳤다. 
 TeX environment 균형과 input 파일 존재, 최종 template에 수치가 없음을 확인했다. TeX compiler는 설치되어 있지 않아 PDF 컴파일은 아직 검증하지 못했다. 기존 논문 PDF의5개 페이지를 읽어 문제 정의와 metric 구성을 확인했으며 원본 PDF를 수정하지 않았다. Related Work의 primary citation 검증과 최종 Abstract/Results/Discussion/Conclusion은 남아 있다.
 
 남은 우선순위는 기존3개 SS 비교의 최종 평가, 후보 문맥의 PBR 짝비교, 최종 구조에서 빠진 matched ablation, 필요한 독립 확인·VAL36, 선택/protocol freeze, TEST508·10개 metric, 표·그림·최종 writing이다.
+
+## 15:30 UTC 실행 갱신
+
+E_LEARNED_RAW의 final128 noise0 평가가 완료됐고 noise1이 실제 실행 중이다. 아직3개 noise 전체의 최종 비교로 해석하지 않는다. Mean 대조군은475/480, voxel query 대조군은325/480이다. PBR 짝비교는11/32 완료·2개 실행 중·19개 대기이며 실패/HELD는0이다. 이 수치는 해당 시점의 관측이다.
+
+Seed202 R의 기존 job이 vanilla 학습/cache 완료에 직렬 의존하던 연결을 점검했다. R에 필요한14개 canonical 입력과 engineering gate가 이미 준비돼 있고, 초기화 checkpoint는 원본 MV SS4210이었다. 실제 disk admission도 통과했다. 같은 기존 job의 source/config/command/output/seed/batch는 유지하면서, **GPU0의 Mean science 종료 뒤 R202를 시작**하도록 scheduling 의존성과 GPU assignment만 변경했다. GPU1의 vanilla202와 겹쳐 진행하며, 진행 중인 학습은 중단하지 않는다. 실제 시작 여부는 다음 관측에서 확인해야 한다.
+
+준비 근거와 변경 전/후 job은 `required-SS202-parallel-scheduling-v212/prelaunch-v1/audit.json`에 있으며 file4에서 SHA256/size를 확인했다. 각 실행의 기존 checkpoint budget reservation은 계속 적용된다.
+
+핵심6개 문헌을 primary abstract/metadata와 대조한 Related Work 및 BibTeX도 추가했다. 전체 문헌의 exhaustive review나 외부 편집법 대비 우위를 검증한 것은 아니다. 갱신 문서는 `paper-writing-related-work-v211`, 가독성을 확인한 DEV tradeoff PNG/PDF는 `paper-writing-and-figure-v210`에 canonical closure로 보관했다.
