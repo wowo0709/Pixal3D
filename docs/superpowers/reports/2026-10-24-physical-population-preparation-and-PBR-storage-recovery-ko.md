@@ -1,6 +1,6 @@
 # 물리 모델별 평가 계획 준비와 PBR 실행 연결 복구
 
-기준 시각: 2026-10-24 00:15 UTC. 평가 계획 생성기 구현 커밋 `d35678f7dc565ee04d7d7d600077b7925dccaa2b`.
+기준 시각: 2026-10-24 00:17 UTC. 평가 계획 생성기 구현 커밋 `d35678f7dc565ee04d7d7d600077b7925dccaa2b`.
 
 ## 실제 진행 결과
 
@@ -42,7 +42,7 @@ Raw PBR 복구 job은 **원래 worker command·science plan·config·출력 경�
 
 실패 때문에 HELD로 바뀐 필수 후속 작업 68개에는 새 dependency ID를 사용하는 successor를 연결했다. 원래 descriptor와 실패/HELD 이력은 유지했고, 실험 arm이나 학습 반복을 추가하지 않았다. 66개 command는 byte 단위로 동일하고, 두 CPU cache 처리 계획은 실제 완료 dependency ID만 바꿨다. 오래된 네 모델 TEST 자동 활성화 3개 및 불필요한 R_feature validation 3개는 되살리지 않았다. 현재 후보를 지원하는 DEV 선택·동결 절차가 여전히 필요하다.
 
-복구 raw PBR wrapper PID **1013382**, 실제 neural child PID **1013437**를 확인했다. 실행은 GPU 0~3 DDP4, global batch 24·GPU당 micro batch 6·accumulation 1·1900 update 설정이다. 이 시각에는 초기 로딩 중이므로 첫 optimizer update나 학습 정상 수렴을 아직 주장하지 않는다. 정상 SS worker나 dispatcher는 재시작하지 않았다.
+복구 raw PBR wrapper PID **1013382**, 실제 neural child PID **1013437** 및 네 rank를 확인했다. 초기 입력·noise·GT·PBR latent는 reference와 정확히 일치했고, 렌더링 metric은 사전에 정한 허용 오차 검사를 통과했다. 렌더링 bit identity를 주장하지 않는다. 실제 optimizer **2/1900 update**를 확인했으며 GPU 0~3 DDP4, global batch 24·GPU당 micro batch 6·accumulation 1이다. Rank 0의 두 번째 update는 계산 약 14.94초, 최대 할당 메모리 약 44.33 GiB였다. 초기 두 update 관찰이며 장기 수렴이나 전체 run의 최고 메모리를 뜻하지 않는다. 확인한 로그에 OOM·traceback은 없고, 정상 SS worker나 dispatcher는 재시작하지 않았다.
 
 ## 남은 완료 조건
 
