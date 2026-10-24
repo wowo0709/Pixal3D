@@ -146,3 +146,22 @@ def test_own_index_never_uses_a_baseline_archive_or_incomplete_panel(tmp_path,da
     if damage is None:assert module.validate_index(index)==arm
     else:
         with pytest.raises(ValueError):module.validate_index(index)
+
+
+def test_primary_family_uses_all48_pairs_and_exact_constant_deltas():
+    ids,clusters,records=population();summary=module.summarize(records,sample_ids=ids,clusters=clusters,draws=20)
+    result=module.primary_family_intervals(summary)
+    assert result['family_comparisons']==48 and result['bootstrap_draws']==48000
+    assert result['interval_quantiles'][0]==.05/96
+    for contrast,metrics in result['contrasts'].items():
+        assert len(metrics)==8
+        for item in metrics.values():
+            assert item['family_adjusted_CI95']==pytest.approx([item['deformation_weighted_delta']]*2)
+    assert result['contrasts']['M_FIXED_RAW_minus_M_FIXED_SPATIAL']['source9_10/LPIPS']['deformation_weighted_delta']==1.
+
+
+def test_primary_family_rejects_wrong_role_pairing_and_insufficient_tail_draws():
+    ids,clusters,records=population();summary=module.summarize(records,sample_ids=ids,clusters=clusters,draws=20)
+    with pytest.raises(ValueError):module.primary_family_intervals(summary,draws=4000)
+    summary['per_asset']['source9_10']['M_FIXED_RAW'][-1]['source_cluster_id']='wrong'
+    with pytest.raises(ValueError):module.primary_family_intervals(summary)

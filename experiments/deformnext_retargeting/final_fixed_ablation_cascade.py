@@ -26,6 +26,9 @@ CONTRASTS = (
     ('E_FIXED_RAW', 'A_FIXED_UNIFORM'),
     ('E_FIXED_RAW', 'A_FIXED_NO_R'),
 )
+PRIMARY_METRICS = (('source9_10','LPIPS'), ('source9_10','DreamSim'),
+    ('source9_10','CLIP'), ('target8','PSNR'), ('target8','SSIM'),
+    ('target8','M_IoU'), ('all8_9_10','CD'), ('all8_9_10','FScore'))
 
 
 def own_contract(arm):
@@ -164,3 +167,56 @@ def summarize(records, *, sample_ids, clusters, draws=4000):
         target_alignment=['PSNR','SSIM','M_IoU','CD','FScore'],
         full_goal_complete=False)
     return result
+
+
+def primary_family_intervals(summary, *, draws=48000, seed=20261025):
+    """Bonferroni cluster-bootstrap intervals for the predeclared6x8 DEV family.
+
+    Resampling counts are shared across all contrasts and metrics. Each draw
+    samples sources, retaining every deformation of each selected source.
+    This remains exploratory DEV evidence, not held-out confirmation.
+    """
+    import numpy as np
+    require(type(draws) is int and draws >= 48000,
+            'at least48000 draws required for the predeclared48-comparison tails')
+    require(set(summary['models']) == set(ARMS + BASELINES)
+            and summary['assets'] == 128 and summary['source_clusters'] == 93,
+            'complete seven-model DEV128 summary required')
+    rows = summary['per_asset']['all8_9_10'][BASELINES[0]]
+    ids = [r['sample_id'] for r in rows]
+    clusters = [r['source_cluster_id'] for r in rows]
+    groups = [np.asarray([i for i,c in enumerate(clusters) if c == cluster])
+              for cluster in sorted(set(clusters))]
+    require(len(ids) == len(set(ids)) == 128 and len(groups) == 93,
+            'actual complete128/93-source statistics required')
+    matrices = {}
+    for arm in ARMS + BASELINES:
+        columns = []
+        for role,metric in PRIMARY_METRICS:
+            values = summary['per_asset'][role][arm]
+            require([r['sample_id'] for r in values] == ids
+                    and [r['source_cluster_id'] for r in values] == clusters,
+                    'each role and model must preserve all paired asset/source identities')
+            columns.append([r[metric] for r in values])
+        matrix = np.asarray(columns, dtype=np.float64).T
+        require(bool(np.isfinite(matrix).all()), 'finite actual primary metrics required')
+        matrices[arm] = matrix
+    n = len(groups); sizes = np.asarray([len(g) for g in groups])
+    counts = np.random.default_rng(seed).multinomial(n, np.full(n,1/n), size=draws)
+    denominators = counts @ sizes
+    comparisons = len(CONTRASTS) * len(PRIMARY_METRICS); tail = .05/(2*comparisons)
+    contrasts = {}
+    for a,b in CONTRASTS:
+        delta = matrices[a] - matrices[b]
+        grouped = np.stack([delta[g].sum(0) for g in groups])
+        boot = (counts @ grouped) / denominators[:,None]
+        intervals = np.quantile(boot, [tail,1-tail], axis=0)
+        contrasts[a+'_minus_'+b] = {
+            role+'/'+metric:dict(deformation_weighted_delta=float(delta[:,i].mean()),
+                family_adjusted_CI95=intervals[:,i].tolist())
+            for i,(role,metric) in enumerate(PRIMARY_METRICS)}
+    return dict(method='Bonferroni percentile source-cluster bootstrap',
+        family_comparisons=comparisons, family_alpha=.05, bootstrap_draws=draws,
+        bootstrap_seed=seed, interval_quantiles=[tail,1-tail],
+        estimand='deformation-weighted paired mean; sources are resampling units',
+        exploratory_DEV_not_TEST=True, contrasts=contrasts)
