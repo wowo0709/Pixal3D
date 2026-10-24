@@ -84,3 +84,9 @@ Learned 후보의 DEV32 Shape 생성은31개 완료·1개 실행 상태를 확�
 사용자의 우선순위에 맞춘 [최신 필수 실험·평가·writing 정리](2026-10-24-final-pipeline-essential-experiments-and-writing-ko.md)를 추가했다. 다음은 learned cascade 실제8개 metric → 최종 후보와 재사용 가능한 matched 대조 점검 → 필요한 독립 확인·최종-context ablation → freeze·TEST508·최종 writing이다.
 
 후속 metadata/source 감사 `final-context-Top1-fixed-reuse-audit-v225`에서 Top-1 R·Fixed·Learned의 실제 closed config와 두 E 후보의 실제 초기 GPU proof를 대조했다. 공통 numerical contract·dataset·validation·learning rate가 같고, Top-1/Fixed 설정 차이는 ray mode와 aggregation이었다. Target/posterior/use/mass/numerator source AST도 동일했다. Top-1↔Fixed와 Fixed↔Learned 비교는 재사용하며, 최종 경로의 mean/voxel/raw/spatial/no-R까지 검증된 것으로 확대하지 않는다. 이 감사의 새 NN forward는0이다.
+
+## 실제 정성 그림과 독립 seed 준비
+
+[후속 기록](2026-10-24-actual-qualitative-and-independent-seed-preparation-ko.md)에 실제 DEV32 render4개 사례와 성공·실패 선택 규칙, 논문용 compact figure, figure를 포함한8쪽 PDF 빌드·시각 검수·file4 closure를 기록했다. Source LPIPS 악화 사례를 포함하며, 사례 선택을 population 효과로 해석하지 않는다.
+
+실제 실행 중인 V1 seed202의 PID/birth/command와 최초5개 update를 보존하고, 두 E 후보의 seed202 config6개를 기존 factory로 검증했다. 이들은 queue에 넣지 않았고 실제 후보 선택·자체 GPU proof/capacity가 필요하다. 최초 metadata-only wrapper schema 불일치는 별도 실패 기록으로 보존했으며 NN 재시작은0이다. 아직 최종 후보 선정과 TEST가 완료된 것은 아니다.

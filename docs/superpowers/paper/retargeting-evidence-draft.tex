@@ -258,6 +258,14 @@ change is [0.000224, 0.002275]; the F-Score interval is
 improvement over retargeting. It also illustrates why stage-level occupancy
 accuracy is insufficient for selecting a complete editing pipeline.
 
+Figure~\ref{fig:dev-tradeoffs} provides actual archived source-camera renders
+for two explicitly selected development cases. The largest F-Score gain is
+0.05679, with source LPIPS increasing by 0.00019. The largest source LPIPS
+increase is 0.00974, despite a positive F-Score change of 0.00854. These
+examples illustrate why geometry and appearance must be measured separately;
+they do not identify the causal source of the appearance differences.
+\input{dev-qualitative.tex}
+
 The contextual matching descriptor has a positive SS point estimate relative
 to raw semantic descriptors, whereas adding the scalar matching score has a
 negative point estimate in that tested Top-1 path. Fixed Top-K aggregation and
