@@ -1,5 +1,6 @@
 """Read actual closed two-seed PBR stages; no neural forward or model selection."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,10 +20,17 @@ def validate_trace(rows):
     require(len(rows)==1900 and [r['step'] for r in rows]==list(range(1,1901)),
         'actual complete1900 PBR updates required')
     for row in rows:
-        require(type(row['step']) is int and len(row['asset_ids'])==1 and len(row['asset_ids'][0])==6
-            and all(isinstance(s,str) and s for s in row['asset_ids'][0])
+        require(type(row['step']) is int and isinstance(row['asset_ids'],list) and len(row['asset_ids'])==6
+            and all(isinstance(s,str) and s for s in row['asset_ids'])
             and all(is_digest(row[k]) for k in ['x_t_SHA256','t_SHA256','global_SHA256']),
             'actual complete per-rank micro6 input/noise/timestep/global trace required')
+
+
+def training_trace_digest(rows):
+    """Same parsed-row digest as native stage snapshots; raw file SHA is separate."""
+    validate_trace(rows)
+    return hashlib.sha256(json.dumps(rows,sort_keys=True,separators=(',',':'),
+        allow_nan=False).encode()).hexdigest()
 
 
 def collect(plan,check):
@@ -67,7 +75,10 @@ def collect(plan,check):
                 require(read_file(item['rank_completions'][rank],check)==ranks[rank],'actual completion rank differs')
                 spec=item['training_traces'][rank]
                 rows=read_file(spec,check,lines=True);validate_trace(rows)
-                require(spec['SHA256']==record['training_trace_digests'][rank],'snapshot trace digest differs')
+                require(record['training_trace_inputs'][rank]==spec,
+                    'snapshot trace must identify the same actual file, raw SHA and receipt')
+                require(training_trace_digest(rows)==record['training_trace_digests'][rank],
+                    'snapshot parsed trace digest differs')
                 traces[seed][mode][rank]=rows
                 if mode!='vanilla':
                     require(rows==traces[seed]['vanilla'][rank],'actual per-rank1900 traces differ within TRAIN seed')
