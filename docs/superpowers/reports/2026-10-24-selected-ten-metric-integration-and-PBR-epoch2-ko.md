@@ -2,6 +2,8 @@
 
 2026-10-24. 학습과 실제 최종 모델 선택은 진행 중이다. 현재 결과로 semantic matching·learned attention 각각의 필요성이나 전체 cascade 개선을 확정하지 않는다.
 
+SS의 학습 로그와 최종 표는 micro/macro 집계가 다르다. 같은 V1의 DEV128×3가 micro0.43198/macro0.46736이므로, 두 수치 사이 차이를 구조 개선으로 해석하지 않는다. 동일 기준의 실제 차이와 새 SS arm 첫 epoch는 [집계 기준 audit](2026-10-24-SS-IoU-micro-macro-audit-ko.md)에 정리했다.
+
 ## 실제 PBR 760-update 비교
 
 같은 seed101·global24·DDP4·micro6·accumulation1, 5에폭1900 예산 중2에폭 결과다. 고정4개 asset/4 source, target camera8, GT Shape 조건의 PBR stage 진단이며 source preservation과 generated geometry 평가가 아니다.
