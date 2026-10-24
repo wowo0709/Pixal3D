@@ -10,7 +10,8 @@
 \maketitle
 
 \noindent\textbf{Draft status.} Method and protocol text below describe implemented
-candidate designs. The final architecture is not yet selected. All populated
+candidate designs. Fixed shared evidence is the working candidate for
+final-context controls; architecture and held-out claims are not yet frozen. All populated
 results are development measurements, not held-out test results. Empty entries
 remain unmeasured. Core related-work references have been checked against
 primary sources; the broader literature review remains open. The final
@@ -167,8 +168,8 @@ over source clusters. They are not independent training seeds. The completed
 main SS ablation results use training seed 101. A completed, separate seed202
 experiment confirms vanilla and the Top-1 semantic-matching/retargeting branch;
 the selected combined candidate and PBR require their own confirmation.
-Rendering development uses a fixed 32-example panel and one generation-noise
-realization, with a paired 128-example expansion in progress.
+Rendering development uses an initial fixed 32-example panel and a completed
+paired 128-example expansion, each with one generation-noise realization.
 
 Final model choice uses both geometric alignment and source preservation,
 rather than SS IoU alone. Required validation fresh-load/cache checks,
@@ -424,6 +425,27 @@ with different SS geometry.
 
 \input{tables/dev-paired-pbr32.tex}
 
+\paragraph{Completed paired DEV128 cascade and working candidate.}
+Table~\ref{tab:dev-joint128} extends the three R/fixed/learned compositions
+to the same 128 examples. We reuse32 cases per composition and generate96
+additional cases, measuring all eight per-example metrics with identical
+references. Fixed evidence increases F-Score from 0.840095 to 0.844058
+relative to Top-1 R, an exploratory change of 0.003963 with source-cluster
+interval $[0.001011,0.007314]$. Its CD change is $-0.00002230$, with interval
+$[-0.00015369,0.00012960]$. Source LPIPS changes by 0.000211
+($[-0.000344,0.000759]$) and DreamSim by 0.003100
+($[-0.001178,0.007689]$); these estimates do not establish source
+non-inferiority or improved appearance preservation.
+Learned refinement has worse CD and F-Score point estimates than Fixed,
+with paired intervals that include zero. We therefore use Fixed SS with
+the actually measured Top-1 R PBR as the working composition for required
+matched controls and independent training. This decision favors observed
+geometry and the simpler readout while retaining R as a strong appearance
+control. It is not a held-out model freeze or a universal quality claim.
+The intervals are exploratory after DEV32 screening; final-context
+ablation, independent confirmation, and TEST508 remain necessary.
+\input{tables/dev-joint128.tex}
+
 \section{Ablation and final-table completion}
 \input{tables/final-main-template.tex}
 \input{tables/final-ablation-template.tex}
@@ -445,8 +467,8 @@ the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 
 \section{Limitations and pending claims}
-The original twelve-model, ten-module-contrast family is complete. Broader
-paired cascade confirmation, the final-context matched controls, independent training of
+The original twelve-model, ten-module-contrast family and paired DEV128
+cascade extension are complete. The final-context matched controls, independent training of
 the selected candidate and PBR, and held-out test results are pending.
 Two training pairs confirm the combined Top-1 branch at the SS stage;
 they do not isolate each component or establish cascade generalization.
