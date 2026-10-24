@@ -1,5 +1,7 @@
 # 논문 초안과 결과 표
 
+최신 후속 revision은 `paper-draft-independent-V1-output-link-v276`이다. 독립 V1의 실제 DEV128×3 집계와 같은32개에서의 활용/출력 association을 추가했다.10쪽·24개 인용, compiler returncode0·warning/미해결 인용0이며5/6쪽을 시각 검수했다. 원본 V1/R 두-seed 통합 collector도 기존 queue의 storage-successor-v185 job이 정상 pending이고 source295개가 일치함을 확인했다. R 평가 종료 뒤 이 기존 collector를 사용하며 중복 등록하지 않았다. [실제 결과·GPU1 평가 연결 기록](../reports/2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)을 참고한다. 최종 pipeline 선정·독립 R/PBR·TEST는 여전히 남아 있다.
+
 2026-10-24 갱신: 최신 compiled revision은 `paper-draft-core-plan-utilization-v271`이다. 실제 Fixed/Learned 활용 진단, metric7개 원논문을 포함한 총24개 인용, 실제 metric 정의와 최종-context ablation 양식을 반영했다.10쪽·compiler returncode0·TeX warning/미해결 인용0이며5/9쪽의 활용 결과·개발 결과 표·ablation 표를 시각 검수했다. `audit.json`에 검수와 PDF identity를 기록했다. 아래 이전 revision 설명은 각 시점의 기록이다. 최신 남은 실험과 writing은 [핵심 계획](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md), metric 정의는 [대조 기록](../reports/2026-10-24-metric-definitions-citations-and-independent-V1-ko.md)을 따른다. DEV128 전체 cascade와 최종 TEST는 여전히 미완료다.
 
 `retargeting-evidence-draft.tex`는 현재 코드에 맞춘 Method, 데이터·학습·평가 protocol, DEV 결과 해석, 최종 표 양식을 포함한다. 이 디렉터리에서 TeX를 컴파일하도록 상대 input 경로를 구성했다. 전역 학습 환경과 분리한 Tectonic0.17.0으로 실제 TeX/BibTeX 빌드를 실행했다. 최신 revision은 SS13개 endpoint·matching 기전·같은 geometry의 PBR 짝비교를 포함한7쪽이며, TeX warning과 unresolved citation 없이 빌드됐다. 표와 본문이 있는4/5/6쪽을 렌더링해 읽기와 clipping 여부를 확인했다. 이는 개발 결과 초안이며 최종 TEST 논문이 아니다.

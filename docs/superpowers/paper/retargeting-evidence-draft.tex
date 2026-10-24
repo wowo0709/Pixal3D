@@ -272,6 +272,14 @@ it does not establish generated-quality improvement over a matched uniform
 model. Exact patch correspondence also does not capture every potentially
 useful semantic candidate.
 
+We also joined per-asset learned-minus-fixed mass changes to the same
+cascade32 outputs. Spearman associations with improvements in CD, F-Score,
+source LPIPS, and source DreamSim are respectively $-0.0828$, $0.0623$,
+$0.1683$, and $0.0400$. All four exploratory unadjusted source-cluster
+intervals contain zero. These asset-level associations do not establish a
+link from exact-match mass refinement to improved output, and are not a
+causal intervention or a relation-local surface-error analysis.
+
 \section{Development results and bounded interpretation}
 \input{tables/dev-joint32.tex}
 \input{tables/dev-ss128.tex}
@@ -318,6 +326,18 @@ does not establish the necessity of refinement. Its change from vanilla is
 [0.002585,0.012504]. These are development results from one training seed;
 the learned candidate's actual cascade is evaluated below, while independent
 training confirmation remains pending.
+
+\paragraph{Independent vanilla training readout.}
+The completed seed202 vanilla run reaches macro SS IoU 0.467177, compared
+with 0.467355 for seed101 on the same 128 assets, 93 source clusters, and
+three generation noises. The seed202-minus-seed101 change is $-0.000178$,
+with an exploratory source-cluster interval $[-0.001809,0.001317]$.
+Actual 480-update traces and startup RNGs differ, while the original LoRA
+initialization and native numerical/data recipe agree. Similar point
+estimates support baseline repeatability in these two runs, but do not
+establish equivalence. This readout does not complete independent
+retargeting, selected-model, or PBR/cascade confirmation; the interval
+conditions on these checkpoints rather than a population of training seeds.
 
 In the actual DEV32 fixed-evidence composition, however,
 its geometry and appearance move in different directions. Relative to the

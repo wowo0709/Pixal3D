@@ -4,6 +4,8 @@
 
 ## 1. 지금 확정한 사실과 아직 결정하지 못한 것
 
+19:43 UTC 후속 실행: [독립 V1 readout·활용/출력 연결](2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)을 완료했다. V1 seed202의 동일 DEV128×3 IoU는0.467177이다. 대기 Fixed24건은 GPU1로 실행 위치만 옮겨 첫 사례가 완료됐고, 전체 추가288건 중99건 완료·4건 실행이다. 아래19:27 상태 표의 V1 집계 대기는 해소됐으며 최종 구조·TEST·논문 완성 범위는 유지한다.
+
 SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·480 updates에서 V1 0.467355, Top-1 R 0.472600, Fixed 0.473471, Learned 0.474794의 macro voxel IoU를 얻었다. Learned−Fixed의 module-family CI95는 [−0.000409,+0.003161]이다. 최고 점추정이 learned attention의 필수성을 증명하지 않는다.
 
 실제 DEV32 cascade에서는 Fixed가 R보다 CD/F-Score에서 좋지만 source LPIPS/DreamSim은 나빴다. Learned도 모든 지표에서 우세하지 않았다. 같은32개/noise의 SS 순위는 Fixed > Learned였으므로, 서로 다른 panel/noise에서 얻은 순위를 연결해 구현 실패나 단계 간 정보 손실의 원인으로 단정하지 않는다.
@@ -110,7 +112,7 @@ Oracle 학습, backbone 교체, gate/temperature grid, 새로운 head의 대량 
 
 ## 6. 독립 확인과 최종 TEST
 
-Seed202 V1 SS의480 학습과 DEV128×3 평가는 완료됐으므로, 기존 seed101과 동일한 macro 집계의 readout을 먼저 연결한다. R SS를 완료하고, 최종 후보가 다르면 그 후보 하나만 같은 seed로 확인한다. PBR vanilla/R의 필수 seed202도 완료한다. 모든 ablation을 여러 학습 seed로 반복하지 않는다. 학습 seed2개와 생성 noise3개를 혼동하지 않는다. Quick epoch IoU를 최종 DEV128×3 macro IoU와 비교하지 않는다.
+Seed202 V1 SS의480 학습과 DEV128×3 평가는 완료됐고, 기존 seed101과 동일한 macro 집계 readout도 완료했다. V1은 seed1010.467355, seed2020.467177이다. R SS를 완료하고, 최종 후보가 다르면 그 후보 하나만 같은 seed로 확인한다. PBR vanilla/R의 필수 seed202도 완료한다. 모든 ablation을 여러 학습 seed로 반복하지 않는다. 학습 seed2개와 생성 noise3개를 혼동하지 않는다. Quick epoch IoU를 최종 DEV128×3 macro IoU와 비교하지 않는다.
 
 TEST 전 동결 항목은 실제 checkpoint/config/code identity, DeformNeXt split, camera·RGB 입력, native sampler·generation seed, Shape/PBR composition, metric registry와 reference, contrast family 및 source-cluster CI 규칙이다. 현재 VAL36의 V1/R binding 검증과 Learned fresh-load2회 검사는 완료돼 있으며 선택 모델에 맞게 필요한 정합만 보완한다. TEST508 cache/loader QA 통과는 품질 측정 완료를 뜻하지 않는다.
 

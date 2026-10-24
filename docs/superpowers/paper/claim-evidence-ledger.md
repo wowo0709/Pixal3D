@@ -6,6 +6,7 @@
 
 | Claim 후보 | 현재 근거 | 미완료 검증 | 현재 허용하는 표현 |
 |---|---|---|---|
+| V1 기준선이 독립 학습에서도 재현된다 | Seed1010.467355, seed2020.467177; 실제480 trace·startup RNG가 다르고 초기 LoRA·학습 조건·DEV128×3 pairing 일치 | R/선택 모델·PBR의 독립 효과와 full-cascade 확인은 별도 | 두 실제 V1 실행의 유사한 점추정; 동등성이나 임의 training seed population의 보장 아님 |
 | Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 finite-family 통계, 최종 구조의 matched 비교 및 downstream | “해당 SS 설정에서 양의 점추정” |
 | Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 구조/downstream 연결; 진단32와 SS128을 같은 paired 실험으로 혼동하지 않음 | Descriptor와 scalar score의 효과를 분리 |
 | Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 동일 Top-K support/value 경로의 score 대조가 필요 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
@@ -39,5 +40,7 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측한 활용 진단이 완료됐다. Native BF16의50,516개 observable relation 중 Top-1 miss/Top-K hit31,408개에서 exact GT mass는 Uniform-K1.6266%, Fixed6.4601%, Learned6.1756%다. Learned−Fixed는−0.2844pp, 탐색용 cluster CI95 [−0.9776,+0.4890]pp로 추가 이득을 확인하지 못했다. Prior 대비 확률 변화 자체는 실제로 관측됐다. 따라서 matching prior의 후보 활용과 learned refinement의 추가 효과를 나누어 서술한다.
 
 과거 CPU FP32 진단50,493개와 actual BF16 관계50,516개는 projection precision의 patch rounding 차이로 분모가 다르며, native GPU 주소의 실제 재구성으로 원인을 확인했다. 기존 CPU core parity를 GPU precision parity로 확대 해석하지 않는다. 저장 관측의 source-use·correction 및 downstream association은 진단이며, diagnostic Uniform-K는 matched 학습 ablation을 대신하지 않는다. 실제 audit/closure와 남은 실험은 [최신 핵심 계획](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)의 기전 항목에 연결했다.
+
+같은32개에서 Learned−Fixed exact GT mass와 실제 출력 개선을 연결한 Spearman rho는 CD−0.0828, F-Score+0.0623, source LPIPS+0.1683, source DreamSim+0.0400이며 네 탐색용 CI 모두0을 포함한다. 정답 mass refinement가 최종 품질을 개선한다는 연결 근거는 아직 부족하다. 연관성 부재가 causal effect 부재를 증명하는 것도 아니다. [독립 V1·실제 활용/출력 연결 기록](../reports/2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)에 수치와 실제 audit를 남겼다.
 
 [원래24개 문헌의 primary-source 대조](../reports/2026-10-24-paper-primary-literature-and-claim-scope-ko.md)를 반영해 correspondence-aware attention과 projection conditioning 자체를 신규 기여로 주장하지 않는다. 현재의 입력은 edited-target RGB와 source RGB이며 GT target mesh를 추론 입력으로 서술하지 않는다. 외부 editing/texturing 방법의 입력 차이는 문제 설정 설명이며, 실행하지 않은 비교의 성능 우위 근거가 아니다.
