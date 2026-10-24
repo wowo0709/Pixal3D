@@ -1,15 +1,16 @@
 \begin{table}[t]
-\centering\scriptsize
-\resizebox{\linewidth}{!}{%
+\centering\small
+\setlength{\tabcolsep}{3.5pt}
 \begin{tabular}{lrrrrrrrr}
 \toprule
-Actual DEV128 composition&Source LPIPS$\downarrow$&Source DreamSim$\downarrow$&Source CLIP$\uparrow$&Target PSNR$\uparrow$&Target SSIM$\uparrow$&Target M-IoU$\uparrow$&CD$\downarrow$&F-Score$\uparrow$\\
+&\multicolumn{3}{c}{Source preservation}&\multicolumn{5}{c}{Target alignment}\\
+SS variant&LPIPS$\downarrow$&DreamSim$\downarrow$&CLIP$\uparrow$&PSNR$\uparrow$&SSIM$\uparrow$&M-IoU$\uparrow$&CD$\downarrow$&F-Score$\uparrow$\\
 \midrule
-Top-1 R SS + Top-1 R PBR&0.053227&0.148809&0.939061&24.07381&0.948434&0.890535&0.0127795&0.840095\\
-Fixed-evidence SS + Top-1 R PBR&0.053438&0.151909&0.940282&24.01288&0.948494&0.892593&0.0127572&0.844058\\
-Anchored-learned SS + Top-1 R PBR&0.053275&0.151001&0.940279&24.04810&0.948579&0.890776&0.0128053&0.842134\\
+Top-1 R&0.053227&0.148809&0.939061&24.07381&0.948434&0.890535&0.0127795&0.840095\\
+Fixed&0.053438&0.151909&0.940282&24.01288&0.948494&0.892593&0.0127572&0.844058\\
+Learned&0.053275&0.151001&0.940279&24.04810&0.948579&0.890776&0.0128053&0.842134\\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \caption{Actual paired DEV128 (93 source clusters), one training seed and one
 generation-noise realization. All pipelines use the same frozen Shape stages
 and trained Top-1 R PBR. Source cameras9/10 use the original-material-on-M1
