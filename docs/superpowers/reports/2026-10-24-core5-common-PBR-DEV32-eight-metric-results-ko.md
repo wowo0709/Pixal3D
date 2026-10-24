@@ -18,6 +18,8 @@ Source preservation은 source camera9/10의 평균이다. Full-frame LPIPS·Drea
 
 Target alignment의 이미지 지표는 edited target camera8이다. PSNR·SSIM은 full-frame이며 foreground PSNR은 별도의 보조 지표다. CD는 source-defined 정규화 좌표에서 양쪽 surface 20k samples의 symmetric L1 Chamfer, F-Score threshold는0.02이며 ICP나 결과별 정합을 수행하지 않았다. Surface F-Score와 voxel F1은 서로 다른 지표다.
 
+M-IoU는 최종 렌더 alpha>0.5의2D mask를 비교한다. Native PBR의6번째 attribute는 opacity이므로 이 지표에는 geometry와 재질 투명도가 함께 반영된다. Geometry만의 개선을 판단할 때는 raw mesh의 CD·surface F-Score를 별도로 확인한다.
+
 | SS 모델 | Target PSNR ↑ | Target SSIM ↑ | Target mask IoU ↑ | Surface CD ↓ | Surface F-Score ↑ |
 |---|---:|---:|---:|---:|---:|
 | V1 | 24.26623 | 0.950695 | 0.880957 | 0.01245167 | 0.849149 |
@@ -55,3 +57,9 @@ Canonical file4 경로:
 `coverage160-v1/`, `official480-v1/native/evaluation.json`, `eight-metric-summary-v1/statistics.json`와 `audit.json`이 실제 결과다. 각 phase의 file4 receipt가 존재한다. [W&B의 모델별 표·5개 실제 GT/Pred 패널·paired delta와 CI](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-core5-common-V1-PBR-cascade32-v167)에 기록됐다.
 
 FID/KID, 다른 training seed, 완료되지 않은 원래 SS 대조군, 공통 생성 geometry에서의 PBR 비교, candidate joint cascade, VAL36 재현 확인, 최종 TEST508과 전체10개 metric은 여전히 남아 있다. 이번 DEV32 평가를 전체 실험 완료나 최종 구조 확정으로 취급하지 않는다.
+
+## 공통 geometry PBR 비교에서 발견한 렌더 교란 요인
+
+후속 PBR4 평가의 첫 공통 case를 실제 배열로 대조했다. 네 모델의 raw vertices/faces와 native guide·초기 texture noise는 같았지만, 원본 renderer가 각 case에서 native mesh simplification을 별도로 실행해 최종 렌더 triangles가 달라졌다. 같은2,966,356-face raw mesh에서 renderer face 수가998,920/998,470/999,948/998,620으로 달랐다. 원본 surface 지표는 유지되지만 PBR만의 렌더 효과를 분리할 때에는 같은 face budget만으로 충분하지 않다.
+
+이를 해결하는 `fixed-render-geometry-PBR4-native32-v203` successor는 asset별 vanilla의 실제 단순화 mesh를 한 번 고정한다. 각 모델의 원래 PBR attributes·sparse support를 그대로 유지한 render-only 입력을 만들고, 기존 renderer를 수정 없이 호출한다. 입력이 이미 budget 안에 있으므로 추가 simplification을 건너뛴다. 실제 렌더 vertices/faces가 고정 mesh와 정확히 같은지 검사하며, 원래 sampling 결과·raw mesh·surface metric은 보존한다. 원래 공통-geometry PBR4 렌더 결과는 같은 budget의 탐색 결과로 보존하고, PBR 선정에는 이 수정 평가를 요구한다. 새 학습 arm이나 SS/Shape/PBR generation forward는 추가하지 않는다.
