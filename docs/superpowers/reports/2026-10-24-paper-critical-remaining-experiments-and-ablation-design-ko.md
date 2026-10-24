@@ -1,10 +1,10 @@
 # 논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계
 
-2026-10-24 19:27 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
+2026-10-24 21:31 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
 
 ## 1. 지금 확정한 사실과 아직 결정하지 못한 것
 
-19:43 UTC 후속 실행: [독립 V1 readout·활용/출력 연결](2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)을 완료했다. V1 seed202의 동일 DEV128×3 IoU는0.467177이다. 대기 Fixed24건은 GPU1로 실행 위치만 옮겨 첫 사례가 완료됐고, 전체 추가288건 중99건 완료·4건 실행이다. 아래19:27 상태 표의 V1 집계 대기는 해소됐으며 최종 구조·TEST·논문 완성 범위는 유지한다.
+독립 SS seed202 V1/R의480 학습과 DEV128×3 평가·집계가 모두 완료됐다. Seed101의 V1/R IoU는0.467355/0.472600, seed202는0.467177/0.472346이다. 두 seed의 paired 개선은 각각+0.005245, +0.005169이며 source-cluster CI95는 각각[+0.001674,+0.009030], [+0.001780,+0.008677]이다. 이는 **Top-1 semantic matching+retargeting branch 전체 대 V1**의 재현성이다. Retargeting MLP 단독 효과나 decoder 단독 효과로 해석하지 않는다. 두 고정 training seed 평균 개선은+0.005207이며, source-cluster bootstrap은 training seed 모집단에 대한 CI가 아니다.
 
 SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·480 updates에서 V1 0.467355, Top-1 R 0.472600, Fixed 0.473471, Learned 0.474794의 macro voxel IoU를 얻었다. Learned−Fixed의 module-family CI95는 [−0.000409,+0.003161]이다. 최고 점추정이 learned attention의 필수성을 증명하지 않는다.
 
@@ -13,16 +13,17 @@ SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·
 | 항목 | 실제 상태 | 남은 의미 |
 |---|---|---|
 | 기존 SS 모델들 | 13개 endpoint의 480/DEV128×3 완료 | 원래 비교 family 통계는 voxel endpoint 이후 마무리 |
-| FULL_VOXEL_Q | 429/480 학습 중 | 원래 FULL 문맥의 ray/voxel 대조; 새 최종 구조와의 일치도 별도 점검 |
+| FULL_VOXEL_Q | 480 학습 완료; 평가용 checkpoint 묶음 복구 완료, noise0 평가 실행 | 원래 FULL 문맥의 ray/voxel 대조; 새 최종 구조와의 일치도 별도 점검 |
 | V1/R/D1-cos/Fixed/Learned DEV32 cascade | 5개 조합과8개 metric 완료 | 작은 개발 panel이며 최종 TEST 아님 |
 | 같은 Fixed SS의 vanilla/R PBR | 실제32개 짝비교 완료 | 같은 geometry에서도 source appearance 문제가 해결됐다고 볼 근거 없음 |
-| R/Fixed/Learned DEV128 cascade 확장 | 기존32개씩 재사용; 추가288개 중82개 완료,3개 실행,203개 대기 | 동일128/noise에서 geometry·appearance 비교 필요; 전체 metric 미완료 |
-| 독립 SS seed202 V1/R | V1의480 학습 및 DEV128×3 평가 완료, 집계 대기; R은 GPU0 학습 중 | V1의 seed 비교 집계를 연결하고 R 종료 후 모델 간 이득의 독립 재현성 확인 |
+| R/Fixed/Learned DEV128 cascade 확장 | 기존32개씩 재사용; 추가288개 중275개 완료·1개 실행·12개 대기. R/Fixed의 추가96개씩 완료 | 동일128/noise에서 geometry·appearance 비교 필요; official metric 전체 집계 미완료 |
+| 독립 SS seed202 V1/R | 양쪽480 학습·DEV128×3·두 seed 짝집계·원본 frozen701 tensors 비교 완료 | 선택 후보가 R과 다를 때 그 후보의 독립 확인만 추가 |
 | 실제 Fixed/Learned 활용 진단 | 같은32개 모델별 관측·native 분모 대조·집계·file4 보존 완료 | Score prior는 유효 후보에 mass를 배분하지만, 추가 learned refinement의 이득은 미확인 |
-| 독립 PBR seed202 vanilla/R | 준비돼 있으나 본 학습 미완료 | 필수 확인 대상; 선택하지 않은 PBR grid는 추가하지 않음 |
+| 독립 PBR seed202 vanilla/R | GPU0–3 DDP4 vanilla 실제26/1900; R은 그 다음 의존 작업 | 필수 확인 대상; 선택하지 않은 PBR grid는 추가하지 않음 |
+| 최종-context 새4개 제거/가중치 대조 | native trainer/evaluator 구현·115개 검사·4개 실제 GPU flow/backward proof 통과 | Micro96 capacity, 본 학습, 새 대조의 cascade binding/실제 평가 미완료; 성능 결과 아님 |
 | 최종 TEST508 | 품질 평가 미실행 | 모델·protocol freeze 뒤 실행 |
 
-회수 가능한 기존 생성물을 다시 만들지 않는다. DEV128 확장은 GPU2 Fixed, GPU3 R, GPU6 Learned이며 GPU7은 voxel 대조다. 이 실행 관측 수치는 계속 변하며, 완료되지 않은 비교를 논문 결과로 채우지 않는다.
+회수 가능한 기존 생성물을 다시 만들지 않는다. 현재 GPU0–3은 필수 PBR DDP4, GPU6은 Learned의 남은 cascade 사례, GPU7은 voxel 대조 평가에 사용한다. Voxel의 이전 checkpoint 묶음 실패는 저장 config 끝의 줄바꿈1byte 차이뿐임을 입증했다. 수치 설정과 학습 결과는 그대로 보존하고 동등한 config 표현을 별도 기록해 평가 연결을 복구했다. 이 실행 관측 수치는 계속 변하며, 완료되지 않은 비교를 논문 결과로 채우지 않는다.
 
 ## 2. 남은 작업의 우선순위와 종료 조건
 
@@ -88,6 +89,23 @@ Uniform-K의 구체적인 적용 범위도 실행 전에 고정한다. 후보 �
 
 권장 표 열은 `Correspondence / Aggregation / Query / Retargeting | CD↓ / F-Score↑ / LPIPS↓ / DreamSim↓ / SS IoU↑`다. 같은 learned descriptor에서 scalar score 사용 여부도 명시한다. 모든 arm에 PBR 재학습을 추가하지 않는다. 추론 때 모듈을 끄는 결과는 진단이며 matched 재학습 결과와 구분한다.
 
+### 신규 학습의 최소 실행 행렬과 입장 조건
+
+필요한 **비교 수**와 **새로 학습할 arm 수**를 구분한다. 같은 최종 구조에서 완료된 Top-1/Fixed/Learned는 재사용하고 다음 누락분만 보완한다.
+
+| 우선순위 | 신규/재사용 대상 | 실행 범위와 종료 조건 |
+|---|---|---|
+| 공통 필수 | 같은 후보 Uniform-K ↔ Fixed | `A_FIXED_UNIFORM`은 실제 GPU 초기 함수·backward 검사까지 완료. Micro96/accum1 capacity를 통과한 뒤480 학습·DEV128×3 및 downstream 평가. 동일 후보의 score-guided weighting을 검증한다. |
+| 선택 모델 필수 | 선택된 Fixed 또는 Learned ↔ 물리적 No-R | `A_FIXED_NO_R`/`A_LEARNED_NO_R` 중 **선택 경로의 하나**만 본 학습. 초기 GPU 검사는 둘 다 통과했지만 학습 완료가 아니다. 기존 Top-1 No-R 결과는 별도의 조건부 근거다. |
+| 최종 matching 기여 필수 | Spatial → Raw semantic → D1 cosine → D1 scalar | 동일한 최종 readout·carrier·source-use·R에서 누락된 행만 학습. 기존 Top-1 ladder는 그 문맥에서 재사용 가능하나 weighted Top-K의 최종 행으로 바꿔 적지 않는다. 최종 학습 config·cache·생성/평가 binding 확인이 아직 필요하다. |
+| Learned 채택 시 | Fixed ↔ Learned, Learned ↔ additive-logit-prior 제거 | 전자는 완료된 SS 모델 재사용. 후자 `A_LEARNED_NO_LOGIT_PRIOR`는 실제 GPU 검사 완료이며 capacity/학습/평가 필요. 같은7개 head tensor와 후보/context를 유지하며 직접 더하는 logit prior만 제거한다. |
+| Ray 독립 기여 채택 시 | 같은 최종 경로 ray ↔ voxel query/grouping | 먼저 완료된 기존 FULL voxel 평가를 집계. 최종 Learned에는 같은 identity-V/shared-evidence 경로의 query 대조가 필요하다. Fixed에는 learned Q/K가 없으므로 그 toggle은 유효하지 않으며, ray grouping을 바꾸는 별도 정의 없이 query 효과를 주장하지 않는다. |
+| Member 독립 기여 채택 시 | 같은 최종 경로 member ↔ mean descriptor | 독립 기여로 남길 때만 최종 경로에서 누락분 학습. 현재 coverage 개선과 기존 생성 성능의 음의 결과를 그대로 보고한다. |
+
+기능 검사까지 준비된 네 arm을 모두480-step 학습한다는 뜻이 아니다. 현재 네 arm 모두 **본 학습0 updates**이며, 실제 GPU proof는 한 TRAIN sample의 초기 함수/gradient 검사다. Micro96 capacity, matched training, 평가용 checkpoint binding, frozen Shape/PBR에 연결한 실제 cascade 평가가 끝나야 ablation 표의 수치를 채운다. No-R는 모듈/파라미터를 물리적으로 제거하며, Uniform-K는 carrier·source-use·R가 공유하는 evidence posterior의 weighting을 바꾸는 대조다. 이를 additive attention-logit 하나의 효과로 좁혀 쓰지 않는다.
+
+각 논문용 대조는 SS IoU만으로 종료하지 않는다. 동일 DEV128에서 CD/F-Score와 LPIPS/DreamSim을 함께 얻고, 나머지 target/source metric은 보조 표에 보존한다. 공통 frozen Shape와 같은 PBR를 사용해 SS 변경의 downstream 효과를 분리하며, PBR 모듈의 효과는 같은 geometry에서 별도 짝비교한다. 모든 ablation의 PBR를 재학습하는 grid는 필요 없다.
+
 ## 5. 필요한 기전 검증은 하나의 고정 panel로 연결
 
 이미 측정한 matching DEV32에서 raw→decoder descriptor의 exact@1은1.25%→7.73%, decoder scalar score 사용 시8.56%였다. Member 후보는 exact@64를50.76%→73.36%로 높였지만 원래 FULL의 생성 IoU는 mean보다 낮았다. 이는 retrieval과 생성 품질을 구별해야 할 실제 근거다.
@@ -112,13 +130,13 @@ GT correspondence/visibility는 평가 분모와 진단에만 사용한다. 추�
 
 분모는 해당 subset의31,408개 관계다. Learned−Fixed는−0.2844 percentage point, 탐색용 source-cluster CI95 [−0.9776,+0.4890]pp다. Learned 확률은 prior에서 실제로 달라지지만, 추가 정답 mass 개선은 확인되지 않았다. Fixed−Uniform은+4.8335pp, CI95 [+4.3219,+5.3534]pp다. 이는 **확률 활용의 기전 근거**이며 Uniform-K matched 학습 대비 최종 생성 성능의 증명이 아니다. Exact patch mass만으로 모든 semantic 후보의 유용성을 설명할 수도 없다.
 
-따라서 남은 기전 작업은 새 matching head 탐색이 아니라, 이 관측을 같은 사례의 surface/source-render 오차와 연결하고 Uniform-K matched 학습의 downstream 결과로 검증하는 것이다. Source-use가 거의1이라는 관측만으로 calibration 실패나 최종 오차의 원인을 확정하지 않는다.
+같은32개 사례의 실제 출력과 활용 관측 연결도 완료했다. Learned−Fixed exact GT mass 변화와 출력 개선의 Spearman rho는 CD−0.0828, F-Score+0.0623, LPIPS+0.1683, DreamSim+0.0400이며 탐색용 source-cluster CI는 모두0을 포함한다. 이는 모델이 확률을 바꾼다는 사실과 최종 품질 개선이 다름을 보여 주지만, 인과 효과 부재를 입증하지 않는다. 따라서 남은 기전 검증은 새 matching head 탐색이나 같은 진단의 반복이 아니라, **Uniform-K matched 학습의 실제 downstream 결과**와 기존 관측의 연결이다. Source-use가 거의1이라는 관측만으로 calibration 실패나 최종 오차의 원인을 확정하지 않는다.
 
 Oracle 학습, backbone 교체, gate/temperature grid, 새로운 head의 대량 탐색은 지금 추가하지 않는다.
 
 ## 6. 독립 확인과 최종 TEST
 
-Seed202 V1 SS의480 학습과 DEV128×3 평가는 완료됐고, 기존 seed101과 동일한 macro 집계 readout도 완료했다. V1은 seed1010.467355, seed2020.467177이다. R SS를 완료하고, 최종 후보가 다르면 그 후보 하나만 같은 seed로 확인한다. PBR vanilla/R의 필수 seed202도 완료한다. 모든 ablation을 여러 학습 seed로 반복하지 않는다. 학습 seed2개와 생성 noise3개를 혼동하지 않는다. Quick epoch IoU를 최종 DEV128×3 macro IoU와 비교하지 않는다.
+Seed202 V1/R SS의480 학습과 DEV128×3 평가 및 두 seed paired 집계는 완료됐다. 현재 남은 독립 SS 학습은 **최종 후보가 R과 다르면 그 후보 하나**다. PBR vanilla/R의 필수 seed202는 GPU0–3에서 vanilla부터 진행 중이며 양쪽 학습·평가를 완료한다. 모든 ablation을 여러 학습 seed로 반복하지 않는다. 학습 seed2개와 생성 noise3개를 혼동하지 않는다. Quick epoch IoU를 최종 DEV128×3 macro IoU와 비교하지 않는다.
 
 TEST 전 동결 항목은 실제 checkpoint/config/code identity, DeformNeXt split, camera·RGB 입력, native sampler·generation seed, Shape/PBR composition, metric registry와 reference, contrast family 및 source-cluster CI 규칙이다. 현재 VAL36의 V1/R binding 검증과 Learned fresh-load2회 검사는 완료돼 있으며 선택 모델에 맞게 필요한 정합만 보완한다. TEST508 cache/loader QA 통과는 품질 측정 완료를 뜻하지 않는다.
 
@@ -171,6 +189,12 @@ Method와 protocol은 이미 작성 중이며 DEV 표·정성 그림을 포함�
 
 > Spatial projection can become inconsistent after geometric editing. We study semantic correspondence as a source of multi-view evidence, aggregate uncertain candidates at the camera-ray level, and adapt source conditioning through a retargeting path while retaining the native target-conditioning stream. We evaluate geometric alignment, source appearance preservation, and global rendering naturalness separately.
 
+현재 완료된 독립 seed 결과에 쓸 수 있는 empirical 문장:
+
+> On DEV128, the Top-1 semantic-matching and retargeting branch improves macro voxel IoU over vanilla fine-tuning by 0.00525 and 0.00517 in two independently trained seeds. These stage-level results establish repeatability of the combined branch, while downstream appearance preservation and the additional benefit of learned attention require separate evaluation.
+
+위 문장은 TEST나 full-cascade 우위를 주장하지 않는다. Table1은 두 zero-shot/V1/R/선택 Ours의 TEST10개 metric, main ablation은 최종 문맥의 단일 변경과5개 핵심 column, mechanism은 retrieval/weight utilization/출력 연결로 분리한다. Appendix에는 나머지 metric·두 training seed·실패 사례·기존 조건부 ladder와 음의 결과를 둔다. Abstract/Conclusion의 최종 수치는 TEST 뒤 실제 효과와 CI에 맞춰 작성한다. Learned refinement의 이득이 입증되지 않으면 “matching-aware weighting”과 “learned refinement”를 구분하고 후자를 필수 기여로 쓰지 않는다.
+
 실증 서술은 다음 순서로 구성한다.
 
 1. 두 zero-shot과 V1로 edited 입력의 정보량과 fine-tuning 효과를 구분한다.
@@ -196,4 +220,4 @@ Method와 protocol은 이미 작성 중이며 DEV 표·정성 그림을 포함�
 - [Claim-evidence 원장](../paper/claim-evidence-ledger.md)
 - [현재 논문 소스](../paper/retargeting-evidence-draft.tex)
 
-실행 관측: `agent-handoff.json`의 실제 `PBR_NATIVE_SCIENCE_RUNTIME` 아래 `unified-module-pipeline-v1/paired-DEV128-stage-evaluation-v240` index/queue 및 `voxel-query-FFN12-recovery-v188/FULL_VOXEL_Q/science-v1/native/progress.json`. 현재 후속 집계는 `metrics-v257`이며 전체 `summary-v1/audit.json`은 관측 시 없었다. 실제 활용 진단은 `trained-ray-utilization-mechanism-v259/native-reduction-v270/audit.json`과 인접 `file4-closure.json`, geometry 차이 검증은 `address-audit-v269/audit.json`에 보존했다. 이 문서는 계획 정리이며 새 학습 등록이나 TEST 완료를 뜻하지 않는다.
+실행 관측: `agent-handoff.json`의 실제 `PBR_NATIVE_SCIENCE_RUNTIME` 아래 `unified-module-pipeline-v1/paired-DEV128-stage-evaluation-v240` index/두 queue 및 voxel native progress·`terminal-LF-seal-repair-v286/audit.json`. 현재 후속 집계는 `metrics-v257`이며 전체 audit는 관측 시 없었다. 실제 활용 진단은 `trained-ray-utilization-mechanism-v259/native-reduction-v270/audit.json`, 출력 연결은 `paired-output-association-v275/audit.json`에 보존했다. 독립 seed 근거는 handoff의 `NATIVE_TWO_TRAINING_SEED_SUMMARY` 아래 실제 `statistics.json`/`audit.json`/`file4-closure.json`이다. 새 대조의 실제 GPU proof는 `shared-evidence-final-controls-v284/{variant}/proof-v1/native/proof.json`이며 source commit은 `f3b1949`이다. 이 문서는 계획 정리이며 새 학습 등록이나 TEST 완료를 뜻하지 않는다.

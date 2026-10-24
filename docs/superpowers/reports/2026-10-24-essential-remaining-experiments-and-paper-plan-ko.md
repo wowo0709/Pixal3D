@@ -1,6 +1,6 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
-2026-10-24 19:27 UTC 갱신: [논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 현재 완료/실행 상태, 실제 활용 진단, 최종 구조의 핵심 대조군, score claim을 위한 Uniform-K, TEST10개 metric과 표·writing 종료 기준을 통합했다. 아래 최초 계획의 미완료 상태를 현재 상태로 읽지 않는다.
+2026-10-24 21:31 UTC 갱신: [논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 현재 완료/실행 상태, 실제 활용 진단, 최종 구조의 핵심 대조군, score claim을 위한 Uniform-K, TEST10개 metric과 표·writing 종료 기준을 통합했다. V1/R SS 두 seed 재현 확인은 완료됐고, 필수 PBR seed202는 DDP4 실행 중이다. 최종 대조 네 종류의 실제 GPU 기능 검사는 통과했지만 본 학습·성능 평가는 미완료다. 아래 최초 계획의 미완료 상태를 현재 상태로 읽지 않는다.
 
 최신 결과와 모듈별 대조 정의는 [최종 파이프라인 필수 실험·평가·writing 정리](2026-10-24-final-pipeline-essential-experiments-and-writing-ko.md)에 갱신했다. 아래는 13:35 UTC 시점의 계획 기록이다.
 

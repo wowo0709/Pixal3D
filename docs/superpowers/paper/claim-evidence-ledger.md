@@ -6,15 +6,16 @@
 
 | Claim 후보 | 현재 근거 | 미완료 검증 | 현재 허용하는 표현 |
 |---|---|---|---|
-| V1 기준선이 독립 학습에서도 재현된다 | Seed1010.467355, seed2020.467177; 실제480 trace·startup RNG가 다르고 초기 LoRA·학습 조건·DEV128×3 pairing 일치 | R/선택 모델·PBR의 독립 효과와 full-cascade 확인은 별도 | 두 실제 V1 실행의 유사한 점추정; 동등성이나 임의 training seed population의 보장 아님 |
+| V1 기준선이 독립 학습에서도 재현된다 | Seed1010.467355, seed2020.467177; 실제480 trace·startup RNG가 다르고 초기 LoRA·학습 조건·DEV128×3 pairing 일치 | 선택 모델·PBR의 독립 효과와 full-cascade 확인은 별도 | 두 실제 V1 실행의 유사한 점추정; 동등성이나 임의 training seed population의 보장 아님 |
+| Top-1 semantic matching+retargeting branch의 V1 대비 효과가 독립 학습에서 재현된다 | Seed101 ΔIoU+0.005245, seed202+0.005169; 각 cluster CI95가 양수. 양쪽480 trace pairing·학습 stream 독립·원본 frozen701 tensors 일치 확인 | 선택 모델이 다르면 그 후보 seed202, PBR 독립 확인, full-cascade/TEST | 두 실제 SS training seed에서 combined branch 개선. Retargeter/decoder 단독 효과나 training seed 모집단의 보장 아님 |
 | Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 finite-family 통계, 최종 구조의 matched 비교 및 downstream | “해당 SS 설정에서 양의 점추정” |
 | Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 구조/downstream 연결; 진단32와 SS128을 같은 paired 실험으로 혼동하지 않음 | Descriptor와 scalar score의 효과를 분리 |
 | Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 동일 Top-K support/value 경로의 score 대조가 필요 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
 | Top-K attention이 Top-1보다 유효하다 | Fixed-K의 SS +0.000527 및 별도 DEV32 mask +0.003717 | 최종 경로의 matched 비교·독립 확인 | 후보 수와 결합의 묶음 효과로 한정 |
 | 추가 learned attention이 필요하다 | 새 anchored SS128×3 IoU0.474794로 fixed보다+0.001323, CI는0 포함; 완료된 cascade32는 R보다 LPIPS/DreamSim/CD 점추정 열위·F-Score 우위, 모두 CI는0 포함 | 더 넓은 paired cascade와 독립 확인; 최종 문맥의 비교 | SS 최고점이 pipeline 우위를 입증하지 않으며 필수성·전반적 preservation 개선은 미확정 |
-| Ray 단위 처리가 품질을 개선한다 | 설계와 실제 구현 확인 | FULL_VOXEL_Q의480/128×3 및 최종 경로 일치 | 원리 설명 가능, 독립 성능 기여 미확정 |
+| Ray 단위 처리가 품질을 개선한다 | 설계와 실제 구현 확인; FULL_VOXEL_Q480 학습 완료·평가 연결 복구 | DEV128×3 집계 및 최종 경로 일치 | 원리 설명 가능, 독립 성능 기여 미확정 |
 | Member 후보가 품질을 개선한다 | 별도 matching DEV32의 exact@64 50.76%→73.36%; 그러나 완료된 FULL mean 제어 IoU0.472679 대 member FULL0.472078 | 원래 finite-family 통계와 최종 identity-value 경로의 matched 확인·downstream 연결 | 후보 coverage 개선은 확인; 기존 FULL에서 생성 품질의 양의 점추정은 아님 |
-| Retargeting이 유효하다 | C_NO_R→C_DECODER SS +0.003929; 실제 V1/R joint 완료 | 독립 학습 seed, 최종 경로의 R 제거 비교 | 현재 matched 설정의 효과로 한정 |
+| Retargeting이 유효하다 | C_NO_R→C_DECODER SS +0.003929; 실제 V1/R joint 및 combined branch 두 seed 재현 완료 | 최종 weighted 경로의 물리적 R 제거 비교; 단독 R 효과의 독립 seed는 미확인 | 현재 matched 설정의 효과로 한정; V1/R seed 반복은 R 단독 ablation 아님 |
 | Shared evidence 전달 자체가 개선 원인이다 | E_FIXED_RAW SS0.473471; FULL과는 복수 차이 | 동일 후보/가중치/R/V의 split-vs-shared 대조가 있어야 인과 주장 | 현재는 구조 설명; 독립 causal claim 보류 |
 | E_FIXED_RAW가 R보다 좋은 최종 모델이다 | DEV32 CD/F-Score 개선, source LPIPS/DreamSim 악화 | 선택 SS에서 PBR 짝비교, 독립 확인, TEST | Geometry/appearance tradeoff; 보편적 우위 주장 금지 |
 | Source 적응과 target 보존을 구조적으로 분리한다 | Native MV4 carrier·target 경로 유지, source map correction만 추가 | 실제 target/source 결과 및 실패 사례 | 입력 target stream 유지 ≠ output RGB 완전 보존 |
@@ -23,7 +24,7 @@
 
 ## 결과 표의 역할
 
-최종 대조의 [코드·config 재사용 감사](../reports/2026-10-24-final-context-reuse-and-physical-controls-ko.md)를 반영한다. 기존 matching controls는 Top-1 appearance이며 E의 weighted Top-K와 자동으로 같지 않다. Uniform-K↔Fixed는 weighting, Fixed↔Learned는 refinement, 같은 learned head의 additive-logit-prior 제거는 직접 prior 항의 대조다. Raw→D1-score만으로 descriptor와 scalar score를 따로 입증하지 않는다. Fixed에 없는 learned Q/K의 voxel-query 필요성도 주장하지 않는다. 새 네 constructor/control과 trainer factory는 구현·53개 검사·actual matcher 생성자 검증까지이며 GPU flow/capacity/학습·평가 binding은 미완료다.
+최종 대조의 [코드·config 재사용 감사](../reports/2026-10-24-final-context-reuse-and-physical-controls-ko.md)를 반영한다. 기존 matching controls는 Top-1 appearance이며 E의 weighted Top-K와 자동으로 같지 않다. Uniform-K↔Fixed는 weighting, Fixed↔Learned는 refinement, 같은 learned head의 additive-logit-prior 제거는 직접 prior 항의 대조다. Raw→D1-score만으로 descriptor와 scalar score를 따로 입증하지 않는다. Fixed에 없는 learned Q/K의 voxel-query 필요성도 주장하지 않는다. 새 네 대조는 native trainer/evaluator까지 구현했고115개 검사와4개 실제 GPU 초기 함수·backward proof를 통과했다. Micro96 capacity·480 학습·새 대조 cascade binding/실제 평가가 남아 있으며 성능 개선의 근거는 아직 없다. [최신 필수 실행 행렬](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 선택 모델별 학습 범위와 증거를 기록했다.
 
 - `tables/dev-ss128.tex`: 동일 SS panel의 완료된13개 endpoint와 조건부 비교. 원래 core family와 새 exploratory follow-up은 통계적으로 구분하고 Micro IoU와 섞지 않는다.
 - `tables/dev-joint32.tex`: V1/R/D1-cos/E_FIXED_RAW/E_LEARNED_RAW의 실제5개 조합 비교. V1/R baseline의 per-asset 일치 검증을 거친 결과다.
