@@ -35,3 +35,5 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 `dev-qualitative.tex`의 실제 render figure는 Fixed 대 R의 F-Score 증가 최대와 source LPIPS 증가 최대 사례다. 결과 조건으로 선택한 설명용 사례이므로 평균 효과나 성공 빈도의 근거로 사용하지 않는다. Full-frame GT pixel 일치와 기존 metric annotations를 검증했으며, appearance 차이의 causal mechanism이나 final Ours/TEST 품질을 입증하지 않는다.
 
 실제 cascade와 같은32 asset/noise에서 SS IoU는 R0.476967·Fixed0.478940·Learned0.477442다. Full128×3의 learned/fixed 순위와 다르다. 서로 다른 panel/noise의 순위 차이만으로 모듈 구현 오류나 loss의 causal failure를 결론내리지 않는다.
+
+학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측하는 [활용 진단을 구현·연결했다](../reports/2026-10-24-trained-attention-utilization-preparation-and-paper-ko.md). 실제 GPU 결과는 pending이다. Top-1 miss/Top-K hit subset의 GT mass·source-use·실제 correction과 기존 downstream metric의 association을 읽으며, diagnostic Uniform-K를 matched 학습 ablation으로 대체하지 않는다.

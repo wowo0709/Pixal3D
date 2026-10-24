@@ -203,6 +203,21 @@ exploratory and unadjusted; they are not final test confirmation. Primary
 geometry endpoints are CD/F-Score, and primary appearance endpoints are
 LPIPS/DreamSim. Positive CLIP results do not change that priority after the fact.
 
+\subsection{Planned evidence-utilization analysis}
+To connect retrieval with its use, we will observe the trained fixed and
+learned conditioners on the same 32 development assets used by the cascade
+and correspondence diagnostics. Native batch-eight conditioning is retained;
+an observer must reproduce the unobserved conditioning tensors exactly.
+Topology label arrays are opened only after both models' forwards finish.
+We then measure exact-match probability mass on ray--target-patch relations
+whose prior Top-1 is incorrect but whose retained Top-K contains a match,
+together with source-use probability and the magnitude of the actual source
+map correction. Inputs, candidate addresses, and frozen priors must match
+between models. Per-asset observations are joined to existing geometry and
+source-render measurements; this association is not a causal intervention.
+Uniform-K mass is a diagnostic reference and does not replace the separately
+matched Uniform-K training ablation. Utilization results remain pending.
+
 \section{Development results and bounded interpretation}
 \input{tables/dev-joint32.tex}
 \input{tables/dev-ss128.tex}
@@ -317,7 +332,8 @@ Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a
 combined candidate-count/aggregation effect; isolating scalar score utility
-requires the same Top-K support and value path. Likewise, differences between
+requires the same Top-K support and value path; the Uniform-K row provides
+this control separately from actual Top-1. Likewise, differences between
 the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 

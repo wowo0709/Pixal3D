@@ -8,6 +8,7 @@ Selected full composition&\pending&\pending&\pending&\pending&\pending\\
 Original spatial correspondence&\pending&\pending&\pending&\pending&\pending\\
 Raw semantic descriptor&\pending&\pending&\pending&\pending&\pending\\
 Actual Top-1 correspondence only&\pending&\pending&\pending&\pending&\pending\\
+Uniform weighting on the same Top-K&\pending&\pending&\pending&\pending&\pending\\
 Individual voxel query&\pending&\pending&\pending&\pending&\pending\\
 Without retargeting module&\pending&\pending&\pending&\pending&\pending\\
 Mean descriptor (if member design retained)&\pending&\pending&\pending&\pending&\pending\\
@@ -17,7 +18,8 @@ Fixed refinement (if learned head retained)&\pending&\pending&\pending&\pending&
 \caption{Final-context ablation template; all entries pending. Reuse an existing
 arm only after confirming the same architecture, initialization, budget,
 inputs, and evaluation. Conditional rows are omitted if absent from the
-selected design. An optional same-Top-K score control is required only for
-an isolated scalar-score claim.}
+selected design. Uniform-K isolates matching-score weighting on unchanged
+support; it is distinct from the actual Top-1 control. Panel sizes must be
+reported explicitly when SS and downstream measurements differ.}
 \label{tab:final-ablation-pending}
 \end{table}
