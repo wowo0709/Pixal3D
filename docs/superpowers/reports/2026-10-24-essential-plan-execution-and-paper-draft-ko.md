@@ -66,3 +66,21 @@ Seed202 R의 기존 job이 vanilla 학습/cache 완료에 직렬 의존하던 �
 준비 근거와 변경 전/후 job은 `required-SS202-parallel-scheduling-v212/prelaunch-v1/audit.json`에 있으며 file4에서 SHA256/size를 확인했다. 각 실행의 기존 checkpoint budget reservation은 계속 적용된다.
 
 핵심6개 문헌을 primary abstract/metadata와 대조한 Related Work 및 BibTeX도 추가했다. 전체 문헌의 exhaustive review나 외부 편집법 대비 우위를 검증한 것은 아니다. 갱신 문서는 `paper-writing-related-work-v211`, 가독성을 확인한 DEV tradeoff PNG/PDF는 `paper-writing-and-figure-v210`에 canonical closure로 보관했다.
+
+## 16:26 UTC 이후 필수 평가와 paper 갱신
+
+E_LEARNED_RAW의480-update·DEV128×3 평가를 완료했다. Macro IoU0.474794이며 Fixed 대비+0.001323의 해당 module-family CI95는[−0.000409,+0.003161]이다. V1 대비+0.007439는 해당 pipeline-family CI95[+0.002585,+0.012504]이다. 추가 learned attention의 필수성을 확정하지 않고 실제 cascade 평가로 연결했다.
+
+Mean descriptor 대조도128×3까지 완료됐다. 원래 FULL 문맥에서 mean0.472679, member0.472078로 member−mean은−0.000601이다. Matching coverage 개선을 generated quality 개선으로 쓰지 않는다. 원래 voxel 대조는 실제350/480까지 확인했으며 최종 family 분석은 이 endpoint를 기다린다.
+
+E_FIXED_RAW의 vanilla/R PBR32 짝비교와8개 metric은 완료됐다. Vanilla로 바꾸는 것만으로 source appearance trade-off가 해소되지 않았다. [짝비교 결과와 validation 기록](2026-10-24-fixed-evidence-paired-PBR32-and-validation-reuse-ko.md)에 수치와 CI를 보존했다. V1/R의 기존 VAL36은 binding이 같은 결과를 재사용했고, learned 후보의 fresh-load2회 VAL36도 실제 parity 검사를 통과했다.
+
+Learned 후보의 DEV32 Shape 생성은31개 완료·1개 실행 상태를 확인했고 PBR replay도 시작했다. GPU6이 실제 idle임을 확인한 뒤 대기 중인 기존 replay10개만 GPU6 queue로 분산했다. 같은 worker와 source SHA, SS/PBR binding, seed·sampler·camera·출력 경로를 유지했다. 새 assignment와 replay plan은 physical GPU/affinity 변경만 허용했으며 기존 immutable plan은 보존했다. Main queue의 해당 항목은 canonical 출력이 준비돼야 완료되는 passive proxy로 바꿔 중복 실행을 막았다. 기존 live NN은 중단하지 않았다.
+
+준비 근거는 `essential-learned-replay-GPU6-distribution-v224/prelaunch-v1/audit.json`과 실제 file4 closure에 있다. 연결 기록과 첫 실제 GPU6 실행 성공은 별도로 확인해야 한다. 이것은 필요한 후보 평가의 분산이며 새 arm이나 TEST 실행이 아니다. 불필요한 legacy fixed-support 확장60개는 계속 별도 gate 뒤에 둔다.
+
+논문은 [초안 소스](../paper/retargeting-evidence-draft.tex)에 SS13개 endpoint·matching 진단·동일 geometry PBR 표·CI와 한계를 반영했다. 별도 설치한 Tectonic으로 최신7쪽 PDF를 실제 빌드했고, TeX warning/미해결 인용이 없으며4/5/6쪽의 표와 본문을 시각적으로 검수했다. Source snapshot·PDF·log23개를 file4 SHA256/size로 확인했다. Canonical revision은 `paper-draft-thirteen-endpoints-v222`이며 final TEST/ablation 표는 여전히 미측정이다.
+
+사용자의 우선순위에 맞춘 [최신 필수 실험·평가·writing 정리](2026-10-24-final-pipeline-essential-experiments-and-writing-ko.md)를 추가했다. 다음은 learned cascade 실제8개 metric → 최종 후보와 재사용 가능한 matched 대조 점검 → 필요한 독립 확인·최종-context ablation → freeze·TEST508·최종 writing이다.
+
+후속 metadata/source 감사 `final-context-Top1-fixed-reuse-audit-v225`에서 Top-1 R·Fixed·Learned의 실제 closed config와 두 E 후보의 실제 초기 GPU proof를 대조했다. 공통 numerical contract·dataset·validation·learning rate가 같고, Top-1/Fixed 설정 차이는 ray mode와 aggregation이었다. Target/posterior/use/mass/numerator source AST도 동일했다. Top-1↔Fixed와 Fixed↔Learned 비교는 재사용하며, 최종 경로의 mean/voxel/raw/spatial/no-R까지 검증된 것으로 확대하지 않는다. 이 감사의 새 NN forward는0이다.

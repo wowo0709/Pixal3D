@@ -56,6 +56,7 @@ matching decoder contextualizes the target descriptor, and its score head
 produces a categorical distribution $p_m(k)$ on these proposals. We separately
 evaluate raw semantic descriptors, learned contextual descriptors, and use of
 the scalar matching score; these are distinct design choices.
+D1 denotes the frozen trained contextual matching decoder used in this study.
 
 One source-camera ray may intersect grid sites assigned to different target
 patches. Let $\mathcal M_r$ contain the distinct observed target patches of ray
@@ -229,6 +230,14 @@ unique 3D point or a pixel. These historical matching diagnostics and the
 SS128/cascade32 experiments have different measurement scopes and are not
 treated as one paired downstream experiment.
 
+The completed mean-descriptor control in the original FULL family reaches
+macro SS IoU 0.472679, compared with 0.472078 for its member-based counterpart.
+The member-minus-mean point estimate is -0.000601; the original complete-family
+analysis awaits the voxel-query endpoint. Thus the observed candidate-coverage
+gain is not a demonstrated generative benefit in that family. This comparison
+also does not identify the effect of member proposals inside the newer
+identity-value evidence architecture.
+
 The fixed-evidence candidate improves development SS macro IoU from 0.467355
 for vanilla fine-tuning to 0.473471. Anchored learned probability refinement
 reaches 0.474794 in the completed SS128 three-noise follow-up, a change of
@@ -262,6 +271,18 @@ benefit from feature correction or raw Top-K appearance input over Top-1
 retargeting. Stage-specific composition and independent training confirmation
 remain required before selecting the final pipeline.
 
+We additionally paired vanilla and Top-1 R PBR on the same fixed-evidence SS
+outputs. Across 32 cases, the native guides, initial texture noise, actual
+rendering triangles, and M1 references match. R changes source LPIPS by
+-0.000223 (exploratory interval [-0.000518,0.000038]) and target PSNR by
+0.0666 dB ([-0.0257,0.1665]); neither interval excludes zero. CD and surface
+F-Score are identical by construction. Replacing R PBR with vanilla therefore
+does not resolve the fixed-evidence composition's observed source-appearance
+tradeoff. This stage-isolation result is distinct from comparing pipelines
+with different SS geometry.
+
+\input{tables/dev-paired-pbr32.tex}
+
 \section{Ablation and final-table completion}
 \input{tables/final-main-template.tex}
 \input{tables/final-ablation-template.tex}
@@ -274,7 +295,7 @@ the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 
 \section{Limitations and pending claims}
-Final ray-versus-voxel and mean-versus-member results, cascade confirmation
+Final ray-versus-voxel and complete-family analysis, cascade confirmation
 of learned versus fixed evidence, the final-context matched controls, independent training seed
 confirmation, and held-out test results are pending. Geometric improvement
 does not ensure source appearance improvement. Preserving the direct target

@@ -19,7 +19,7 @@ Member에서 Top-1은 틀렸지만 정답이 Top-64에 있는 관계는 **31,393
 
 ## 검증된 원자료
 
-- `target-first-source-v1/matching-decoder-score-ray-audit-v2/audit.json`: 동일 RAW64·현재 label fingerprint·선택 D1 reference 재현 확인.
+- `target-first-source-v1/matching-decoder-score-ray-audit-v2/audit.json`: 동일 RAW64·해당 실행 당시 label fingerprint·선택 D1 reference 재현 확인.
 - `native-prior-source-ray-v1/member-proposal-audit-v1/audit.json`: 동일 분모의 support/ranking 비교 및 보정 전 cluster CI.
 - `native-prior-source-ray-v1/member-production-parity-v1/audit.json`: production candidate address, probability, context, retained mass, member count와 진단 결과의 exact parity.
 - 이번 추출과 동일 checkpoint 확인: `unified-module-pipeline-v1/matching-paper-mechanism-readout-v214/audit.json`.

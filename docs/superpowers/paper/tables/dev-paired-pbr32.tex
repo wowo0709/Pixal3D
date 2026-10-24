@@ -1,0 +1,13 @@
+\begin{table}[t]
+\centering\scriptsize
+\begin{tabular}{lrrrrrr}
+\toprule
+PBR on the same E-fixed SS&Source LPIPS$\downarrow$&DreamSim$\downarrow$&CLIP$\uparrow$&Target PSNR$\uparrow$&SSIM$\uparrow$&M-IoU$\uparrow$\\
+\midrule
+Vanilla&0.053513&0.158346&0.942179&24.47775&0.951534&0.886571\\
+Top-1 R&0.053290&0.157828&0.941692&24.54433&0.951563&0.886574\\
+\bottomrule
+\end{tabular}
+\caption{PBR-only DEV32 comparison on identical fixed-evidence SS geometry, native guides, initial texture noise, render triangles, and M1 references. CD=0.0123276 and F-Score=0.856566 are identical by construction. The source LPIPS and target PSNR intervals include zero. This is not a comparison between different SS models.}
+\label{tab:paired-pbr32}
+\end{table}
