@@ -45,3 +45,11 @@ Raw Top-K는 Top-1 retargeting 대비 LPIPS가 0.000856 낮고 PSNR이 0.12270 �
 먼저 현재 5에폭을 완료하고 동일 DEV128×3에서 SS를 비교한다. PBR은 동일 생성 geometry의 DEV32와 SS→Shape→PBR 연결 평가를 수행하여 target alignment와 source preservation을 함께 확인한다. 필수 PBR V1/Top-1 seed202 학습 및 실제 두-seed 결과 집계는 큐에 연결했지만 아직 pending이다. 최종 후보를 고정한 뒤 독립 TEST508 및 10개 metric을 계산한다. 현재 어떤 arm도 최종 full로 채택하지 않았다.
 
 실제 file4 증거는 `PBR-native-science-runtime-v1/unified-module-pipeline-v1/` 아래 `consistent-fixed-epoch384-matched-v198/`, `consistent-fixed-epoch384-all-available-controls-v198/actual-v2/`, `PBR-epoch1520-four-arm-fixed4-matched-v198/`에 있다. 완료된 seed101 V1/Top-1의 frozen tensor700개가 원본 PBR16850 initializer와 정확히 같은 것도 별도로 확인했다. 수치 source나 진행 중인 NN은 이번 readout에서 변경하지 않았다.
+
+## 후속 연결: E_FIXED_RAW 최종 결과의 즉시 비교
+
+07:21 UTC에 `consistent-evidence-fixed-final128x3-eleven-model-readout-CPU-v199`를 실제 보조 dispatcher 큐에 추가했다. E_FIXED_RAW의 최종 noise0/1/2 평가가 모두 성공한 뒤 실행하는 CPU 집계 하나다. 기존 학습·평가 descriptor는 보존했고 GPU 작업과 학습 arm은 추가하지 않았다.
+
+기존 완료 모델10개의 실제 closed evaluation30개, metric row3,840개의 RGB 역할·sampler·occupancy 집계를 미리 검증했다. 새 평가의 파일 경로는 기존 계획에서 가져왔으며 SHA는 실제 결과가 닫힌 뒤 읽는다. 실행 시 실제 checkpoint config의 seed101·480 update·source 구조, child 종료, 128개 asset·source cluster·GT·생성 seed의 대응과 macro/micro를 확인한다. 순위는 실제 최종 값으로 계산한다.
+
+이 작업은 중간 DEV32 결과를 최종 결과처럼 해석하지 않도록 하는 descriptive 비교다. 새 통계 검정이나 모듈 채택을 하지 않는다. 원래 core12와 두 followup의 사전 지정 summary도 그대로 필요하다. 실제 집계는 아직 pending이며, file4의 `consistent-fixed-final-endpoint-readout-v199/`에 연결 계획·큐·실제 등록 확인을 보관했다. 등록 후 source pin295개와 진행 중인 세 NN의 원래 PID/birth를 확인했다.
