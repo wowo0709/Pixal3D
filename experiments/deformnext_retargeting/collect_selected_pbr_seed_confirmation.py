@@ -11,6 +11,7 @@ from .collect_module_seed_confirmation import (
 )
 from .native_pbr_stage_summary import is_digest
 from .selected_pbr_seed_confirmation import modes_for_selected,summarize
+from .pbr_confirmation_initial_identity import read_initial_identity
 
 
 SCHEMA='selected-PBR-two-seed-closed-stage-inputs-v1'
@@ -55,6 +56,14 @@ def collect(plan,check):
             item=own[mode];record=read_file(item['snapshot'],check);cfg=read_file(item['config'],check)
             require(cfg['training_seed']==seed,'actual PBR config belongs to another training seed')
             native=Path(cfg['output_dir'])
+            validation=native/'validation.jsonl';receipt=native/'file4-closure.json'
+            validation_spec=dict(path=str(validation),SHA256=check.check(validation,receipt),receipt=str(receipt))
+            require(read_file(validation_spec,check,lines=True)==record['validation_rows'],
+                'snapshot rows differ from the actual closed six-epoch native validation log')
+            initial,evidence=read_initial_identity(native,record['science_plan'],record['validation_rows'][0],check)
+            if 'initial_render_identity' in record:
+                require(record['initial_render_identity']==initial,'snapshot initial producer proof differs')
+            record=dict(record,initial_render_identity=initial,initial_identity_evidence=evidence)
             actual={}
             for key,expected in [('config',native/'config.json'),('checkpoint',native/'ckpts/denoiser_step0001900.pt'),
                                  ('conditioner_checkpoint',None if mode=='vanilla' else native/'ckpts/deform_conditioner_step0001900.pt')]:
@@ -103,7 +112,8 @@ def required_sources():
     return [str(root/(name+'.py')) for name in ['collect_selected_pbr_seed_confirmation',
         'selected_pbr_seed_confirmation','selected_pipeline_model_contract','pipeline_population_contract_v2',
         'collect_module_seed_confirmation','native_pbr_stage_summary','pbr_confirmation_recipe',
-        'r_mediated_pbr_science_recipe','cascade_view_roles']]
+        'r_mediated_pbr_science_recipe','cascade_view_roles','pbr_confirmation_initial_identity',
+        'pbr_initial_render_identity','evaluate_pbr_streaming','evaluate_r_mediated_pbr_initial']]
 
 
 def main():

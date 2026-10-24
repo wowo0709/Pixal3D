@@ -6,8 +6,9 @@ appearance effects must still come from the measured joint DEV pipelines.
 from copy import deepcopy
 
 from .native_final_freeze import validate_spec
-from .native_pbr_stage_summary import IDENTITY,STEPS,validate_curve,is_digest
+from .native_pbr_stage_summary import STEPS,validate_curve,is_digest
 from .pbr_confirmation_recipe import validate_confirmation
+from .pbr_confirmation_initial_identity import compare_initial,POLICY,RENDER_ABSOLUTE_LIMITS
 from .selected_pipeline_model_contract import pbr_binding,require
 
 
@@ -26,12 +27,12 @@ def summarize(records,configs,hashes,*,selected,proofs,original_multiview,
     validate_spec(original_checkpoint)
     require(set(records)==set(configs)==set(hashes)==set(frozen_base_proofs)=={101,202}
         and set(proofs)==set(modes),'both actual training seeds and exact deduplicated modes required')
-    models,curves,trace_identity={}, {},{}
+    models,curves,trace_identity,initial_checks={}, {},{},{}
     reference=None
     for seed in (101,202):
         require(set(records[seed])==set(configs[seed])==set(hashes[seed])==set(frozen_base_proofs[seed])==set(modes),
             'actual selected PBR and both strong controls required at each seed')
-        models[seed],curves[seed]={},{}
+        models[seed],curves[seed],initial_checks[seed]={},{},{}
         for mode in modes:
             record=records[seed][mode]
             require(record.get('status')=='PASS_ACTUAL_NATIVE_PBR1900_FIXED4_STAGE_SNAPSHOT'
@@ -66,11 +67,7 @@ def summarize(records,configs,hashes,*,selected,proofs,original_multiview,
             else:require(traces==trace_identity[seed],'actual inputs/noise/timestep/global traces differ within TRAIN seed')
             first=record['validation_rows'][0]
             if reference is None:reference=first
-            require(first['quick_panel_ids']==reference['quick_panel_ids'], 'fixed validation4 assets differ')
-            for row,ref in zip(first['quick_per_asset'],reference['quick_per_asset']):
-                require(all(row[k]==ref[k] for k in IDENTITY)
-                    and row['actual_prediction_PBR_latent_SHA256']==ref['actual_prediction_PBR_latent_SHA256']
-                    and row['metrics']==ref['metrics'],'actual cold native initial4 differs across models or TRAIN seeds')
+            initial_checks[seed][mode]=compare_initial(record,reference)
             pixels=record['GT_PNG_pixel_SHA256']
             require(set(pixels)==set(map(str,STEPS))
                 and all(set(v)==set(first['quick_panel_ids']) and all(is_digest(d) for d in v.values()) for v in pixels.values())
@@ -86,6 +83,9 @@ def summarize(records,configs,hashes,*,selected,proofs,original_multiview,
         actual_original_frozen_base_tensors_exact_in_all_models=True,
         actual1900_per_rank_training_traces_paired_within_seed=True,
         actual_training_streams_differ_between_seeds=True,actual_initial4_predictions_exact=True,
+        actual_initial4_latents_exact=True,initial_identity_policy=POLICY,
+        initial_renderer_absolute_limits=deepcopy(RENDER_ABSOLUTE_LIMITS),initial_render_checks=initial_checks,
+        renderer_bit_identity_not_claimed=True,
         source_multiview_step=16850,assets=4,fixed_GT_shape=True,camera='target8',
         source_preservation_measured=False,generated_geometry_measured=False,
         fixed4_is_not_inferential_PBR_quality_confirmation=True,
