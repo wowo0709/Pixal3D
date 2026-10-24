@@ -38,10 +38,26 @@ GT occupancy 크기별 descriptive strata는 deformation 강도별 분석이 아
 
 다음 단계는 원래 미완료 control과 shared-evidence fixed/learned 비교를 완료하고, 실제 SS prediction으로 Shape512/1024와 학습된 PBR을 통과시키는 DEV joint 평가다. Stage IoU 최고 모델을 최종 모델로 미리 채택하지 않는다. 최종 TEST와 10개 metric 비교는 아직 완료되지 않았다.
 
+## Shared-evidence fixed 구성의 실제 두 번째 epoch
+
+05:05 UTC에 GPU6 모델의 192-update 검증을 확인했다. 아래는 동일 DEV32·생성 noise1이며 위의 DEV128×noise3 endpoint와 직접 비교하지 않는다.
+
+| 구성 | Case macro IoU | Global micro IoU |
+|---|---:|---:|
+| V1 | 0.46744735 | 0.43574676 |
+| Decoder learned-score Top-1 + retargeting | 0.46088226 | 0.42721819 |
+| 기존 Full | 0.46459021 | 0.43270708 |
+| Shared-evidence fixed (`E_FIXED_RAW`) | 0.46363435 | 0.43022035 |
+
+네 구성의 첫192개 실제 학습 입력과 같은 panel·source·GT·generation seed를 대조했다. 초기32개 prediction의 TP/FP/FN도 동일했다. 원래 세 모델의 immutable log는 기존 file4 receipt로 확인했다. 진행 중인 E 모델의 log 전체를 immutable이라고 취급하지 않고, 실제 완료된 step0/96/192 row와 첫192-step 입력을 별도 snapshot으로 고정해 file4 SHA/size를 확인했다.
+
+E_FIXED_RAW는 첫 epoch보다 case macro가 올라갔지만 micro는 내려갔다. 두 번째 epoch에서는 기존 Full과 V1보다 두 집계 모두 낮다. 현재까지 전달 경로 통일만으로 성능을 개선했다는 근거는 없다. 예정된480 update와 DEV128×noise3, 이후 learned-attention matched 비교를 유지한다. 이 중간 결과로 최종 모델을 채택하거나 평가 집계를 바꾸지 않는다.
+
 실제 결과는 file4의 `rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/` 아래에 보관했다.
 
 - `SS-module-error-decomposition-v194/`: 실제 count 분석, CSV, 원래 CI, 입력 SHA와 file4 closure.
 - `SS-module-error-decomposition-figures-v194/`: 같은 수치로 만든 최종 PNG/SVG. 범례를 데이터 영역 밖으로 옮겼으며 원래 그림은 보존했다.
 - `SS-ten-model-training-trace-parity-v194/`: 실제 10개 모델 전체 480-step 학습 trace 비교와 원본 file4 증거.
+- `consistent-fixed-epoch192-matched-v194/`: 실제 네 모델의 같은32개 step0/96/192 row, 동일192-step 학습 입력과 두 집계의 point values.
 
 검증: CPU affinity 92/93, CUDA 비활성화 상태에서 count 분해·역방향 부호·macro/micro 차이·GT/noise 불일치 거부·실제 study row 연결을 확인하는 20개 테스트를 통과했다. 학습 프로세스와 기존 checkpoint·원본 metric·실행 중인 source는 변경하지 않았다.
