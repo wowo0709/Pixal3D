@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrrr}
+\toprule
+Matching diagnostic&Exact@1&Exact@8&Exact@64&Near-1@64\\
+\midrule
+Raw cosine, mean-ray support&1.25&11.09&50.76&80.41\\
+D1 cosine, same support&7.73&28.47&50.76&80.41\\
+D1 scalar score, same support&8.56&29.92&50.76&80.41\\
+Member-posterior mixture&11.19&45.68&73.36&95.59\\
+\bottomrule
+\end{tabular}
+\caption{Reused matching diagnostics on 50,493 observable source-camera-ray/target-patch relations from 32 development source clusters (percent). Exact denotes the GT source patch on the 32-by-32 image grid; Near-1 allows a one-patch neighborhood. These are conditional relation-coverage measures, not per-point pixel accuracy or generative-quality scores. GT visibility is used only to define the diagnostic denominator, not as an inference write gate.}
+\label{tab:matching-diagnostic}
+\end{table}

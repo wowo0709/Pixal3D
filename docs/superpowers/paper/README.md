@@ -11,8 +11,9 @@
 | `retargeting-evidence-draft.tex` | 구현과 연결한 영문 본문 초안; 최종 모델 선택 전 |
 | `claim-evidence-ledger.md` | 주장별 현재 근거와 미완료 검증 |
 | `related-work-verified.tex`, `references.bib` | 확인한 핵심6개 논문과 해당 범위의 Related Work 초안 |
-| `tables/dev-ss128.tex` | 완료된11개 모델의 동일 DEV128×3 SS 결과 |
+| `tables/dev-ss128.tex` | 완료된12개 모델의 동일 DEV128×3 SS 결과; 새 learned 결과는 exploratory follow-up |
 | `tables/dev-joint32.tex` | 동일한 V1/R baseline을 확인한 실제4개 DEV32 조합 |
+| `tables/dev-matching32.tex` | 동일 frozen matching checkpoint의 관측 가능 관계 단위 진단; 생성 품질과 별도 |
 | `tables/final-main-template.tex` | TEST508의10개 metric 양식; 전부 미측정 |
 | `tables/final-ablation-template.tex` | 최종 구조 안의 matched ablation 양식; 전부 미측정 |
 

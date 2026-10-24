@@ -1,6 +1,7 @@
 \documentclass[10pt]{article}
 \usepackage[margin=0.8in]{geometry}
 \usepackage{amsmath,amssymb,booktabs,graphicx,hyperref}
+\setlength{\emergencystretch}{1em}
 \newcommand{\pending}{\textemdash}
 \title{Ray-Based Semantic Evidence Retargeting for Multi-View 3D Editing}
 \author{Working manuscript; title and final model subject to confirmation}
@@ -204,9 +205,41 @@ LPIPS/DreamSim. Positive CLIP results do not change that priority after the fact
 \section{Development results and bounded interpretation}
 \input{tables/dev-joint32.tex}
 \input{tables/dev-ss128.tex}
+\input{tables/dev-matching32.tex}
+
+\paragraph{Candidate coverage versus generated quality.}
+The reused matching diagnostic contains 50,493 observable
+source-camera-ray/target-patch relations from 32 development source clusters.
+On the same raw 64-candidate support, exact relation coverage at rank one
+increases from 1.25\% for raw cosine to 7.73\% for the contextual D1 descriptor
+and 8.56\% for its scalar score. Re-ranking cannot change coverage at rank 64
+on this fixed support. Member-posterior proposals increase exact coverage at
+rank 64 from 50.76\% to 73.36\%, with a paired exploratory interval of
+[15.99,30.12] percentage points for the change. The matching checkpoint is
+identical across these diagnostics and the current conditioning candidate;
+production parity was checked separately.
+
+For the member proposals, 31,393 relations have a wrong Top-1 but a GT match
+inside the retained Top-64: 62.17\% of all observable relations and 70.00\% of
+those missed by Top-1. This motivates retaining candidate uncertainty. It does
+not prove that a learned attention head uses the candidates effectively or
+improves generated assets. The denominator excludes unobservable relations,
+and the measurement unit is a source ray paired with a target patch, not a
+unique 3D point or a pixel. These historical matching diagnostics and the
+SS128/cascade32 experiments have different measurement scopes and are not
+treated as one paired downstream experiment.
 
 The fixed-evidence candidate improves development SS macro IoU from 0.467355
-for vanilla fine-tuning to 0.473471. In the actual DEV32 composition, however,
+for vanilla fine-tuning to 0.473471. Anchored learned probability refinement
+reaches 0.474794 in the completed SS128 three-noise follow-up, a change of
+0.001323 from fixed evidence. The source-cluster interval adjusted for the
+two module contrasts is [-0.000409,0.003161], so this positive point estimate
+does not establish the necessity of refinement. Its change from vanilla is
+0.007439 with the corresponding two-contrast pipeline interval
+[0.002585,0.012504]. These are development results from one training seed;
+the learned candidate's actual cascade and independent confirmation are pending.
+
+In the actual DEV32 fixed-evidence composition, however,
 its geometry and appearance move in different directions. Relative to the
 retargeting composition, Chamfer distance decreases by 0.00008579 and surface
 F-Score increases by 0.005146, while source LPIPS increases by 0.001186 and
@@ -241,8 +274,8 @@ the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 
 \section{Limitations and pending claims}
-Final ray-versus-voxel, mean-versus-member, and learned-versus-fixed evidence
-results, the final-context matched controls, independent training seed
+Final ray-versus-voxel and mean-versus-member results, cascade confirmation
+of learned versus fixed evidence, the final-context matched controls, independent training seed
 confirmation, and held-out test results are pending. Geometric improvement
 does not ensure source appearance improvement. Preserving the direct target
 stream does not guarantee unchanged target output. Input-alpha support is not
