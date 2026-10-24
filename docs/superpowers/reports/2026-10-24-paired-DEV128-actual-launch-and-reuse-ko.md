@@ -1,5 +1,7 @@
 # 동일 DEV128 파이프라인 평가의 실제 실행
 
+18:16 UTC 후속: [실제 출력 metric 통합 검증](2026-10-24-DEV128-metric-real-output-integration-ko.md)에서 기존 R32의 역사적 binding schema 차이를 실제 provenance로 보완했다. 기존32개+새1개,297 view의 조립과 기존 metric2,784개 exact 재현을 통과했고 대기 중인 집계 체인을 v257로 교체했다. 실행 중인 NN·생성물·numerical metric code는 유지했다. 아래 v250 경로는 최초 연결 기록이며 현재 최종 예정 집계는 `metrics-v257/summary-v1/audit.json`이다.
+
 2026-10-24 17:40 UTC 전후 실제 상태다. R·Fixed·Learned의 같은 panel 비교를 넓히기 위해, 이미 학습된 세 SS480 모델과 공통 Top-1 R PBR1900을 사용한다. 새 training arm, 새 deformation 데이터, TEST forward를 추가하지 않았다. 첫32개의 실제 cascade와 perceptual score는 재사용한다.
 
 ## 준비와 실제 검증
