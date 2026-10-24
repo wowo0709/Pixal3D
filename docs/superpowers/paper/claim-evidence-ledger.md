@@ -2,6 +2,8 @@
 
 이 문서는 결과를 본 뒤 유리한 metric으로 주장을 바꾸지 않기 위한 원장이다. 아래 empirical claim은 DEV 단계의 해석이며, 최종 TEST claim으로 승인된 것이 아니다. 현재 두 리포트의 계획을 유지한다.
 
+남은 실행과 표·writing의 최신 통합 계획은 [논문 완성을 위한 핵심 실험 정리](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)를 따른다. Matching score 효과를 검증하기 위해 동일 Top-K의 Uniform-K 대조를 핵심 계획에 포함하며 사용자 정의 No-score=Top-1과 구분한다.
+
 | Claim 후보 | 현재 근거 | 미완료 검증 | 현재 허용하는 표현 |
 |---|---|---|---|
 | Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 finite-family 통계, 최종 구조의 matched 비교 및 downstream | “해당 SS 설정에서 양의 점추정” |
@@ -21,7 +23,7 @@
 ## 결과 표의 역할
 
 - `tables/dev-ss128.tex`: 동일 SS panel의 완료된13개 endpoint와 조건부 비교. 원래 core family와 새 exploratory follow-up은 통계적으로 구분하고 Micro IoU와 섞지 않는다.
-- `tables/dev-joint32.tex`: V1/R/D1-cos/E_FIXED_RAW의 실제 조합 비교. 같은 V1/R baseline인지 확인하고 합친다.
+- `tables/dev-joint32.tex`: V1/R/D1-cos/E_FIXED_RAW/E_LEARNED_RAW의 실제5개 조합 비교. V1/R baseline의 per-asset 일치 검증을 거친 결과다.
 - `tables/dev-matching32.tex`: 재사용한 matching 진단의 observable relation coverage. GT visibility는 진단 분모에만 사용하며 모델의 write gate가 아니다.
 - `tables/final-main-template.tex`: TEST508, 사용자 지정10개 metric. 미측정은 대시로 남긴다.
 - `tables/final-ablation-template.tex`: 최종 구조에서의 ablation. 기존 조건부 비교로 빈 행을 자동 채우지 않는다.

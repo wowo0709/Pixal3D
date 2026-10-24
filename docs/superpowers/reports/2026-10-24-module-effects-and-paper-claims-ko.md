@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+최신 남은 작업 정리: [논문 완성을 위한 핵심 실험·ablation·writing 설계](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md). 최종 문맥의 대조와 기존 조건부 효과를 구별하고, 실제 cascade 평가 후 최종 모델을 결정한다.
+
 최신 후속 결과: E_LEARNED_RAW의480/DEV128×3는 IoU0.474794, 원래 FULL mean 제어는0.472679로 완료됐다. Learned−Fixed의 CI는0을 포함하고, 원래 FULL의 member−mean 점추정은−0.000601이다. 아래의11개 완료/후보 학습 중 설명은 최초 관측 기록이다. 최신 상태와 필요한 matched 대조는 [최종 파이프라인 계획](2026-10-24-final-pipeline-essential-experiments-and-writing-ko.md), 실제 figure·PDF·독립 seed 준비는 [후속 기록](2026-10-24-actual-qualitative-and-independent-seed-preparation-ko.md)을 따른다.
 
 Learned의 실제 cascade32도 완료됐으며 R 대비 source LPIPS/DreamSim/CD의 점추정은 열위, F-Score는 우위지만 해당 CI는 모두0을 포함한다. 같은32/noise에서는 SS IoU도 Fixed가 Learned보다 높아 Full128×3와 순위가 다르다. [최신 cascade 결과와 같은 panel 진단](2026-10-24-learned-cascade-complete-and-same-panel-diagnosis-ko.md)에 따라 새 조합 대신 기존3개 핵심 pipeline의 동일 DEV128 확장을 준비한다.

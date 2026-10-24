@@ -1,5 +1,7 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-24 18:09 UTC 갱신: [논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 현재 완료/실행 상태, 최종 구조의 핵심 대조군, score claim을 위한 Uniform-K, TEST10개 metric과 표·writing 종료 기준을 통합했다. 아래 최초 계획의 미완료 상태를 현재 상태로 읽지 않는다.
+
 최신 결과와 모듈별 대조 정의는 [최종 파이프라인 필수 실험·평가·writing 정리](2026-10-24-final-pipeline-essential-experiments-and-writing-ko.md)에 갱신했다. 아래는 13:35 UTC 시점의 계획 기록이다.
 
 추가 갱신: [Learned cascade32 완료와 동일 panel 진단](2026-10-24-learned-cascade-complete-and-same-panel-diagnosis-ko.md)을 반영한다. 새 training arm보다 기존 R/Fixed/Learned 세 pipeline을 동일 DEV128/noise로 비교하는 평가 확장을 우선 준비하며 기존32개는 재사용한다. 이 확장은 아직 실행 완료가 아니다.
