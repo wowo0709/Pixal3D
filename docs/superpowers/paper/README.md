@@ -43,6 +43,12 @@
 
 ## 남은 writing
 
+원래12모델의 전체 family 집계도 완료했다. `tables/dev-original-module-effects.tex`에
+10개 module-family CI를 실제 통계에서 내보냈으며 모든 CI가0을 포함한다.
+Ray−voxel은−0.000236, 보정 CI[−0.000878,+0.000351]이다.
+`tables/dev-ss128.tex`는 완료된14개 endpoint이며, 새 shared-evidence 구조와
+원래 FULL 구조의 결과를 분리해 서술한다.
+
 완료 갱신: `tables/dev-independent-ss.tex`와 본문의 독립 학습 문단에
 실제 V1/Top-1 branch seed101·202의 DEV128×3 결과를 반영했다.
 개선은 각각+0.005245/+0.005169이며 combined branch의 SS 재현성으로

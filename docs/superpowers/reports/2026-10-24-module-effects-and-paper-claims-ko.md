@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-24 21:49 UTC 추가 결과: 원래12모델 DEV128×3 통계가 완료됐다. FULL ray0.472078 대 voxel0.472314이며 ray−voxel은−0.000236, ten-contrast CI[−0.000878,+0.000351]이다. 원래10개 module-family CI가 모두0을 포함하므로 개별 모듈의 필수성을 확정하지 않는다. 원래 FULL−V1의 양의 family CI 및 Top-1 combined branch 두 seed 재현과 구별한다. 아래 최초 결과의 “pending” 설명은 해당 시점 기록이며 [완료된 family와 실행 기록](2026-10-24-uniform-score-control-and-independent-paper-results-ko.md)의 후속 결과를 우선한다.
+
 최종 문맥의 [코드·config 재사용 감사와 실제 대조 구현](2026-10-24-final-context-reuse-and-physical-controls-ko.md)을 반영한다. 기존 matching controls는 Top-1 전달이고 새 Fixed/Learned는 weighted shared evidence라 최종 문맥 대조로 자동 대체할 수 없다. Fixed에는 learned Q/K가 없으며 Uniform-K↔Fixed, Fixed↔Learned, 같은 learned head의 additive-prior 제거를 구분한다. 후속 구현은 native trainer/evaluator·4개 실제 GPU 초기 함수/backward 검사·cascade binding을 포함한169개 검사까지 진행했다. Uniform-K는 GPU7에서 기존 voxel 평가 후 micro96 capacity → 조건부480 학습 → DEV128×3 평가를 연결했다. 본 학습과 실제 cascade 품질 평가는 아직 미완료다.
 
 독립 seed 갱신: V1/Top-1 semantic matching+retargeting의 SS 학습·평가가 seed101과202 모두 완료됐다. V1 대비 IoU 개선은 각각+0.005245/+0.005169이며 각 source-cluster CI95는 양수다. 이는 combined branch의 SS 재현성으로, R/decoder 단독 효과나 최종 cascade/TEST의 증명이 아니다. 실제 수치와 다음 작업은 [최신 핵심 계획](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md), 논문 반영·실행 연결은 [후속 기록](2026-10-24-uniform-score-control-and-independent-paper-results-ko.md)을 따른다.

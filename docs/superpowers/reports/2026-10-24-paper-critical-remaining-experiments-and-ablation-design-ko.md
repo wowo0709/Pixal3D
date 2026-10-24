@@ -1,6 +1,6 @@
 # 논문 완성을 위한 남은 핵심 실험과 ablation·writing 설계
 
-2026-10-24 21:31 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
+2026-10-24 21:49 UTC 실제 결과/queue 기준 갱신. 목적은 효과가 있는 모듈을 하나의 실제 파이프라인으로 확정하고, 각 기여의 근거와 한계를 같은 평가 조건에서 제시하는 것이다. 아래의 대조군 목록은 필요한 **비교**이며, 전부 신규 학습을 뜻하지 않는다. 기존 결과가 최종 구조와 일치하면 재사용한다. 진행 중인 정상 학습/평가는 유지한다. 이 문서 갱신 자체로 새로운 학습이나 TEST를 실행한 것은 아니다.
 
 ## 1. 지금 확정한 사실과 아직 결정하지 못한 것
 
@@ -12,24 +12,27 @@ SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·
 
 | 항목 | 실제 상태 | 남은 의미 |
 |---|---|---|
-| 기존 SS 모델들 | 13개 endpoint의 480/DEV128×3 완료 | 원래 비교 family 통계는 voxel endpoint 이후 마무리 |
-| FULL_VOXEL_Q | 480 학습 완료; 평가용 checkpoint 묶음 복구 완료, noise0 평가 실행 | 원래 FULL 문맥의 ray/voxel 대조; 새 최종 구조와의 일치도 별도 점검 |
+| 기존 SS 모델들 | 14개 endpoint의480/DEV128×3 및 원래12모델 family 통계 완료 | 원래10개 module-family CI 모두0 포함; 최종 문맥 대조는 별도 |
+| FULL_VOXEL_Q | 480/DEV128×3 완료, macro IoU0.472314 | 원래 FULL의 ray−voxel Δ−0.000236, family CI[−0.000878,+0.000351]; 양의 기여 미확인 |
 | V1/R/D1-cos/Fixed/Learned DEV32 cascade | 5개 조합과8개 metric 완료 | 작은 개발 panel이며 최종 TEST 아님 |
 | 같은 Fixed SS의 vanilla/R PBR | 실제32개 짝비교 완료 | 같은 geometry에서도 source appearance 문제가 해결됐다고 볼 근거 없음 |
-| R/Fixed/Learned DEV128 cascade 확장 | 기존32개씩 재사용; 추가288개 중275개 완료·1개 실행·12개 대기. R/Fixed의 추가96개씩 완료 | 동일128/noise에서 geometry·appearance 비교 필요; official metric 전체 집계 미완료 |
+| R/Fixed/Learned DEV128 cascade 확장 | 기존32개씩 재사용; 추가288개 중285개 완료·1개 실행·2개 대기. R/Fixed의 추가96개씩 완료 | 동일128/noise에서 geometry·appearance 비교 필요; official metric 전체 집계 미완료 |
 | 독립 SS seed202 V1/R | 양쪽480 학습·DEV128×3·두 seed 짝집계·원본 frozen701 tensors 비교 완료 | 선택 후보가 R과 다를 때 그 후보의 독립 확인만 추가 |
 | 실제 Fixed/Learned 활용 진단 | 같은32개 모델별 관측·native 분모 대조·집계·file4 보존 완료 | Score prior는 유효 후보에 mass를 배분하지만, 추가 learned refinement의 이득은 미확인 |
-| 독립 PBR seed202 vanilla/R | GPU0–3 DDP4 vanilla 실제26/1900; R은 그 다음 의존 작업 | 필수 확인 대상; 선택하지 않은 PBR grid는 추가하지 않음 |
-| 최종-context 새4개 제거/가중치 대조 | native trainer/evaluator 구현·115개 검사·4개 실제 GPU flow/backward proof 통과 | Micro96 capacity, 본 학습, 새 대조의 cascade binding/실제 평가 미완료; 성능 결과 아님 |
+| 독립 PBR seed202 vanilla/R | GPU0–3 DDP4 vanilla1900 실제 학습 중; R은 그 다음 의존 작업 | 필수 확인 대상; 선택하지 않은 PBR grid는 추가하지 않음 |
+| 최종-context 새4개 제거/가중치 대조 | native trainer/evaluator·cascade binding 구현,169개 검사·4개 실제 GPU flow/backward proof 통과 | Uniform-K micro96 capacity 실제 실행,480/DEV128×3는 capacity 통과에 의존해 등록. 새 대조의 실제 cascade 품질 평가는 미완료 |
 | 최종 TEST508 | 품질 평가 미실행 | 모델·protocol freeze 뒤 실행 |
 
-회수 가능한 기존 생성물을 다시 만들지 않는다. 현재 GPU0–3은 필수 PBR DDP4, GPU6은 Learned의 남은 cascade 사례, GPU7은 voxel 대조 평가에 사용한다. Voxel의 이전 checkpoint 묶음 실패는 저장 config 끝의 줄바꿈1byte 차이뿐임을 입증했다. 수치 설정과 학습 결과는 그대로 보존하고 동등한 config 표현을 별도 기록해 평가 연결을 복구했다. 이 실행 관측 수치는 계속 변하며, 완료되지 않은 비교를 논문 결과로 채우지 않는다.
+회수 가능한 기존 생성물을 다시 만들지 않는다. 현재 GPU0–3은 필수 PBR DDP4, GPU6은 Learned의 남은 cascade 사례, GPU7은 완료된 voxel 평가에 이어 Uniform-K capacity에 사용한다. Voxel의 이전 checkpoint 묶음 실패는 저장 config 끝의 줄바꿈1byte 차이뿐임을 입증했다. 수치 설정과 학습 결과는 그대로 보존하고 동등한 config 표현을 별도 기록해 평가 연결을 복구했다. 이 실행 관측 수치는 계속 변하며, 완료되지 않은 비교를 논문 결과로 채우지 않는다.
+
+
+완료된 원래 family의10개 모듈 대조는 보정 CI가 모두0을 포함한다. Retargeting at Top-1의 Δ+0.003929도 ten-contrast CI[−0.000525,+0.008987]이다. 원래 FULL−V1은+0.004723, two-pipeline-contrast CI[+0.000288,+0.009394]지만 FULL−Top-1 R은−0.000522, CI[−0.003339,+0.002567]이다. 따라서 전체 branch 개선과 개별 모듈의 필수성을 분리한다. CI가0을 포함한다고 동등성이나 효과 부재를 결론내리지 않는다. 전체 통계는 `voxel-query-FFN12-recovery-v188/twelve-model-summary-v1/audit.json`과 실제 file4 closure에 보존됐고 W&B에도 로깅됐다.
 
 ## 2. 남은 작업의 우선순위와 종료 조건
 
 | 순서 | 필수 작업 | 결과물/종료 조건 |
 |---|---|---|
-| 1 | 진행 중인 voxel 대조와 R/Fixed/Learned DEV128 평가 완료 | 실제 paired8개 metric·source-cluster CI·기존 family 통계. 성능 표에 포함할 최종 SS/PBR 조합 선정 |
+| 1 | 완료된 원래 voxel-family 통계 반영, R/Fixed/Learned DEV128 평가 완료 | 실제 paired8개 metric·source-cluster CI·기존 family 통계. 성능 표에 포함할 최종 SS/PBR 조합 선정 |
 | 2 | 최종 구조에서 필요한 matched ablation 완성 | 아래 표의 각 주장에 단일 변경 대조가 존재. 일치하는 기존 결과 재사용, 빠진 경우만 학습 |
 | 3 | Matching의 탐색→활용→출력 연결 진단 | 후보 Recall, 유효 후보 attention mass/전달량, 같은 사례의 geometry·appearance 변화 |
 | 4 | 독립 training seed와 fresh-load 정합 확인 | V1/R 및 선택 후보만 seed202 확인, 선택 checkpoint의 재현성·데이터 정합 통과 |
@@ -99,7 +102,7 @@ Uniform-K의 구체적인 적용 범위도 실행 전에 고정한다. 후보 �
 | 선택 모델 필수 | 선택된 Fixed 또는 Learned ↔ 물리적 No-R | `A_FIXED_NO_R`/`A_LEARNED_NO_R` 중 **선택 경로의 하나**만 본 학습. 초기 GPU 검사는 둘 다 통과했지만 학습 완료가 아니다. 기존 Top-1 No-R 결과는 별도의 조건부 근거다. |
 | 최종 matching 기여 필수 | Spatial → Raw semantic → D1 cosine → D1 scalar | 동일한 최종 readout·carrier·source-use·R에서 누락된 행만 학습. 기존 Top-1 ladder는 그 문맥에서 재사용 가능하나 weighted Top-K의 최종 행으로 바꿔 적지 않는다. 최종 학습 config·cache·생성/평가 binding 확인이 아직 필요하다. |
 | Learned 채택 시 | Fixed ↔ Learned, Learned ↔ additive-logit-prior 제거 | 전자는 완료된 SS 모델 재사용. 후자 `A_LEARNED_NO_LOGIT_PRIOR`는 실제 GPU 검사 완료이며 capacity/학습/평가 필요. 같은7개 head tensor와 후보/context를 유지하며 직접 더하는 logit prior만 제거한다. |
-| Ray 독립 기여 채택 시 | 같은 최종 경로 ray ↔ voxel query/grouping | 먼저 완료된 기존 FULL voxel 평가를 집계. 최종 Learned에는 같은 identity-V/shared-evidence 경로의 query 대조가 필요하다. Fixed에는 learned Q/K가 없으므로 그 toggle은 유효하지 않으며, ray grouping을 바꾸는 별도 정의 없이 query 효과를 주장하지 않는다. |
+| Ray 독립 기여 채택 시 | 같은 최종 경로 ray ↔ voxel query/grouping | 기존 FULL voxel 평가와 family 집계 완료; 양의 품질 기여는 확인되지 않음. 최종 Learned에는 같은 identity-V/shared-evidence 경로의 query 대조가 필요하다. Fixed에는 learned Q/K가 없으므로 그 toggle은 유효하지 않으며, ray grouping을 바꾸는 별도 정의 없이 query 효과를 주장하지 않는다. |
 | Member 독립 기여 채택 시 | 같은 최종 경로 member ↔ mean descriptor | 독립 기여로 남길 때만 최종 경로에서 누락분 학습. 현재 coverage 개선과 기존 생성 성능의 음의 결과를 그대로 보고한다. |
 
 기능 검사까지 준비된 네 arm을 모두480-step 학습한다는 뜻이 아니다. 현재 네 arm 모두 **본 학습0 updates**이며, 실제 GPU proof는 한 TRAIN sample의 초기 함수/gradient 검사다. Micro96 capacity, matched training, 평가용 checkpoint binding, frozen Shape/PBR에 연결한 실제 cascade 평가가 끝나야 ablation 표의 수치를 채운다. No-R는 모듈/파라미터를 물리적으로 제거하며, Uniform-K는 carrier·source-use·R가 공유하는 evidence posterior의 weighting을 바꾸는 대조다. 이를 additive attention-logit 하나의 효과로 좁혀 쓰지 않는다.

@@ -55,7 +55,22 @@ GPU case worker는 기존 native Shape/PBR/render 호출을 유지하고 own bin
 
 ## 5. 다음 종료 조건
 
-1. 기존 DEV128 실제8개 metric 집계 및 원래 voxel-family 통계 완료.
+21:49 UTC 후속: 원래12모델/10모듈/2 pipeline 비교 통계가 실제 완료·file4 보존·[W&B 로깅](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/ss-unified-twelve-model128x3-s101-v166)됐다. Uniform-K capacity도 GPU7 wrapper1854741/child1854782에서 실제 실행 중이다. 아래의 original family 완료 항목은 해소됐다.
+
+| 원래 구조의 비교 | Δ macro IoU | 보정 family CI95 |
+|---|---:|---|
+| FULL ray − voxel query | −0.000236 | [−0.000878,+0.000351] |
+| Retargeting at Top-1 | +0.003929 | [−0.000525,+0.008987] |
+| Spatial → raw semantic | +0.001117 | [−0.003255,+0.004969] |
+| Raw → decoder descriptor | +0.000648 | [−0.003386,+0.005441] |
+| 원래 FULL − V1 | +0.004723 | [+0.000288,+0.009394] |
+| 원래 FULL − Top-1 R | −0.000522 | [−0.003339,+0.002567] |
+
+모듈은10개 family, pipeline은2개 family로 보정했다. 모든10개 module CI는0을 포함한다. 효과 부재나 동등성을 주장하지 않으며, 원래 FULL과 새 shared identity-value 구조를 혼동하지 않는다. 이 결과를 숨기지 않고 새 `tables/dev-original-module-effects.tex`,14개 endpoint 표와 본문/claim 원장에 반영했다.
+
+후속 compiled 초안은 `paper-draft-original-family-v292`다.11pages·24refs·warning0,10개 Δ/보정 CI를 실제 closed 통계와 소수점6자리까지 대조했고 새 표/문단의6·7페이지를 직접 검토했다.27개 artifact의 실제 file4 SHA/size가 일치한다. 최신 로컬 preview는 `/root/dev/.cache/deformnext-retargeting/paper-preview-20261024-v292.pdf`다.
+
+1. 완료된 원래 voxel-family 통계를 반영하고 기존 DEV128 실제8개 metric 집계 완료.
 2. Uniform-K의 capacity/480/128×3와 같은 panel downstream 품질 확인.
 3. 최종 matching ladder와 선택 모델의 물리적 No-R·필요한 ray/learned 대조 보완.
 4. 선택 모델·필수 PBR의 독립 확인, fresh-load/protocol freeze 뒤 TEST508.
