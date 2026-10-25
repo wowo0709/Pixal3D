@@ -2,9 +2,14 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-completed-SS-contrasts-v412`의15쪽·24개
-참고문헌 개발 초안이다. 실제 compiler returncode0이며12쪽의 ablation 본문과
-14쪽의 새 통계 표를 시각 검수했다. 최종 모델·TEST·논문 완료를 의미하지 않는다.
+현재 compiled revision은 `paper-draft-evidence-interpretation-v434`의15쪽·24개
+참고문헌 개발 초안이다. 실제 compiler returncode0이며13쪽의 Discussion·기존
+Main/Ablation 양식을 시각 검수했다. Warning·미해결 참조·overfull/underfull은0이다.
+후보 탐색·가중 결합·적응의 가설을 분리하고 geometry/preservation trade-off를
+설명했다. 이전 v412와 비교해 Discussion만 바뀌었으며 기존 모든 수치 표·그림은
+byte-identical이다. 두 원래 producer receipt로39개 source/figure 파일의 실제
+SHA를 재검증했고 이번36개 source/build/review 산출물도 실제 file4 SHA/size가
+일치한다. 새 품질 결과나 최종 모델·TEST·논문 완료를 의미하지 않는다.
 
 `tables/dev-completed-fixed-contrasts.tex`는 완료된 실제128×3 결과의 세 대조를
 담는다. 사전 정의한 전체6개 family를 유지했으며 Fixed−No-R의+0.004639도

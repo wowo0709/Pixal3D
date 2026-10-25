@@ -388,6 +388,16 @@ Main exporter를 합친 현재 packet이며 TEST 전에 기존 numerical source 
 worker는 실제 queue command의 self-SHA를 확인해 재사용한다. 새 실험 arm이나
 중복 GPU/ablation 작업을 추가하지 않았다.
 
+논문 Discussion도 실제 관측의 해석에 맞춰 보강했다. 후보 coverage·probability
+mass의 개선을 최종 생성 품질의 증명과 구분하고, Fixed의 geometry 개선 신호와
+source LPIPS/DreamSim의 불리한 점추정을 함께 설명한다. 추가 projection을
+과거 실패의 원인으로 단정하지 않는다. `paper-draft-evidence-interpretation-v434`는
+15쪽·24개 인용으로 실제 compile했고13쪽을 시각 검수했다. Warning·미해결 참조·
+overfull/underfull은0이다. v412와 비교해 Discussion만 바뀌었으며 기존 수치 표와
+그림은 byte-identical이다. 두 원래 receipt로39개 source/figure binding을 확인하고
+이번36개 source/build/review 산출물의 실제 file4 SHA/size도 대조했다. 새 품질
+측정이나 TEST·최종 writing 완료가 아니며 아래 최종 결과 작성 범위는 유지한다.
+
 1. **Method:** RGB4장/camera, target native stream과 source adaptation, member 기반 semantic 후보, ray 단위 evidence 공유, score-weighted 전달과 R의 정확한 수식을 코드와 맞춘다. No-match는 native source feature를 유지하며 GT visibility를 inference gate로 사용하지 않는 계약을 설명한다.
 2. **Experimental setup:** DeformNeXt split·초기 multi-view LoRA checkpoint·동일 학습 stream·update·global batch·noise·고정 Shape/PBR·metric reference·cluster 통계를 표/본문에 명시한다. Clean80k는 초기 모델의 학습 이력이며 deformation 실험의 데이터가 아니다.
 3. **Ablation/Mechanism:** 실제7행의 matched 결과와6개 사전 대조를 설명한다. 기존 retrieval coverage, Top-1 miss/Top-K hit, GT 후보 probability mass 관측은 활용 가능성의 근거이며 최종 성능의 대체 증거가 아니다. 실제 ray/candidate 그림과 동일 사례의 성공·실패 출력을 함께 넣는다.

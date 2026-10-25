@@ -575,7 +575,32 @@ and common downstream measurements, rather than changing endpoints or
 discarding unfavorable controls.
 \input{tables/dev-completed-fixed-contrasts.tex}
 
-\section{Limitations and pending claims}
+\section{Discussion and limitations}
+\paragraph{Retrieval, aggregation, and adaptation are separate hypotheses.}
+Higher candidate coverage establishes that useful evidence is available;
+probability mass on those candidates measures how it is allocated. Neither
+observation establishes that the adapted conditioning improves a generated
+asset. The completed same-support Uniform-K comparison tests this distinction
+directly at the SS stage, and its adjusted interval does not establish a
+weighting advantage. The original member and ray controls likewise do not
+establish independent quality gains. These findings favor evaluating each
+choice in the final delivery path rather than treating retrieval diagnostics
+or membership in a strong pipeline as proof of necessity. They also do not
+identify extra learned projections as the cause of earlier failures: the
+original and shared-evidence architectures differ in multiple respects.
+
+\paragraph{Alignment and preservation must be read jointly.}
+The paired DEV128 cascade gives Fixed a positive exploratory surface F-Score
+difference from Top-1, while source LPIPS and DreamSim have worse point
+estimates. This is a geometric improvement signal with unresolved appearance
+cost, not evidence of uniform superiority. Source references retain the
+original material on edited geometry, so preservation here concerns
+appearance after deformation rather than equality to undeformed source
+pixels. We retain both endpoint groups in model selection and reporting;
+an interval containing zero does not certify preservation or equivalence.
+The final held-out comparison must establish which improvements survive
+the frozen pipeline and protocol.
+
 The original twelve-model, ten-module-contrast family and paired DEV128
 cascade extension are complete. The final-context matched controls, independent training of
 the selected candidate and PBR, and held-out test results are pending.
