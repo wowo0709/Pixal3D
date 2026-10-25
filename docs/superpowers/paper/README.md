@@ -1,5 +1,21 @@
 # 논문 초안과 결과 표
 
+2026-10-26 source 갱신: 선정된 동일 Fixed geometry의 PBR4 비교를 완료해 별도
+`tables/dev-selected-pbr-appearance32.tex`에 넣었다. SS는 geometry, PBR는 appearance로
+각각 Fixed/Top-1 R을 선정하고 실제 DEV-only model/protocol freeze(v558)를 실행했다.
+두 stage의 불확실성과 기존 V1 geometry 표는 유지한다. 새 v560 개발 PDF는19쪽·
+24개 인용, compiler0·warning/미해결/overfull/underfull0이며14/15/17/18쪽을
+시각 검수하고 실제 file4에 보존했다(v563). 새20개 numeric cell을 closed JSON과
+대조했고 기존 수치 표/그림은 같다. 표는 References 전에 모았다. 최종 TEST/논문
+완료가 아니며, 아래 v550은 이전 revision 이력이다.
+
+Frozen TEST508의 V1/R/선택 SS와 두 original RGB zero-shot SS를 GPU2/3/6·0/1에서
+실제 실행 중이다. Zero-shot 첫 실행은 file-spec에 receipt field를 함께 넣어 기존
+strict reader가 모델 계산 전에 거절했다. 실패 로그/terminal은 file4에 보존했고,
+별도 successor(v562)에서 path/SHA spec과 canonical receipt map을 분리했다.
+모델·입력 hash·수치 source는 같다. 모든5개 SS 완료 뒤 GPU0–3·6·7의 bounded
+cascade, 실제 cases 완료 뒤10metric chain이 이어지도록 CPU activator를 연결했다(v565).
+
 ## 현재 revision: 2026-10-25
 
 현재 compiled revision은 `paper-draft-complete-seven-SS-geometry-and-selection-v550`의

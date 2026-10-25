@@ -1,5 +1,12 @@
 # 논문 claim과 필요한 근거
 
+2026-10-26 갱신: 같은 Fixed geometry의 PBR4 비교를 완료했고 LPIPS/DreamSim
+점추정이 모두 가장 좋은 Top-1 R을 선정했다. Vanilla 대비 ΔLPIPS−0.000222934,
+ΔDreamSim−0.000517370의 exploratory CI는 모두0을 포함한다. SS는 CD/F-Score
+점추정으로 Fixed를 선정했다. 실제 model/protocol freeze(v558)는 실행했으며
+TEST 품질은 선정에 사용하지 않았다. 아래의 PBR 비교 중/최종 선정 대기는 이력이다.
+[최신 근거와 범위](../reports/2026-10-26-stage-separated-geometry-and-appearance-selection-ko.md).
+
 2026-10-25 현재 근거를 기준으로 정리한 원장이다. 아래는 DEV 결과이며 TEST claim이
 아니다. 실험·epoch의 과거 상태를 현재의 미완료 상태로 읽지 않도록 현재 표와
 검증 범위를 한곳에 모았다. 이전 원장의 상세 실행 이력은 Git commit `527fe06` 및

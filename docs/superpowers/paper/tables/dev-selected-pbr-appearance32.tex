@@ -1,0 +1,25 @@
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrr}
+\toprule
+PBR arm on identical Fixed geometry&LPIPS$\downarrow$&DreamSim$\downarrow$&CLIP$\uparrow$&Target PSNR$\uparrow$&Target SSIM$\uparrow$\\
+\midrule
+Vanilla&0.053513&0.158346&0.942179&24.47775&0.951534\\
+Actual Top-1 + R&0.053290&0.157828&0.941692&24.54433&0.951563\\
+Top-1 + learned feature + R&0.053326&0.157985&0.941759&24.51012&0.951536\\
+Raw Top-K + learned feature + R&0.053361&0.158261&0.941559&24.52268&0.951539\\
+\bottomrule
+\end{tabular}
+\caption{Completed appearance-stage comparison on32 development examples
+using the selected Fixed SS geometry. Only PBR changes: the generated mesh,
+native guides, initial texture noise, sampler, rendering triangles, and material
+references are identical. Top-1 + R has the lowest source LPIPS/DreamSim points;
+we select its actual1900-step checkpoint. Its vanilla-comparison intervals for
+both primary distances include zero. Vanilla has the highest complementary
+CLIP point. Target image metrics are reported separately; CD0.0123276 and
+F-Score0.856566 are identical for all four rows and establish no PBR geometry
+gain. Feature/Raw retain the Top-1 carrier/use path and do not test a shared
+Fixed PBR pathway. These development results are not held-out confirmation.}
+\label{tab:selected-pbr-appearance32}
+\end{table}

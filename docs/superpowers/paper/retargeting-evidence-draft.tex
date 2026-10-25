@@ -698,10 +698,20 @@ This is development model selection, not confirmed superiority from the
 ablation intervals. Cross-SS appearance differences do not veto that choice.
 The completed independent SS study concerns occupancy, and VAL36 verifies
 the same selected checkpoint binding; neither is two-seed surface confirmation.
-The four PBR modes are now being compared on this identical generated geometry,
-with paired guides, texture noise, rendering triangles, and material references.
-Final PBR selection and the held-out ten-metric comparison remain pending.
+The four PBR modes have now been compared on this identical generated geometry,
+with paired guides, texture noise, rendering triangles, and material references
+(Table~\ref{tab:selected-pbr-appearance32}). Top-1 R has the lowest source
+LPIPS and DreamSim point estimates, 0.053290 and 0.157828, versus vanilla's
+0.053513 and 0.158346. Their paired deltas are respectively -0.000223 with
+exploratory interval $[-0.000539,0.000035]$ and -0.000517 with
+$[-0.002250,0.001183]$. Both include zero. Added feature and Raw Top-K feature
+variants do not improve either primary point estimate over Top-1 R.
+Vanilla has the highest complementary CLIP point. We select the measured
+Fixed SS plus Top-1 R PBR composition using the separate stage objectives;
+neither selection proves module necessity or confirmed superiority.
+The held-out ten-metric comparison remains pending.
 \input{tables/dev-geometry-contrasts128.tex}
+\input{tables/dev-selected-pbr-appearance32.tex}
 
 \section{Discussion and limitations}
 \paragraph{Retrieval, aggregation, and adaptation are separate hypotheses.}
@@ -737,8 +747,9 @@ The original twelve-model, ten-module-contrast family and paired DEV128
 cascade extension are complete. The final-context SS study is also complete.
 All seven final-context cascades and their full downstream family are complete,
 with all adjusted intervals containing zero. Fixed is selected by its joint
-geometry point ranking for the same-geometry PBR comparison; final PBR selection
-and held-out results remain pending. The separate two-seed PBR
+geometry point ranking. The same-geometry PBR comparison selects Top-1 R by
+the lowest source LPIPS and DreamSim points, with uncertain vanilla contrasts.
+Held-out results remain pending. The separate two-seed PBR
 training diagnostic is complete but does not establish pipeline quality.
 The completed two-seed SS study supports the combined branches relative to
 vanilla; it does not isolate each component or establish cascade generalization.
@@ -757,6 +768,7 @@ Across different SS outputs, rendered source LPIPS and DreamSim respond to
 both geometry and appearance errors. They are not isolated material metrics;
 the separate same-geometry PBR comparison controls that stage-specific
 confound.
+\clearpage
 \bibliographystyle{plain}
 \bibliography{references}
 \end{document}

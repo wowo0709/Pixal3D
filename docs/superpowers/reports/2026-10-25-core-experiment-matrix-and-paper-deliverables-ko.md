@@ -1,5 +1,13 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+2026-10-26 최신: 동일 Fixed32의 PBR4 비교가 실제128 case·384 view와 W&B
+12행/이미지4장 검증까지 완료됐다. SS는 CD/F-Score, PBR는 같은 geometry의
+LPIPS/DreamSim으로 **Fixed SS + Top-1 R PBR**를 선정하고 실제 protocol/model
+freeze(v558)를 실행했다. 모듈별 SS48개 보정 구간과 PBR vanilla 대비 두 primary
+CI가0을 포함한다는 불확실성은 유지한다. 다음은 실제 frozen TEST508·10metric과
+최종 표/그림/writing이다. 아래 이전 pending은 당시의 이력이며
+[최신 stage별 수치와 판단](2026-10-26-stage-separated-geometry-and-appearance-selection-ko.md)을 우선한다.
+
 ### 사용자 정정에 따른 stage별 목적과 선정 기준
 
 **SS arm의 목표는 geometry 향상이다.** 공통 Shape/PBR를 고정한 CD↓·surface F-Score↑로
