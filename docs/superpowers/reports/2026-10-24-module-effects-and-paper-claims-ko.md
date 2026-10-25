@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-25 후속: [실제 기전 그림의 논문 반영·Fixed VAL36 연결·최종 저장 준비](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)를 진행했다. 실제 native 관측 그림을 넣은13쪽/24개 인용 PDF를 compile·검수했으며, 이 진단을 새 모듈의 품질 효과로 해석하지 않는다. 신규 다섯 대조의 최종 결과와 TEST는 여전히 미완료다.
+
 2026-10-25 후속 실행: [SS128×3·실제 cascade 표·선택 후보의 독립 확인 연결](2026-10-25-SS128x3-table-and-selected-seed-continuation-ko.md). 실제 기존 SS6개 평가의8개 평균값을 재현했고,5개 완료 모델의 원본 frozen NN/trace 정합을 확인했다. Own 결과에 의존한 SS/cascade 표·Fixed202 collector3개 CPU 작업을 등록했다. Quick32 step192에서 Uniform0.465803 대 Fixed0.463634이며 score-weighting 우위의 최종 근거는 아직 없다. Intermediate 값을 final128×3와 혼합하지 않는다.
 
 2026-10-24 22:43 UTC 실행 갱신: 최종 Fixed의 spatial/raw/D1-cosine 대조를 [구현·검증·등록](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)했다. 동일 core10/전달 경로의 own trainer/evaluator/cascade binding,257개 검사, actual checkpoint 생성자 정합까지 통과했다. GPU6/7의 기존 작업 뒤 own proof→capacity→480→SS128×3를21개 작업으로 연결했으며, 새3개 arm의 GPU 품질 근거는 아직 없다. 원래 Top-1 ladder를 새 weighted 문맥의 결과로 대체하지 않는다.
