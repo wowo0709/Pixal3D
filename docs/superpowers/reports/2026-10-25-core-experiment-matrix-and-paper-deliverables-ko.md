@@ -2,6 +2,27 @@
 
 작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
+### 최신 실제 실행: PBR 독립 집계와 첫 DEV cache 회수 완료
+
+PBR R seed202는1900·최종 validation·정상 exit0/drain과 native/wrapper actual file4
+closure를 마쳤다. `required-PBR-controls-two-seed-closed-collection-CPU-v198`도 완료돼
+V1/R×seed101/202 네 checkpoint의 frozen700 tensor·LoRA360, 각1900 rank별 trace,
+초기 latent와 같은 seed 내6개 epoch의 GT pixel 정합을 확인했다. 다른 seed의 GT pixel은
+같지 않으며 공통 pixel-reference로 pooling하지 않는다. Fixed4 GT-shape target8의
+training reproducibility/QA이고 full-pipeline 독립 품질이나 source preservation 증명이 아니다.
+
+GPU0–2에서 Spatial의 최종 세 noise evaluator가 정상 종료했다. 해당 own128×3의
+strict-series 집계·SS 표 내보내기는 남아 있다. GPU0–3은 이어서 Uniform 등의 실제
+cascade case를 진행하고 GPU6/7은 Raw/D1-cos480을 계속 학습한다. 완료한 실험을
+다시 학습하거나 새로운 과학적 arm을 추가하지 않았다.
+
+첫 실제 Uniform case의 cache 회수도 완료됐다. `actual-first-DEV-case-retirement-postconditions-v488`
+에서 지정된 로컬 NPZ3개만 없고 나머지30개 closed case file의 SHA/size가 같으며,
+회수 후에도 NAS 원본3개를 다시 읽어 같은 SHA/size임을 확인했다. 최초 회수량은
+66,840,921bytes다. Geometry prediction·guide·scored pixels·metadata·checkpoint는
+보존됐다. 이후 회수도 진행 중이지만 이 첫 통합 검증을 전체640/TEST 저장 완료로
+확대하지 않는다. 아래의 first-case 미실행 설명은 해당 준비 당시의 이력이다.
+
 최신 writing 갱신은 `paper-draft-explicit-development-test-separation-v478`이다.
 현재 config와 split metadata를 actual local/file4 SHA·size로 재대조한 v477에서
 train9149/validation508/TEST508의 sample/source UID/cluster 교집합은 모두0이고,
@@ -110,10 +131,10 @@ Raw−Spatial은+0.004578, 개선21/하락11·median+0.003162다. 192의−0.002
 같은6개 평균과 대비를 추가했으며 기존 원래 값은 바꾸지 않았다. 최종480/128×3·
 cascade·보정 family·모델 선택·TEST의 결과가 아니며 Main/Ablation 수치 표는 유지했다.
 
-현재 working Fixed를 유지할 때 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개와 PBR R 독립 seed1개 실행의 완료**다.
+현재 working Fixed를 유지할 때 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개의 완료**다.
 Spatial480 학습은 끝났고 SS128×3 평가가 대기 중이다. Fixed SS seed202의480·DEV128×3와
 기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
-PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
+PBR vanilla/R의 독립 seed와 strict 두-seed 집계는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
 480 학습과 DEV128×3는 끝났으며 반복하지 않는다. 나머지 핵심은 같은128개 실제
 cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완성이다.
 학습 작업 수와 평가/proof/capacity 작업 수를 구분한다.
@@ -132,9 +153,9 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 순서 | 남은 실행 | 종료할 때 남겨야 하는 근거 |
 |---|---|---|
-| 1. 최종 문맥의 모듈 대조 | 완료 Spatial480의 SS128×3, Raw semantic / Decoder-cosine의480·SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
+| 1. 최종 문맥의 모듈 대조 | 종료 Spatial SS128×3의 strict 집계·표, Raw semantic / Decoder-cosine의480·SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
 | 2. 실제 출력 평가 | 신규5행×동일 DEV128의 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
-| 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36 근거 보존. PBR R seed2021900 및 두 seed collector 완료; 최종 binding 변경 시 그 모델의 QA 확인 | SS 반복·재로딩은 완료. PBR 및 최종 composition의 확인을 별도로 마무리 |
+| 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36와 실제 PBR 두-seed training QA 근거 보존. 최종 SS 구조 변경 시 그 구조의 seed202·VAL36·binding 확인 | 선택한 실제 구조의 확인을 완료하며 stage fixed4 QA를 full-pipeline 품질로 확대하지 않음 |
 | 4. 최종 모델 동결 | 앞의 근거로 실제 SS/Shape/PBR 조합·checkpoint·code·평가 protocol 확정 | TEST 전에 고정한 모델과 설정. Fixed의 추가 이득이 지지되지 않으면 Top-1 R 선택 가능 |
 | 5. TEST·정성 평가 | TEST508/134 source cluster에서 두 zero-shot·V1·R·Ours의10metric, 고정 사례와 실패 사례 | Main table, paired source-cluster interval, 최종 정성 그림. Ours가 R과 같으면 중복 행 제거 |
 | 6. 논문 완성 | 실제 수치로 Main/Ablation/Mechanism/Supplement와 Results/Discussion 작성, 마지막에 Abstract/Conclusion 확정 | 표·claim 원장·실제 checkpoint/결과가 일치하고 compile·시각 검수를 마친 PDF |
@@ -276,13 +297,26 @@ connector를 바꾸지 않았다. **실제 case와 cache 회수는 아직 시작
 
 Fixed SS seed202의480·DEV128×3 및 V1/R/Fixed 두 seed의 실제 집계는 완료됐다.
 Working Fixed seed101의 VAL36 두 fresh-load 검증도 완료됐다.
-Fixed 유지 전제의 남은 독립 본 학습은 PBR R seed202다. PBR vanilla
-seed202의1900 업데이트·여섯 validation·저장은 완료됐다. V1/R SS 두 seed도 완료돼
-반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
+PBR vanilla/R의 seed101/2021900·여섯 validation과 strict 실제 집계도 완료됐다.
+`required-PBR-two-seed-collection-v198/actual-collection-v1/result-v1/confirmation.json`의
+네 checkpoint·700 frozen NN tensor×4·360 LoRA tensor×4·실제1900 rank trace·
+초기 RNG/latent·같은 seed의 GT pixel 정합을 확인했다. 완료된 V1/R/Fixed SS와
+PBR baseline을 반복하지 않으며 모든 ablation의 seed를 늘리지 않는다.
+
+| Training seed | V1 PSNR↑ | R PSNR↑ | V1 crop LPIPS↓ | R crop LPIPS↓ |
+|---|---:|---:|---:|---:|
+| 101 | 26.876521 | 26.860112 | 0.086454 | 0.085186 |
+| 202 | 26.862564 | 26.618615 | 0.086446 | 0.082854 |
+
+같은 GT-shape target4의 최종 PSNR 차이는−0.016409/−0.243949dB,
+crop LPIPS 차이는−0.001268/−0.003592다. 두 seed 모두 LPIPS는 낮고 PSNR은
+낮은 mixed 점추정이다. 작은 stage diagnostic이며 CI·source preservation·generated
+geometry·독립 full-cascade·TEST 우위는 입증하지 않는다. 각 seed의 reference와
+metric을 보존하며 다른 GT pixel의 raw quality를 common-reference로 pooling하지 않는다.
 최종 SS 구조가 바뀌면 그 구조의 실제 seed202 확인을 완료한 뒤 freeze하며,
 완료된 Fixed 두 seed 결과를 다른 구조의 재현 근거로 옮기지 않는다.
 
-관측 시 GPU0–3은 완료된 vanilla에 이어 필수 PBR R seed202를 자동으로 시작했다.
+아래 epoch 진행 설명은 당시의 기록이다. 관측 시 GPU0–3은 완료된 vanilla에 이어 필수 PBR R seed202를 자동으로 시작했다.
 GPU6은 Raw semantic, GPU7은 Decoder-cosine 대조의 본 학습을 진행 중이다.
 Spatial의 SS128×3 및 나머지 학습 후 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만
 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용한다.
@@ -632,7 +666,7 @@ source/build/review 산출물의 실제 file4 SHA/size를 확인했다. SS에서
 
 새 backbone/head 탐색, gate/temperature grid, 모든 SS×PBR 조합, target-only, clean80k 재학습, 모든 ablation의 다중 seed, 최종 모델에 없는 query 제거는 추가하지 않는다. Matching coverage·native precision 등 완료된 진단을 반복하지 않는다.
 
-**현재 Fixed 유지 기준의 남은 본 학습은 Raw semantic·Decoder-cosine2개 + 필수 PBR R seed202의 완료다.**
+**현재 Fixed 유지 기준의 남은 본 학습은 Raw semantic·Decoder-cosine2개의 완료다.**
 Spatial480 학습, Fixed SS 두 seed의128×3 집계, working Fixed seed101의 VAL36 QA는 완료됐다.
 완료된 Uniform/no-R 학습·SS 평가와 PBR V1 seed202는 재실행하지 않는다. 이후
 세 correspondence의 SS128×3, 신규5개 대조의 downstream 평가·실제 cache 회수,

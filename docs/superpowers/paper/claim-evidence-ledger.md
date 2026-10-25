@@ -15,8 +15,10 @@
 - Uniform/no-R의480 학습·SS128×3는 완료됐다. Spatial480 학습도 완료됐다.
   Raw semantic/D1-cosine은 학습 중이다. 세 correspondence의 최종 SS128×3와
   신규5개 control의 cascade128·8metric·전체 family 통계는 미완료다.
-- PBR V1 seed202는1900 완료, R seed202는 진행 중이다. 최종 두-seed PBR collector,
-  실제 조합 선택·protocol freeze·TEST508·최종 표/정성 그림/writing은 미완료다.
+- PBR V1/R×seed101/202의1900과 strict collector는 완료됐다. 실제 frozen700
+  tensor×4·LoRA360×4·1900 rank trace·초기 identity·같은 seed의6epoch GT pixel을
+  확인했다. Fixed4 target-stage training QA이며 inferential quality나 full-cascade
+  seed 확인이 아니다. 최종 조합 선택·freeze·TEST508·최종 writing은 미완료다.
 - 최신 검수된 개발 manuscript는 v478의16쪽·24개 참고문헌이다. 실제 compile과
   수정5/6쪽 시각 검수·file4 closure를 완료했고 모든 수치 표·그림은 v458과
   byte-identical이다. 현재 prose 정리는 새 수치나 최종 논문 완료가 아니다.
@@ -26,8 +28,8 @@
 | Claim 후보 | 현재 근거 | 미완료 검증 | 현재 허용하는 표현 |
 |---|---|---|---|
 | V1 기준선이 독립 학습에서도 재현된다 | Seed1010.467355, seed2020.467177; 실제480 trace·startup RNG가 다르고 초기 LoRA·학습 조건·DEV128×3 pairing 일치 | 선택 모델·PBR의 독립 효과와 full-cascade 확인은 별도 | 두 실제 V1 실행의 유사한 점추정; 동등성이나 임의 training seed population의 보장 아님 |
-| Top-1 semantic matching+retargeting branch의 V1 대비 효과가 독립 학습에서 재현된다 | Seed101 ΔIoU+0.005245, seed202+0.005169; 각 cluster CI95가 양수. 양쪽480 trace pairing·학습 stream 독립·원본 frozen701 tensors 일치 확인 | Fixed seed202 SS는 완료. PBR 독립 확인, full-cascade/TEST | 두 실제 SS training seed에서 combined branch 개선. Retargeter/decoder 단독 효과나 training seed 모집단의 보장 아님 |
-| Fixed combined branch의 V1 대비 SS 개선이 두 학습에서 재현된다 | Seed101 ΔIoU+0.006116, seed202+0.007553. 각 seed의3대조 보정 CI95가 양수; 실제480 trace·초기 RNG·6개 checkpoint의 frozen701 tensor·18개 평가 binding 확인 | PBR 독립 확인, full-cascade/TEST. Fixed−Top-1의 보정 CI는 두 seed 모두0 포함 | 두 실제 SS training seed에서 combined Fixed 개선. Decoder/score/R 단독 효과나 Top-1 대비 추가 이득 확정은 아님 |
+| Top-1 semantic matching+retargeting branch의 V1 대비 효과가 독립 학습에서 재현된다 | Seed101 ΔIoU+0.005245, seed202+0.005169; 각 cluster CI95가 양수. 양쪽480 trace pairing·학습 stream 독립·원본 frozen701 tensors 일치 확인 | Fixed seed202 SS와 PBR 두-seed training QA는 완료. Full-cascade/TEST는 별도 | 두 실제 SS training seed에서 combined branch 개선. Retargeter/decoder 단독 효과나 training seed 모집단의 보장 아님 |
+| Fixed combined branch의 V1 대비 SS 개선이 두 학습에서 재현된다 | Seed101 ΔIoU+0.006116, seed202+0.007553. 각 seed의3대조 보정 CI95가 양수; 실제480 trace·초기 RNG·6개 checkpoint의 frozen701 tensor·18개 평가 binding 확인 | PBR 두-seed training QA는 완료; full-cascade/TEST는 미완료. Fixed−Top-1의 보정 CI는 두 seed 모두0 포함 | 두 실제 SS training seed에서 combined Fixed 개선. Decoder/score/R 단독 효과나 Top-1 대비 추가 이득 확정은 아님 |
 | Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 family는 완료됐으며 모든10개 module CI가0을 포함. 최종 문맥 Spatial→Raw 및 downstream 대조는 미완료 | “해당 SS 설정에서 양의 점추정” |
 | Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 구조/downstream 연결; 진단32와 SS128을 같은 paired 실험으로 혼동하지 않음 | Descriptor와 scalar score의 효과를 분리 |
 | Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 동일 Top-K support/value 경로의 score 대조가 필요 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
@@ -161,6 +163,10 @@ GT 후보 rank2·mass25.64%는 조건부 예시다. 최종 TEST 그림의 선택
 Learned/head/member/ray의 음의 결과는 supplement와 discussion에 남긴다.
 
 ## 최종 TEST 전후 완료 조건
+
+첫 실제 DEV cache 회수의 postcondition은 v488에서 통과했다. 지정 로컬3개 NPZ만
+없고 나머지30개 case file이 원래 SHA/size와 같으며 NAS 원본3개도 회수 후 같은
+값이다. 이는 storage integration 근거이며 품질 효과나 전체640/TEST 완료가 아니다.
 
 1. 최종 문맥7행 SS·cascade와 paired family 통계를 완료하고 PBR 독립 확인을 마친다.
 2. 실제 증거로 SS/Shape/PBR 조합을 선택한다. Fixed 추가 이득이 지지되지 않으면
