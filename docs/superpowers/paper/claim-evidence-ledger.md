@@ -1,5 +1,17 @@
 # 논문 claim과 필요한 근거
 
+2026-10-25 03:47 UTC 갱신: Uniform/물리적 no-R의 실제480 학습과 DEV128×3가
+완료됐다. 기존 full-study validator로 자신의 checkpoint/GT/128 ID·93 source와
+세 noise의 실제 종료를 검증한 macro IoU는 Fixed0.473471, Uniform0.473613,
+no-R0.468832다. Fixed−no-R는+0.004639, Fixed−Uniform은−0.000142의 기술적
+점추정이다. 아직 전체6대조 family CI와 새 control의 cascade 결과는 없으므로
+R의 최종 필요성·score의 효과/무효·동등성을 선언하지 않는다. 실제 근거는
+`Uniform-own-SS128x3-partial-family-v367/audit.json` 및
+`NoR-own-SS128x3-partial-family-v378/audit.json`과 각각의 file4 closure다.
+두 control의 actual128 cascade 계획은 각128개 모두 검증 후 등록했으며256개
+GPU case는 대기 중이다. [현재 남은 작업과 writing 기준](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
+아래 중간 epoch/미완료 기록은 관측 당시의 이력이며 최신 종료 상태를 대신하지 않는다.
+
 [SS/cascade 표·독립 seed 연결과 실제 두 번째 epoch](../reports/2026-10-25-SS128x3-table-and-selected-seed-continuation-ko.md)를 반영한다. 새 SS family6와 cascade family48을 구분하고 실제 noise0/checkpoint identity를 확인한 표만 사용한다. Same quick32 step192에서 Uniform가 Fixed보다 macro IoU+0.002169이며 첫192 training trace는 정확히 같다. 이는 학습 중 단일-noise 관측으로 최종 score 효과·architecture 선택의 근거를 대신하지 않는다.5epoch/128×3/downstream 완료 전 weighting의 필수성을 주장하지 않는다.
 
 최신 실행 근거: [최종 Fixed 대조의 실제 cascade·metric 연결](../reports/2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 원래 R/Fixed baseline의116개 평균값과128개 GT 재사용을 실제 검증했고 다섯 own SS 이후 cascade/official8metric connector와 최종7모델 집계를 등록했다.48-comparison DEV family의 보정 구간을 사전 지정했다. 등록은 새 control의 quality 완료가 아니며 해당 결과는 여전히 pending이다.

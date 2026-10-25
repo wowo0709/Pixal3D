@@ -13,12 +13,13 @@ Decoder semantic64, scalar (Fixed)&0.473471&0.0127572&0.844058&0.053438&0.151909
 \midrule
 \multicolumn{6}{l}{B. Aggregation and retargeting: compare with Fixed above}\\
 Actual Top-1 feature (No-score)&0.472600&0.0127795&0.840095&0.053227&0.148809\\
-Uniform on the same64 support&\pending&\pending&\pending&\pending&\pending\\
-Physical retargeter removal&\pending&\pending&\pending&\pending&\pending\\
+Uniform on the same64 support&0.473613&\pending&\pending&\pending&\pending\\
+Physical retargeter removal&0.468832&\pending&\pending&\pending&\pending\\
 \bottomrule
 \end{tabular}
-\caption{Partially measured working-candidate development ablation. Only the
-Fixed and actual Top-1 rows are populated; pending controls are not results.
+\caption{Partially measured working-candidate development ablation. Fixed and
+actual Top-1 have both stage and cascade results; Uniform and physical no-R
+have stage results only. Pending cells are not results.
 SS IoU uses DEV128 and three paired noises; cascade columns use the same128
 assets and one noise, with frozen Shape and common Top-1 R PBR. Panel A
 separates raw semantic retrieval, decoder descriptors and scalar scores in
