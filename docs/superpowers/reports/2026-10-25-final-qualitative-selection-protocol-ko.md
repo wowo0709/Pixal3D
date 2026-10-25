@@ -41,3 +41,17 @@ Manuscript의 qualitative protocol과 claim 원장에도 두 선정 범위를 �
 실제 full TEST 이미지·conditional case·최종 figure·caption은 아직 남아 있다.
 기존5개 SS 대조·독립 seed·cascade·동결/TEST/최종 writing 범위는 유지하며
 새 학습 arm을 추가하지 않았다.
+
+## 실제 manuscript 반영
+
+`paper-draft-qualitative-selection-policy-v356`에서14쪽/24references 개발
+초안을 실제 compile했다. Warning/overfull/underfull은0이고 qualitative protocol의
+6쪽과 실제 ray 그림의7쪽을 PNG로 직접 검수했다. 공개 TeX/선정 protocol의
+현재 bytes와 compile source가 같다.32개 artifact/850,933bytes가 실제 file4와
+일치한다. [개발 PDF](/root/dev/.cache/deformnext-retargeting/paper-preview-20261025-v356.pdf)는
+현재 미완료 결과를 명시한 초안이며 최종 제출 형식/분량의 논문이 아니다.
+실제 평가 표와 정성 결과를 넣은 뒤 최종 편집·분량 조정·검수가 남아 있다.
+
+최종 freeze를 만들 때 이 실제 policy와 metadata-only selection의 SHA를
+evaluation protocol에 함께 남기고 TEST 결과에 따라 변경하지 않는다. 이는
+final model/protocol freeze를 생성했거나 TEST 실행을 허용했다는 뜻이 아니다.
