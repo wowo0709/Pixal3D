@@ -1,10 +1,10 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25 환경 날짜. 실행 상태 관측: 2026-10-24 23:21 UTC.
+작성: 2026-10-25. 실행 상태 재확인: 2026-10-25 00:39 UTC.
 
 후속 실제 실행 연결: [다섯 control의 cascade·8metric·논문 집계 등록](2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 기준선116개 평균값과 GT 재사용을 검증하고, own SS archive에 의존한 connector5개 및 최종 reducer를 등록했다. 아래의 후속 연결 미완료 설명은 해당 실행 기록으로 갱신하며, 실제 신규 cascade 품질은 계속 미완료다.
 
-목표는 각 요소가 실제로 기여하는지 판별하고, 그 근거에 맞는 하나의 파이프라인과 논문을 완성하는 것이다. 모든 요소의 효과가 양수라는 결론을 전제하지 않는다. 이전 결과의 조건이 같으면 재사용하며 지엽적인 구조 탐색은 추가하지 않는다. 이 문서는 남은 작업을 정리한 것이며 새 학습·평가 실행을 뜻하지 않는다.
+목표는 각 요소가 실제로 기여하는지 판별하고, 그 근거에 맞는 하나의 파이프라인과 논문을 완성하는 것이다. 모든 요소의 효과가 양수라는 결론을 전제하지 않는다. 이전 결과의 조건이 같으면 재사용하며 지엽적인 구조 탐색은 추가하지 않는다. 아래는 등록된 작업의 완료 조건과 논문 산출물을 정리한 것이다. 이번 문서 갱신으로 새 학습 arm을 추가하지 않는다.
 
 ## 1. 현재 근거와 잠정 선택
 
@@ -28,8 +28,8 @@
 | M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 동일 |
 | E_FIXED_RAW | Decoder semantic64 / scalar probability weighting / R | D1 cosine→scalar: scalar matching 모듈의 효과 | SS128×3·cascade128×1 완료 |
 | 실제 Top-1 R | Decoder / 실제 최상위 feature1개 / R | Fixed와 비교: 여러 후보 활용의 효과 | SS·cascade 완료, 재학습 불필요 |
-| A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | GPU7 학습137/480 |
-| A_FIXED_NO_R | Fixed와 같은 후보·weight·전달 / R 물리적 제거 | Fixed와 비교: 최종 경로에서 retargeting의 효과 | GPU6 학습111/480 |
+| A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | GPU7 학습260/480 |
+| A_FIXED_NO_R | Fixed와 같은 후보·weight·전달 / R 물리적 제거 | Fixed와 비교: 최종 경로에서 retargeting의 효과 | GPU6 학습235/480 |
 
 **신규 ablation은 다섯 개다.** 이미 학습 중인 Uniform/No-R 두 개와 등록된 matching 세 개이며, 각 arm의 proof/capacity/evaluation 작업을 별개의 모델로 세지 않는다.
 
@@ -50,7 +50,7 @@
 3. 여덟 metric: source LPIPS/DreamSim/CLIP, target PSNR/SSIM/M-IoU, surface CD/F-Score. 최종5개 핵심 열 외의 metric도 보조 표로 공개한다.
 4. 인접 matching 대조와 Fixed 대비 Top-1/Uniform/No-R를 사전에 정한 contrast family로 집계한다. 동일 source의 여러 deformation을 독립 표본으로 세지 않고 source-cluster paired CI를 쓴다. DEV32 screening 뒤 확장한 DEV128은 탐색적 결과라고 명시한다.
 
-현재 own checkpoint/evaluator/cascade binding은 구현됐지만, **신규 다섯 arm의 전체 case-plan·metric 후속 연결과 실제 cascade 실행은 남아 있다.** 이를 평가 완료로 표시하지 않는다.
+현재 own checkpoint/evaluator/cascade binding과 다섯 후속 connector, SS/cascade 표 reducer가 등록돼 있다. 각 connector는 자신의 실제480 checkpoint와 평가 archive를 기다린다. 실제 신규 다섯 arm의 cascade/metric 결과는 아직 없으며 연결 완료를 평가 완료로 표시하지 않는다. 완료된 원본128개 평가의 입력 목록은 기존32개와 추가96개를 구분해 보관했으므로, 새128개 전체 실행에서는 두 부분이 실제 모두 들어 있는 입력 목록을 검증해야 한다.
 
 평가 reference는 source camera9/10에서 M1 geometry+원래 material의 GT, target camera8에서 편집 목표 GT를 사용한다. CD는 공통 normalization의20k surface samples, F-Score threshold0.02로 계산하며 결과별 ICP나 scale fitting은 하지 않는다. M-IoU는2D alpha mask다. 현재 입력 camera 평가를 새 시점 일반화로 설명하지 않는다.
 
@@ -58,7 +58,7 @@
 
 남은 독립 학습은 선택 Fixed의 SS seed202 한 개와 PBR vanilla/R seed202다. V1/R SS 두 seed는 완료돼 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
 
-관측 시 GPU0–3은 필수 PBR vanilla seed202의508/1900을 실행 중이다. 이후 R seed202가 의존 작업이다. GPU6/7의 현재 두 SS 대조 뒤에 matching 세 개와 Fixed seed202의 검증·학습·평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만 사용한다.
+관측 시 GPU0–3은 필수 PBR vanilla seed202의845/1900을 실행 중이다. 이후 R seed202가 의존 작업이다. GPU6/7의 현재 두 SS 대조 뒤에 matching 세 개와 Fixed seed202의 검증·학습·평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용하도록 연결돼 있다.
 
 선정 순서:
 
@@ -105,6 +105,29 @@ Writing 순서는 problem/method·protocol 정리 → DEV ablation/기전 → �
 > We aggregate uncertain semantic correspondence evidence at the camera-ray level and adapt source conditioning while retaining the native target-conditioning stream. Matched ablations evaluate retrieval, score-weighted aggregation, and retargeting separately; geometric alignment and source appearance preservation are reported independently.
 
 이는 설계와 검증 범위의 설명이다. “모든 모듈이 필수”, “learned attention이 일관되게 개선”, “모든 metric 우세”, “완전한 target 보존”은 현재 결과로 쓰지 않는다. Metric 개선이 없는 요소는 구조 설명 또는 음의 결과로 남기고 독립 성능 기여에서 제외한다.
+
+### Claim을 결정하는 기준
+
+| 주장 후보 | 필요한 직접 대조·평가 | 결과에 따른 본문 표현 |
+|---|---|---|
+| Semantic correspondence가 spatial 전달보다 유리 | Spatial→Raw, 공통 cascade의 CD/F-Score 및 preservation | 지지되는 metric과 범위만 명시. 후보 수3→64도 함께 바뀌므로 순수 주소 효과라고 쓰지 않음 |
+| Matching decoder가 raw feature보다 유리 | Raw→D1 cosine | Decoder 표현의 추가 기여. Scalar head 효과와 분리 |
+| Scalar matching score가 cosine보다 유리 | D1 cosine→D1 scalar | Scoring/selection 모듈의 효과. 후보 support가 달라질 수 있음을 명시 |
+| Matching-aware weighting이 후보 활용을 개선 | 동일 support의 Uniform↔Fixed; Top-1↔Fixed | 두 대비를 함께 보고, carrier/use/R가 공유하는 score-weighted 경로의 효과로 기술 |
+| Retargeting이 최종 조합에서 필요 | Fixed no-R↔Fixed | 결합 baseline의 기존 향상과 구분해 R의 직접 기여를 판정 |
+| Ray-wise 구성 자체가 더 높은 품질을 보장 | 기존 ray↔voxel의 실제 matched 결과 | 현재 근거로 보장하지 않음. 새로운 최종-context ray 대조를 하지 않으면 구조·계산 공유 특성으로만 설명 |
+| 최종 시스템이 편집 목표를 더 잘 따르며 source appearance도 유지 | 동결 TEST에서 Ours↔V1/R, geometry와 preservation을 각각 평가 | Geometry 향상과 appearance trade-off를 분리. CI가0을 포함하는 것을 동등성·비열등성으로 표현하지 않음 |
+
+현재 Fixed는 learned Q/K refinement가 없는 확률 가중 집계다. 따라서 이를 “학습된 QKV attention의 우위”로 쓰지 않는다. 추가 learned attention의 기존 음의 결과는 supplement와 discussion에 보존한다. 이 구성에서 실제 입증되는 요소를 중심으로 기여를 줄일 수 있어야 한다.
+
+### 실제 writing 순서와 완료 조건
+
+1. **Method:** RGB4장/camera, target native stream과 source adaptation, member 기반 semantic 후보, ray 단위 evidence 공유, score-weighted 전달과 R의 정확한 수식을 코드와 맞춘다. No-match는 native source feature를 유지하며 GT visibility를 inference gate로 사용하지 않는 계약을 설명한다.
+2. **Experimental setup:** DeformNeXt split·초기 multi-view LoRA checkpoint·동일 학습 stream·update·global batch·noise·고정 Shape/PBR·metric reference·cluster 통계를 표/본문에 명시한다. Clean80k는 초기 모델의 학습 이력이며 deformation 실험의 데이터가 아니다.
+3. **Ablation/Mechanism:** 실제7행의 matched 결과와6개 사전 대조를 설명한다. 기존 retrieval coverage, Top-1 miss/Top-K hit, GT 후보 probability mass 관측은 활용 가능성의 근거이며 최종 성능의 대체 증거가 아니다. 실제 ray/candidate 그림과 동일 사례의 성공·실패 출력을 함께 넣는다.
+4. **Main Results:** TEST의10개 metric을 빠짐없이 보고하고, 중심 서술은 CD/F-Score와 LPIPS/DreamSim에 둔다. PSNR/SSIM/M-IoU·CLIP은 보조 해석, FID/KID는 공통 rendering 분포 비교다. FID/KID만으로3D 물리적 타당성이나 절대적인 자연스러움을 주장하지 않는다.
+5. **Discussion/Limitations:** 큰 변형·가림·matching 실패, geometry/preservation trade-off, 입력 camera 평가의 범위와 learned refinement의 불확실성을 다룬다.
+6. **Abstract/Conclusion:** 최종 표의 직접 근거가 있는 기여만 남긴다. 표·caption·claim 원장·checkpoint와 결과 JSON을 대조하고 실제 PDF를 컴파일·시각 검수하면 writing을 완료한다.
 
 ## 7. 이번 범위에서 추가하지 않을 것과 종료 기준
 
