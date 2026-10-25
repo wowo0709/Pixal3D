@@ -35,6 +35,11 @@ and prevents a gain from one component from being attributed to another.
 \input{related-work-verified.tex}
 
 \section{Method}
+Figure~\ref{fig:working-pipeline-overview} separates the frozen matching
+descriptors from the native value features and the generative stage cascade.
+It depicts the implemented working candidate; the final-context controls
+determine which choices are supported by measured output quality.
+\input{pipeline-overview.tex}
 \subsection{Pretrained multi-view carrier and ray groups}
 Let $T$ be the native target feature map, $S_j$ the native feature map of source
 view $j\in\{1,2,3\}$, and $P_j$ its calibrated projection into the SS conditioning
@@ -49,6 +54,9 @@ Native bilinear projection distributes the resulting map to the grid. This is
 different from predicting an independent attention output for each voxel.
 The grouping is determined by the input cameras; it does not require a target
 surface depth or a surface-visibility test at inference.
+In the supplied SS implementation, grouping uses a $16^3$ conditioning grid
+and a $32\times32$ patch map per source view; SS64 refers to the decoded
+occupancy resolution.
 
 \subsection{Semantic proposals and member-preserving matching}
 For each observed target patch $m$, raw semantic similarity retrieves an
@@ -58,6 +66,9 @@ produces a categorical distribution $p_m(k)$ on these proposals. We separately
 evaluate raw semantic descriptors, learned contextual descriptors, and use of
 the scalar matching score; these are distinct design choices.
 D1 denotes the frozen trained contextual matching decoder used in this study.
+Its scalar scores use a fixed softmax temperature of 0.05. Matching keys are
+1024-dimensional Omega descriptors; the SS values are distinct,
+1024-dimensional native DINOv3 features.
 
 One source-camera ray may intersect grid sites assigned to different target
 patches. Let $\mathcal M_r$ contain the distinct observed target patches of ray
@@ -73,6 +84,8 @@ same target patch vote once. This retains complementary candidate modes
 before the final truncation, rather than matching one averaged descriptor.
 The observation support uses input image alpha and camera addresses. It is
 not an inferred surface-visibility mask.
+Empty observed-member sets or fewer than 64 valid source patches abstain,
+retaining native conditioning rather than inventing proposal values.
 
 \subsection{Matching-aware evidence aggregation}
 The fixed-evidence candidate aggregates original source values $v_k$ as
@@ -107,6 +120,9 @@ target context:
  R_r=R_\phi([E_r-S_r,\,T_r]),\qquad
  \Delta_r=u_r\{g(E_r-S_r)+R_r\}.
 \end{equation}
+Here $T_r$ pools native target context over the grid sites of ray $r$;
+the observed distinct members determine the matching posterior, rather than
+restricting this native-context pool.
 The resulting SS conditioning is
 \begin{equation}
  C=C_{\mathrm{MV4}}+\frac14\sum_{j=1}^3P_j(\Delta_j).

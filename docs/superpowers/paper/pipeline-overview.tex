@@ -1,0 +1,19 @@
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/working-pipeline-overview.pdf}
+\caption{Implemented working pipeline, shown schematically rather than as
+evidence of performance. Frozen Omega descriptors and D1 scores determine
+semantic proposals; the aggregated values remain native DINOv3 features.
+Each source-camera ray shares its posterior and evidence. Source use,
+retargeting and the carrier correction consume that same evidence, while
+native target conditioning and global tokens remain unchanged. Observed
+members construct the posterior; native target context pools the ray's grid
+sites. The fixed
+candidate has no additional learned Q/K or V/output head. Empty support
+retains the native carrier, and zero-initialized corrections preserve the
+pretrained function. SS and PBR continue their original multi-view LoRA
+checkpoints; Shape512/1024 are frozen. PBR uses its own Top-1 retargeting
+conditioner, rather than the SS Top-K module. Final architecture selection
+and held-out claims remain pending.}
+\label{fig:working-pipeline-overview}
+\end{figure}
