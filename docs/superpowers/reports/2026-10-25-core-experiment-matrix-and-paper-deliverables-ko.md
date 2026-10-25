@@ -1,6 +1,6 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 실행 상태 재확인: 2026-10-25 03:56 UTC.
+작성: 2026-10-25. 실행 상태 재확인: 2026-10-25 04:35 UTC.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
 PBR vanilla/R 독립 seed2개 실행의 완료**다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -89,6 +89,28 @@ receipt와 기존 render case의 environment-map hash를 명시적으로 연결�
 원본과 대조했다. 실패 로그/빈 디렉터리·기존 작업 이력을 보존했다. NN·sampler·
 renderer math 변경이나 학습 재시작은 없으며, 이 복구 자체가 품질 결과는 아니다.
 
+### DEV640 저장 공간: 실제 사전 점검과 남은 연결
+
+`DEV640-storage-admission-v387`에서 기존3모델×128개의 canonical receipt byte
+footprint와 실제 local stat을 조사했다. 로컬 여유는 약531GiB, 파일서버4는 약166TiB다.
+동일 asset에서3모델 중 큰 footprint를 택한 신규5개 arm의 경험적 합은 약229GiB다.
+이를2배하고 case마다128MiB를 더한 보수적 projection은 약538GiB이며, 별도로
+미완료/예정 checkpoint budget과80GiB workspace를 합치면 현재 로컬 공간을 넘는다.
+이는 미래 출력의 실제 최소 필요량이나 hard bound가 아니지만, 전체 누적을 그대로
+허용하는 계획에는 headroom을 인증하지 못했다. 실제 case별 admission 검사는 계속 유지한다.
+
+다음 필수 작업은 완료 case의 CPU cache 회수 실행·등록이다. 최종 metric reducer는
+`geometry/prediction.npz`를 다시 읽으므로 이 파일과 native guide·scored pixel·JSON·
+checkpoint는 유지한다. 회수 후보는 `geometry/geometry-evaluation.npz`,
+`PBR/prediction.npz`, `PBR/geometry-evaluation.npz` 세 로컬 복사본뿐이다.
+새 `dev_cascade_cache_retirement.py`의 소유권·완료/native consumer·canonical
+identity 선택 규칙과 관련51개 검사를 완료했다. **현재 이 모듈은 삭제하지 않는
+validator이며 실제 회수 CLI·640개 case 이후 CPU 연결은 아직 미완료다.**
+실행에서는 fresh remote SHA/size, 미완료 reader/open FD, local inode를 재확인하고
+intent/회수 journal을 file4에 보존해야 한다. 현재 어떤 파일도 삭제하지 않았다.
+기존 checkpoint cache reader도 두 queue의 미생성 future bundle에 보수적으로
+거절했으므로 이를 우회해 중간 checkpoint를 삭제하지 않았다.
+
 평가 reference는 source camera9/10에서 M1 geometry+원래 material의 GT, target camera8에서 편집 목표 GT를 사용한다. CD는 공통 normalization의20k surface samples, F-Score threshold0.02로 계산하며 결과별 ICP나 scale fitting은 하지 않는다. M-IoU는2D alpha mask다. 현재 입력 camera 평가를 새 시점 일반화로 설명하지 않는다.
 
 ## 4. 독립 확인과 파이프라인 선정
@@ -96,6 +118,17 @@ renderer math 변경이나 학습 재시작은 없으며, 이 복구 자체가 �
 남은 독립 학습은 선택 Fixed의 SS seed202 한 개와 PBR vanilla/R seed202다. V1/R SS 두 seed는 완료돼 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
 
 관측 시 GPU0–3은 필수 PBR vanilla seed202를 계속 학습 중이며 이후 R seed202가 의존 작업이다. GPU7은 proof/capacity를 통과한 Fixed seed202의 실제 본 학습, GPU6은 Spatial 대조의 실제 본 학습을 진행 중이다. Spatial의 actual first5 assets/noise/timestep/global input·초기 LoRA/RNG/TRAIN order가 V1과 같은 것도 실제 runtime prefix audit로 확인했다. 이후 Raw/D1-cos 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용하도록 연결돼 있다.
+
+Fixed seed202의 실제 첫 epoch96이 완료됐다. 동일 seed202 quick32·noise·GT에서
+macro IoU는 V1 **0.465671**, Top-1 R **0.464190**, Fixed **0.463678**이다.
+Fixed−V1은−0.001993, Fixed−R은−0.000512다. 두 대비 모두 개선19/하락13이고
+median 차이는 각각+0.004203/+0.000280이므로 mean과 median의 방향을 구분한다.
+세 모델의 초기 per-asset 기록과 처음96개 assets/noise/timestep/global trace를
+실제 대조했다. 초기 함수 하락의 근거는 없지만 첫 epoch의 평균 우위도 없다.
+약속한480 업데이트와 DEV128×3를 유지하며 독립 확인 완료나 최종 성능으로 쓰지 않는다.
+실제 source snapshot/audit는 `selected-Fixed-seed202-epoch96-v388`, 원격 수치까지
+검증한 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/selected-Fixed-seed202-epoch96-v389)는
+`selected-Fixed-seed202-epoch96-WandB-v389`에 보존했다.
 
 선정 순서:
 

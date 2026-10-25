@@ -1,5 +1,12 @@
 # 논문 claim과 필요한 근거
 
+2026-10-25 04:35 UTC: Fixed seed202의 실제 epoch96 quick32 macro IoU는
+0.463678로 같은 seed202 V1 0.465671·Top-1 R0.464190보다 평균이 낮다.
+처음96개 학습 stream과 초기 개별 metric의 일치는 확인했다. 이는 초기 구현 하락의
+증거가 아니며 아직5epoch/128×3 독립 확인도 아니다. 최종 SS/pipeline 표에는 넣지
+않았다. 실제 snapshot과 원격 W&B 대조는 `selected-Fixed-seed202-epoch96-v388` 및
+`selected-Fixed-seed202-epoch96-WandB-v389`에 있다. 학습은 같은 설정으로 유지한다.
+
 2026-10-25 03:56 UTC: 세 correspondence arm의 실제 cold/backward와
 micro96/accum1 capacity가 모두 완료됐다. V1의 같은 quick32와 초기 개별 metric·
 GT ID·seed가 정확히 같고 macro IoU는0.458358이다. Frozen base는 같으며 update3에서
