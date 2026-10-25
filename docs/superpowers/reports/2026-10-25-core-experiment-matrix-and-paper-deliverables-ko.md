@@ -22,7 +22,34 @@ SS×PBR 전체 grid나 모든 SS arm의 PBR 재학습은 하지 않는다. Share
 PBR appearance 기여를 주장하려면 해당 PBR 경로와 같은-support weighting 대조가
 실제로 필요하며, 기존19-tensor feature arm을 그 matched 대조로 이름만 바꾸지 않는다.
 
-### 최신 완료: 7행 SS·6대조와 6개 cascade·조건부 PBR 비교 준비
+### 최신 완료: SS7·cascade7·전체48-family와 실제 SS 선정·PBR 실행
+
+원래 v511 successor와 v312 SS/cascade integration이 실제 exit0·file4 closure를
+마쳤다. 신규640 case와 기존256 case를 같은 SS checkpoint·공통 Shape/Top-1 R PBR·
+384 GT pixel identity로 비교했다. Raw CD0.0128789·F-Score0.841031까지 완료돼
+Spatial→Raw→D1-cos→Fixed는 두 geometry 지표의 점추정이 모두 순서대로 개선됐다.
+그러나 **48개 보정 구간은 모두0을 포함**한다. Geometry12개 구간을 새 표에,
+전체48개 원값을 CSV에 보존했다(v546). 이는 모듈의 필수성·동등성·효과 부재의 증명이 아니다.
+
+Fixed가7개 arm 중 CD0.0127572가 가장 낮고 F-Score0.844058이 가장 높아, 실제
+Fixed checkpoint를 PBR 비교용 SS로 선정했다(v544). 기존 동일 binding의 두-seed
+occupancy 확인·VAL36 QA는 재사용하며 두-seed surface 확인으로 확대하지 않는다.
+새 pixel metric으로 SS geometry 선택을 거부하지 않는다. 원래 W&B7행×8metric도
+실제 원격 값과 ulp까지 대조했다. PBR 최종 선정·전체 pipeline freeze는 아직 아니다.
+
+동일 Fixed32의 기존 vanilla/R64 case를 재사용하고 새 feature/raw64 replay를 실제
+실행했다. 첫 두 사례의 geometry/guide/noise/render mesh/GT pair proof와 세 child의
+정상 drain·file4를 확인한 뒤 나머지62개를 GPU0–3·6·7에 등록했다(v545).
+Coverage CPU→새192 official GPU view+기존192 exact pixel view→원래4모델 집계·W&B의
+3개 후속 작업도 연결했다. Numerical source·기존 descriptor는 바꾸지 않았다.
+기존 PBR feature/raw는 Top-1 carrier/use 경로이며 SS Fixed의 shared PBR 효과로
+대체하지 않는다. PBR 우위·최종 선택·조건부 새 PBR seed202·freeze/TEST·최종 writing은 남아 있다.
+
+새 v550 PDF는17쪽·24개 인용, compiler0·warning/미해결/overfull/underfull0이며
+7/14/15/16쪽을 시각 검수·실제 file4 보존했다(v551). v548의 font 실패는 그대로
+보존하고 수치와 단위를 바꾸지 않은 text 표기(v549)로 해결했다.
+
+아래 v536/v528/v533의 미완료/미등록 표현은 각 준비 시점의 기록이다.
 
 Spatial/D1-cos까지128개 cascade·8metric을 완료해 실제 완료 조합은 Fixed/Top-1/Uniform/
 No-R/Spatial/D1-cos의6개다. Raw cascade와 전체48-family 통계는 진행 중이다.
@@ -108,11 +135,12 @@ SS checkpoint binding·공통 Top-1 R PBR·128/93 source·384개 GT pixel identi
 | Physical no-R | 0.0129562 | 0.835038 | 0.053806 | 0.150439 |
 | Spatial | 0.0129704 | 0.839333 | 0.053200 | 0.149925 |
 | Decoder semantic cosine | 0.0128065 | 0.842414 | 0.053772 | 0.154352 |
+| Raw semantic cosine | 0.0128789 | 0.841031 | 0.053609 | 0.151781 |
 
 Fixed−Uniform은 F-Score+0.001553·LPIPS+0.000244·DreamSim+0.002147,
 Fixed−No-R는 F-Score+0.009020·LPIPS−0.000368·DreamSim+0.001469다.
-전체128의 점비교이며 나머지 Raw cascade와48-family는 미완료다. 보정 구간을
-지어내거나 필요성·score 우위·source 비열등성으로 해석하지 않는다. 서로 다른 SS의
+전체128의 점비교이며 이제 Raw와48-family도 완료됐다.48개 보정 구간은 모두0을
+포함하므로 필요성·score 우위·source 비열등성으로 해석하지 않는다. 서로 다른 SS의
 render LPIPS/DreamSim은 geometry/appearance 양쪽에 반응하므로 순수 material 지표가 아니다.
 
 JSON camera key가 문자열로 저장되는데 기존 global CPU reducer는 정수를 요구하는

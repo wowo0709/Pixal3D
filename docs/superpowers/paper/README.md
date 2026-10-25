@@ -2,28 +2,32 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-six-SS-geometry-cascades-v537`의
-17쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된7/13/14/15쪽을
+현재 compiled revision은 `paper-draft-complete-seven-SS-geometry-and-selection-v550`의
+17쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된7/14/15/16쪽을
 시각 검수했다. Warning·미해결참조·overfull/underfull0, actual file4 closure를 완료했다.
 모든7개 SS arm·21개 evaluation·6대조 통계가 끝났으며 원래 reducer에서 전체 통계를
 정확히 재현하고 원래 W&B7행·6개 interval을 대조했다. 모든 adjusted CI는0을 포함한다.
-Uniform/no-R/Spatial/D1-cos의128개 cascade·8metric도 끝나 기존 Fixed/Top-1과 같은6모델 근거를
+신규5개 control의128개 cascade·8metric도 끝나 기존 Fixed/Top-1과 같은7모델 근거를
 반영했다. SS/Shape/PBR binding과384 GT pixel identity가 같다. SS ablation은
 CD/F-Score와 진단용 voxel IoU 표로, PBR ablation은 동일 geometry의 appearance 표로
 분리했다. SS 후보의 appearance 차이를 geometry 향상의 거부 기준으로 쓰지 않는다.
-나머지 Raw semantic의1개 cascade와
-전체48-family·실제 모델 선택·freeze/TEST·최종 writing은 미완료다.
+전체48-family도 완료했으며48개 보정 구간은 모두0을 포함한다. 전체48개 원값 CSV와
+geometry12개 구간 표를 실제 closed JSON에서 내보냈다(v546). Fixed가7모델 중
+CD/F-Score 점추정에서 동시에 가장 좋아 PBR 비교용 SS로 선정했다(v544).
+이는 개별 모듈의 보정 후 효과·필수성이나 최종 TEST 우위를 확정한 것이 아니다.
+최종 PBR 선정·freeze/TEST·최종 writing은 미완료다.
 
 D1-cos는 CD0.0128065·F-Score0.842414다. Fixed−D1-cos는 CD−0.0000493·
 F-Score+0.001644의 점추정이며 scalar score의 확정 효과로 쓰지 않는다. 실제6개
 checkpoint/common downstream/384 GT pixel identity를 대조했고 기존5개 평균은
 정확히 같다(`actual-six-DEV128-geometry-compositions-v536`).
 
-PBR의 vanilla/Top-1 R/feature/raw 네 arm은 같은 V1 geometry에서 실제 DEV32 평가를
-마쳤다. 최종 SS가 정해지면 그 SS의 같은 geometry·native guide·texture noise·render
-triangles에서 네 PBR arm을 비교한다. Fixed를 선택하면 기존 vanilla/R32를 재사용하고
-나머지64 replay를 추가한다. 다른 SS를 선택하면128 texture replay가 필요하며 Shape는
-재생성하지 않는다. 새 PBR 구조가 선택되면 그 실제 구조의 독립 seed 확인도 필요하다.
+PBR의 vanilla/Top-1 R/feature/raw 네 arm은 같은 V1 geometry의 기존 평가와 별도로,
+선정된 Fixed geometry·native guide·texture noise·render triangles에서 비교 중이다.
+기존 같은-Fixed vanilla/R64개 case를 재사용한다. 추가 feature/raw64개 중 첫 두
+실제 case의 pair proof·세 child session 종료·file4 closure를 통과했고, 나머지62개와
+평가3개를 두 queue/GPU0–3·6·7에 등록했다(v545). SS/Shape는 재생성하지 않는다.
+새 PBR 구조가 선택되면 그 실제 구조의 독립 seed 확인도 필요하다.
 
 이 비교의 coverage→official GPU→4모델 집계·W&B 설정도 조건부 준비를 마쳤다(v533).
 Fixed 선정 시 기존 vanilla/R의192개 official view를 재사용하고 새 feature/raw192개만
@@ -32,7 +36,10 @@ GPU에서 측정한다. `selected_pbr_official_reuse.py`는 모델 가중치·re
 15개 검사 및 실제 기존384개 view의 평균·대조·bootstrap 구간 전체 불변을 확인했다(v531).
 기존 V1 geometry 점수를 Fixed pixel에 섞으면 실제로 거절하며, 아직 없는 SS 선정
 기록으로 coverage/summary를 실행해도 output·NN 전에 거절하는 것을 확인했다(v534).
-이 경로는 아직 등록·실행 전이며 appearance 향상이나 최종 PBR 선정의 근거가 아니다.
+이 경로는 실제 등록·실행 중이며 appearance 향상과 최종 PBR 선정은 결과 집계 후 판단한다.
+
+처음 v548 PDF는 새 표의9pt 수학 숫자 font가 캐시에 없어 실패했다. 모든 수치·단위는
+유지하고 text 표기로 바꾼 v550은 성공했으며 실패 로그도 보존했다(v549/v551).
 
 `cascade_record_json.py`는 저장된 camera JSON key만 정수8/9/10으로 복원한다.
 Mixed/잘못된 camera를 거절하고 값·row 순서는 유지한다. JSON roundtrip 전후 paired

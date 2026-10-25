@@ -342,10 +342,9 @@ removal. Across the eight camera-role endpoints above, these define a
 48-comparison family. Its planned Bonferroni percentile intervals use 48,000
 source-cluster bootstrap draws; unadjusted development intervals are retained
 separately. This family is distinct from the final held-out $8C$ family.
-The seven-model SS study and all six stage contrasts are complete. Uniform-K
-and physical retargeter removal also have complete downstream measurements;
-raw-semantic control and the full 48-comparison downstream
-family remain pending. Stage IoU is 0.473613 for Uniform-K, 0.473471 for
+The seven-model SS study, all six stage contrasts, all seven downstream
+compositions, and the full 48-comparison family are complete. All 48 adjusted
+downstream intervals include zero. Stage IoU is 0.473613 for Uniform-K, 0.473471 for
 Fixed, and 0.468832 for physical retargeter removal on the same DEV128 and
 three noises. All six adjusted stage intervals include zero; the positive
 point estimates do not establish component necessity or equivalence.
@@ -635,8 +634,8 @@ Its macro IoU is 0.472267, versus 0.473471 for Fixed. This difference changes
 multiple matching choices and does not isolate semantic retrieval or scalar
 weighting. Raw-semantic and decoder-cosine have also completed 480 updates
 and their own final three-noise evaluations, with macro IoU 0.472975 and
-0.473450. Spatial and decoder-cosine also have complete cascade evaluations;
-only the raw-semantic cascade comparison remains pending. Training completion, functional checks, and capacity checks are
+0.473450. All seven own cascade evaluations and the full downstream family
+are now complete. Training completion, functional checks, and capacity checks are
 not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
@@ -674,29 +673,35 @@ The adjusted intervals for Fixed minus actual Top-1 and Fixed minus Uniform-K
 also include zero. Thus all six completed stage comparisons remain uncertain
 under the prespecified correction; they do not establish
 retargeter necessity, a score-weighting benefit, or equivalence between
-aggregation choices. We complete the common downstream measurements rather
-than changing endpoints or
-discarding unfavorable controls.
+aggregation choices. The common downstream measurements retain the original
+endpoints and every control.
 \input{tables/dev-completed-fixed-contrasts.tex}
 
-\paragraph{Completed Uniform and physical-no-R cascades.}
-The same-support Uniform and physical-no-R controls now have actual outputs
-and eight metrics for all 128 development examples. Their SS checkpoint
-bindings match the three-noise stage evaluations; the Shape/PBR settings and
-all 384 reference image identities match the Fixed/Top-1 baselines.
-Fixed changes surface F-Score by 0.001553 relative to Uniform, but source
-LPIPS and DreamSim increase by 0.000244 and 0.002147. Relative to physical
-no-R, Fixed changes F-Score by 0.009020 and source LPIPS by -0.000368, while
-DreamSim increases by 0.001469. These are complete-panel point comparisons,
-not intervals from the still-pending 48-comparison family. They show why
-an occupancy ranking or a geometry improvement alone cannot establish a
-score-weighting or source-preservation advantage. The spatial cascade is also complete, with CD 0.0129704 and F-Score 0.839333.
-The decoder-cosine cascade is also complete, with CD 0.0128065 and F-Score
-0.842414. Relative to decoder-cosine, scalar Fixed changes CD by
-$-0.0000493$ and F-Score by $+0.001644$. These are descriptive paired points,
-not a confirmed scalar-score effect. The raw-semantic comparison and complete
-48-comparison family are still required before final geometry-led SS selection;
-no model is adopted from the six available cascades.
+\paragraph{Completed geometry comparisons and SS selection.}
+All seven compositions have actual outputs and eight metrics for the same
+128 development examples. Their SS checkpoint bindings match the three-noise
+stage evaluations; Shape/PBR settings and all384 reference image identities
+are common. Spatial, raw semantic, decoder-cosine, and scalar Fixed give CD
+0.0129704, 0.0128789, 0.0128065, and 0.0127572, respectively; F-Score increases
+from 0.839333 through 0.841031 and 0.842414 to 0.844058.
+This monotonic point-estimate ladder does not establish individual module effects.
+Table~\ref{tab:dev-geometry-contrasts128} shows the geometry intervals from the
+unchanged48-comparison family. Fixed minus Top-1 changes F-Score by 0.003963,
+with adjusted interval $[-0.000910,0.009748]$. Fixed minus Uniform gives
+0.001553 with $[-0.003326,0.007439]$, and Fixed minus physical no-R gives
+0.009020 with $[-0.001582,0.020293]$. All48 adjusted intervals, including
+the CD endpoints, contain zero. We therefore retain uncertainty about
+component effects and do not infer equivalence or necessity.
+Fixed has the lowest CD and highest F-Score points among all seven tested SS
+alternatives, so we select its actual checkpoint for the PBR comparison.
+This is development model selection, not confirmed superiority from the
+ablation intervals. Cross-SS appearance differences do not veto that choice.
+The completed independent SS study concerns occupancy, and VAL36 verifies
+the same selected checkpoint binding; neither is two-seed surface confirmation.
+The four PBR modes are now being compared on this identical generated geometry,
+with paired guides, texture noise, rendering triangles, and material references.
+Final PBR selection and the held-out ten-metric comparison remain pending.
+\input{tables/dev-geometry-contrasts128.tex}
 
 \section{Discussion and limitations}
 \paragraph{Retrieval, aggregation, and adaptation are separate hypotheses.}
@@ -730,8 +735,10 @@ the frozen pipeline and protocol.
 
 The original twelve-model, ten-module-contrast family and paired DEV128
 cascade extension are complete. The final-context SS study is also complete.
-The downstream evaluation for raw-semantic, the full downstream family, and
-held-out results remain pending. The separate two-seed PBR
+All seven final-context cascades and their full downstream family are complete,
+with all adjusted intervals containing zero. Fixed is selected by its joint
+geometry point ranking for the same-geometry PBR comparison; final PBR selection
+and held-out results remain pending. The separate two-seed PBR
 training diagnostic is complete but does not establish pipeline quality.
 The completed two-seed SS study supports the combined branches relative to
 vanilla; it does not isolate each component or establish cascade generalization.

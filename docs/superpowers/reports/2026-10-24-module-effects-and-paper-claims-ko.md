@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+현재 완료: **SS7·cascade7·전체48-family와 원래 SS/cascade integration이 모두 실제 종료·file4 검증을 마쳤다.**48개 보정 구간은 모두0을 포함한다. Fixed가7개 SS arm 중 CD0.0127572·F-Score0.844058의 두 geometry 점추정에서 가장 좋아 PBR 비교용 SS로 선정했다(v544). 모듈의 확정 효과·필수성과 구분한다. 동일 Fixed32의 기존 vanilla/R64개를 재사용하고 새 feature/raw 두 사례의 실제 pair proof를 통과한 뒤 나머지62개와 평가·W&B chain을 GPU0–3·6·7에 연결했다(v545). 현재 PBR 비교가 실행 중이며 최종 PBR 선택·필요시 해당 구조의 독립 seed202·freeze/TEST508·최종 writing은 남아 있다. 원고v550은17쪽·24인용,7/14/15/16쪽 시각 검수·실제 file4 보존을 마쳤고 geometry12개 구간 표와 전체48개 원값 CSV를 반영했다(v546/v549/v551). 아래의 이전 pending/준비 상태는 해당 시점의 이력이며 [현재 실행 행렬](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
+
 최신 후속 완료: D1-cos의128개 cascade와384 official view·8metric도 끝났다. CD0.0128065·F-Score0.842414이며 Fixed−D1-cos는 CD−0.0000493·F-Score+0.001644의 점추정이다. 같은 SS checkpoint/common downstream/384 GT pixel을 확인하고17쪽·24인용 원고에 반영·시각 검수·file4 보존했다(v536/v537). 남은 Raw128·전체48-family를 본 뒤 SS를 선정하고 그 geometry에서 PBR4를 비교한다. PBR 평가 chain은15개 검사와 실제384점수/원래 통계 불변을 검증해 조건부 준비했으며 아직 미실행이다(v531–v534). 아래 이전 시점의 pending은 당시 이력이며 [현재 실행 행렬](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
 
 ### 사용자 정정에 따른 stage별 목적과 선정 기준

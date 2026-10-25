@@ -23,22 +23,26 @@ PBR의 matched 증거로 대체할 수 없다.
 - 모든7모델의480·SS128×3·6대조 집계가 완료됐다. 21개 원본 평가로 원래 reducer의
   전체 통계를 정확히 재현했고7행·6개 interval을 원래 W&B와 대조했다. 모든6개
   adjusted CI는0을 포함한다. Matching ladder 점추정은+0.000708/+0.000476/+0.000021다.
-- Uniform/no-R/Spatial/D1-cos의 실제128 cascade·8metric도 완료됐다. 기존 Fixed/Top-1과
-  실제 SS binding·PBR·384 GT pixel identity가 같다. Raw cascade와 전체48-family는 미완료다.
+- 신규5개 control의 실제128 cascade·8metric과 전체48-family도 완료됐다. 기존
+  Fixed/Top-1과 실제 SS binding·PBR·384 GT pixel identity가 같다.48개 보정 구간은 모두0을 포함한다.
+- Fixed는7개 arm 중 CD0.0127572·F-Score0.844058의 두 geometry 점추정이 가장 좋아
+  PBR 비교용 SS로 실제 선정했다(v544). 모듈의 확정 효과·필수성과 구분한다.
+  동일 geometry의 추가 PBR 두 사례 정합 확인 뒤 나머지62개 및 평가 chain을 실행했다(v545).
 - D1-cos의 CD0.0128065·F-Score0.842414, Fixed−D1-cos의 CD−0.0000493·
   F-Score+0.001644는 전체128의 점비교다. Scalar score의 보정 후 효과는 아직 미확정이다.
 - PBR V1/R×seed101/202의1900과 strict collector는 완료됐다. 실제 frozen700
   tensor×4·LoRA360×4·1900 rank trace·초기 identity·같은 seed의6epoch GT pixel을
   확인했다. Fixed4 target-stage training QA이며 inferential quality나 full-cascade
   seed 확인이 아니다. 최종 조합 선택·freeze·TEST508·최종 writing은 미완료다.
-- 최신 검수된 개발 manuscript는 v537의17쪽·24개 인용이다. 전체7행 SS·6대조와
-  6개 cascade의 geometry 행을 실제 closed JSON에서 반영하고7/13/14/15쪽을 시각 검수·
+- 최신 검수된 개발 manuscript는 v550의17쪽·24개 인용이다. 전체7행 SS·6대조와
+  7개 cascade·geometry12개 보정 구간을 실제 closed JSON에서 반영하고7/14/15/16쪽을 시각 검수·
   file4 보존했다. SS geometry/PBR appearance 표를 분리했고 warning/미해결참조/
-  overfull/underfull0이다. D1-cos geometry 외 수치 표·그림은 이전 revision과 같다.
+  overfull/underfull0이다. Raw geometry와 새 geometry 구간 표 외 수치·그림은 이전 revision과 같다.
 - Camera JSON key 복원만 수행하는 reader를14개 회귀 검사·실제4모델의 값/행/endpoint
   exact 일치로 검증했다. 원래 pending global CPU reducer는 HELD 후 같은 output의
   successor로 교체했고 고유 producer·actual file4 admission을 확인했다. 새 full7 생산
-  집계·모델 선정·freeze/TEST·최종 writing 완료를 뜻하지 않는다.
+  집계는 실제 정상 종료했고 original SS/cascade integration도 완료됐다. 최종 PBR 선정·
+  freeze/TEST·최종 writing 완료를 뜻하지 않는다.
 
 ## Claim별 현재 판정
 
@@ -48,17 +52,17 @@ PBR의 matched 증거로 대체할 수 없다.
 | Top-1 semantic matching+retargeting branch의 V1 대비 효과가 독립 학습에서 재현된다 | Seed101 ΔIoU+0.005245, seed202+0.005169; 각 cluster CI95가 양수. 양쪽480 trace pairing·학습 stream 독립·원본 frozen701 tensors 일치 확인 | Fixed seed202 SS와 PBR 두-seed training QA는 완료. Full-cascade/TEST는 별도 | 두 실제 SS training seed에서 combined branch 개선. Retargeter/decoder 단독 효과나 training seed 모집단의 보장 아님 |
 | Fixed combined branch의 V1 대비 SS 개선이 두 학습에서 재현된다 | Seed101 ΔIoU+0.006116, seed202+0.007553. 각 seed의3대조 보정 CI95가 양수; 실제480 trace·초기 RNG·6개 checkpoint의 frozen701 tensor·18개 평가 binding 확인 | PBR 두-seed training QA는 완료; full-cascade/TEST는 미완료. Fixed−Top-1의 보정 CI는 두 seed 모두0 포함 | 두 실제 SS training seed에서 combined Fixed 개선. Decoder/score/R 단독 효과나 Top-1 대비 추가 이득 확정은 아님 |
 | PBR 두-seed training QA가 완료됐다 | V1/R×seed101/2021900·frozen700×4·실제 rank trace·초기 latent·각 seed의6epoch GT pixel 확인. R−V1 crop LPIPS−0.001268/−0.003592, target PSNR−0.016409/−0.243949dB. 원본16장과4행 표 원격 검증 | 최종 geometry/source를 포함한 실제 cascade/TEST 품질은 별도 | Fixed4 GT-shape target8의 혼합된 점추정. 다른 seed의 quality pooling·inferential quality·full-pipeline 재현 주장 불가 |
-| Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 family는 완료됐으며 모든10개 module CI가0을 포함. 최종 Spatial→Raw +0.000708, six-family CI[−0.002955,+0.004177]. Downstream 대조는 미완료 | “해당 SS 설정에서 양의 점추정” |
-| Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 Raw→D1-cos +0.000476, six-family CI[−0.002116,+0.003196]. Downstream 및 진단32와 SS128 범위 구분 | Descriptor와 scalar score의 효과를 분리 |
-| Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 최종 D1-cos→scalar +0.000021, six-family CI[−0.000872,+0.000973]. 같은 support 대조와 downstream family48은 별도 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
-| Top-K attention이 Top-1보다 유효하다 | 기존 Fixed-K SS+0.000527. 최종 Fixed−Top-1은+0.000871, 사전 family6 CI[−0.001642,+0.003679] | 최종 경로 cascade·독립 확인. 기존 DEV32 mask는 다른 scope | 후보 수와 결합의 묶음 효과; 현재 최종 SS의 보정 우위 미확인 |
-| Matching-aware weighting이 동일 후보를 더 잘 활용한다 | 최종 Fixed−Uniform SS−0.000142, family6 CI[−0.002590,+0.002233]. 별도 native 진단에서 GT mass 증가는 관측 | 완료 cascade Fixed−Uniform F-Score+0.001553, LPIPS+0.000244, DreamSim+0.002147. 전체48-family 미완료 | 후보 probability mass와 생성 품질을 구분. SS 우위·무효·동등성 모두 미확정 |
+| Semantic correspondence가 spatial보다 유효하다 | 최종 Spatial→Raw의 CD−0.0000916·F-Score+0.001698, SS IoU+0.000708 | 완료 family48의 두 geometry 구간과 family6 IoU 구간이0 포함. Spatial3→semantic64는 후보 수까지 바꾸는 모듈 교체이며 순수 주소 효과가 아님 | “해당 문맥에서 geometry 점추정 개선”; 확정 효과·필수성은 미입증 |
+| Matching decoder가 correspondence를 개선한다 | 최종 Raw→D1-cos의 CD−0.0000724·F-Score+0.001383, SS IoU+0.000476. 별도 matching DEV32 exact@1은1.25%→7.73% | 완료 family48 geometry·family6 IoU 구간이0 포함. 진단32와 생성128의 범위를 구분 | Retrieval 진단과 generative gain을 분리하며 descriptor 효과를 scalar score와 묶지 않음 |
+| Scalar score가 생성 품질을 개선한다 | 최종 D1-cos→Fixed의 CD−0.0000493·F-Score+0.001644, SS IoU+0.000021 | 완료 family48 CD CI[−0.0001610,+0.0000620], F-Score CI[−0.001731,+0.005399]. Scalar는 support도 바꿀 수 있어 같은-support Uniform 비교와 구분 | 양의 geometry 점추정; 보정 후 확정 효과·필수성 보류 |
+| Top-K attention이 Top-1보다 유효하다 | 최종 Fixed−Top-1의 CD−0.0000223·F-Score+0.003963, SS IoU+0.000871 | 완료 family48 F-Score CI[−0.000910,+0.009748], CD 및 family6 IoU도0 포함. Held-out 비교는 별도 | 후보 수와 결합의 묶음 효과; 보정 우위 미확인 |
+| Matching-aware weighting이 동일 후보를 더 잘 활용한다 | 최종 Fixed−Uniform의 CD−0.0000732·F-Score+0.001553, SS IoU−0.000142. 별도 native 진단의 GT mass 증가는 관측 | 완료 family48 F-Score CI[−0.003326,+0.007439], CD 및 family6 IoU도0 포함. Cross-SS appearance는 PBR 효과가 아님 | Probability mass와 생성 품질을 구분. 보정 후 우위·무효·동등성 모두 미확정 |
 | 추가 learned attention이 필요하다 | Anchored SS128×3 IoU0.474794로 Fixed보다+0.001323, CI는0 포함. 실제 cascade128에서도 Learned는 Fixed보다 CD/F-Score 점추정 열위이고 paired CI는0 포함 | 최종 선택에서 추가 이득을 입증할 근거 없음; 현재 working Fixed에는 head 미채택 | SS 최고점이 pipeline 우위를 입증하지 않으며 learned refinement의 필수성·전반적 preservation 개선은 미확정 |
 | Ray 단위 처리가 품질을 개선한다 | 원래 FULL의 DEV128×3 완료: ray0.472078, voxel0.472314, Δ−0.000236; ten-contrast CI[−0.000878,+0.000351] | 최종 경로에 유효한 matched 대조 | 원래 FULL에서 양의 품질 효과 미확인. Ray 구조 설명 가능; 필수성·동등성 주장 불가 |
 | Member 후보가 품질을 개선한다 | 별도 matching DEV32의 exact@64 50.76%→73.36%; 그러나 완료된 FULL mean 제어 IoU0.472679 대 member FULL0.472078 | 원래 member−mean family CI[−0.002246,+0.001262]. 최종 identity-value 경로의 독립 효과는 미입증 | 후보 coverage 개선은 확인; 기존 FULL에서 생성 품질의 양의 점추정은 아님 |
-| Retargeting이 유효하다 | 기존 Top-1 R SS+0.003929. 최종 Fixed−물리적 no-R SS+0.004639, family6 CI[−0.000811,+0.010633]; 일반 CI는 양수 | 완료 cascade Fixed−No-R F-Score+0.009020, LPIPS−0.000368, DreamSim+0.001469. 전체48-family 및 단독 R 독립 seed는 미확인 | 긍정적 점추정과 보정 전 구간. 보정 후 필요성은 미확정; V1/R 두 seed는 R 단독 ablation 아님 |
+| Retargeting이 유효하다 | 최종 Fixed−물리적 no-R의 CD−0.0001990·F-Score+0.009020, SS IoU+0.004639 | 완료 family48 F-Score CI[−0.001582,+0.020293], CD 및 family6 IoU도0 포함. 단독 R의 독립 seed 효과는 미확인 | 가장 큰 matched geometry 점추정이나 보정 후 필요성은 미확정. V1/R 두 seed는 R 단독 ablation 아님 |
 | Shared evidence 전달 자체가 개선 원인이다 | E_FIXED_RAW SS0.473471; FULL과는 복수 차이 | 동일 후보/가중치/R/V의 split-vs-shared 대조가 있어야 인과 주장 | 현재는 구조 설명; 독립 causal claim 보류 |
-| E_FIXED_RAW가 R보다 좋은 최종 모델이다 | DEV128 F-Score+0.003963, 탐색용 CI[+0.001011,+0.007314]; CD−0.00002230은 CI0 포함. Source LPIPS+0.000211/DreamSim+0.003100은 각각 CI0 포함 | Working Fixed/RPBR의 matched controls·TEST. PBR 두-seed training QA는 완료. Fixed seed202 SS와 working seed101 SS 재로딩 QA는 완료 | Geometry 중심의 working candidate. Preservation 개선·비열등성·최종 보편적 우위는 미확정 |
+| E_FIXED_RAW가 R보다 좋은 최종 모델이다 | Fixed는7개 arm 중 CD/F-Score 두 점추정이 가장 좋아 실제 SS로 선정. R 대비 F-Score+0.003963, family48 CI[−0.000910,+0.009748] | 같은 Fixed geometry의 PBR4 비교 실행 중. 최종 PBR/필요시 해당 구조 seed202·freeze/TEST는 남음. 기존 Fixed SS 두 seed·VAL36 QA는 완료 | Geometry 기반의 DEV 선택이며 확정 우위가 아님. Source appearance는 PBR에서 별도 검증; 최종 보편적 우위 미확정 |
 | Source 적응과 target 보존을 구조적으로 분리한다 | Native MV4 carrier·target 경로 유지, source map correction만 추가 | 실제 target/source 결과 및 실패 사례 | 입력 target stream 유지 ≠ output RGB 완전 보존 |
 | Ray 구조가 더 빠르다 | 현재 실행 시간은 FFN chunk 등이 다름 | 동일 precision/batch/chunk/sampler benchmark | 순수 속도 배수 주장 보류 |
 | 최종 파이프라인이 일반화한다 | TEST 미실행 | 선택·protocol freeze 후 TEST508·source-cluster 통계 | 최종 generalization claim 보류 |

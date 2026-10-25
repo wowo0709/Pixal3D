@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrr}
+\toprule
+Contrast&CD change&Adjusted interval&F-Score change&Adjusted interval\\
+\midrule
+Raw semantic minus spatial&-0.916&[-4.133, +2.882]&+1.698&[-4.555, +9.167]\\
+Decoder minus raw semantic&-0.724&[-3.254, +1.600]&+1.383&[-5.267, +7.915]\\
+Scalar minus decoder cosine&-0.493&[-1.610, +0.620]&+1.644&[-1.731, +5.399]\\
+Fixed Top-K minus Top-1&-0.223&[-2.275, +2.597]&+3.963&[-0.910, +9.748]\\
+Fixed minus uniform&-0.732&[-2.695, +1.052]&+1.553&[-3.326, +7.439]\\
+Fixed minus physical no-R&-1.990&[-6.316, +4.024]&+9.020&[-1.582, +20.293]\\
+\bottomrule
+\end{tabular}
+\caption{Completed matched geometry contrasts on DEV128 (93 source clusters), one training seed and one paired generation noise. Intervals retain the original48-comparison family across six contrasts and eight endpoints, using48,000 paired source-cluster draws; only the two geometry endpoints are displayed. CD differences and intervals are in units of0.0001 and F-Score in0.001. All intervals include zero. Positive F-Score and negative CD points are descriptive; they do not establish module necessity or equivalence. This development study is distinct from the frozen final-test comparison.}
+\label{tab:dev-geometry-contrasts128}
+\end{table}
