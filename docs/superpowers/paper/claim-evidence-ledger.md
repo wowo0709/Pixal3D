@@ -78,6 +78,16 @@ weighting/R의 최종 필요성이나 gradient 단절·saturation의 causal 증�
 
 ## Writing에서 지킬 해석
 
+PBR 독립 seed의 fixed4 stage trend는 같은 seed 안의 V1/R·모든 epoch에서
+실제 GT PNG pixel 동일성을 요구한다. 독립 seed 사이에는 입력 RGB·camera·noise·
+GT latent·cold prediction latent가 정확히 같아도 rendered GT pixel이 다를 수 있다.
+실제 seed101 V1/R의6개 epoch와 seed202 vanilla의0/380/760 prefix에서 이를
+확인했다. 기존 producer의 초기 render bound를 재검증하고 seed별 reference와
+metric을 그대로 기록하며 common-pixel quality로 pooling하지 않는다.
+이는 generated-geometry/source-preservation 확인이 아니며 최종 cascade/TEST의
+공통 rendered GT 규칙을 완화하지 않는다. Seed202 R·완료1900 collector는 미완료다.
+수정 이유·실제 근거·회귀 검사는 [PBR reference-scope 기록](../reports/2026-10-25-PBR-seed-reference-scope-and-collector-ko.md)을 따른다.
+
 Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이다. CLIP은 semantic 보조 지표이고 FID/KID는 global naturalness다. “All metrics improve”, “all modules are necessary”, “learned attention is essential”은 현재 근거에 없는 문장이다. 원래 비교 family와 이후 탐색적 follow-up, training seed와 generation noise를 구분한다. 음의 결과와 실패 사례도 discussion에 보존한다.
 
 `dev-qualitative.tex`의 실제 render figure는 Fixed 대 R의 F-Score 증가 최대와 source LPIPS 증가 최대 사례다. 결과 조건으로 선택한 설명용 사례이므로 평균 효과나 성공 빈도의 근거로 사용하지 않는다. Full-frame GT pixel 일치와 기존 metric annotations를 검증했으며, appearance 차이의 causal mechanism이나 final Ours/TEST 품질을 입증하지 않는다.

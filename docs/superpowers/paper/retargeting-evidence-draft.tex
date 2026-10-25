@@ -171,6 +171,17 @@ the selected combined candidate and PBR require their own confirmation.
 Rendering development uses an initial fixed 32-example panel and a completed
 paired 128-example expansion, each with one generation-noise realization.
 
+PBR training trends additionally use four fixed target-camera examples with
+GT shape conditioning. Within each training seed, compared models and all
+epochs must share exactly the same rendered GT pixels. Across independent
+training seeds, RGB, camera, noise, GT latents, and cold predicted latents
+remain exact; rendering is checked against the producer's previously declared
+bounded initial-render policy. Each seed retains its own rendered reference
+and metrics, without pooling these curves as a common-pixel quality estimate.
+This small stage diagnostic does not establish source preservation or
+generated-geometry performance. The joint-cascade evaluation retains its
+common rendered-GT requirement.
+
 Final model choice uses both geometric alignment and source preservation,
 rather than SS IoU alone. Required validation fresh-load/cache checks,
 independent-training confirmation, model selection, and protocol freezing
