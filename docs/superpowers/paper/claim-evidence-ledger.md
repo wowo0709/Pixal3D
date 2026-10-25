@@ -76,6 +76,13 @@ gradient entry 모두에서 R/use/fusion이 학습되고 있다. 이 중간 관�
 weighting/R의 최종 필요성이나 gradient 단절·saturation의 causal 증거가 아니다.
 최종 표에 옮기지 않으며 [실제 중간 분석](../reports/2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)의 범위를 유지한다.
 
+후속 quick32 step384에서 V1은0.470704, Fixed0.476221, Uniform0.477081이다.
+Uniform−Fixed는+0.000860, median+0.000555, 개선16/하락16으로288의 평균 차이
++0.003215보다 작다. 세 모델의 실제384 training stream과 cold prediction은
+정확히 같다. Score weighting의 최종 우위·무효·동등성은 여전히 미확정이며,
+No-R384는 미완료라 비교하지 않는다. 반복 관측한 partial 값을 최종128×3나
+cascade column에 넣거나 primary endpoint를 바꾸지 않는다.
+
 ## Writing에서 지킬 해석
 
 PBR 독립 seed의 fixed4 stage trend는 같은 seed 안의 V1/R·모든 epoch에서

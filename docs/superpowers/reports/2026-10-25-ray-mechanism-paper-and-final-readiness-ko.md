@@ -149,3 +149,36 @@ No-R288을 포함한 후속 `shared-Fixed-interim288-source-learning-v334`의
 원본과 정확히 대조했다. 기존 학습 run과 최종 ablation table은 수정하지 않았다.
 GPU0–3의 실제 PBR ranks와 GPU6/7의 원래 SS child가 각 GPU를 점유함을
 확인했고, 해당 GPU에 별도 compute process는 없었다.
+
+## 후속: Uniform의384-step 검증 완료
+
+02:00 UTC에 Uniform의384-step quick32가 완료됐다. 같은 training seed101·
+같은32개 asset/32 source cluster·generation noise1회에서 완료된 V1/Fixed의
+동일 단계와 비교했다. 세 모델의 cold per-asset 결과와 첫384 updates의
+실제 asset/noise/timestep/global trace가 정확히 같다.
+
+| Updates | V1 macro IoU | Fixed macro IoU | Uniform macro IoU |
+|---|---:|---:|---:|
+| 288 | 0.468973 | 0.471552 | 0.474767 |
+| 384 | 0.470704 | 0.476221 | 0.477081 |
+
+Uniform−Fixed의384 평균 차이는+0.000860, median+0.000555이며 개선16/하락16이다.
+Fixed−V1은+0.005517, Uniform−V1은+0.006377이다.288→384에서 Fixed의 평균
+증가가 더 커서 두 모델 차이는+0.003215에서+0.000860으로 줄었다. 이는 관측한
+최적화 추세이며 원인의 인과 설명, 동등성, 최종 Uniform 우위 또는 weighting의
+무효 증명이 아니다. 새 bootstrap/유의성 검정이나 조기 모델 선택을 하지 않았다.
+
+No-R는 아직 해당 단계의 검증이 없어384 표에 넣지 않았다. 기존288 No-R를
+새384 값과 비교하지 않는다. Native quick global occupancy IoU와 macro
+mean-asset IoU도 구분한다. 최종 ablation 표에는 이 중간 값을 넣지 않는다.
+
+`shared-Fixed-Uniform-epoch384-readout-v353`의6개 artifact/4,043,672bytes가
+실제 file4 SHA256/size와 일치했다. 세 validation prefix와 실제 common384
+training prefix를 보존했다. NN forward/update는0회이고 정상 학습은 유지했다.
+두 queue dispatcher의 실제 PID/birth·소유 child와 중단 플래그 부재도 확인했다.
+480→seal→128×3→cascade의 기존 의존성을 바꾸지 않았다.
+
+같은-support의 score weighting 우위는 여전히 미확인이다. 계획한480 및
+128×3/downstream 결과에서 geometry·source appearance를 함께 판독해
+최종 구조와 claim을 정한다. 원래 다섯 대조·독립 seed·fresh-load·freeze/TEST·
+최종 writing의 종료 조건은 유지한다.
