@@ -1,5 +1,14 @@
 # 논문 claim과 필요한 근거
 
+후속 actual PBR R202 epoch760: 같은 GT-shape target4에서 PSNR은
+V126.331460 대 R26.173503으로 R−V1−0.157956dB, crop LPIPS는
+0.092188 대0.091747로 차이−0.000441이다. Full-frame LPIPS 차이도
+−0.000041이다. PSNR은 여전히 R이 낮고 LPIPS는 소폭 낮아진 mixed 중간 경향이다.
+네 rank의 실제760 trace와 같은 seed V1/R의0/380/760 GT PNG pixel 일치를
+검증했다. 실제 `PBR202-R-actual-epoch760-v413` 및 원격 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch760-v414)에
+보존했으며 source preservation/generated geometry·최종 R1900/독립 확인으로 쓰지 않는다.
+
 후속 actual Fixed202 epoch384: 같은 quick32 IoU는 Fixed0.475685,
 V10.471561, Top-1 R0.471829다. Fixed−V1+0.004124, Fixed−R+0.003856이고
 처음384 실제 학습 trace가 같다. 이전288보다 평균 차이는 커졌지만 최종480/

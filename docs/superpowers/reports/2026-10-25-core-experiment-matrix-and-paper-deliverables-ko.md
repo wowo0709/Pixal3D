@@ -279,6 +279,18 @@ trace가 완료 V1과 같고,0/380의 실제 GT PNG pixel도 같은 seed의 V1�
 소수 target-stage 경향을 source preservation/generated geometry·R1900·독립 확인으로
 확대하지 않으며 약속한1900 업데이트와 기존 strict two-seed collector를 유지한다.
 
+그다음 실제 R seed202 epoch760에서 같은 fixed4 GT-shape target8의 pooled PSNR은
+V1 **26.331460**, R **26.173503**으로 R−V1은−0.157956dB다.380의−0.316313dB보다
+격차는 줄었지만 아직 R이 낮다. Crop LPIPS는 V1 **0.092188**, R **0.091747**로
+차이−0.000441이며 full-frame LPIPS는0.009656 대0.009615로 차이−0.000041이다.
+첫 epoch와 달리 두 LPIPS 점추정은 R이 낮아졌으나 소수 target-stage 패널의 mixed
+경향이다. 네 rank의 처음760 실제 입력/noise/timestep/global trace와0/380/760의
+실제 GT PNG pixel이 같은 seed V1과 정확히 같음을 확인했다.
+`PBR202-R-actual-epoch760-v413`의16개 산출물을 실제 file4 SHA/size로 보존했고
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch760-v414)에
+같은 epoch의 원래 panel8개와 곡선을 게시해 원격 summary를 대조했다.
+Generated geometry/source preservation·R1900·두 seed collector 완료로 해석하지 않는다.
+
 선정 순서:
 
 1. 최종 문맥의 ablation 및 downstream geometry/appearance를 함께 판독한다.
