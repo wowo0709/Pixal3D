@@ -2,6 +2,42 @@
 
 작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
+### 2026-10-25 후속 실행: 최종 평가 배치와 첫 epoch 판독
+
+세 correspondence의 기존 최종 평가9개를 GPU6/7 queue에서 GPU0–3 queue로
+이관했다. 진행 중인 PBR R seed202의1900 정상 종료 뒤 exclusive로 실행한다.
+원래 checkpoint·DEV128·세 noise·batch8·12 sampling steps·guidance3·deterministic
+설정·source/input hash와 native/wrapper 출력 경로를 유지했다. 새로운 학습 arm이나
+다른 과학적 대조를 추가한 것이 아니다. Spatial480의 평가는 두 후속 학습의 종료를
+기다리지 않고 PBR 종료 후 가용 main GPU에서 먼저 진행할 수 있다.
+
+실제 auxiliary dispatcher가 원래9개를 resource-migration gate의 HELD로 처리한
+것을 확인한 뒤 원래 descriptor를 제거하고 main successor9개를 등록했다.
+모두 pending이고 원래18개 output receipt마다 producer가 정확히1개다.
+기존 HELD는 성능 실패나 중단된 학습이 아니라 실행 전 자원 이관 이력이다.
+두 dispatcher와 진행 중인 PBR/Raw/D1-cos의 PID·birth·command가 모두 같고,
+그 밖의 descriptor도 같다. Metadata ownership/admission 검사26개가 통과했다.
+실제 준비·activation의 file4 SHA/size 근거는
+`SS-evaluation-mainGPU-placement-v451/{prelaunch-v1,activation-v1}/file4-closure.json`에 있다.
+
+Raw와 D1-cos의 실제 첫 epoch96도 같은 seed101 quick32로 판독했다.
+
+| 모델 | Epoch96 macro IoU | V1 대비 |
+|---|---:|---:|
+| V1 | 0.463801 | — |
+| Top-1 R | 0.461619 | −0.002182 |
+| Fixed | 0.461789 | −0.002012 |
+| Raw semantic | 0.460716 | −0.003085 |
+| Decoder semantic cosine | 0.461137 | −0.002664 |
+
+두 새 arm은 초기 개별 asset metric·GT/count/seed가 V1과 정확히 같고, 처음96개
+실제 입력·noise·timestep/global trace도 같다. 따라서 초기 함수 불일치의 근거는
+없지만 첫 epoch의 V1 대비 평균 우위도 없다. D1-cos−Raw의 점추정은+0.000421이다.
+이는32개·noise1회의 중간 경향이며 최종128×3, cascade, decoder/score의 최종 효과나
+모델 선택을 뜻하지 않는다. 예정된480 budget과 전체 평가를 유지한다.
+`Raw101-actual-epoch96-v453`와 `D1Cos101-actual-epoch96-v453`의 원본 prefix·
+per-asset arithmetic 검증·actual file4 closure를 보존했다. 논문 최종 표에는 넣지 않는다.
+
 이번 정리의 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개와 PBR R 독립 seed1개 실행의 완료**다.
 Spatial480 학습은 끝났고 SS128×3 평가가 대기 중이다. Fixed SS seed202의480·DEV128×3와
 기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
