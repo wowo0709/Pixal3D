@@ -344,7 +344,7 @@ source-cluster bootstrap draws; unadjusted development intervals are retained
 separately. This family is distinct from the final held-out $8C$ family.
 The seven-model SS study and all six stage contrasts are complete. Uniform-K
 and physical retargeter removal also have complete downstream measurements;
-raw-semantic and decoder-cosine controls and the full 48-comparison downstream
+raw-semantic control and the full 48-comparison downstream
 family remain pending. Stage IoU is 0.473613 for Uniform-K, 0.473471 for
 Fixed, and 0.468832 for physical retargeter removal on the same DEV128 and
 three noises. All six adjusted stage intervals include zero; the positive
@@ -635,8 +635,8 @@ Its macro IoU is 0.472267, versus 0.473471 for Fixed. This difference changes
 multiple matching choices and does not isolate semantic retrieval or scalar
 weighting. Raw-semantic and decoder-cosine have also completed 480 updates
 and their own final three-noise evaluations, with macro IoU 0.472975 and
-0.473450. The spatial control also has a complete cascade evaluation; raw-semantic
-and decoder-cosine cascade comparisons remain pending. Training completion, functional checks, and capacity checks are
+0.473450. Spatial and decoder-cosine also have complete cascade evaluations;
+only the raw-semantic cascade comparison remains pending. Training completion, functional checks, and capacity checks are
 not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
@@ -691,8 +691,12 @@ DreamSim increases by 0.001469. These are complete-panel point comparisons,
 not intervals from the still-pending 48-comparison family. They show why
 an occupancy ranking or a geometry improvement alone cannot establish a
 score-weighting or source-preservation advantage. The spatial cascade is also complete, with CD 0.0129704 and F-Score 0.839333.
-Raw-semantic and decoder-cosine comparisons are still required before final
-geometry-led SS selection; no model is adopted from the five available cascades.
+The decoder-cosine cascade is also complete, with CD 0.0128065 and F-Score
+0.842414. Relative to decoder-cosine, scalar Fixed changes CD by
+$-0.0000493$ and F-Score by $+0.001644$. These are descriptive paired points,
+not a confirmed scalar-score effect. The raw-semantic comparison and complete
+48-comparison family are still required before final geometry-led SS selection;
+no model is adopted from the six available cascades.
 
 \section{Discussion and limitations}
 \paragraph{Retrieval, aggregation, and adaptation are separate hypotheses.}
@@ -726,7 +730,7 @@ the frozen pipeline and protocol.
 
 The original twelve-model, ten-module-contrast family and paired DEV128
 cascade extension are complete. The final-context SS study is also complete.
-Downstream evaluations for raw-semantic and decoder-cosine, the full downstream family, and
+The downstream evaluation for raw-semantic, the full downstream family, and
 held-out results remain pending. The separate two-seed PBR
 training diagnostic is complete but does not establish pipeline quality.
 The completed two-seed SS study supports the combined branches relative to

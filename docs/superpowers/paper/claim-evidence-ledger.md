@@ -23,15 +23,18 @@ PBR의 matched 증거로 대체할 수 없다.
 - 모든7모델의480·SS128×3·6대조 집계가 완료됐다. 21개 원본 평가로 원래 reducer의
   전체 통계를 정확히 재현했고7행·6개 interval을 원래 W&B와 대조했다. 모든6개
   adjusted CI는0을 포함한다. Matching ladder 점추정은+0.000708/+0.000476/+0.000021다.
-- Uniform/no-R의 실제128 cascade·8metric도 완료됐다. 기존 Fixed/Top-1과 실제 SS binding·
-  PBR·384 GT pixel identity가 같다. Matching3개 cascade와 전체48-family는 미완료다.
+- Uniform/no-R/Spatial/D1-cos의 실제128 cascade·8metric도 완료됐다. 기존 Fixed/Top-1과
+  실제 SS binding·PBR·384 GT pixel identity가 같다. Raw cascade와 전체48-family는 미완료다.
+- D1-cos의 CD0.0128065·F-Score0.842414, Fixed−D1-cos의 CD−0.0000493·
+  F-Score+0.001644는 전체128의 점비교다. Scalar score의 보정 후 효과는 아직 미확정이다.
 - PBR V1/R×seed101/202의1900과 strict collector는 완료됐다. 실제 frozen700
   tensor×4·LoRA360×4·1900 rank trace·초기 identity·같은 seed의6epoch GT pixel을
   확인했다. Fixed4 target-stage training QA이며 inferential quality나 full-cascade
   seed 확인이 아니다. 최종 조합 선택·freeze·TEST508·최종 writing은 미완료다.
-- 최신 검수된 개발 manuscript는 v514의17쪽·24개 인용이다. 전체7행 SS·6대조와
-  4개 cascade 행을 실제 closed JSON에서 반영하고6/13/14/15쪽을 시각 검수·file4
-  보존했다. Warning/미해결참조/overfull/underfull0이며 나머지 수치 표·그림은 v505와 같다.
+- 최신 검수된 개발 manuscript는 v537의17쪽·24개 인용이다. 전체7행 SS·6대조와
+  6개 cascade의 geometry 행을 실제 closed JSON에서 반영하고7/13/14/15쪽을 시각 검수·
+  file4 보존했다. SS geometry/PBR appearance 표를 분리했고 warning/미해결참조/
+  overfull/underfull0이다. D1-cos geometry 외 수치 표·그림은 이전 revision과 같다.
 - Camera JSON key 복원만 수행하는 reader를14개 회귀 검사·실제4모델의 값/행/endpoint
   exact 일치로 검증했다. 원래 pending global CPU reducer는 HELD 후 같은 output의
   successor로 교체했고 고유 producer·actual file4 admission을 확인했다. 새 full7 생산

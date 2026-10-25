@@ -22,12 +22,17 @@ SS×PBR 전체 grid나 모든 SS arm의 PBR 재학습은 하지 않는다. Share
 PBR appearance 기여를 주장하려면 해당 PBR 경로와 같은-support weighting 대조가
 실제로 필요하며, 기존19-tensor feature arm을 그 matched 대조로 이름만 바꾸지 않는다.
 
-### 최신 완료: 7행 SS·6대조와 5개 cascade·조건부 PBR 비교 준비
+### 최신 완료: 7행 SS·6대조와 6개 cascade·조건부 PBR 비교 준비
 
-Spatial까지128개 cascade·8metric을 완료해 실제 완료 조합은 Fixed/Top-1/Uniform/
-No-R/Spatial의5개다. Raw/D1-cos의 cascade와 전체48-family 통계는 진행 중이다.
-`paper-draft-stage-specific-SS-PBR-tables-v525`의17쪽·24인용 개발 원고는 SS geometry
-표와 별도 PBR appearance 표를 포함하며5/6/13/14/15쪽을 시각 검수했다.
+Spatial/D1-cos까지128개 cascade·8metric을 완료해 실제 완료 조합은 Fixed/Top-1/Uniform/
+No-R/Spatial/D1-cos의6개다. Raw cascade와 전체48-family 통계는 진행 중이다.
+`actual-six-DEV128-geometry-compositions-v536`에서 actual own SS binding·공통 frozen
+Shape/Top-1 R PBR·384개 GT pixel identity를 확인했고 기존5개 평균도 정확히 같다.
+D1-cos CD0.0128065·F-Score0.842414, Fixed−D1-cos CD−0.0000493·F-Score+0.001644는
+점추정이며 scalar score의 보정 후 효과로 쓰지 않는다. 최종 SS는 Raw와 전체 family를
+본 뒤 결정한다. `paper-draft-six-SS-geometry-cascades-v537`의17쪽·24인용 개발 원고에
+두 실제 수치를 넣고7/13/14/15쪽을 시각 검수·actual file4 보존했다. Warning/미해결/
+overfull/underfull은0이며 PBR appearance 표와 나머지 수치·그림은 유지했다.
 
 `conditional-Fixed-geometry-PBR4-completion-v528/prelaunch-v1`에는 Fixed가 실제 SS로
 선정될 때 빠진 feature/raw 두 mode의64개 replay 설정을 준비했다. 두 native1900
@@ -101,10 +106,12 @@ SS checkpoint binding·공통 Top-1 R PBR·128/93 source·384개 GT pixel identi
 | Fixed | 0.0127572 | 0.844058 | 0.053438 | 0.151909 |
 | Uniform | 0.0128304 | 0.842505 | 0.053193 | 0.149762 |
 | Physical no-R | 0.0129562 | 0.835038 | 0.053806 | 0.150439 |
+| Spatial | 0.0129704 | 0.839333 | 0.053200 | 0.149925 |
+| Decoder semantic cosine | 0.0128065 | 0.842414 | 0.053772 | 0.154352 |
 
 Fixed−Uniform은 F-Score+0.001553·LPIPS+0.000244·DreamSim+0.002147,
 Fixed−No-R는 F-Score+0.009020·LPIPS−0.000368·DreamSim+0.001469다.
-전체128의 점비교이며 나머지3개 matching cascade와48-family는 미완료다. 보정 구간을
+전체128의 점비교이며 나머지 Raw cascade와48-family는 미완료다. 보정 구간을
 지어내거나 필요성·score 우위·source 비열등성으로 해석하지 않는다. 서로 다른 SS의
 render LPIPS/DreamSim은 geometry/appearance 양쪽에 반응하므로 순수 material 지표가 아니다.
 
@@ -383,7 +390,7 @@ Fixed32 texture replay를 다른 SS의 근거로 옮기지 않고 기존 native 
 |---|---|---|---|
 | M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 480·SS128×3·strict 집계 완료, IoU0.472267; cascade 대기 |
 | M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | 480·SS128×3 완료, IoU0.472975; cascade 진행 |
-| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 480·SS128×3 완료, IoU0.473450; cascade 진행 |
+| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 480·SS128×3·cascade128/8metric 완료; CD0.0128065·F-Score0.842414 |
 | E_FIXED_RAW | Decoder semantic64 / scalar probability weighting / R | D1 cosine→scalar: scalar matching 모듈의 효과 | SS128×3·cascade128×1 완료 |
 | 실제 Top-1 R | Decoder / 실제 최상위 feature1개 / R | Fixed와 비교: 여러 후보 활용의 효과 | SS·cascade 완료, 재학습 불필요 |
 | A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | 480·SS128×3·cascade128/8metric 완료, IoU0.473613 |

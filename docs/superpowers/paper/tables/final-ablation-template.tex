@@ -8,7 +8,7 @@ Working Fixed-context SS design&CD$\downarrow$&F-Score$\uparrow$&SS IoU$\uparrow
 \multicolumn{4}{l}{A. Matching ladder: compare adjacent rows}\\
 Original spatial3, RAW cosine&0.0129704&0.839333&0.472267\\
 Raw semantic64, cosine&\pending&\pending&0.472975\\
-Decoder semantic64, cosine&\pending&\pending&0.473450\\
+Decoder semantic64, cosine&0.0128065&0.842414&0.473450\\
 Decoder semantic64, scalar (Fixed)&0.0127572&0.844058&0.473471\\
 \midrule
 \multicolumn{4}{l}{B. Aggregation and retargeting: compare with Fixed above}\\
@@ -19,7 +19,7 @@ Physical retargeter removal&0.0129562&0.835038&0.468832\\
 \end{tabular}
 \caption{Partially measured working-candidate development ablation. All seven rows
 have final SS results. Spatial, Fixed, actual Top-1, Uniform, and physical no-R have
-both stage and cascade results; raw-semantic and decoder-cosine await cascade results. Pending cells are not results.
+both stage and cascade results; decoder-cosine is also complete and only raw-semantic awaits cascade results. Pending cells are not results.
 SS selection targets geometry: CD/F-Score are primary and IoU is diagnostic.
 Cross-SS appearance scores are secondary and do not veto geometry gains.
 SS IoU uses DEV128 and three paired noises; geometry columns use the same128

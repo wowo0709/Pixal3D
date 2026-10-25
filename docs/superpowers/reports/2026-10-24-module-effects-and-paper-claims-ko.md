@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+최신 후속 완료: D1-cos의128개 cascade와384 official view·8metric도 끝났다. CD0.0128065·F-Score0.842414이며 Fixed−D1-cos는 CD−0.0000493·F-Score+0.001644의 점추정이다. 같은 SS checkpoint/common downstream/384 GT pixel을 확인하고17쪽·24인용 원고에 반영·시각 검수·file4 보존했다(v536/v537). 남은 Raw128·전체48-family를 본 뒤 SS를 선정하고 그 geometry에서 PBR4를 비교한다. PBR 평가 chain은15개 검사와 실제384점수/원래 통계 불변을 검증해 조건부 준비했으며 아직 미실행이다(v531–v534). 아래 이전 시점의 pending은 당시 이력이며 [현재 실행 행렬](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
+
 ### 사용자 정정에 따른 stage별 목적과 선정 기준
 
 **SS arm의 목표는 geometry 향상이다.** 공통 Shape/PBR를 고정한 CD↓·surface F-Score↑로

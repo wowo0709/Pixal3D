@@ -2,17 +2,22 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-stage-specific-SS-PBR-tables-v525`의
-17쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된5/6/13/14/15쪽을
+현재 compiled revision은 `paper-draft-six-SS-geometry-cascades-v537`의
+17쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된7/13/14/15쪽을
 시각 검수했다. Warning·미해결참조·overfull/underfull0, actual file4 closure를 완료했다.
 모든7개 SS arm·21개 evaluation·6대조 통계가 끝났으며 원래 reducer에서 전체 통계를
 정확히 재현하고 원래 W&B7행·6개 interval을 대조했다. 모든 adjusted CI는0을 포함한다.
-Uniform/no-R/Spatial의128개 cascade·8metric도 끝나 기존 Fixed/Top-1과 같은5모델 근거를
+Uniform/no-R/Spatial/D1-cos의128개 cascade·8metric도 끝나 기존 Fixed/Top-1과 같은6모델 근거를
 반영했다. SS/Shape/PBR binding과384 GT pixel identity가 같다. SS ablation은
 CD/F-Score와 진단용 voxel IoU 표로, PBR ablation은 동일 geometry의 appearance 표로
 분리했다. SS 후보의 appearance 차이를 geometry 향상의 거부 기준으로 쓰지 않는다.
-나머지 Raw/D1-cos의2개 matching cascade와
+나머지 Raw semantic의1개 cascade와
 전체48-family·실제 모델 선택·freeze/TEST·최종 writing은 미완료다.
+
+D1-cos는 CD0.0128065·F-Score0.842414다. Fixed−D1-cos는 CD−0.0000493·
+F-Score+0.001644의 점추정이며 scalar score의 확정 효과로 쓰지 않는다. 실제6개
+checkpoint/common downstream/384 GT pixel identity를 대조했고 기존5개 평균은
+정확히 같다(`actual-six-DEV128-geometry-compositions-v536`).
 
 PBR의 vanilla/Top-1 R/feature/raw 네 arm은 같은 V1 geometry에서 실제 DEV32 평가를
 마쳤다. 최종 SS가 정해지면 그 SS의 같은 geometry·native guide·texture noise·render
