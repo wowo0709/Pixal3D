@@ -317,6 +317,25 @@ intervals contain zero. These asset-level associations do not establish a
 link from exact-match mass refinement to improved output, and are not a
 causal intervention or a relation-local surface-error analysis.
 
+\subsection{Qualitative selection}
+Before reading test quality, we fixed two source-distinct examples using only
+the 508-example manifest: source clusters and then cases within each selected
+cluster are ordered by SHA256 with separate fixed namespaces. Their identities
+are retained regardless of the eventual selected model or measured quality.
+These are outcome-blind examples, not evidence of population success rates.
+
+Additional diagnostic examples will use the frozen selected model versus
+retargeting, or versus vanilla if the selected model is retargeting itself.
+We predeclare three conditions: joint improvement in CD, F-Score, source
+LPIPS and DreamSim; joint CD/F-Score deterioration; and joint source
+LPIPS/DreamSim deterioration. Within each eligible group, we select the
+lower median example, ordered by F-Score change for geometry groups and
+LPIPS change for appearance loss, with fixed hash tie-breaking. Empty groups
+remain empty and repeated cases receive merged labels. These conditional
+examples are illustrative. All distinct frozen models and the common GT
+use the same full-frame cameras 8--10 and the existing scored-image archives;
+model-specific crops, alignment, and additional re-rendering are excluded.
+
 \section{Development results and bounded interpretation}
 \input{tables/dev-joint32.tex}
 \input{tables/dev-ss128.tex}

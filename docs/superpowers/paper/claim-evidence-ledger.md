@@ -99,6 +99,14 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 
 `dev-qualitative.tex`의 실제 render figure는 Fixed 대 R의 F-Score 증가 최대와 source LPIPS 증가 최대 사례다. 결과 조건으로 선택한 설명용 사례이므로 평균 효과나 성공 빈도의 근거로 사용하지 않는다. Full-frame GT pixel 일치와 기존 metric annotations를 검증했으며, appearance 차이의 causal mechanism이나 final Ours/TEST 품질을 입증하지 않는다.
 
+최종 정성 결과는 위 DEV의 극단 사례 선택과 구분한다. TEST manifest metadata만
+읽어 source-distinct 두 사례를 SHA256 순서로 사전 고정했고 실제 file4 manifest의
+SHA/size를 다시 확인했다. 이후 joint improvement/geometry loss/appearance loss는
+각 명시한 조건의 lower-median 사례를 사용한다. 빈 category를 다른 metric으로
+채우지 않고, 선택 사례를 모델 선택·성공률·평균 효과의 근거로 쓰지 않는다.
+최종 이미지는 아직 없다. [고정 ID와 정확한 선정 규칙](qualitative-selection-protocol.md),
+[실제 실행 근거](../reports/2026-10-25-final-qualitative-selection-protocol-ko.md)를 따른다.
+
 실제 cascade와 같은32 asset/noise에서 SS IoU는 R0.476967·Fixed0.478940·Learned0.477442다. Full128×3의 learned/fixed 순위와 다르다. 서로 다른 panel/noise의 순위 차이만으로 모듈 구현 오류나 loss의 causal failure를 결론내리지 않는다.
 
 학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측한 활용 진단이 완료됐다. Native BF16의50,516개 observable relation 중 Top-1 miss/Top-K hit31,408개에서 exact GT mass는 Uniform-K1.6266%, Fixed6.4601%, Learned6.1756%다. Learned−Fixed는−0.2844pp, 탐색용 cluster CI95 [−0.9776,+0.4890]pp로 추가 이득을 확인하지 못했다. Prior 대비 확률 변화 자체는 실제로 관측됐다. 따라서 matching prior의 후보 활용과 learned refinement의 추가 효과를 나누어 서술한다.
