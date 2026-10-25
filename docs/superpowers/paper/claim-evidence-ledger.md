@@ -80,8 +80,14 @@ weighting/R의 최종 필요성이나 gradient 단절·saturation의 causal 증�
 Uniform−Fixed는+0.000860, median+0.000555, 개선16/하락16으로288의 평균 차이
 +0.003215보다 작다. 세 모델의 실제384 training stream과 cold prediction은
 정확히 같다. Score weighting의 최종 우위·무효·동등성은 여전히 미확정이며,
-No-R384는 미완료라 비교하지 않는다. 반복 관측한 partial 값을 최종128×3나
+최초 관측 당시 No-R384는 미완료라 비교하지 않았다. 반복 관측한 partial 값을 최종128×3나
 cascade column에 넣거나 primary endpoint를 바꾸지 않는다.
+
+이후02:15 UTC의 actual No-R384는0.469716으로 완료됐다. 같은384에서
+Fixed−No-R는+0.006505, median+0.003726, 개선18/하락14다. 네 모델의 cold
+예측과384 training trace는 정확히 같다. 이는 final-context R의 긍정적 중간
+신호이며480/128×3/downstream 및 독립 확인의 대체 증거가 아니다. Uniform의
+소폭 높은384 점추정만으로 score weighting의 효과 부재도 결론내리지 않는다.
 
 ## Writing에서 지킬 해석
 

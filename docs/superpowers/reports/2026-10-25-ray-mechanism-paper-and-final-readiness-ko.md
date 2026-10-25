@@ -182,3 +182,28 @@ training prefix를 보존했다. NN forward/update는0회이고 정상 학습은
 128×3/downstream 결과에서 geometry·source appearance를 함께 판독해
 최종 구조와 claim을 정한다. 원래 다섯 대조·독립 seed·fresh-load·freeze/TEST·
 최종 writing의 종료 조건은 유지한다.
+
+## 후속: physical No-R의384-step도 완료
+
+02:15 UTC에 No-R의384-step 검증이 완료돼 같은 단계 네 모델을 집계했다.
+모두 같은32 asset/32 source cluster·noise1회·training seed101이고 cold
+per-asset 예측 및384개 실제 학습 asset/noise/timestep/global trace가 정확히 같다.
+
+| Model | Step384 macro IoU | Precision | Recall | Voxel F1 |
+|---|---:|---:|---:|---:|
+| V1 | 0.470704 | 0.589710 | 0.694550 | 0.633311 |
+| Fixed + R | 0.476221 | 0.593252 | 0.698981 | 0.638193 |
+| Uniform + R | 0.477081 | 0.593594 | 0.701464 | 0.639259 |
+| Physical No-R | 0.469716 | 0.588146 | 0.694296 | 0.632249 |
+
+Fixed−No-R의 평균 IoU 차이는+0.006505, median+0.003726이며18개 개선/14개
+하락이다.288의+0.002488보다 차이가 커졌다. No-R−V1은−0.000988이다.
+동일한 final-context에서 retargeting을 유지한 경로의 긍정적 중간 신호이며,
+R의 최종 필요성·독립 seed 재현·실제 cascade 효과를 입증한 것은 아니다.
+Uniform−Fixed는앞서의+0.000860으로 같은-support score weighting 우위가
+확인되지 않은 상태다. Retrieval의 정답 mass 증가와 실제 생성 효과를 계속 구분한다.
+
+`shared-Fixed-all4-epoch384-readout-v357`의7개 artifact/4,246,018bytes가 실제
+file4와 SHA256/size 일치했다. 네 validation prefix와 common384 training
+prefix를 보존했다. 새로운 NN forward/update·학습 arm·조기 선택은 없으며
+최종128×3/cascade 표는 수정하지 않았다.
