@@ -1,5 +1,13 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Fixed202 epoch288: 같은 quick32 macro IoU는 Fixed0.472018,
+V10.470033, Top-1 R0.468336이다. Fixed−V1+0.001985, Fixed−R+0.003681로
+두 평균 차이가 양수지만 final480/DEV128×3나 통계적 우위의 확인이 아니다.
+첫288 실제 학습 trace를 대조했고 `Fixed202-actual-epoch288-v400` 및 원격 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch288-v401)에
+보존했다.192에서 V1보다 낮았던 평균의 역전은 중간 관측이며, 그 이유를
+retargeter/score 단독 효과나 최종 재현 성공으로 해석하지 않는다. 최종 표는 유지한다.
+
 후속 actual PBR R202 epoch380: 같은 fixed4 GT-shape target8에서 V1 PSNR
 26.167063 대 R25.850750, crop LPIPS0.093817 대0.096099로 현재 R에 불리하다.
 실제 네 rank380 trace, 입력/GT/seed/camera,0/380 GT PNG pixel과 초기 predicted

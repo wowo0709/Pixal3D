@@ -188,6 +188,27 @@ readout의 전체 macro cell과96 trace에 정확히 일치함을 확인한 뒤 
 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch192-v401)는
 `Fixed202-epoch192-WandB-v401`에 있다. 최종 ablation/TEST table에는 넣지 않았다.
 
+그다음 실제 epoch288의 같은 seed202 quick32 macro IoU는 V1 **0.470033**,
+Top-1 R **0.468336**, Fixed **0.472018**이다. Fixed−V1은+0.001985,
+개선18/하락14·median+0.004118이고, Fixed−R은+0.003681,
+개선21/하락11·median+0.002847이다. 첫192에서 V1보다 낮았던 평균이288에서
+역전됐으므로 초기 몇 epoch만으로 모듈의 효과를 단정하지 않는다. 처음288개의
+실제 학습 입력/noise/timestep/global trace와 cold pairing도 확인했다.
+`Fixed202-actual-epoch288-v400`의4개 산출물과 원격 summary를 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch288-v401)를
+실제 file4 SHA/size로 보존했다. 아직 final480/DEV128×3·독립 확인 완료가 아니며
+최종 표와 claim은 유지한다.
+
+실제 두 queue의 후속 배정도 재확인했다. 완료 Uniform/no-R의256개 exclusive
+cascade case는 GPU0–3 queue와 GPU6/7 queue에128개씩 배치돼 있으며 각 queue에
+두 arm이64개씩 있다. GPU6/7의128개는 선행 조건을 충족했고 현재 SS 종료 뒤
+기존 priority에 따라 이어진다. GPU0–3의128개는 진행 중인 PBR R seed2021900을
+명시적으로 기다리며 다른 미충족 file 요구는 없다. Pending GPU 학습·평가를
+새로 등록하거나 정상 NN/기존 descriptor를 바꾸지 않았다.
+이 실제288 readout·원격 게시·두 queue의256개 case readiness와 당시 source
+snapshot은 `Fixed202-epoch288-live-continuation-v417`에 actual file4 SHA/size로
+보존했다. 두 official perceptual 작업은256개 생성 case 수에 넣지 않았다.
+
 Spatial seed101의 첫 epoch96도 완료됐다. 같은 seed101 quick32의 macro IoU는
 V1 **0.463801**, Top-1 R **0.461619**, Fixed **0.461789**, Spatial **0.461504**다.
 Spatial−Fixed는−0.000285, Spatial−V1은−0.002297이며 처음96개 실제 학습 trace와
