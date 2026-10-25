@@ -1,5 +1,23 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Fixed202480 학습 종료: 마지막 validation·normal exit0/drain·
+frozen-base proof·checkpoint pair 보관을 완료했고 기존 GPU7 final128 noise0
+evaluator가 실제 시작됐다. Same-seed quick32 IoU는 Fixed0.481497,
+Top-1 R0.475966, V10.472203이다. Fixed−V1+0.009294,
+Fixed−R+0.005531이며 두 대비 모두 개선20/하락12다. 실제480 training trace와
+개별 GT/count도 같다. `Fixed202-actual-epoch480-v441`과 원격 대조한
+[completed-training W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch480-v442)를
+file4 SHA/size로 보존했다. Final128×3·독립 확인·cascade/TEST는 아직 미완료다.
+Quick32 점추정을 최종128×3 결과로 쓰거나 선택 checkpoint를 바꾸지 않는다.
+
+Matcher Method 보완은 새 생성 품질 근거가 아니다. 실제 RGB head의7epochs/
+62545 updates·train9143/validation508을 checkpoint와 확인했고9651 teacher
+fingerprint 순서 및 현재 native RGB 입력 hash도 같다.6개 teacher 제외는 matcher에만
+적용된다. Query-only4-head/128-width decoder·bounded scalar head와 listwise loss,
+offline topology/depth supervision의 범위를 본문에 추가했다. `matcher-training-method-provenance-v439`
+및 실제15쪽 compile·5쪽 시각 검수를 마친 `paper-draft-matcher-training-method-v440`을
+file4에 보존했다. 기존 생성 metric 표는 바꾸지 않았으며 NN 재학습도 하지 않았다.
+
 후속 actual Spatial101 epoch384: 같은 quick32 macro IoU는 Fixed0.476221,
 Top-1 R0.472579, Spatial0.471145, V10.470704다. Spatial−Fixed−0.005076,
 개선13/하락19·median−0.003567이며 Spatial−V1+0.000441,

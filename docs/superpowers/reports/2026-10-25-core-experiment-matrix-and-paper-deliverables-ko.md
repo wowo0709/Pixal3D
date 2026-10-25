@@ -1,9 +1,10 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 후속: Fixed202 epoch384 실제 paired readout, v424 Main table export·기존 ablation 재사용·확장 source packet. TEST는 아직 미측정이다.
+작성: 2026-10-25. 후속: Fixed202480 학습 완료·DEV128 첫 noise 평가 시작, 실제 RGB matcher 학습 provenance와 Method 보완. TEST는 아직 미측정이다.
 
-이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
-PBR R 독립 seed1개 실행의 완료**다. PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
+이번 정리의 남은 본 학습은 **correspondence 대조3개와 PBR R 독립 seed1개 실행의 완료**다.
+Fixed SS seed202의480 학습은 완료됐고 DEV128×3 평가가 진행 중이다.
+PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
 480 학습과 DEV128×3는 끝났으며 반복하지 않는다. 나머지 핵심은 같은128개 실제
 cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완성이다.
 학습 작업 수와 평가/proof/capacity 작업 수를 구분한다.
@@ -157,12 +158,13 @@ connector를 바꾸지 않았다. **실제 case와 cache 회수는 아직 시작
 
 ## 4. 독립 확인과 파이프라인 선정
 
-남은 독립 학습은 선택 Fixed의 SS seed202 한 개와 PBR R seed202다. PBR vanilla
+Fixed SS seed202의480 학습은 완료됐고 독립 확인을 위한 DEV128×3 평가가 진행 중이다.
+남은 독립 본 학습은 PBR R seed202다. PBR vanilla
 seed202의1900 업데이트·여섯 validation·저장은 완료됐다. V1/R SS 두 seed도 완료돼
 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
 
 관측 시 GPU0–3은 완료된 vanilla에 이어 필수 PBR R seed202를 자동으로 시작했다.
-GPU7은 Fixed seed202, GPU6은 Spatial 대조의 실제 본 학습을 진행 중이다.
+GPU7은 완료된 Fixed seed202의 DEV128 noise0 평가, GPU6은 Spatial 대조의 본 학습을 진행 중이다.
 이후 Raw/D1-cos 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만
 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용한다.
 
@@ -209,6 +211,19 @@ final480/DEV128×3의 독립 확인이나 module 단독 효과가 아니다.
 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch384-v401)의
 audit를 실제 file4 SHA/size로 보존했다. 약속한480 budget과 최종 평가를 유지하며
 이 중간 checkpoint를 최종 표에 채우거나 모델 선택으로 사용하지 않는다.
+
+Fixed seed202는 이후 실제480 학습·마지막 validation·정상 exit0/drain·frozen-base
+검증·checkpoint pair 보관까지 완료됐다. Source10개와 LoRA360개가 optimizer에
+들어 있고 frozen parameter/buffer는 유지됐다. 같은 seed202 quick32 macro IoU는
+Fixed **0.481497**, Top-1 R **0.475966**, V1 **0.472203**이다.
+Fixed−V1+0.009294, median+0.008126, 개선20/하락12이며 Fixed−R+0.005531,
+median+0.003195, 개선20/하락12다. 실제 처음480 입력/noise/timestep/global trace와
+개별 GT/count도 같음을 검증했다. `Fixed202-actual-epoch480-v441`과 원격 대조한
+[paired completed-training W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch480-v442)를
+실제 file4 SHA/size로 보존했다. GPU7에서 기존 own final128 noise0 evaluator가
+실제 시작됐으며 noise1/2도 같은 checkpoint에 연결돼 있다. 학습 종료와 quick32
+양의 차이는 최종128×3·선택 후보의 독립 확인·cascade/TEST 완료를 뜻하지 않는다.
+최종 표에는 계속 기존 완료 scope만 사용한다.
 
 실제 두 queue의 후속 배정도 재확인했다. 완료 Uniform/no-R의256개 exclusive
 cascade case는 GPU0–3 queue와 GPU6/7 queue에128개씩 배치돼 있으며 각 queue에
@@ -398,6 +413,18 @@ overfull/underfull은0이다. v412와 비교해 Discussion만 바뀌었으며 �
 이번36개 source/build/review 산출물의 실제 file4 SHA/size도 대조했다. 새 품질
 측정이나 TEST·최종 writing 완료가 아니며 아래 최종 결과 작성 범위는 유지한다.
 
+후속 Method 보완은 실제 사용 중인 RGB matcher checkpoint에 바인딩했다.
+`matcher-training-method-provenance-v439`에서 train9143/validation508,7epochs,
+62545 optimizer updates,9651개 teacher input fingerprint 순서와 현재 native RGB
+입력 hash 일치를 확인했다.6개 teacher-rejected train 사례는 matcher에만 제외되고
+SS9149는 유지된다. 원본 checkpoint/history와 native train/validation manifest의
+실제 file4 SHA/size도 읽기 전용으로 확인했다. Query-only4-head/128-width decoder,
+bounded scalar head, eligible-query listwise loss와 supervision-only topology/depth를
+본문에 추가한 `paper-draft-matcher-training-method-v440`은15쪽·24개 인용으로
+compile했고2/3/4/13/14쪽을 시각 검수했다. Compiler issue는0이고 기존 수치 표·
+그림은 v434와 byte-identical이다.9개 provenance 및40개 paper 산출물의 실제
+file4 SHA/size를 대조했다. 새 품질 실험이나 최종 확인으로 쓰지 않는다.
+
 1. **Method:** RGB4장/camera, target native stream과 source adaptation, member 기반 semantic 후보, ray 단위 evidence 공유, score-weighted 전달과 R의 정확한 수식을 코드와 맞춘다. No-match는 native source feature를 유지하며 GT visibility를 inference gate로 사용하지 않는 계약을 설명한다.
 2. **Experimental setup:** DeformNeXt split·초기 multi-view LoRA checkpoint·동일 학습 stream·update·global batch·noise·고정 Shape/PBR·metric reference·cluster 통계를 표/본문에 명시한다. Clean80k는 초기 모델의 학습 이력이며 deformation 실험의 데이터가 아니다.
 3. **Ablation/Mechanism:** 실제7행의 matched 결과와6개 사전 대조를 설명한다. 기존 retrieval coverage, Top-1 miss/Top-K hit, GT 후보 probability mass 관측은 활용 가능성의 근거이며 최종 성능의 대체 증거가 아니다. 실제 ray/candidate 그림과 동일 사례의 성공·실패 출력을 함께 넣는다.
@@ -409,7 +436,8 @@ overfull/underfull은0이다. v412와 비교해 Discussion만 바뀌었으며 �
 
 새 backbone/head 탐색, gate/temperature grid, 모든 SS×PBR 조합, target-only, clean80k 재학습, 모든 ablation의 다중 seed, 최종 모델에 없는 query 제거는 추가하지 않는다. Matching coverage·native precision 등 완료된 진단을 반복하지 않는다.
 
-**남은 본 학습은 correspondence3개 + 선택 SS seed202 + 필수 PBR R seed202의 완료다.**
+**남은 본 학습은 correspondence3개 + 필수 PBR R seed202의 완료다.**
+Fixed SS seed202의480 학습은 완료됐고 독립 확인을 위한128×3 평가가 진행 중이다.
 완료된 Uniform/no-R 학습·SS 평가와 PBR V1 seed202는 재실행하지 않는다. 이후
 신규5개 대조의 downstream 평가·실제 cache 회수, 독립 확인·fresh load,
 모델/protocol freeze, TEST와 논문 마무리가 남아 있다. Arm 수와 proof/capacity/

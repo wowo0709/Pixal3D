@@ -2,14 +2,20 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-evidence-interpretation-v434`의15쪽·24개
-참고문헌 개발 초안이다. 실제 compiler returncode0이며13쪽의 Discussion·기존
-Main/Ablation 양식을 시각 검수했다. Warning·미해결 참조·overfull/underfull은0이다.
-후보 탐색·가중 결합·적응의 가설을 분리하고 geometry/preservation trade-off를
-설명했다. 이전 v412와 비교해 Discussion만 바뀌었으며 기존 모든 수치 표·그림은
-byte-identical이다. 두 원래 producer receipt로39개 source/figure 파일의 실제
-SHA를 재검증했고 이번36개 source/build/review 산출물도 실제 file4 SHA/size가
-일치한다. 새 품질 결과나 최종 모델·TEST·논문 완료를 의미하지 않는다.
+현재 compiled revision은 `paper-draft-matcher-training-method-v440`의15쪽·24개
+참고문헌 개발 초안이다. 실제 compiler returncode0이며2/3/4/13/14쪽의 Method·
+수식·reflow된 Discussion/표를 시각 검수했다. Warning·미해결 참조·overfull/underfull은0이다.
+이전 v434의 Discussion은 유지했고 matcher 구조·listwise loss·실제 학습 범위를
+추가했다. 기존 모든 수치 표·그림은 v434와 byte-identical이며 이번40개
+source/build/review 산출물의 실제 file4 SHA/size가 일치한다.
+
+`matcher-training-method-provenance-v439`는 실제 사용 중인 RGB matcher의
+train9143/validation508·epoch7·62545 updates를 checkpoint에서 확인한9개 산출물이다.
+9651개 teacher input fingerprint 순서가 checkpoint와 같고 현재 native RGB 입력
+SHA도 같다. 원본 checkpoint/history와 native train/validation manifest는 실제
+file4 SHA/size를 읽기 전용으로 대조했다. Teacher-rejected6개는 matcher만의 제외이며
+SS train9149는 유지된다. CPU NN forward·GPU 초기화·재학습은 하지 않았다.
+새 생성 품질 결과나 최종 모델·TEST·논문 완료를 의미하지 않는다.
 
 `tables/dev-completed-fixed-contrasts.tex`는 완료된 실제128×3 결과의 세 대조를
 담는다. 사전 정의한 전체6개 family를 유지했으며 Fixed−No-R의+0.004639도

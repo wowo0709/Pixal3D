@@ -66,9 +66,37 @@ produces a categorical distribution $p_m(k)$ on these proposals. We separately
 evaluate raw semantic descriptors, learned contextual descriptors, and use of
 the scalar matching score; these are distinct design choices.
 D1 denotes the frozen trained contextual matching decoder used in this study.
-Its scalar scores use a fixed softmax temperature of 0.05. Matching keys are
-1024-dimensional Omega descriptors; the SS values are distinct,
-1024-dimensional native DINOv3 features.
+It contains one query-only cross-attention block with four heads of width 32,
+a 128-dimensional feed-forward bottleneck, and gated residual updates;
+candidate descriptors remain unchanged. A LayerNorm--MLP scalar head with
+hidden width 64 adds a bounded $0.25\tanh$ residual to the contextual cosine
+score. At feature aggregation time, scores use a fixed softmax temperature
+of 0.05. Matching keys are 1024-dimensional layer-12 FRAME Omega descriptors;
+the SS values are distinct, 1024-dimensional native DINOv3 features.
+
+\paragraph{Matcher supervision and training.}
+Offline supervision maps an edited-surface point to the undeformed mesh
+through their shared vertex topology and barycentric coordinates. Source
+projection and a z-buffer check with depth tolerance 0.005 provide the valid
+positive patch IDs $\mathcal P_m$ for target patch $m$. For its raw 64-proposal
+set $\mathcal C_m$, only queries with a positive in the proposal set contribute
+to the listwise loss
+\begin{equation}
+ \ell_m=-\log\frac{\sum_{k\in\mathcal C_m\cap\mathcal P_m}\exp s_{mk}}
+                         {\sum_{k\in\mathcal C_m}\exp s_{mk}}.
+\end{equation}
+We average eligible-query losses within each asset; assets without an
+eligible query do not update the matcher. Proposal misses and unobservable
+queries are recorded separately, rather than assigned an invented positive.
+The RGB matcher uses 9,143 certified training examples and all 508 validation
+examples. Six teacher-rejected training cases are excluded only from matcher
+training; the SS population remains 9,149. AdamW uses learning rate $10^{-4}$,
+weight decay 0.01, and gradient-norm clipping at 1. The fixed final checkpoint
+after seven passes contains 62,545 optimizer updates; it is not a
+validation-best epoch selection. The matching backbone remains frozen while
+this head is trained, and the complete matcher is frozen during subsequent
+generative fine-tuning. Topology and depth labels are supervision only, never
+inference conditioning or a surface-visibility write mask.
 
 One source-camera ray may intersect grid sites assigned to different target
 patches. Let $\mathcal M_r$ contain the distinct observed target patches of ray
