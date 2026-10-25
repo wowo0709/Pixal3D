@@ -83,13 +83,46 @@ trace 및 baseline history가 같음을 확인한 뒤 TP/FP/FN에서 지표를 �
 보존을 확인했다(`correspondence-first192-paired-WandB-v470`). 새 과학적 arm이나
 새 W&B run을 만들지 않았으며 Main/Ablation의 최종 수치 표는 바꾸지 않았다.
 
-이번 정리의 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개와 PBR R 독립 seed1개 실행의 완료**다.
+### 후속: 같은 seed101·epoch288의 correspondence ladder
+
+Raw/D1-cos288의 own reader·publisher가 완료됐다. 192에서 실제 전체 기록과 대조한
+동일 집계를 사용해6개 모델의 cold record·GT/ID/count/noise·처음288 실제 학습
+trace와 baseline history를 확인했다. 같은 quick32·noise1회의 결과다.
+
+| 모델 | Epoch288 macro IoU | V1 대비 |
+|---|---:|---:|
+| V1 | 0.468973 | — |
+| Spatial | 0.468629 | −0.000344 |
+| Raw semantic | 0.473207 | +0.004234 |
+| Decoder semantic cosine | 0.473322 | +0.004349 |
+| Fixed scalar weighting | 0.471552 | +0.002579 |
+| Top-1 R | 0.467991 | −0.000981 |
+
+Raw−Spatial은+0.004578, 개선21/하락11·median+0.003162다. 192의−0.002503에서
+양의 점추정으로 바뀌었으므로 초기 두 epoch만으로 semantic 전달의 무효를 선언하지
+않는다. D1-cos−Raw는+0.000114, 개선16/하락16이며 Fixed−D1-cos는−0.001770,
+개선15/하락17이다. Semantic 전달의 긍정적 중간 신호와 decoder/scalar의 추가 기여를
+분리한다. Scalar의 최종 무효나 cosine과의 동등성도 이32개 관측으로 확정하지 않는다.
+
+`correspondence-paired-epoch288-v482`의 실제 재계산·개별 paired 기록과
+`correspondence-paired-epoch288-WandB-v483`의 원격 summary 보존 검증을 actual file4에
+닫았다. [기존 Raw288 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Raw101-epoch288-v454)에
+같은6개 평균과 대비를 추가했으며 기존 원래 값은 바꾸지 않았다. 최종480/128×3·
+cascade·보정 family·모델 선택·TEST의 결과가 아니며 Main/Ablation 수치 표는 유지했다.
+
+현재 working Fixed를 유지할 때 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개와 PBR R 독립 seed1개 실행의 완료**다.
 Spatial480 학습은 끝났고 SS128×3 평가가 대기 중이다. Fixed SS seed202의480·DEV128×3와
 기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
 PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
 480 학습과 DEV128×3는 끝났으며 반복하지 않는다. 나머지 핵심은 같은128개 실제
 cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완성이다.
 학습 작업 수와 평가/proof/capacity 작업 수를 구분한다.
+
+최종 DEV 근거로 Fixed/R과 다른 SS 구조를 선택하면, [원래 독립 확인 계획](2026-10-24-essential-remaining-experiments-and-paper-plan-ko.md)의
+§5.1에 따라 **그 실제 구조의 seed202 확인**이 필요하다. 완료된 Fixed202를 새 구조의
+근거로 대신 쓰지 않는다. V1/R202는 재사용하고 모든 ablation의 seed를 늘리지 않는다.
+실제 final binding·VAL36·freeze/export도 선택 구조에 맞춰야 한다. Quick32 순위만으로
+새 후보를 선택하거나 조건부 추가 학습을 지금 등록하지 않는다.
 
 후속 실제 실행 연결: [다섯 control의 cascade·8metric·논문 집계 등록](2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 기준선116개 평균값과 GT 재사용을 검증하고, own SS archive에 의존한 connector5개 및 최종 reducer를 등록했다. 아래의 후속 연결 미완료 설명은 해당 실행 기록으로 갱신하며, 실제 신규 cascade 품질은 계속 미완료다.
 
@@ -243,9 +276,11 @@ connector를 바꾸지 않았다. **실제 case와 cache 회수는 아직 시작
 
 Fixed SS seed202의480·DEV128×3 및 V1/R/Fixed 두 seed의 실제 집계는 완료됐다.
 Working Fixed seed101의 VAL36 두 fresh-load 검증도 완료됐다.
-남은 독립 본 학습은 PBR R seed202다. PBR vanilla
+Fixed 유지 전제의 남은 독립 본 학습은 PBR R seed202다. PBR vanilla
 seed202의1900 업데이트·여섯 validation·저장은 완료됐다. V1/R SS 두 seed도 완료돼
 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
+최종 SS 구조가 바뀌면 그 구조의 실제 seed202 확인을 완료한 뒤 freeze하며,
+완료된 Fixed 두 seed 결과를 다른 구조의 재현 근거로 옮기지 않는다.
 
 관측 시 GPU0–3은 완료된 vanilla에 이어 필수 PBR R seed202를 자동으로 시작했다.
 GPU6은 Raw semantic, GPU7은 Decoder-cosine 대조의 본 학습을 진행 중이다.
@@ -597,7 +632,7 @@ source/build/review 산출물의 실제 file4 SHA/size를 확인했다. SS에서
 
 새 backbone/head 탐색, gate/temperature grid, 모든 SS×PBR 조합, target-only, clean80k 재학습, 모든 ablation의 다중 seed, 최종 모델에 없는 query 제거는 추가하지 않는다. Matching coverage·native precision 등 완료된 진단을 반복하지 않는다.
 
-**남은 본 학습은 Raw semantic·Decoder-cosine2개 + 필수 PBR R seed202의 완료다.**
+**현재 Fixed 유지 기준의 남은 본 학습은 Raw semantic·Decoder-cosine2개 + 필수 PBR R seed202의 완료다.**
 Spatial480 학습, Fixed SS 두 seed의128×3 집계, working Fixed seed101의 VAL36 QA는 완료됐다.
 완료된 Uniform/no-R 학습·SS 평가와 PBR V1 seed202는 재실행하지 않는다. 이후
 세 correspondence의 SS128×3, 신규5개 대조의 downstream 평가·실제 cache 회수,

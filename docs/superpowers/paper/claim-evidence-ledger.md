@@ -76,6 +76,15 @@ IoU를 혼합하지 않는다. Raw/D1-cos 첫 epoch96의0.460716/0.461137도 최
 `correspondence-first192-paired-readout-v468`과 기존 Raw192 run의 원격 summary를
 대조한 `correspondence-first192-paired-WandB-v470`에 실제 file4 근거를 보존한다.
 
+같은 epoch288 quick32에서 V1/Spatial/Raw/D1-cos/Fixed/Top-1은
+0.468973/0.468629/0.473207/0.473322/0.471552/0.467991이다. Raw−Spatial은
++0.004578(개선21/하락11), D1-cos−Raw는+0.000114(16/16),
+Fixed−D1-cos는−0.001770(15/17)이다. 같은 cold·GT/count/noise·288 trace를
+검증했고 `correspondence-paired-epoch288-v482`와 원격 원래 값의 보존을 확인한
+`correspondence-paired-epoch288-WandB-v483`에 actual file4로 보존했다.
+Semantic 전달의 긍정적 중간 신호를 decoder/scalar의 최종 효과·family·cascade·
+TEST나 새 모델 선택으로 확대하지 않는다.
+
 ## 표·그림과 writing의 역할
 
 | 산출물 | 사용 근거와 남은 범위 |
@@ -156,7 +165,9 @@ Learned/head/member/ray의 음의 결과는 supplement와 discussion에 남긴�
 1. 최종 문맥7행 SS·cascade와 paired family 통계를 완료하고 PBR 독립 확인을 마친다.
 2. 실제 증거로 SS/Shape/PBR 조합을 선택한다. Fixed 추가 이득이 지지되지 않으면
    Top-1 R을 선택할 수 있다. 새로운 A/M control이 선택되면 실제 binding/export를
-   구현하며 Fixed라는 이름으로 바꾸지 않는다.
+   구현하며 Fixed라는 이름으로 바꾸지 않는다. 원래 계획의 선택 후보 독립 확인에
+   따라 그 SS 구조의 seed202와 해당 VAL36 QA가 필요하다. 완료된 V1/R202는
+   재사용하며 Fixed202의 근거를 다른 구조로 옮기거나 전 ablation의 seed를 늘리지 않는다.
 3. Checkpoint/config/code/split/camera/RGB/sampler/noise/composition/metric/statistics를
    동결한다. v424 packet의 qualitative spec과 source map을 기존 numerical pins에
    병합하고 원본 manifest의 actual read-only receipt를 유지한다.
