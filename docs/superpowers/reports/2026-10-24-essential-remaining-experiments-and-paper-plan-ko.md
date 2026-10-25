@@ -1,5 +1,7 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-25 후속: [Final qualitative protocol](2026-10-25-final-qualitative-selection-protocol-ko.md)에서 실제 TEST manifest metadata만으로 source-distinct 두 사례와 이후 conditional lower-median 규칙을 사전 고정했다.14쪽 개발 PDF를 compile·검수했다. [Same384 네 모델](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)의 실제 학습 trace·metric 집계와 W&B 게시도 완료했다. 신규5개 control의 최종480/128×3·cascade·독립 확인·fresh load·freeze/TEST·최종 writing은 계속 남아 있다.
+
 2026-10-25 후속 실행: [독립 PBR seed 집계의 reference 범위 수정과 실제1140 검증](2026-10-25-PBR-seed-reference-scope-and-collector-ko.md). 완료 시 실패할 기존 GT 조건 충돌을 실제 PNG로 확인해 pending CPU collector 하나를 새 버전으로 연결했다. NN source·학습·다른 descriptor는 유지했다. Protocol을 반영한13쪽 PDF도 compile·검수했다. 원래 다섯 SS 대조와 downstream·독립 확인·fresh load·freeze/TEST·최종 writing 범위는 그대로 남아 있다.
 
 2026-10-25 후속 실행: [기전 그림의 manuscript 반영·Fixed VAL36 연결·TEST 저장 준비](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md).13쪽/24개 인용의 실제 PDF를 compile·검수하고 빠진 Fixed 두 fresh-load와 reducer를 연결했다. 현재 source59의 실제 GPU render compatibility는 기존 성공 결과와 일치해 재사용했다. 신규 대조의 최종 평가·독립 확인·VAL36 실제 성공·모델 동결·TEST·최종 writing은 계속 남아 있다.

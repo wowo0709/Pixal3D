@@ -200,10 +200,20 @@ Fixed−No-R의 평균 IoU 차이는+0.006505, median+0.003726이며18개 개선
 하락이다.288의+0.002488보다 차이가 커졌다. No-R−V1은−0.000988이다.
 동일한 final-context에서 retargeting을 유지한 경로의 긍정적 중간 신호이며,
 R의 최종 필요성·독립 seed 재현·실제 cascade 효과를 입증한 것은 아니다.
-Uniform−Fixed는앞서의+0.000860으로 같은-support score weighting 우위가
+Uniform−Fixed는 앞서의+0.000860으로 같은-support score weighting 우위가
 확인되지 않은 상태다. Retrieval의 정답 mass 증가와 실제 생성 효과를 계속 구분한다.
 
 `shared-Fixed-all4-epoch384-readout-v357`의7개 artifact/4,246,018bytes가 실제
 file4와 SHA256/size 일치했다. 네 validation prefix와 common384 training
 prefix를 보존했다. 새로운 NN forward/update·학습 arm·조기 선택은 없으며
 최종128×3/cascade 표는 수정하지 않았다.
+
+기존 [W&B 중간 분석 run](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/shared-Fixed-interim288-source-learning-v333)에
+네 모델의0/96/192/288/384 curve20행과 같은384의 paired contrast192행을
+추가했다. Remote scalar를 원래 값과 최대1ULP의 JSON 왕복 차이까지 대조하고
+원래 metric을 유지했다. Run 이름은 현재 partial scope를 반영하도록 갱신했다.
+실제 학습 run과 최종 table은 바꾸지 않았다. `shared-all4-epoch384-WandB-v358`의
+12개 regular artifact/101,095bytes가 실제 file4와 일치했다. 처음 보존 시 W&B의
+debug-core symlink가 local-only `/root/.cache/wandb`를 가리켜 remote에서
+PermissionError가 났다. 원본과 symlink는 삭제하지 않고 regular log/table만
+명시적으로 receipt에 포함했다. 새 W&B 재발행이나 NN 재시작은 없었다.

@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-25 후속: [같은384-step 네 모델 비교](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)에서 V1/Fixed/Uniform/No-R의 macro IoU는0.470704/0.476221/0.477081/0.469716이다. 실제 cold/384 training trace가 같고 Fixed−No-R+0.006505의 긍정적 중간 신호를 관측했다.480/128×3/downstream 최종 기여는 아직 미완료다. [최종 정성 사례 protocol](2026-10-25-final-qualitative-selection-protocol-ko.md)은 TEST metadata로 두 사례를 사전 고정했으며 final image나 TEST quality는 만들지 않았다.
+
 2026-10-25 후속: [PBR 독립 seed reference 범위·실제 collector 수정과1140 검증](2026-10-25-PBR-seed-reference-scope-and-collector-ko.md). 같은 seed의 모델/epoch 간 GT pixel은 정확히 유지하고 독립 seed의 renderer reference는 구분한다. 기존 NN을 유지한 채 pending CPU collector 하나를 교체했고107개 검사와 실제 prefix/producer 증거를 확인했다. Seed202 vanilla1140 metric·image는 기존 W&B에 있으며 이는 fixed4 stage trend다. 신규 SS 대조·PBR 최종 독립 확인·TEST 품질 효과는 계속 미완료다.
 
 2026-10-25 후속: [실제 기전 그림의 논문 반영·Fixed VAL36 연결·최종 저장 준비](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)를 진행했다. 실제 native 관측 그림을 넣은13쪽/24개 인용 PDF를 compile·검수했으며, 이 진단을 새 모듈의 품질 효과로 해석하지 않는다. 신규 다섯 대조의 최종 결과와 TEST는 여전히 미완료다.
