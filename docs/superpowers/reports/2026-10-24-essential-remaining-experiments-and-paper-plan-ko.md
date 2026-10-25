@@ -1,5 +1,7 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-25 실제 실행 갱신: [SS128×3·cascade 표 통합·선택 후보의 독립 seed 연결](2026-10-25-SS128x3-table-and-selected-seed-continuation-ko.md). 기존 baseline을 actual count/checkpoint 기준으로 검증하고,5개 control의 SS128×3와 cascade8metric을 같은 모델로 묶는 집계 및 Fixed202의 strict collector를 등록했다. 정상 NN은 유지한다. 최종 신규 품질·독립 후보 확인·fresh load·freeze/TEST·기전/정성 그림·최종 writing은 계속 남아 있다.
+
 2026-10-24 22:43 UTC 실행 갱신: 남은 Fixed correspondence3개를 실제로 구현하고257개 검사·실제 checkpoint 생성자 정합을 확인했다. Own GPU proof/capacity/480/128×3의21개 작업을 기존 NN 뒤에 연결했다. [구현과 실행 근거](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)를 따르며 실제 GPU 검사·학습·downstream·독립 확인·TEST·최종 논문은 계속 남아 있다.
 
 2026-10-24 22:10 UTC 갱신: DEV128 실제8개 metric 집계가 완료돼 Fixed SS+Top-1 R PBR를 working candidate로 삼았다. 선택 문맥의 Uniform-K와 물리적 No-R는 각각 GPU7/6에서480 학습 중이며 Fixed seed202의 own proof→capacity→480→128×3을 등록했다. [결과와 실행 근거](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md), [전체 필수 계획](2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)에 따라 남은 Fixed matching ladder·downstream·독립 확인·TEST·논문을 계속한다. 최종 TEST freeze는 아니다.

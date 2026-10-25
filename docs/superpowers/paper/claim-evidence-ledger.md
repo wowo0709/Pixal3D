@@ -1,5 +1,7 @@
 # 논문 claim과 필요한 근거
 
+[SS/cascade 표·독립 seed 연결과 실제 두 번째 epoch](../reports/2026-10-25-SS128x3-table-and-selected-seed-continuation-ko.md)를 반영한다. 새 SS family6와 cascade family48을 구분하고 실제 noise0/checkpoint identity를 확인한 표만 사용한다. Same quick32 step192에서 Uniform가 Fixed보다 macro IoU+0.002169이며 첫192 training trace는 정확히 같다. 이는 학습 중 단일-noise 관측으로 최종 score 효과·architecture 선택의 근거를 대신하지 않는다.5epoch/128×3/downstream 완료 전 weighting의 필수성을 주장하지 않는다.
+
 최신 실행 근거: [최종 Fixed 대조의 실제 cascade·metric 연결](../reports/2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 원래 R/Fixed baseline의116개 평균값과128개 GT 재사용을 실제 검증했고 다섯 own SS 이후 cascade/official8metric connector와 최종7모델 집계를 등록했다.48-comparison DEV family의 보정 구간을 사전 지정했다. 등록은 새 control의 quality 완료가 아니며 해당 결과는 여전히 pending이다.
 
 최신 남은 작업과 산출물: [핵심 실험 행렬·최종 평가·writing](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md). 최종 문맥 신규5개 대조는 실제 downstream 평가까지 완료해야 하며, 기대한 모듈별 positive claim을 결과에 앞서 확정하지 않는다.

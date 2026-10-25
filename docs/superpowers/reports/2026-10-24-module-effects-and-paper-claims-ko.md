@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-25 후속 실행: [SS128×3·실제 cascade 표·선택 후보의 독립 확인 연결](2026-10-25-SS128x3-table-and-selected-seed-continuation-ko.md). 실제 기존 SS6개 평가의8개 평균값을 재현했고,5개 완료 모델의 원본 frozen NN/trace 정합을 확인했다. Own 결과에 의존한 SS/cascade 표·Fixed202 collector3개 CPU 작업을 등록했다. Quick32 step192에서 Uniform0.465803 대 Fixed0.463634이며 score-weighting 우위의 최종 근거는 아직 없다. Intermediate 값을 final128×3와 혼합하지 않는다.
+
 2026-10-24 22:43 UTC 실행 갱신: 최종 Fixed의 spatial/raw/D1-cosine 대조를 [구현·검증·등록](2026-10-24-shared-fixed-correspondence-implementation-and-queue-ko.md)했다. 동일 core10/전달 경로의 own trainer/evaluator/cascade binding,257개 검사, actual checkpoint 생성자 정합까지 통과했다. GPU6/7의 기존 작업 뒤 own proof→capacity→480→SS128×3를21개 작업으로 연결했으며, 새3개 arm의 GPU 품질 근거는 아직 없다. 원래 Top-1 ladder를 새 weighted 문맥의 결과로 대체하지 않는다.
 
 2026-10-24 22:10 UTC 갱신: [실제 DEV128 cascade·선택 문맥 대조·독립 확인](2026-10-24-dev128-complete-fixed-controls-and-independent-confirmation-ko.md)을 완료/연결했다. R/Fixed/Learned의8개 metric 집계에서 Fixed F-Score는0.844058 대 R0.840095, 탐색용 ΔCI[+0.001011,+0.007314]지만 source LPIPS/DreamSim의 개선·비열등성은 미확인이다. Fixed SS+Top-1 R PBR를 working candidate로 기록했다. No-R는 GPU6에서 실제 micro96 capacity를 통과해480 학습을 시작했고 Uniform-K는 GPU7에서 학습한다. Fixed seed202의 own proof/capacity/480/128×3도 등록했다. TEST freeze와 최종 문맥 matching ladder는 아직 남아 있다.

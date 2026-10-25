@@ -251,6 +251,12 @@ removal. Across the eight camera-role endpoints above, these define a
 source-cluster bootstrap draws; unadjusted development intervals are retained
 separately. This family is distinct from the final held-out $8C$ family.
 These controls have not yet produced downstream results.
+SS diagnostics use the same six contrasts as a separate primary voxel-IoU
+family, after averaging three noises within each asset. Precision, recall and
+voxel F1 are retained as secondary diagnostics. Global occupancy ratios are
+reported separately from macro per-asset means. Joining these diagnostics
+to the cascade table requires the same checkpoint bytes and exact noise-zero
+SS records, while preserving the different three-noise and one-noise scopes.
 
 \subsection{Evidence-utilization analysis}
 To connect retrieval with its use, we observed the trained fixed and
