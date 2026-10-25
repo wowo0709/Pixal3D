@@ -6,7 +6,7 @@
 Working Fixed-context design&SS IoU$\uparrow$&CD$\downarrow$&F-Score$\uparrow$&LPIPS$\downarrow$&DreamSim$\downarrow$\\
 \midrule
 \multicolumn{6}{l}{A. Matching ladder: compare adjacent rows}\\
-Original spatial3, RAW cosine&\pending&\pending&\pending&\pending&\pending\\
+Original spatial3, RAW cosine&0.472267&\pending&\pending&\pending&\pending\\
 Raw semantic64, cosine&\pending&\pending&\pending&\pending&\pending\\
 Decoder semantic64, cosine&\pending&\pending&\pending&\pending&\pending\\
 Decoder semantic64, scalar (Fixed)&0.473471&0.0127572&0.844058&0.053438&0.151909\\
@@ -18,8 +18,8 @@ Physical retargeter removal&0.468832&\pending&\pending&\pending&\pending\\
 \bottomrule
 \end{tabular}
 \caption{Partially measured working-candidate development ablation. Fixed and
-actual Top-1 have both stage and cascade results; Uniform and physical no-R
-have stage results only. Pending cells are not results.
+actual Top-1 have both stage and cascade results; Spatial, Uniform, and
+physical no-R have stage results only. Pending cells are not results.
 SS IoU uses DEV128 and three paired noises; cascade columns use the same128
 assets and one noise, with frozen Shape and common Top-1 R PBR. Panel A
 separates raw semantic retrieval, decoder descriptors and scalar scores in

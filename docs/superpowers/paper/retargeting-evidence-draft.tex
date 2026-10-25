@@ -216,8 +216,9 @@ Generation-noise repetitions are averaged within an example before inference
 over source clusters. They are not independent training seeds. The completed
 main SS ablation results use training seed 101. A completed, separate seed202
 study evaluates vanilla, the Top-1 semantic-matching/retargeting branch, and
-Fixed evidence under the same three-noise protocol. PBR requires separate
-confirmation.
+Fixed evidence under the same three-noise protocol. A separate two-seed PBR
+training diagnostic is also complete; its four fixed-shape examples do not
+constitute an inferential quality or full-pipeline confirmation.
 Rendering development uses an initial fixed 32-example panel and a completed
 paired 128-example expansion, each with one generation-noise realization.
 
@@ -490,7 +491,8 @@ seeds, while the original LoRA initialization agrees. All 701 frozen
 neural-network tensors in each of the six final checkpoints match the
 original pretrained base. These results do not isolate the retargeter,
 matching decoder, or score weighting, and do not establish full-cascade
-generalization. PBR/cascade and held-out confirmation remain pending.
+generalization. Full-cascade and held-out confirmation remain pending;
+the separate PBR training diagnostic is reported below.
 \input{tables/dev-independent-ss.tex}
 
 In the actual DEV32 fixed-evidence composition, however,
@@ -539,9 +541,25 @@ endpoint-specific tradeoffs rather than a universal preservation claim.
 
 The PBR same-geometry comparison does not currently establish an additional
 benefit from feature correction or raw Top-K appearance input over Top-1
-retargeting. Independent PBR training confirmation and final-context
-downstream comparisons remain required before selecting the final pipeline;
-the completed two-seed SS confirmation is reported separately above.
+retargeting. The independent PBR training diagnostic is complete, while
+final-context downstream comparisons remain required before selecting the
+final pipeline; the completed two-seed SS confirmation is reported separately
+above.
+
+\paragraph{Completed two-seed PBR training diagnostic.}
+Table~\ref{tab:pbr-training-two-seed} reports the four actual vanilla/R
+checkpoints after 1,900 updates. Within each seed, all six validation epochs
+share exact GT pixels, and the compared models share the actual per-rank
+training stream. Streams differ across the two training seeds. All 700
+frozen neural-network tensors per model match the original base, while
+initial predicted latents agree within the declared cold-function protocol.
+Top-1 R changes crop LPIPS by -0.001268 and -0.003592 in seeds 101 and 202,
+respectively, but changes target PSNR by -0.016409 and -0.243949 dB.
+These mixed point estimates describe four GT-shape target-camera examples,
+not inferential PBR quality, source preservation, or generated geometry.
+Each training seed retains its own rendered reference; no cross-seed
+quality pooling or pipeline generalization claim is made.
+\input{tables/dev-independent-pbr.tex}
 
 We additionally paired vanilla and Top-1 R PBR on the same fixed-evidence SS
 outputs. Across 32 cases, the native guides, initial texture noise, actual
@@ -568,12 +586,13 @@ $[-0.00015369,0.00012960]$. Source LPIPS changes by 0.000211
 non-inferiority or improved appearance preservation.
 Learned refinement has worse CD and F-Score point estimates than Fixed,
 with paired intervals that include zero. We therefore use Fixed SS with
-the actually measured Top-1 R PBR as the working composition for required
-matched controls and independent training. This decision favors observed
+the actually measured Top-1 R PBR as the working composition for the remaining
+matched controls. This decision favors observed
 geometry and the simpler readout while retaining R as a strong appearance
 control. It is not a held-out model freeze or a universal quality claim.
 The intervals are exploratory after DEV32 screening; final-context
-ablation, independent PBR confirmation, and TEST508 remain necessary.
+ablation and TEST508 remain necessary. The completed PBR training diagnostic
+does not replace these full-pipeline comparisons.
 \input{tables/dev-joint128.tex}
 
 \section{Ablation and final-table completion}
@@ -592,10 +611,14 @@ capacity checks without gradient accumulation. Their initial per-asset
 metrics, target identities, and generation seeds match the paired vanilla
 reference; frozen base weights remain unchanged. Spatial has completed
 480 updates with normal process termination and a frozen-base/matcher check.
-Its final SS evaluation is pending; raw-semantic and decoder-cosine training
-are in progress. All three controls' final SS128 three-noise and common
-cascade results remain pending. Training completion, functional checks, and
-capacity checks are not quality gains.
+Its final DEV128 three-noise series has also completed and passed the same
+checkpoint, per-example identity, GT, and noise validation as the other rows.
+Its macro IoU is 0.472267, versus 0.473471 for Fixed. This difference changes
+multiple matching choices and does not isolate semantic retrieval or scalar
+weighting. Raw-semantic and decoder-cosine training and their final SS
+evaluations remain in progress, as do the new controls' common cascade
+comparisons. Training completion, functional checks, and capacity checks
+are not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a
@@ -660,8 +683,9 @@ The final held-out comparison must establish which improvements survive
 the frozen pipeline and protocol.
 
 The original twelve-model, ten-module-contrast family and paired DEV128
-cascade extension are complete. Final-context matching controls and downstream
-ablations, independent PBR confirmation, and held-out results remain pending.
+cascade extension are complete. Final-context matching controls, downstream
+ablations, and held-out results remain pending. The separate two-seed PBR
+training diagnostic is complete but does not establish pipeline quality.
 The completed two-seed SS study supports the combined branches relative to
 vanilla; it does not isolate each component or establish cascade generalization.
 Geometric improvement

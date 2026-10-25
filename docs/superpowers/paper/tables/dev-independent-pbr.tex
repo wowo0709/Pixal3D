@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrr}
+\toprule
+Seed&Model&Target PSNR$\uparrow$&Crop LPIPS$\downarrow$&Crop SSIM$\uparrow$&Base-color PSNR$\uparrow$\\
+\midrule
+101&Vanilla&26.876521&0.086454&0.953675&25.254020\\
+101&Top-1 R&26.860112&0.085186&0.954216&25.402984\\
+202&Vanilla&26.862564&0.086446&0.953372&25.168122\\
+202&Top-1 R&26.618615&0.082854&0.953820&25.285976\\
+\bottomrule
+\end{tabular}
+\caption{Completed PBR training diagnostic at 1,900 updates for two
+training seeds. Each row uses four target-camera examples with fixed GT
+shape; PSNR uses pooled pixel MSE. Within each seed, V1/R and all six
+validation epochs share exact GT pixels. Independent seeds retain their
+own rendered references, so no cross-seed quality pooling is performed.
+This small training-QA panel does not establish inferential rendering
+quality, source preservation, generated geometry, or pipeline generalization.}
+\label{tab:pbr-training-two-seed}
+\end{table}

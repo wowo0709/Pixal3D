@@ -2,7 +2,37 @@
 
 작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
-### 최신 실제 실행: PBR 독립 집계와 첫 DEV cache 회수 완료
+### 최신 실제 실행: Spatial 최종 SS·PBR 표와 평가 자원 재배치
+
+Spatial의 own DEV128×3를 원래 full-study `validate_series`로 집계했다.
+Checkpoint·128 asset/93 source·세 noise·GT identity와 실제 terminal을 확인했고
+IoU는 **0.47226657090313745**다. Fixed0.4734709996851256과의 차이+0.0012044288은
+여러 matching 선택이 함께 달라지는 기술적 비교이며 semantic 단독 효과가 아니다.
+`Spatial-own-SS128x3-partial-family-v491`의 actual file4 closure와
+[원격 수치·3모델/9noise 행](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/M_FIXED_SPATIAL-SS128x3-v493)을 검증했다.
+Raw/Decoder-cosine 완료와6대조/48대조 family·공통 cascade는 계속 남아 있다.
+
+완료 PBR의4모델×최종1900 metric·원본 GT/Pred/error16장을
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR-two-seed-final1900-v492)에
+게시하고 원격4행·summary를 원본과 대조했다. `PBR-final-two-seed-paper-and-WandB-v492`에
+actual file4로 보존했다. 다른 seed의 quality를 pooling하지 않으며 fixed4 training QA다.
+이를4행 표와 혼합된 LPIPS/PSNR 해석으로, Spatial은 SS 한 cell로 manuscript에 반영했다.
+`paper-draft-completed-Spatial-and-PBR-training-QA-v494`는 실제16쪽·24개 인용이며
+5/10/11/13/14/15쪽을 시각 검수했다. 실제 warning·미해결참조·overfull/underfull0,
+나머지 원래 수치 표·그림은 그대로이고 actual file4 closure를 완료했다.
+최종 ablation·TEST·writing 완료는 아니다.
+
+실행하지 않은 auxiliary Uniform64/No-R64 case를 main GPU0–3 queue로 옮겼다.
+원래 case ID·command·case plan·출력 경로·수치 source/input/model/noise 설정은 같다.
+원래 plan에0–3의 CPU/GPU 배치가 이미 있어 plan을 새로 만들거나 변경하지 않았다.
+실제 auxiliary dispatcher의128 HELD 확인→descriptor 제거→main pending128·고유 output
+producer 확인→actual file4 activation 순서를 지켰다. HELD는 자원 이관 이력이며
+과학적 실패가 아니다. 기존 두 SS NN·wrapper와 dispatcher6개 PID/birth/command,
+나머지 descriptor·상대 순서를 유지했다. `DEV-case-mainGPU-rebalance-v496`의 실제
+prelaunch/activation closure가 근거다. 이후 case retirement가 찾는 원래 job ID·plan도
+그대로다. 새 과학적 arm·학습 재시작은0이며 Raw/D1-cos는 계속6/7에서 학습한다.
+
+### 앞선 실제 완료: PBR 독립 집계와 첫 DEV cache 회수
 
 PBR R seed202는1900·최종 validation·정상 exit0/drain과 native/wrapper actual file4
 closure를 마쳤다. `required-PBR-controls-two-seed-closed-collection-CPU-v198`도 완료돼
@@ -12,7 +42,7 @@ V1/R×seed101/202 네 checkpoint의 frozen700 tensor·LoRA360, 각1900 rank별 t
 training reproducibility/QA이고 full-pipeline 독립 품질이나 source preservation 증명이 아니다.
 
 GPU0–2에서 Spatial의 최종 세 noise evaluator가 정상 종료했다. 해당 own128×3의
-strict-series 집계·SS 표 내보내기는 남아 있다. GPU0–3은 이어서 Uniform 등의 실제
+strict-series 집계·SS 표 내보내기는 위 v491/v494에서 완료했다. GPU0–3은 이어서 Uniform 등의 실제
 cascade case를 진행하고 GPU6/7은 Raw/D1-cos480을 계속 학습한다. 완료한 실험을
 다시 학습하거나 새로운 과학적 arm을 추가하지 않았다.
 
@@ -23,7 +53,7 @@ cascade case를 진행하고 GPU6/7은 Raw/D1-cos480을 계속 학습한다. 완
 보존됐다. 이후 회수도 진행 중이지만 이 첫 통합 검증을 전체640/TEST 저장 완료로
 확대하지 않는다. 아래의 first-case 미실행 설명은 해당 준비 당시의 이력이다.
 
-최신 writing 갱신은 `paper-draft-explicit-development-test-separation-v478`이다.
+이전 writing 갱신 `paper-draft-explicit-development-test-separation-v478`에서는 다음을 확인했다.
 현재 config와 split metadata를 actual local/file4 SHA·size로 재대조한 v477에서
 train9149/validation508/TEST508의 sample/source UID/cluster 교집합은 모두0이고,
 DEV32/128은 validation subset이며 TEST와 분리됨을 확인했다. TEST 예측이나 품질·
@@ -132,7 +162,7 @@ Raw−Spatial은+0.004578, 개선21/하락11·median+0.003162다. 192의−0.002
 cascade·보정 family·모델 선택·TEST의 결과가 아니며 Main/Ablation 수치 표는 유지했다.
 
 현재 working Fixed를 유지할 때 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개의 완료**다.
-Spatial480 학습은 끝났고 SS128×3 평가가 대기 중이다. Fixed SS seed202의480·DEV128×3와
+Spatial480·SS128×3와 strict 집계·논문 SS cell 반영은 완료됐다. Fixed SS seed202의480·DEV128×3와
 기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
 PBR vanilla/R의 독립 seed와 strict 두-seed 집계는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
 480 학습과 DEV128×3는 끝났으며 반복하지 않는다. 나머지 핵심은 같은128개 실제
@@ -153,7 +183,7 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 순서 | 남은 실행 | 종료할 때 남겨야 하는 근거 |
 |---|---|---|
-| 1. 최종 문맥의 모듈 대조 | 종료 Spatial SS128×3의 strict 집계·표, Raw semantic / Decoder-cosine의480·SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
+| 1. 최종 문맥의 모듈 대조 | 완료 Spatial 집계 재사용, Raw semantic / Decoder-cosine의480·SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
 | 2. 실제 출력 평가 | 신규5행×동일 DEV128의 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
 | 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36와 실제 PBR 두-seed training QA 근거 보존. 최종 SS 구조 변경 시 그 구조의 seed202·VAL36·binding 확인 | 선택한 실제 구조의 확인을 완료하며 stage fixed4 QA를 full-pipeline 품질로 확대하지 않음 |
 | 4. 최종 모델 동결 | 앞의 근거로 실제 SS/Shape/PBR 조합·checkpoint·code·평가 protocol 확정 | TEST 전에 고정한 모델과 설정. Fixed의 추가 이득이 지지되지 않으면 Top-1 R 선택 가능 |
@@ -181,7 +211,7 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 행 | Correspondence / aggregation / retargeting | 비교와 질문 | 현재 상태 |
 |---|---|---|---|
-| M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 실제480 학습·checkpoint 보관 완료, SS128×3 대기 |
+| M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 480·SS128×3·strict 집계 완료, IoU0.472267; cascade 대기 |
 | M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | GPU6 본 학습 진행 |
 | M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | GPU7 본 학습 진행 |
 | E_FIXED_RAW | Decoder semantic64 / scalar probability weighting / R | D1 cosine→scalar: scalar matching 모듈의 효과 | SS128×3·cascade128×1 완료 |
@@ -191,7 +221,7 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 **최종 문맥의 신규 ablation은 총 다섯 개이며 남은 본 학습은 두 개다.**
 Uniform/No-R 두 개의 학습·SS 평가는 완료됐고 matching 세 개는 등록돼 있다.
-그중 Spatial480은 완료돼 평가를 기다리며 Raw/D1-cos는 본 학습 중이다.
+그중 Spatial480·SS128×3 집계는 완료됐으며 Raw/D1-cos는 본 학습 중이다.
 각 arm의 proof/capacity/evaluation 작업을 별개의 모델로 세지 않는다.
 
 완료된 동일 DEV128×3에서 Fixed0.473471 대 no-R0.468832의 IoU 차이는
@@ -573,7 +603,7 @@ FID/KID는 작은 ablation마다 반복하지 않고 최종 공통 render popula
 | 산출물 | 구체적인 구성 | 현재와 남은 작업 |
 |---|---|---|
 | Main table | 위4/5개 모델×10 metric, 목적별3개 column group | TEST 실제 값 전부 남음 |
-| Ablation table | Panel A: spatial→raw→decoder cosine→scalar. Panel B: Top-1/Uniform/no-R 대 Fixed | Fixed/Top-1은 SS·cascade 실제 값; Uniform/no-R는 SS만 완료; 나머지 미측정 |
+| Ablation table | Panel A: spatial→raw→decoder cosine→scalar. Panel B: Top-1/Uniform/no-R 대 Fixed | Fixed/Top-1은 SS·cascade 실제 값; Spatial/Uniform/no-R는 SS만 완료; Raw/D1-cos 최종 값은 미측정 |
 | Mechanism figure/table | Retrieval coverage→유효 후보 probability mass→같은 사례의 출력 변화 | 실제 native ray 그림·본문 삽입 완료; matched Uniform 결과와 최종 출력 연결은 남음 |
 | Qualitative figure | 같은 asset/view의 GT·두 zero-shot·V1·R·Ours, 성공과 실패 | [Metadata-only2개 사례·conditional lower-median 규칙](2026-10-25-final-qualitative-selection-protocol-ko.md)은 사전 고정 완료. 최종 TEST 이미지·조건부 사례·figure/caption은 미완료 |
 | Supplement | 모든8metric, 기존 ray/member/learned 음의 결과, 두 seed, protocol·실패 사례 | 기존 완료 결과 반영·최종 정합 검수 |
