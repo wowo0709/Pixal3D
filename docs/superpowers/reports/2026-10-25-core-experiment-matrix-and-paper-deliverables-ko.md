@@ -1,5 +1,65 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+### 최신 완료: 7행 SS·6대조와 Uniform/No-R의 실제 cascade
+
+Raw semantic과 Decoder-cosine은 각각480 update·최종 validation·정상 exit0/drain·
+native/wrapper file4 보존을 마쳤다. 세 noise씩을 포함한7모델/21평가와 전체6대조의
+기존 reducer 집계도 완료됐다. `complete-seven-model-SS-paper-export-v509`에서
+21개 원본을 명시적 producer receipt로 읽고 원래 full-study 통계 전체를 정확히 재현했다.
+[원래 W&B7행·6구간](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/final-Fixed-seven-model-SS128x3-CPU-v312)도 원격 값과 대조했다.
+
+| 최종 SS arm | DEV128×3 macro IoU |
+|---|---:|
+| Spatial | 0.472267 |
+| Raw semantic | 0.472975 |
+| Decoder semantic cosine | 0.473450 |
+| Fixed scalar weighting | 0.473471 |
+| 실제 Top-1 R | 0.472600 |
+| Uniform on same64 | 0.473613 |
+| Physical no-R | 0.468832 |
+
+인접 matching 차이는+0.000708/+0.000476/+0.000021이며 six-family CI95는 각각
+[−0.002955,+0.004177]/[−0.002116,+0.003196]/[−0.000872,+0.000973]다.
+Fixed−Top-1/Uniform/no-R까지 **전체6개 보정 구간이0을 포함**한다. 따라서 최종 SS의
+양의 점추정을 개별 모듈의 필요성이나 모든 seed의 우위로 쓰지 않는다. 완료된
+V1 대비 combined branch의 두 training seed 개선과 이 결론은 서로 다른 비교다.
+
+Uniform/no-R도 각각128개 cascade·384 official views·8metric 집계를 완료했다.
+`completed-four-of-seven-DEV128-cascade-paper-v510`에서 기존 Top-1/Fixed와 같은
+SS checkpoint binding·공통 Top-1 R PBR·128/93 source·384개 GT pixel identity를 확인했다.
+[원격4모델×8metric 표와 차이](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/completed4-of7-DEV128-cascade-v510)를 대조했다.
+
+| SS 조합, 공통 R PBR | CD↓ | F-Score↑ | Source LPIPS↓ | Source DreamSim↓ |
+|---|---:|---:|---:|---:|
+| 실제 Top-1 R | 0.0127795 | 0.840095 | 0.053227 | 0.148809 |
+| Fixed | 0.0127572 | 0.844058 | 0.053438 | 0.151909 |
+| Uniform | 0.0128304 | 0.842505 | 0.053193 | 0.149762 |
+| Physical no-R | 0.0129562 | 0.835038 | 0.053806 | 0.150439 |
+
+Fixed−Uniform은 F-Score+0.001553·LPIPS+0.000244·DreamSim+0.002147,
+Fixed−No-R는 F-Score+0.009020·LPIPS−0.000368·DreamSim+0.001469다.
+전체128의 점비교이며 나머지3개 matching cascade와48-family는 미완료다. 보정 구간을
+지어내거나 필요성·score 우위·source 비열등성으로 해석하지 않는다. 서로 다른 SS의
+render LPIPS/DreamSim은 geometry/appearance 양쪽에 반응하므로 순수 material 지표가 아니다.
+
+JSON camera key가 문자열로 저장되는데 기존 global CPU reducer는 정수를 요구하는
+직렬화 문제를 실제4모델 읽기로 재현했다. `cascade_record_json.py`는 명시적인
+8/9/10 key만 복원하며 값·row 순서는 유지하고 mixed/잘못된 camera는 거절한다.
+JSON roundtrip 전후 paired mean·interval 불변 등14개 회귀 검사와 실제 두 control의
+모든 role mean·4모델8endpoint의 exact 일치를 확인했다. 기존 수치 코드/NN/case plan은
+바꾸지 않았다. 실행 전 원래 global CPU job의 실제 HELD를 확인한 뒤 새 worker v511·
+plan으로 교체했다. Output receipt·후속 표 입력은 같고 producer는 하나다.
+`final-cascade-JSON-camera-boundary-v512`의 prelaunch/activation을 실제 file4로 닫았다.
+새 full7 reducer의 실제 실행은 나머지 cascade 종료 후이며, 현재 성공으로 쓰지 않는다.
+TEST reducer는 원래 `views[cid]`를 정수로 구성한 뒤 통계를 계산해 이 변경 대상이 아니다.
+
+`paper-draft-complete-SS-and-four-cascades-v514`에7행 SS·6대조 표와4개 cascade 행을
+반영했다. 실제17쪽·24개 인용, 수정6/13/14/15쪽 시각 검수·warning/미해결참조/
+overfull/underfull0·actual file4 closure를 완료했다. 새로 채운 두 표 외의 수치 표·그림은
+v505와 같다. 본 학습을 재시작하지 않았으며 현재 GPU0–3/6/7은 matching3개 cascade를
+진행한다. 최종 조합·조건부 독립 확인·VAL36·freeze/TEST508·10metric·최종 writing은 남아 있다.
+아래 중간 epoch·pending 설명은 당시 실행 이력이며 이 최신 완료 범위를 우선한다.
+
 작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
 ### 최신 실제 실행: Spatial 최종 SS·PBR 표와 평가 자원 재배치
@@ -203,7 +263,7 @@ Raw−Spatial은+0.004578, 개선21/하락11·median+0.003162다. 192의−0.002
 같은6개 평균과 대비를 추가했으며 기존 원래 값은 바꾸지 않았다. 최종480/128×3·
 cascade·보정 family·모델 선택·TEST의 결과가 아니며 Main/Ablation 수치 표는 유지했다.
 
-현재 working Fixed를 유지할 때 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개의 완료**다.
+현재 working Fixed를 유지할 때 계획된 본 학습과7모델 SS128×3는 모두 완료됐다.
 Spatial480·SS128×3와 strict 집계·논문 SS cell 반영은 완료됐다. Fixed SS seed202의480·DEV128×3와
 기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
 PBR vanilla/R의 독립 seed와 strict 두-seed 집계는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -225,8 +285,8 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 순서 | 남은 실행 | 종료할 때 남겨야 하는 근거 |
 |---|---|---|
-| 1. 최종 문맥의 모듈 대조 | 완료 Spatial 집계 재사용, Raw semantic / Decoder-cosine의480·SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
-| 2. 실제 출력 평가 | 신규5행×동일 DEV128의 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
+| 1. 최종 문맥의 모듈 대조 | 완료7행 SS·6대조 재사용. 새로운 최종 구조를 선택하는 경우의 독립 seed 외에는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
+| 2. 실제 출력 평가 | Uniform/no-R 완료 재사용, matching3행×동일 DEV128 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
 | 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36와 실제 PBR 두-seed training QA 근거 보존. 최종 SS 구조 변경 시 그 구조의 seed202·VAL36·binding 확인 | 선택한 실제 구조의 확인을 완료하며 stage fixed4 QA를 full-pipeline 품질로 확대하지 않음 |
 | 4. 최종 모델 동결 | 앞의 근거로 실제 SS/Shape/PBR 조합·checkpoint·code·평가 protocol 확정 | TEST 전에 고정한 모델과 설정. Fixed의 추가 이득이 지지되지 않으면 Top-1 R 선택 가능 |
 | 5. TEST·정성 평가 | TEST508/134 source cluster에서 두 zero-shot·V1·R·Ours의10metric, 고정 사례와 실패 사례 | Main table, paired source-cluster interval, 최종 정성 그림. Ours가 R과 같으면 중복 행 제거 |
@@ -254,16 +314,16 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 | 행 | Correspondence / aggregation / retargeting | 비교와 질문 | 현재 상태 |
 |---|---|---|---|
 | M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 480·SS128×3·strict 집계 완료, IoU0.472267; cascade 대기 |
-| M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | GPU6 본 학습 진행 |
-| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | GPU7 본 학습 진행 |
+| M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | 480·SS128×3 완료, IoU0.472975; cascade 진행 |
+| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 480·SS128×3 완료, IoU0.473450; cascade 진행 |
 | E_FIXED_RAW | Decoder semantic64 / scalar probability weighting / R | D1 cosine→scalar: scalar matching 모듈의 효과 | SS128×3·cascade128×1 완료 |
 | 실제 Top-1 R | Decoder / 실제 최상위 feature1개 / R | Fixed와 비교: 여러 후보 활용의 효과 | SS·cascade 완료, 재학습 불필요 |
-| A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | 480 학습·DEV128×3 완료, IoU0.473613; cascade 대기 |
-| A_FIXED_NO_R | Fixed와 같은 후보·weight·전달 / R 물리적 제거 | Fixed와 비교: 최종 경로에서 retargeting의 효과 | 480 학습·DEV128×3 완료, IoU0.468832; cascade 대기 |
+| A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | 480·SS128×3·cascade128/8metric 완료, IoU0.473613 |
+| A_FIXED_NO_R | Fixed와 같은 후보·weight·전달 / R 물리적 제거 | Fixed와 비교: 최종 경로에서 retargeting의 효과 | 480·SS128×3·cascade128/8metric 완료, IoU0.468832 |
 
-**최종 문맥의 신규 ablation은 총 다섯 개이며 남은 본 학습은 두 개다.**
+**최종 문맥의 신규 ablation은 총 다섯 개이며 본 학습·7행 SS·6대조는 완료됐다.**
 Uniform/No-R 두 개의 학습·SS 평가는 완료됐고 matching 세 개는 등록돼 있다.
-그중 Spatial480·SS128×3 집계는 완료됐으며 Raw/D1-cos는 본 학습 중이다.
+Spatial/Raw/D1-cos의480·SS128×3 집계도 완료됐다. Uniform/no-R는 cascade까지 완료했다.
 각 arm의 proof/capacity/evaluation 작업을 별개의 모델로 세지 않는다.
 
 완료된 동일 DEV128×3에서 Fixed0.473471 대 no-R0.468832의 IoU 차이는
@@ -645,7 +705,7 @@ FID/KID는 작은 ablation마다 반복하지 않고 최종 공통 render popula
 | 산출물 | 구체적인 구성 | 현재와 남은 작업 |
 |---|---|---|
 | Main table | 위4/5개 모델×10 metric, 목적별3개 column group | TEST 실제 값 전부 남음 |
-| Ablation table | Panel A: spatial→raw→decoder cosine→scalar. Panel B: Top-1/Uniform/no-R 대 Fixed | Fixed/Top-1은 SS·cascade 실제 값; Spatial/Uniform/no-R는 SS만 완료; Raw/D1-cos 최종 값은 미측정 |
+| Ablation table | Panel A: spatial→raw→decoder cosine→scalar. Panel B: Top-1/Uniform/no-R 대 Fixed | 7행 SS는 모두 완료; Fixed/Top-1/Uniform/no-R의 cascade 완료; matching3행의 cascade는 진행 |
 | Mechanism figure/table | Retrieval coverage→유효 후보 probability mass→같은 사례의 출력 변화 | 실제 native ray 그림·본문 삽입 완료; matched Uniform 결과와 최종 출력 연결은 남음 |
 | Qualitative figure | 같은 asset/view의 GT·두 zero-shot·V1·R·Ours, 성공과 실패 | [Metadata-only2개 사례·conditional lower-median 규칙](2026-10-25-final-qualitative-selection-protocol-ko.md)은 사전 고정 완료. 최종 TEST 이미지·조건부 사례·figure/caption은 미완료 |
 | Supplement | 모든8metric, 기존 ray/member/learned 음의 결과, 두 seed, protocol·실패 사례 | 기존 완료 결과 반영·최종 정합 검수 |

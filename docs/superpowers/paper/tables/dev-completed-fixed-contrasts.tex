@@ -1,5 +1,4 @@
-% Actual evidence: completed-three-of-six-SS-contrasts-v409/audit.json.
-% Generation-noise repetitions are averaged within each asset before bootstrap.
+% Actual evidence: complete-seven-model-SS-paper-export-v509/audit.json.
 \begin{table}[t]
 \centering\small
 \setlength{\tabcolsep}{4pt}
@@ -7,18 +6,20 @@
 \toprule
 Completed Fixed-context contrast&IoU change&Unadjusted CI95&Six-contrast CI95\\
 \midrule
+Raw semantic minus spatial&+0.000708&[-0.002025,0.003354]&[-0.002955,0.004177]\\
+Decoder cosine minus raw&+0.000476&[-0.001446,0.002465]&[-0.002116,0.003196]\\
+Scalar Fixed minus decoder cosine&+0.000021&[-0.000645,0.000712]&[-0.000872,0.000973]\\
 Fixed minus actual Top-1&+0.000871&[-0.001025,0.002918]&[-0.001642,0.003679]\\
 Fixed minus Uniform-K&-0.000142&[-0.001965,0.001611]&[-0.002590,0.002233]\\
 Fixed minus physical no-R&+0.004639&[0.000565,0.009024]&[-0.000811,0.010633]\\
 \bottomrule
 \end{tabular}
-\caption{The three completed comparisons from the prespecified six-contrast
-development family. All use actual 480-update checkpoints, the same 128 assets
-from 93 source clusters, and three paired generation noises averaged within
-each asset. Percentile intervals use 12,000 paired source-cluster resamples.
-The Bonferroni family size remains six; the three pending matching-ladder
-contrasts are not replaced or silently removed. All adjusted intervals include
-zero. These SS-stage results do not establish equivalence, independent-seed
-confirmation, or full-cascade benefit.}
+\caption{Completed seven-model SS study and all six prespecified development
+contrasts. All use actual 480-update checkpoints, the same 128 assets from
+93 source clusters, and three paired generation noises averaged within each
+asset. Percentile intervals use 12,000 paired source-cluster resamples and
+the original six-comparison Bonferroni correction. All adjusted intervals
+include zero. Positive point estimates do not establish component necessity;
+these SS results also do not establish equivalence or full-cascade benefit.}
 \label{tab:completed-fixed-contrasts}
 \end{table}

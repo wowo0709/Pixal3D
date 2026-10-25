@@ -325,20 +325,20 @@ not form a simultaneous nine-comparison interval or estimate uncertainty
 over a population of training seeds. They remain development evidence,
 distinct from the module-ablation and held-out families below.
 
-For the pending final Fixed-context development study, we predeclare six
+For the final Fixed-context development study, we prespecified six
 contrasts: the three adjacent matching-ladder differences, Fixed versus
 actual Top-1, Fixed versus Uniform-K, and Fixed versus physical retargeter
 removal. Across the eight camera-role endpoints above, these define a
 48-comparison family. Its planned Bonferroni percentile intervals use 48,000
 source-cluster bootstrap draws; unadjusted development intervals are retained
 separately. This family is distinct from the final held-out $8C$ family.
-These controls have not yet produced downstream results.
-The completed stage evaluations give macro IoU 0.473613 for Uniform-K,
-0.473471 for Fixed, and 0.468832 for physical retargeter removal on the
-same DEV128 and three noises. These descriptive estimates support further
-evaluation of retargeting but do not establish a score-weighting advantage,
-equivalence, or full-cascade benefit. The complete six-contrast stage family
-and the new downstream measurements remain pending.
+The seven-model SS study and all six stage contrasts are complete. Uniform-K
+and physical retargeter removal also have complete downstream measurements;
+the three matching-ladder controls and the full 48-comparison downstream
+family remain pending. Stage IoU is 0.473613 for Uniform-K, 0.473471 for
+Fixed, and 0.468832 for physical retargeter removal on the same DEV128 and
+three noises. All six adjusted stage intervals include zero; the positive
+point estimates do not establish component necessity or equivalence.
 SS diagnostics use the same six contrasts as a separate primary voxel-IoU
 family, after averaging three noises within each asset. Precision, recall and
 voxel F1 are retained as secondary diagnostics. Global occupancy ratios are
@@ -620,10 +620,11 @@ Its final DEV128 three-noise series has also completed and passed the same
 checkpoint, per-example identity, GT, and noise validation as the other rows.
 Its macro IoU is 0.472267, versus 0.473471 for Fixed. This difference changes
 multiple matching choices and does not isolate semantic retrieval or scalar
-weighting. Raw-semantic and decoder-cosine training and their final SS
-evaluations remain in progress, as do the new controls' common cascade
-comparisons. Training completion, functional checks, and capacity checks
-are not quality gains.
+weighting. Raw-semantic and decoder-cosine have also completed 480 updates
+and their own final three-noise evaluations, with macro IoU 0.472975 and
+0.473450. The three matching controls' common cascade comparisons remain
+pending. Training completion, functional checks, and capacity checks are
+not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a
@@ -646,20 +647,38 @@ the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
 
 \paragraph{Completed final-context retargeting and aggregation contrasts.}
-Table~\ref{tab:completed-fixed-contrasts} reports the three currently available
-comparisons from the prespecified six-contrast SS family. The reference
+Table~\ref{tab:completed-fixed-contrasts} reports all six comparisons from
+the completed seven-model SS study. The reference
 population, 12,000 bootstrap draws, random seed, and six-comparison correction
-are unchanged from the registered complete-study reducer. No pending model
-is substituted, and this partial result is not a completed seven-model study.
+are unchanged from the registered complete-study reducer. Raw semantic
+retrieval changes IoU by 0.000708 relative to spatial3; contextual decoder
+cosine adds 0.000476, and scalar Fixed adds 0.000021. The corresponding
+adjusted intervals are $[-0.002955,0.004177]$,
+$[-0.002116,0.003196]$, and $[-0.000872,0.000973]$.
 Fixed exceeds physical no-R by 0.004639 macro IoU. Its unadjusted interval
 is positive, but the six-contrast interval is $[-0.000811,0.010633]$.
 The adjusted intervals for Fixed minus actual Top-1 and Fixed minus Uniform-K
-also include zero. Thus these completed stage comparisons do not yet establish
+also include zero. Thus all six completed stage comparisons remain uncertain
+under the prespecified correction; they do not establish
 retargeter necessity, a score-weighting benefit, or equivalence between
-aggregation choices. They motivate completing the planned matching ladder
-and common downstream measurements, rather than changing endpoints or
+aggregation choices. We complete the common downstream measurements rather
+than changing endpoints or
 discarding unfavorable controls.
 \input{tables/dev-completed-fixed-contrasts.tex}
+
+\paragraph{Completed Uniform and physical-no-R cascades.}
+The same-support Uniform and physical-no-R controls now have actual outputs
+and eight metrics for all 128 development examples. Their SS checkpoint
+bindings match the three-noise stage evaluations; the Shape/PBR settings and
+all 384 reference image identities match the Fixed/Top-1 baselines.
+Fixed changes surface F-Score by 0.001553 relative to Uniform, but source
+LPIPS and DreamSim increase by 0.000244 and 0.002147. Relative to physical
+no-R, Fixed changes F-Score by 0.009020 and source LPIPS by -0.000368, while
+DreamSim increases by 0.001469. These are complete-panel point comparisons,
+not intervals from the still-pending 48-comparison family. They show why
+an occupancy ranking or a geometry improvement alone cannot establish a
+score-weighting or source-preservation advantage. No final model is adopted
+from this partial four-model cascade comparison.
 
 \section{Discussion and limitations}
 \paragraph{Retrieval, aggregation, and adaptation are separate hypotheses.}
@@ -688,8 +707,9 @@ The final held-out comparison must establish which improvements survive
 the frozen pipeline and protocol.
 
 The original twelve-model, ten-module-contrast family and paired DEV128
-cascade extension are complete. Final-context matching controls, downstream
-ablations, and held-out results remain pending. The separate two-seed PBR
+cascade extension are complete. The final-context SS study is also complete.
+Downstream evaluations for the three matching controls, the full downstream family, and
+held-out results remain pending. The separate two-seed PBR
 training diagnostic is complete but does not establish pipeline quality.
 The completed two-seed SS study supports the combined branches relative to
 vanilla; it does not isolate each component or establish cascade generalization.
@@ -704,6 +724,10 @@ that is absent from the proposals. Nor does the native fallback detect every
 incorrect but well-supported match. This motivates reporting retrieval
 coverage, probability allocation, and generated-output quality as separate
 measurements, without adding a visibility gate to the pretrained carrier.
+Across different SS outputs, rendered source LPIPS and DreamSim respond to
+both geometry and appearance errors. They are not isolated material metrics;
+the separate same-geometry PBR comparison controls that stage-specific
+confound.
 \bibliographystyle{plain}
 \bibliography{references}
 \end{document}

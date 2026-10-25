@@ -12,19 +12,22 @@
   개선을 두 seed에서 확인했으며 Top-1 대비 추가 이득은 보정 후 미확정이다.
 - Working Fixed seed101의 VAL36 두 fresh-load·72 archive·prefix32·tail4 검증은
   완료됐다. 해당 SS checkpoint의 replay QA이며 rendering 품질이나 모델 선택이 아니다.
-- Uniform/no-R와 Spatial의480 학습·SS128×3는 완료됐다. Spatial의 strict 집계는
-  IoU0.472267이며 v491에서 원본 full-study validator·실제 terminal·GT/noise 정합을 확인했다.
-  Raw semantic/D1-cosine은 학습 중이다. 두 correspondence의 최종 SS128×3와
-  신규5개 control의 cascade128·8metric·전체 family 통계는 미완료다.
+- 모든7모델의480·SS128×3·6대조 집계가 완료됐다. 21개 원본 평가로 원래 reducer의
+  전체 통계를 정확히 재현했고7행·6개 interval을 원래 W&B와 대조했다. 모든6개
+  adjusted CI는0을 포함한다. Matching ladder 점추정은+0.000708/+0.000476/+0.000021다.
+- Uniform/no-R의 실제128 cascade·8metric도 완료됐다. 기존 Fixed/Top-1과 실제 SS binding·
+  PBR·384 GT pixel identity가 같다. Matching3개 cascade와 전체48-family는 미완료다.
 - PBR V1/R×seed101/202의1900과 strict collector는 완료됐다. 실제 frozen700
   tensor×4·LoRA360×4·1900 rank trace·초기 identity·같은 seed의6epoch GT pixel을
   확인했다. Fixed4 target-stage training QA이며 inferential quality나 full-cascade
   seed 확인이 아니다. 최종 조합 선택·freeze·TEST508·최종 writing은 미완료다.
-- 최신 검수된 개발 manuscript는 v505의16쪽·24개 참고문헌이다. Matching probability와
-  correctness/covisibility confidence, support 없는 native fallback의 범위를 원문·코드로
-  구분하고2/4/14/15쪽을 검수·file4 보존했다. 실제 warning/미해결참조/overfull/underfull0,
-  모든 수치 표·그림은 v494와 같다. 앞선 v494의 Spatial SS cell·PBR4행 training-QA
-  표도 유지했다. 최종 control·cascade·TEST·writing 완료는 아니다.
+- 최신 검수된 개발 manuscript는 v514의17쪽·24개 인용이다. 전체7행 SS·6대조와
+  4개 cascade 행을 실제 closed JSON에서 반영하고6/13/14/15쪽을 시각 검수·file4
+  보존했다. Warning/미해결참조/overfull/underfull0이며 나머지 수치 표·그림은 v505와 같다.
+- Camera JSON key 복원만 수행하는 reader를14개 회귀 검사·실제4모델의 값/행/endpoint
+  exact 일치로 검증했다. 원래 pending global CPU reducer는 HELD 후 같은 output의
+  successor로 교체했고 고유 producer·actual file4 admission을 확인했다. 새 full7 생산
+  집계·모델 선정·freeze/TEST·최종 writing 완료를 뜻하지 않는다.
 
 ## Claim별 현재 판정
 
@@ -34,15 +37,15 @@
 | Top-1 semantic matching+retargeting branch의 V1 대비 효과가 독립 학습에서 재현된다 | Seed101 ΔIoU+0.005245, seed202+0.005169; 각 cluster CI95가 양수. 양쪽480 trace pairing·학습 stream 독립·원본 frozen701 tensors 일치 확인 | Fixed seed202 SS와 PBR 두-seed training QA는 완료. Full-cascade/TEST는 별도 | 두 실제 SS training seed에서 combined branch 개선. Retargeter/decoder 단독 효과나 training seed 모집단의 보장 아님 |
 | Fixed combined branch의 V1 대비 SS 개선이 두 학습에서 재현된다 | Seed101 ΔIoU+0.006116, seed202+0.007553. 각 seed의3대조 보정 CI95가 양수; 실제480 trace·초기 RNG·6개 checkpoint의 frozen701 tensor·18개 평가 binding 확인 | PBR 두-seed training QA는 완료; full-cascade/TEST는 미완료. Fixed−Top-1의 보정 CI는 두 seed 모두0 포함 | 두 실제 SS training seed에서 combined Fixed 개선. Decoder/score/R 단독 효과나 Top-1 대비 추가 이득 확정은 아님 |
 | PBR 두-seed training QA가 완료됐다 | V1/R×seed101/2021900·frozen700×4·실제 rank trace·초기 latent·각 seed의6epoch GT pixel 확인. R−V1 crop LPIPS−0.001268/−0.003592, target PSNR−0.016409/−0.243949dB. 원본16장과4행 표 원격 검증 | 최종 geometry/source를 포함한 실제 cascade/TEST 품질은 별도 | Fixed4 GT-shape target8의 혼합된 점추정. 다른 seed의 quality pooling·inferential quality·full-pipeline 재현 주장 불가 |
-| Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 family는 완료됐으며 모든10개 module CI가0을 포함. 최종 Spatial0.472267은 집계 완료; 최종 문맥 Spatial→Raw 및 downstream 대조는 미완료 | “해당 SS 설정에서 양의 점추정” |
-| Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 구조/downstream 연결; 진단32와 SS128을 같은 paired 실험으로 혼동하지 않음 | Descriptor와 scalar score의 효과를 분리 |
-| Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 동일 Top-K support/value 경로의 score 대조가 필요 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
+| Semantic correspondence가 spatial보다 유효하다 | C_SPATIAL→C_RAW의 DEV128×3 macro IoU +0.001117 | 원래 family는 완료됐으며 모든10개 module CI가0을 포함. 최종 Spatial→Raw +0.000708, six-family CI[−0.002955,+0.004177]. Downstream 대조는 미완료 | “해당 SS 설정에서 양의 점추정” |
+| Matching decoder가 correspondence를 개선한다 | Raw→D1-cos IoU +0.000648; 별도 matching DEV32의 exact@1은1.25%→7.73% | 최종 Raw→D1-cos +0.000476, six-family CI[−0.002116,+0.003196]. Downstream 및 진단32와 SS128 범위 구분 | Descriptor와 scalar score의 효과를 분리 |
+| Scalar score가 생성 품질을 개선한다 | D1-cos→decoder IoU −0.000408; 별도 진단의 exact@1은7.73%→8.56% | 최종 D1-cos→scalar +0.000021, six-family CI[−0.000872,+0.000973]. 같은 support 대조와 downstream family48은 별도 | Ranking 개선과 generative gain을 구별; 생성 품질 positive claim 보류 |
 | Top-K attention이 Top-1보다 유효하다 | 기존 Fixed-K SS+0.000527. 최종 Fixed−Top-1은+0.000871, 사전 family6 CI[−0.001642,+0.003679] | 최종 경로 cascade·독립 확인. 기존 DEV32 mask는 다른 scope | 후보 수와 결합의 묶음 효과; 현재 최종 SS의 보정 우위 미확인 |
-| Matching-aware weighting이 동일 후보를 더 잘 활용한다 | 최종 Fixed−Uniform SS−0.000142, family6 CI[−0.002590,+0.002233]. 별도 native 진단에서 GT mass 증가는 관측 | 동일 support의 실제 cascade8metric 및 기전/출력 연결 | 후보 probability mass와 생성 품질을 구분. SS 우위·무효·동등성 모두 미확정 |
+| Matching-aware weighting이 동일 후보를 더 잘 활용한다 | 최종 Fixed−Uniform SS−0.000142, family6 CI[−0.002590,+0.002233]. 별도 native 진단에서 GT mass 증가는 관측 | 완료 cascade Fixed−Uniform F-Score+0.001553, LPIPS+0.000244, DreamSim+0.002147. 전체48-family 미완료 | 후보 probability mass와 생성 품질을 구분. SS 우위·무효·동등성 모두 미확정 |
 | 추가 learned attention이 필요하다 | Anchored SS128×3 IoU0.474794로 Fixed보다+0.001323, CI는0 포함. 실제 cascade128에서도 Learned는 Fixed보다 CD/F-Score 점추정 열위이고 paired CI는0 포함 | 최종 선택에서 추가 이득을 입증할 근거 없음; 현재 working Fixed에는 head 미채택 | SS 최고점이 pipeline 우위를 입증하지 않으며 learned refinement의 필수성·전반적 preservation 개선은 미확정 |
 | Ray 단위 처리가 품질을 개선한다 | 원래 FULL의 DEV128×3 완료: ray0.472078, voxel0.472314, Δ−0.000236; ten-contrast CI[−0.000878,+0.000351] | 최종 경로에 유효한 matched 대조 | 원래 FULL에서 양의 품질 효과 미확인. Ray 구조 설명 가능; 필수성·동등성 주장 불가 |
 | Member 후보가 품질을 개선한다 | 별도 matching DEV32의 exact@64 50.76%→73.36%; 그러나 완료된 FULL mean 제어 IoU0.472679 대 member FULL0.472078 | 원래 member−mean family CI[−0.002246,+0.001262]. 최종 identity-value 경로의 독립 효과는 미입증 | 후보 coverage 개선은 확인; 기존 FULL에서 생성 품질의 양의 점추정은 아님 |
-| Retargeting이 유효하다 | 기존 Top-1 R SS+0.003929. 최종 Fixed−물리적 no-R SS+0.004639, family6 CI[−0.000811,+0.010633]; 일반 CI는 양수 | 최종 weighted 경로의 cascade 비교; 단독 R 효과의 독립 seed는 미확인 | 긍정적 점추정과 보정 전 구간. 보정 후 필요성은 미확정; V1/R 두 seed는 R 단독 ablation 아님 |
+| Retargeting이 유효하다 | 기존 Top-1 R SS+0.003929. 최종 Fixed−물리적 no-R SS+0.004639, family6 CI[−0.000811,+0.010633]; 일반 CI는 양수 | 완료 cascade Fixed−No-R F-Score+0.009020, LPIPS−0.000368, DreamSim+0.001469. 전체48-family 및 단독 R 독립 seed는 미확인 | 긍정적 점추정과 보정 전 구간. 보정 후 필요성은 미확정; V1/R 두 seed는 R 단독 ablation 아님 |
 | Shared evidence 전달 자체가 개선 원인이다 | E_FIXED_RAW SS0.473471; FULL과는 복수 차이 | 동일 후보/가중치/R/V의 split-vs-shared 대조가 있어야 인과 주장 | 현재는 구조 설명; 독립 causal claim 보류 |
 | E_FIXED_RAW가 R보다 좋은 최종 모델이다 | DEV128 F-Score+0.003963, 탐색용 CI[+0.001011,+0.007314]; CD−0.00002230은 CI0 포함. Source LPIPS+0.000211/DreamSim+0.003100은 각각 CI0 포함 | Working Fixed/RPBR의 matched controls·TEST. PBR 두-seed training QA는 완료. Fixed seed202 SS와 working seed101 SS 재로딩 QA는 완료 | Geometry 중심의 working candidate. Preservation 개선·비열등성·최종 보편적 우위는 미확정 |
 | Source 적응과 target 보존을 구조적으로 분리한다 | Native MV4 carrier·target 경로 유지, source map correction만 추가 | 실제 target/source 결과 및 실패 사례 | 입력 target stream 유지 ≠ output RGB 완전 보존 |
@@ -63,10 +66,9 @@ seed 평균의 Fixed−V1은+0.006835, CI[+0.001834,+0.012196], Fixed−R은
 모집단 불확실성이 아니다. `completed-two-seed-collection-v314/native-result-v1`과
 `Fixed-SS-two-seed-paper-and-WandB-v446`의 실제 closure가 근거다.
 
-최종 문맥의 module study는 별도6대조 family다. 완료된3개 대조는 원래 전체6개
-보정을 유지한12,000 draws이며 Fixed−Top-1/Uniform/no-R의 보정 IoU CI95가 모두
-0을 포함한다(`completed-three-of-six-SS-contrasts-v409`). 신규 matching3개가 끝나면
-동일 family를 완성한다. Cascade는 별도48대조 family다. 원래 FULL의10개 module
+최종 문맥의 module study는 별도6대조 family다. 전체6개 대조가 원래12,000 draws·seed20261025로
+완료됐으며 모든 보정 IoU CI95가0을 포함한다(`complete-seven-model-SS-paper-export-v509`).
+기존3개만 완료된 v409를 새 full-study 결과로 대체해 읽는다. Cascade는 별도48대조 family다. 원래 FULL의10개 module
 family, 이후 exploratory learned 비교, 두-seed3대조를 서로 바꾸지 않는다.
 
 Quick32의 단일-noise epoch 값, global occupancy IoU, 최종 DEV128×3 macro per-asset
@@ -106,9 +108,9 @@ GT/count/noise·384 trace를 대조했고 v482/483의 actual file4 closure와 �
 |---|---|
 | `tables/dev-ss128.tex`, `dev-original-module-effects.tex` | 원래 endpoint와 완료10-module family. 최종 shared-evidence 대조와 구분 |
 | `tables/dev-independent-ss.tex` | 실제 V1/R/Fixed 두 seed와 고정 seed 평균; 개별 모듈의 인과 효과 아님 |
-| `tables/dev-completed-fixed-contrasts.tex` | 완료3개/원래6대조 family, 남은 결과를 가짜 값으로 채우지 않음 |
+| `tables/dev-completed-fixed-contrasts.tex` | 완료7모델·전체6대조 family. 21개 원본 평가 exact 재현 및 원격7행/6구간 확인 |
 | `tables/dev-joint32.tex`, `dev-joint128.tex`, `dev-paired-pbr32.tex` | 해당 panel/noise의 실제 cascade와 같은 geometry의 PBR 비교를 구분 |
-| `tables/final-ablation-template.tex` | Spatial→Raw→D1 cosine→scalar ladder와 Top-1/Uniform/no-R 직접 대조. Fixed/Top-1은 SS·cascade, Spatial/Uniform/no-R는 SS만 완료 |
+| `tables/final-ablation-template.tex` | Spatial→Raw→D1 cosine→scalar ladder와 Top-1/Uniform/no-R 직접 대조. 모든 SS 완료; Fixed/Top-1/Uniform/no-R의 cascade 완료, matching3개 cascade는 진행 |
 | `tables/dev-independent-pbr.tex` | 완료1900의 V1/R×seed101/2024행. 원격4행·원본16장·actual file4 근거; fixed4 training QA 범위 |
 | `tables/final-main-template.tex` | 동결 뒤 TEST508/134 source의4/5개 실제 pipeline·사용자 지정10metric. 모든 품질 값 미측정 |
 | `dev-ray-evidence.tex` | 실제 RGB/ray member/후보/posterior. 조건부 예시이며 평균 품질 효과의 근거 아님 |
