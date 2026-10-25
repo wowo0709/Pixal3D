@@ -93,3 +93,13 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 같은32개에서 Learned−Fixed exact GT mass와 실제 출력 개선을 연결한 Spearman rho는 CD−0.0828, F-Score+0.0623, source LPIPS+0.1683, source DreamSim+0.0400이며 네 탐색용 CI 모두0을 포함한다. 정답 mass refinement가 최종 품질을 개선한다는 연결 근거는 아직 부족하다. 연관성 부재가 causal effect 부재를 증명하는 것도 아니다. [독립 V1·실제 활용/출력 연결 기록](../reports/2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)에 수치와 실제 audit를 남겼다.
 
 [원래24개 문헌의 primary-source 대조](../reports/2026-10-24-paper-primary-literature-and-claim-scope-ko.md)를 반영해 correspondence-aware attention과 projection conditioning 자체를 신규 기여로 주장하지 않는다. 현재의 입력은 edited-target RGB와 source RGB이며 GT target mesh를 추론 입력으로 서술하지 않는다. 외부 editing/texturing 방법의 입력 차이는 문제 설정 설명이며, 실행하지 않은 비교의 성능 우위 근거가 아니다.
+
+가까운4개 방법의 본문·공식 코드를 추가 대조했다. ShapeUP의 texture 단계도
+edited image와 source multi-view를 결합하므로 source-view 조건 자체를
+처음 제안했다고 쓰지 않는다. MVDiffusion의 residual zero initialization도
+pretrained function을 보존하므로 cold initialization 자체를 신규 기여로
+쓰지 않는다. CorrAdapter의 공식 MV-Adapter 구현은 cross-view match의 local
+window를 aggregate·blend한다. 이 차이는 우리 global semantic Top-K/ray
+전달과의 구조 비교이며 상대 성능 우위의 근거가 아니다. Published Pixal3D의
+Direct3D-S2/DINOv2와 supplied native TRELLIS.2/DINOv3 구현도 명시적으로
+구분한다. [Method-scope report](../reports/2026-10-25-closest-method-scope-and-writing-ko.md)에 원문 section·공식 immutable code ref와 실제 config 근거를 기록했다.
