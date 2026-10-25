@@ -1,5 +1,7 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-25 최신 실행 범위: [현재 핵심 matrix와 종료 산출물](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다. 남은 본 학습은 최종 Fixed 문맥의 correspondence3개와 Fixed SS/PBR R의 독립 seed 실행 완료다. Uniform/no-R의480·DEV128×3 및 PBR vanilla seed2021900은 완료되어 반복하지 않는다. 이어서 신규5행의 실제 cascade128×8metric, 최종7행 ablation·family 통계, 선택 후보 fresh-load, evidence-led freeze, TEST508×10metric, 실제 Main/Ablation/Mechanism/Qualitative와 최종 manuscript/PDF를 완료해야 한다. 표·그림 exporter 준비와 개발 PDF compile은 최종 평가·writing 완료가 아니다. 아래 최초 계획과 후속 기록의 당시 pending 상태를 현재 상태로 읽지 않는다.
+
 2026-10-25 Method 반영: [실제 SS·stage 파이프라인 구조도](2026-10-25-working-pipeline-method-figure-ko.md)를 넣고 Omega key/native value,16³ conditioning grid/SS64, ray context·abstention을 코드와 대조했다.14쪽 PDF의2/3/4쪽을 검수하고 실제 file4에 보존했다. NN이나 실험 계획을 바꾸지 않았으며 최종 control·cascade·독립 확인·freeze/TEST·최종 결과 writing은 계속 남아 있다.
 
 2026-10-25 후속: [Final qualitative protocol](2026-10-25-final-qualitative-selection-protocol-ko.md)에서 실제 TEST manifest metadata만으로 source-distinct 두 사례와 이후 conditional lower-median 규칙을 사전 고정했다.14쪽 개발 PDF를 compile·검수했다. [Same384 네 모델](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)의 실제 학습 trace·metric 집계와 W&B 게시도 완료했다. 신규5개 control의 최종480/128×3·cascade·독립 확인·fresh load·freeze/TEST·최종 writing은 계속 남아 있다.

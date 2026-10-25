@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-25 최신 판독: [최종 문맥의7행·남은 실행·논문 산출물](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 우선한다. Uniform/no-R의480 학습과 DEV128×3는 완료됐다. 실제 완료된 Fixed−Top-1/Uniform/no-R의 세 대비를 원래6개 contrast family로 보정한 IoU CI는 모두0을 포함한다. R 제거 대비의 양의 점추정을 최종 필요성의 증명으로 쓰지 않는다. Fixed는 확률 가중 결합이며 추가 learned Q/K head가 없다. Ray의 원래 matched 품질 우위도 입증되지 않았다. 아래 초기 관측·중간 checkpoint는 해당 조건의 이력이다. 남은 matching3개·공통 cascade·독립 확인·fresh-load·동결 뒤 TEST10metric과 최종 writing을 대신하지 않는다.
+
 2026-10-25 후속: [같은384-step 네 모델 비교](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)에서 V1/Fixed/Uniform/No-R의 macro IoU는0.470704/0.476221/0.477081/0.469716이다. 실제 cold/384 training trace가 같고 Fixed−No-R+0.006505의 긍정적 중간 신호를 관측했다.480/128×3/downstream 최종 기여는 아직 미완료다. [최종 정성 사례 protocol](2026-10-25-final-qualitative-selection-protocol-ko.md)은 TEST metadata로 두 사례를 사전 고정했으며 final image나 TEST quality는 만들지 않았다.
 
 2026-10-25 후속: [PBR 독립 seed reference 범위·실제 collector 수정과1140 검증](2026-10-25-PBR-seed-reference-scope-and-collector-ko.md). 같은 seed의 모델/epoch 간 GT pixel은 정확히 유지하고 독립 seed의 renderer reference는 구분한다. 기존 NN을 유지한 채 pending CPU collector 하나를 교체했고107개 검사와 실제 prefix/producer 증거를 확인했다. Seed202 vanilla1140 metric·image는 기존 W&B에 있으며 이는 fixed4 stage trend다. 신규 SS 대조·PBR 최종 독립 확인·TEST 품질 효과는 계속 미완료다.
