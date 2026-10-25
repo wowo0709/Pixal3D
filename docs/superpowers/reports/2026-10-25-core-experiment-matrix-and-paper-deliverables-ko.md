@@ -1,6 +1,6 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 실행 상태 재확인: 2026-10-25 03:47 UTC.
+작성: 2026-10-25. 실행 상태 재확인: 2026-10-25 03:56 UTC.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
 PBR vanilla/R 독립 seed2개 실행의 완료**다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -29,9 +29,9 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 행 | Correspondence / aggregation / retargeting | 비교와 질문 | 현재 상태 |
 |---|---|---|---|
-| M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 실제 GPU proof·micro96 capacity 완료, 본 학습 대기 |
+| M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 실제 GPU proof·micro96 capacity 완료, GPU6 본 학습 진행 |
 | M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | 실제 GPU proof·micro96 capacity 완료, 본 학습 대기 |
-| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 실제 GPU proof 완료, GPU6 capacity 진행 중, 본 학습 대기 |
+| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 실제 GPU proof·micro96 capacity 완료, 본 학습 대기 |
 | E_FIXED_RAW | Decoder semantic64 / scalar probability weighting / R | D1 cosine→scalar: scalar matching 모듈의 효과 | SS128×3·cascade128×1 완료 |
 | 실제 Top-1 R | Decoder / 실제 최상위 feature1개 / R | Fixed와 비교: 여러 후보 활용의 효과 | SS·cascade 완료, 재학습 불필요 |
 | A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | 480 학습·DEV128×3 완료, IoU0.473613; cascade 대기 |
@@ -47,6 +47,22 @@ Uniform/No-R 두 개의 학습·SS 평가는 완료됐고 matching 세 개는 �
 +0.000142이므로 score weighting의 stage 우위는 확인되지 않았다. 이는 동등성이나
 효과 부재의 증명도 아니다. 각 arm의 세 실제 종료·checkpoint·GT·ID를 기존
 `validate_series`로 검사하고 actual file4 SHA/size 검증까지 완료했다.
+
+세 correspondence arm의 GPU proof/capacity도 실제 완료됐다. Native conditioning과
+same-noise flow 예측이 초기 기준선과 일치하며, 동일 quick32의 개별 asset metric·GT·
+seed가 V1과 정확히 같다. 초기 macro IoU는 공통0.458358이고 native global occupancy
+IoU0.426715와 구별한다. 세 arm 모두 micro96/accum1의3-update를 통과했고10개
+source parameter의 gradient가 update3에서 모두 양의 유한값이다. Frozen base는
+변하지 않았다. 실제 peak allocated는 spatial89.343GiB/raw89.621GiB/D1-cos89.624GiB,
+reserved는92.127/94.012/94.014GiB다. Capacity의 warm update 두 번은36.77–39.55초로,
+전체 학습 throughput이나 이후 OOM 부재 보장은 아니다. Cold32 raw voxel mask는
+보존되지 않았으므로 위 개별 metric 일치를 raw-mask bit equality로 표현하지 않는다.
+실제 audit/closure는 `three-correspondence-readiness-v382`에 있다.
+
+No-R DEV128×3의3모델·4metric과9개 noise별 diagnostic row를
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/A_FIXED_NO_R-SS128x3-v381)에
+게시하고 원격 summary를 원본과 대조했다. Full-family/cascade/TEST 완료로 표시하지
+않았다. 게시 audit와 actual file4 closure는 `NoR-SS128x3-WandB-v381`에 있다.
 
 해석 경계:
 
@@ -79,7 +95,7 @@ renderer math 변경이나 학습 재시작은 없으며, 이 복구 자체가 �
 
 남은 독립 학습은 선택 Fixed의 SS seed202 한 개와 PBR vanilla/R seed202다. V1/R SS 두 seed는 완료돼 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
 
-관측 시 GPU0–3은 필수 PBR vanilla seed202를 계속 학습 중이며 이후 R seed202가 의존 작업이다. GPU7은 proof/capacity를 통과한 Fixed seed202의 실제 본 학습, GPU6은 matching 대조의 capacity를 진행 중이다. 이후 correspondence3개 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용하도록 연결돼 있다.
+관측 시 GPU0–3은 필수 PBR vanilla seed202를 계속 학습 중이며 이후 R seed202가 의존 작업이다. GPU7은 proof/capacity를 통과한 Fixed seed202의 실제 본 학습, GPU6은 Spatial 대조의 실제 본 학습을 진행 중이다. Spatial의 actual first5 assets/noise/timestep/global input·초기 LoRA/RNG/TRAIN order가 V1과 같은 것도 실제 runtime prefix audit로 확인했다. 이후 Raw/D1-cos 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용하도록 연결돼 있다.
 
 선정 순서:
 

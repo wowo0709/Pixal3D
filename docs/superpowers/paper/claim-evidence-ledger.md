@@ -1,5 +1,14 @@
 # 논문 claim과 필요한 근거
 
+2026-10-25 03:56 UTC: 세 correspondence arm의 실제 cold/backward와
+micro96/accum1 capacity가 모두 완료됐다. V1의 같은 quick32와 초기 개별 metric·
+GT ID·seed가 정확히 같고 macro IoU는0.458358이다. Frozen base는 같으며 update3에서
+10개 source gradient 모두 양의 유한값이다. Spatial 본 학습이 GPU6에서 시작됐다.
+이는 공정한 시작·학습 연결의 근거이며 최종 품질 개선의 증거는 아니다. 실제
+`three-correspondence-readiness-v382` audit/closure에 macro/global scope와
+초기 raw mask 미보존의 한계를 명시했다. 완료 No-R128×3도 실제 원격 W&B summary와
+대조한 뒤 보존했다(`NoR-SS128x3-WandB-v381`).
+
 2026-10-25 03:47 UTC 갱신: Uniform/물리적 no-R의 실제480 학습과 DEV128×3가
 완료됐다. 기존 full-study validator로 자신의 checkpoint/GT/128 ID·93 source와
 세 noise의 실제 종료를 검증한 macro IoU는 Fixed0.473471, Uniform0.473613,
