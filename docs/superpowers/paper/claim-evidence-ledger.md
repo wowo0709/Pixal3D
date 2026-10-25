@@ -67,6 +67,14 @@ micro96 capacity를 실제 통과해 본 학습을 시작했다. Fixed seed202�
 최종 R 필요성을 가정하지 않는다. 아직5epoch/DEV128×3가 아니며 ablation의 최종
 수치로 채우지 않는다. Global occupancy IoU와 macro mean asset IoU도 구별한다.
 
+후속 paired quick32 step288에서 Uniform0.474767 대 Fixed0.471552다.
+평균 차이+0.003215와 달리 개선14/하락18·median−0.000181이며 큰 개선3개가
+전체 net gain을 주도한다. No-R step192는0.467777 대 Fixed0.463634다.
+Matching decoder의 실제8개 saved state는 동일하고, Fixed/Uniform의28개
+gradient entry 모두에서 R/use/fusion이 학습되고 있다. 이 중간 관측은
+weighting/R의 최종 필요성이나 gradient 단절·saturation의 causal 증거가 아니다.
+최종 표에 옮기지 않으며 [실제 중간 분석](../reports/2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)의 범위를 유지한다.
+
 ## Writing에서 지킬 해석
 
 Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이다. CLIP은 semantic 보조 지표이고 FID/KID는 global naturalness다. “All metrics improve”, “all modules are necessary”, “learned attention is essential”은 현재 근거에 없는 문장이다. 원래 비교 family와 이후 탐색적 follow-up, training seed와 generation noise를 구분한다. 음의 결과와 실패 사례도 discussion에 보존한다.
