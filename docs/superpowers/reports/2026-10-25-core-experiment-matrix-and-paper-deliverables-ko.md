@@ -470,7 +470,33 @@ receipt와 기존 render case의 environment-map hash를 명시적으로 연결�
 원본과 대조했다. 실패 로그/빈 디렉터리·기존 작업 이력을 보존했다. NN·sampler·
 renderer math 변경이나 학습 재시작은 없으며, 이 복구 자체가 품질 결과는 아니다.
 
-### DEV640 저장 공간: 실제 사전 점검과 남은 연결
+### DEV640·TEST 저장 공간: 현재 검증과 사전 점검 이력
+
+최신 `actual-DEV512-and-TEST-rolling-storage-readiness-v540`에서는 완료된
+Uniform/no-R/Spatial/D1-cos512개 사례를 검사했다. 각 사례의 실제4단계 종료·
+canonical33-file catalogue, 현재 보존 파일의 존재/크기,512개의 실제 raw3 retirement
+receipt와 token의 SHA/bytes 대응이 맞았다. Guide·geometry prediction·scored pixel·
+원격 원본은 유지한다. 이번 byte inventory에서 모든 로컬 file content를 다시 hash한
+것은 아니며 원래 producer receipt와 closed retirement 증거를 사용했다.
+
+최종 row 수와 PBR replay 수는 독립이다. `independent-final-row-and-PBR-replay-storage-forecast-v541`
+이 v540의 이 두 조건을 연결했던 임시 projection을 대체한다. TEST4/5행은2,032/2,540개
+case이고 raw4를 순차 회수한 뒤의 평균 보존량은 약84.94/106.18GiB다. PBR는 실제
+Fixed 선정 시64개, 다른 SS 선정 시128개 replay이며 별도로 계산했다. 관측 시점
+로컬 여유365.41GiB, 파일서버4 여유 약165TB, 실제 outstanding future reservation16GiB다.
+남은 DEV 및 PBR64/128의 보수적 full-case proxy를 포함한 평균 시나리오에서는 약
+205.80–248.55GiB가 남는다. 이는 추가 선택 모델 학습·density 차이·다른 사용자 증가를
+보장하지 않으며, 필요한 독립 SS/PBR 학습은 별도 실제 admission을 확인한다.
+
+TEST 운영은 최대6개 whole-asset group, 양수 workspace, 현재 free-space credit 및
+모든 실제 frozen consumer 종료·fresh NAS hash 후 raw 복사본만 회수하는 원래 구현을
+유지한다. 사례당4GiB/16GiB workspace는 이번 관측에 근거한 제안이며 아직 final
+context에 적용하거나 예약하지 않았다. 실제 SS/PBR 선정·freeze 뒤 최종 budget을
+확정한다. Campaign 수치 source48개는 v326 이후 그대로이고 최종 export packet의
+11개 source pin도 현재 파일과 같다. 이 pin은 기존 numerical source map에 병합하며
+기존 항목을 교체하지 않는다. 새 삭제·ledger 변경·TEST forward/quality 열람은0이다.
+
+아래 v387/v392의 미실행 표현과 여유 공간은 해당 사전 점검 시점의 이력이다.
 
 `DEV640-storage-admission-v387`에서 기존3모델×128개의 canonical receipt byte
 footprint와 실제 local stat을 조사했다. 로컬 여유는 약531GiB, 파일서버4는 약166TiB다.
