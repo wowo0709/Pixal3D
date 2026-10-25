@@ -26,6 +26,19 @@ file4 SHA256/size를 확인한 외부 source snapshot에서 전용 Tectonic0.17.
 수치는 유지하고 기존 표와 같은 text 표기로 바꿔 v412에서 성공했으며 실패 로그도
 보존한다. PDF/source/log는 Git 대신 file4 실험 산출물로 관리한다.
 
+## 최종 정성 그림 실행 준비
+
+[Exporter 계약](final-qualitative-export-contract.md)에 실제 source·closed input·freeze 연결을
+정리했다. `final_qualitative_selection.py`와 `export_final_qualitative.py`를 구현했고
+30개 metadata/pixel 검사가 통과했다. 전체6열의 변경된 layout/image join도 다시
+검사·시각 검수했다. 실제508 metadata·134 source와 두 고정 ID는 원래 v355 선언과
+정확히 같고, 원본 manifest의 현재 remote/local SHA·size도 읽기 전용으로 대조했다.
+
+`final-qualitative-export-readiness-v420/freeze-requirements.json`의 선언 spec과
+source pins를 실제 TEST 전에 evaluation protocol에 **병합**해야 한다. 기존 numerical
+source mapping을 대체하지 않는다. 실제 freeze·최종10metric 이후의 실행만 허용하며,
+현재 검수한 그림은 명시적인 engineering fixture다. 최종 TEST 그림은 계속 미완료다.
+
 ## 이전 revision 이력
 
 아래의 “최신”·pending·쪽수 설명은 각 revision 당시의 기록이다. 현재 실행 상태는

@@ -1,6 +1,6 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 후속 관측: v409 완료3대조의 사전 family6 통계, v410 원격 게시, v412 실제 논문 반영·검수.
+작성: 2026-10-25. 후속 관측: v420 최종 정성 exporter 준비와 실제 metadata/원본 manifest 검증, Spatial101 epoch288.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
 PBR R 독립 seed1개 실행의 완료**다. PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -226,6 +226,18 @@ Spatial−Fixed는+0.002166, Spatial−Top-1 R은+0.004918이지만 Spatial−V1
 `Spatial101-epoch192-WandB-v401`에 실제 file4 SHA/size와 함께 보존했다.
 최종 ablation/TEST 표에는 넣지 않았다.
 
+후속 seed101의 실제 epoch288 quick32 macro IoU는 Fixed **0.471552**,
+Spatial **0.468629**, V1 **0.468973**, Top-1 R **0.467991**이다.
+Spatial−Fixed는−0.002923, 개선11/하락21·median−0.004157이고,
+Spatial−V1은−0.000344, 개선15/하락17·median−0.001538이다.
+처음288 실제 입력/noise/timestep/global trace도 같다.192의 Spatial>Fixed 순위가
+288에서 역전됐지만 Fixed에는 decoder/score 등도 달라 semantic 단독 효과가 아니다.
+최종480/128×3·인접 matching ladder·cascade 판단을 유지하며
+`Spatial101-actual-epoch288-v400`에 실제4개 산출물을 file4 SHA/size로 보존했다.
+원격 summary를 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Spatial101-epoch288-v401)의
+게시 audit도 `Spatial101-epoch288-WandB-v401`에 실제 file4 SHA/size로 보존했다.
+
 완료된 PBR vanilla seed202는4개 rank 모두1900 업데이트·LoRA optimizer360개·
 frozen/DDP completion proof를 통과했다. 각 rank의 실제1900 trace와24개 원래 PNG의
 GT pixel identity, 여섯 validation을 재확인했다. 고정 GT shape·target4에서 pooled
@@ -317,6 +329,17 @@ Writing 순서는 problem/method·protocol 정리 → DEV ablation/기전 → �
 현재 Fixed는 learned Q/K refinement가 없는 확률 가중 집계다. 따라서 이를 “학습된 QKV attention의 우위”로 쓰지 않는다. 추가 learned attention의 기존 음의 결과는 supplement와 discussion에 보존한다. 이 구성에서 실제 입증되는 요소를 중심으로 기여를 줄일 수 있어야 한다.
 
 ### 실제 writing 순서와 완료 조건
+
+최종 정성 export의 실제 구현도 준비했다. [실행 계약](../paper/final-qualitative-export-contract.md)의
+selector/exporter는 v355 정책 전체와508 metadata·두 고정 ID에 정확히 일치한다.
+30개 synthetic metadata/pixel 검사와 변경된 전체6열 layout/image join 검사가
+통과했고 테스트 그림을 시각 검수했다. 원본 TEST manifest의 현재 actual remote/local
+SHA·size를 읽기 전용으로 재확인했다. `final-qualitative-export-readiness-v420`에
+source·검사 근거·engineering layout 및 실제 freeze에 병합할 필수 선언/source pins를
+보존했다. 이 packet은 actual freeze나 TEST job이 아니며 기존 numerical source map을
+유지한 채 TEST 전에 추가해야 한다. 최종10metric의 같은 frozen model·508/134source·
+1524 camera 기록과 원래 float/uint8 scored-image hash를 확인한 뒤만 export한다.
+실제 최종 TEST 그림은 계속 남아 있으며 engineering fixture를 결과로 사용하지 않는다.
 
 1. **Method:** RGB4장/camera, target native stream과 source adaptation, member 기반 semantic 후보, ray 단위 evidence 공유, score-weighted 전달과 R의 정확한 수식을 코드와 맞춘다. No-match는 native source feature를 유지하며 GT visibility를 inference gate로 사용하지 않는 계약을 설명한다.
 2. **Experimental setup:** DeformNeXt split·초기 multi-view LoRA checkpoint·동일 학습 stream·update·global batch·noise·고정 Shape/PBR·metric reference·cluster 통계를 표/본문에 명시한다. Clean80k는 초기 모델의 학습 이력이며 deformation 실험의 데이터가 아니다.

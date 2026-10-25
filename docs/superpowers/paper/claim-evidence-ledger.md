@@ -1,5 +1,20 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Spatial101 epoch288: 같은 quick32 macro IoU는 Fixed0.471552,
+Spatial0.468629, V10.468973, Top-1 R0.467991이다. Spatial−Fixed−0.002923,
+Spatial−V1−0.000344이며 첫288 실제 학습 trace가 같다.192의 순위 역전은 중간
+관측이고 semantic/decoder/score 단독 효과나 최종 module claim으로 쓰지 않는다.
+실제 `Spatial101-actual-epoch288-v400`을 file4에 보존하고 최종 표는 유지한다.
+원격 [paired epoch288 게시](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Spatial101-epoch288-v401)의
+summary도 원본과 대조했다.
+
+최종 정성 selector/exporter 준비는 품질 효과가 아니다. 원래 v355 정책·실제508
+metadata·두 고정 ID를 대조했고30개 synthetic 계약 검사와 전체6열 layout 검사가
+통과했다. `final-qualitative-export-readiness-v420`의 필수 선언/source pins는 TEST 전
+actual evaluation protocol에 병합해야 한다. 현재 engineering fixture 그림을 최종
+결과로 쓰지 않으며 actual frozen ten-metric run과 scored-image archive로 만든 최종
+정성 그림은 계속 남아 있다.
+
 후속 actual Fixed202 epoch288: 같은 quick32 macro IoU는 Fixed0.472018,
 V10.470033, Top-1 R0.468336이다. Fixed−V1+0.001985, Fixed−R+0.003681로
 두 평균 차이가 양수지만 final480/DEV128×3나 통계적 우위의 확인이 아니다.
