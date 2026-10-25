@@ -1,5 +1,13 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Spatial101 epoch192: 같은 quick32에서 Spatial0.465800,
+Fixed0.463634, Top-1 R0.460882, V10.467447이다. 첫192 실제 학습 trace는
+같다. 현재 중간 점추정은 semantic의 우위를 지지하지 않으며 최종480/128×3와
+cascade를 대신하지 않는다. 실제 근거는 `Spatial101-actual-epoch192-v400` 및
+원격 수치를 검증한 `Spatial101-epoch192-WandB-v401`에 보존했다.
+최종 표는 그대로 유지했다. 남은 본 학습5개와 cascade·독립 확인·동결/TEST·writing의
+종료 산출물은 [핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)에 명시했다.
+
 후속 actual Fixed202 epoch192: 같은32개에서 Fixed0.465424, Top-1 R0.462070,
 V10.466631이다. Fixed−R+0.003354는 양수지만 Fixed−V1−0.001207은 여전히
 음수다. 첫192 입력 trace와 cold pairing을 확인했으며 최종480/128×3/cascade

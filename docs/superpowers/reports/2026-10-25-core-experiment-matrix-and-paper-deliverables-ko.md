@@ -1,9 +1,9 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 후속 관측: v392 CPU 실행 연결, v393 PBR 완료, v396 Spatial 첫 epoch.
+작성: 2026-10-25. 후속 관측: v392 CPU 실행 연결, v393 PBR 완료, v400/v401 Spatial epoch192 실제 집계·게시.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
-PBR vanilla/R 독립 seed2개 실행의 완료**다. 앞의5개 신규 ablation 중 Uniform/no-R의
+PBR R 독립 seed1개 실행의 완료**다. PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
 480 학습과 DEV128×3는 끝났으며 반복하지 않는다. 나머지 핵심은 같은128개 실제
 cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완성이다.
 학습 작업 수와 평가/proof/capacity 작업 수를 구분한다.
@@ -11,6 +11,21 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 후속 실제 실행 연결: [다섯 control의 cascade·8metric·논문 집계 등록](2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 기준선116개 평균값과 GT 재사용을 검증하고, own SS archive에 의존한 connector5개 및 최종 reducer를 등록했다. 아래의 후속 연결 미완료 설명은 해당 실행 기록으로 갱신하며, 실제 신규 cascade 품질은 계속 미완료다.
 
 목표는 각 요소가 실제로 기여하는지 판별하고, 그 근거에 맞는 하나의 파이프라인과 논문을 완성하는 것이다. 모든 요소의 효과가 양수라는 결론을 전제하지 않는다. 이전 결과의 조건이 같으면 재사용하며 지엽적인 구조 탐색은 추가하지 않는다. 아래는 등록된 작업의 완료 조건과 논문 산출물을 정리한 것이다. 이번 문서 갱신으로 새 학습 arm을 추가하지 않는다.
+
+### 남은 작업의 우선순위와 종료 산출물
+
+| 순서 | 남은 실행 | 종료할 때 남겨야 하는 근거 |
+|---|---|---|
+| 1. 최종 문맥의 모듈 대조 | Spatial / Raw semantic / Decoder-cosine 각각480 updates와 SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
+| 2. 실제 출력 평가 | 신규5행×동일 DEV128의 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
+| 3. 독립 확인·재로딩 | Fixed SS seed202480/128×3, PBR R seed2021900 및 두 seed collector, 선택 후보의 VAL36 두 fresh-load | 단일 학습 운·초기 함수 하락·checkpoint composition 문제와 최종 모듈 효과를 구분하는 실제 결과 |
+| 4. 최종 모델 동결 | 앞의 근거로 실제 SS/Shape/PBR 조합·checkpoint·code·평가 protocol 확정 | TEST 전에 고정한 모델과 설정. Fixed의 추가 이득이 지지되지 않으면 Top-1 R 선택 가능 |
+| 5. TEST·정성 평가 | TEST508/134 source cluster에서 두 zero-shot·V1·R·Ours의10metric, 고정 사례와 실패 사례 | Main table, paired source-cluster interval, 최종 정성 그림. Ours가 R과 같으면 중복 행 제거 |
+| 6. 논문 완성 | 실제 수치로 Main/Ablation/Mechanism/Supplement와 Results/Discussion 작성, 마지막에 Abstract/Conclusion 확정 | 표·claim 원장·실제 checkpoint/결과가 일치하고 compile·시각 검수를 마친 PDF |
+
+1–3은 의존성이 허용하는 범위에서 병행한다. 실제 cascade는 각 own SS 결과가
+준비되는 즉시 연결하며,4의 동결은 모듈별 대조·독립 확인·재로딩 근거 뒤에 한다.
+본 학습이 끝나도2·5·6이 끝나기 전에는 실험이나 논문 전체가 완료된 것이 아니다.
 
 ## 1. 현재 근거와 잠정 선택
 
@@ -157,6 +172,17 @@ V1 **0.463801**, Top-1 R **0.461619**, Fixed **0.461789**, Spatial **0.461504**�
 Spatial−Fixed는−0.000285, Spatial−V1은−0.002297이며 처음96개 실제 학습 trace와
 초기 개별 metric·GT·seed는 같다. 아직 semantic retrieval의 최종 우위나 무효를
 판정하지 않는다. `Spatial101-first-epoch96-v396`에 실제 prefix와 audit를 보존했다.
+
+이후 같은 seed101 quick32의 실제 epoch192는 V1 **0.467447**, Top-1 R
+**0.460882**, Fixed **0.463634**, Spatial **0.465800**이다.
+Spatial−Fixed는+0.002166, Spatial−Top-1 R은+0.004918이지만 Spatial−V1은
+−0.001647이다. 첫192 실제 학습 입력·noise·timestep/global trace가 같음을
+검증했다. 이 중간 점추정은 semantic의 우위를 지지하지 않으며 최종 열위·무효도
+입증하지 않는다. 약속한480/128×3와 실제 cascade 비교를 유지한다. 실제 readout은
+`Spatial101-actual-epoch192-v400`, 원격 수치 검증까지 마친
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Spatial101-epoch192-v401)는
+`Spatial101-epoch192-WandB-v401`에 실제 file4 SHA/size와 함께 보존했다.
+최종 ablation/TEST 표에는 넣지 않았다.
 
 완료된 PBR vanilla seed202는4개 rank 모두1900 업데이트·LoRA optimizer360개·
 frozen/DDP completion proof를 통과했다. 각 rank의 실제1900 trace와24개 원래 PNG의
