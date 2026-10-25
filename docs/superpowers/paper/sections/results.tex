@@ -1,0 +1,68 @@
+\section{Results}
+\subsection{Frozen held-out comparison}
+\ifFinalReportReady
+\input{final-results/main-table.tex}
+\input{final-results/results.tex}
+\else
+The five-model TEST508 cascade and ten-metric evaluation are in progress.
+The final Main table will be imported from the closed source-bound collector;
+development means are not substituted into it. The comparison separates the
+information supplied by an edited target from the effect of fine-tuning and
+retargeting. Its geometric and appearance findings remain unasserted here.
+\fi
+
+\subsection{Geometric component comparisons}
+\input{typeset/final-ablation-template.tex}
+All seven SS designs have completed 480 updates, DEV128 three-noise
+diagnostics, and actual surface evaluation under common downstream models.
+Spatial, raw semantic, decoder-cosine and scalar Fixed give CD 0.0129704,
+0.0128789,0.0128065 and 0.0127572, with F-Score 0.839333,0.841031,0.842414
+and 0.844058. The point-estimate ladder improves both geometric endpoints,
+but every interval in the 48-comparison family includes zero.
+
+Fixed minus Top-1 changes F-Score by 0.003963, with adjusted
+interval $[-0.000910,0.009748]$; Fixed minus Uniform gives 0.001553 with
+$[-0.003326,0.007439]$; physical retargeter removal gives a Fixed advantage
+of 0.009020 with $[-0.001582,0.020293]$. CD intervals also contain zero.
+We select Fixed by the lowest CD/highest F-Score points, while retaining
+uncertainty about component effects. Spatial 3 versus semantic 64 is a
+module substitution, Top-1 versus weighted Top-K bundles candidate count
+and aggregation, and scalar matching can change support. Uniform on the
+same support is the separate weighting control.
+
+\subsection{Appearance on identical selected geometry}
+\input{typeset/dev-selected-pbr-appearance32.tex}
+The four PBR variants share actual generated Fixed geometry, native guides,
+texture noise, triangles and references. Top-1 R has the lowest source
+LPIPS/DreamSim points, 0.053290/0.157828, versus vanilla 0.053513/0.158346.
+Their exploratory paired deltas are $-0.000223$ with
+$[-0.000539,0.000035]$ and$-0.000517$ with $[-0.002250,0.001183]$.
+Both intervals include zero. Feature/Raw variants do not improve either
+primary point over Top-1 R; vanilla has the best complementary CLIP point.
+We choose the measured Top-1 R PBR and report target image metrics separately.
+Identical CD/F-Score confirm geometry equality, not a PBR geometry gain.
+The feature/Raw arms retain a Top-1 carrier/use path and do not establish the
+effect of a shared Fixed PBR pathway.
+
+\subsection{Retrieval evidence and generated quality}
+Decoder matching improves exact rank-one coverage from 1.25\% to 7.73\%
+in the separate DEV32 diagnostic. Member proposals raise exact@64 coverage
+from 50.76\% to 73.36\%. Native evidence-use analysis finds 31,408 observable
+Top-1-miss/Top-K-hit relations; Fixed places more probability on GT proposals
+than post-hoc Uniform. These measurements establish available evidence and
+its allocation, not a generated-quality improvement. The original learned
+ray-versus-voxel and member-versus-mean studies do not establish positive
+quality effects; their scope differs from the selected identity-value path.
+Full diagnostics and the actual annotated example are in the Supplement.
+
+\subsection{Prespecified qualitative comparison}
+\ifFinalReportReady
+\input{final-results/qualitative-main.tex}
+\else
+The Main figure is reserved for the first outcome-blind example in the
+original metadata declaration. The second outcome-blind example and every
+conditional lower-median panel remain in the Supplement. This placement is
+fixed before viewing the final panels and is independent of their quality.
+The actual scored target/source images will be imported after ten-metric
+completion; no placeholder image is presented as an experiment.
+\fi

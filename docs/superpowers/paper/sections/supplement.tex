@@ -1,0 +1,135 @@
+\section{Supplementary evidence and reproducibility}
+This Supplement retains complete development studies and their limits. It
+does not reinterpret exploratory results as held-out confirmation.
+
+\subsection{Architecture, matcher and training details}
+D1 has one query-only cross-attention block with four heads of width 32 and
+a 128-dimensional feed-forward bottleneck. Candidate descriptors are unchanged.
+A LayerNorm--MLP scalar head of hidden width 64 adds a bounded
+$0.25\tanh$ residual to contextual cosine. The listwise objective averages
+eligible queries within an asset; assets without an eligible query do not
+update the matcher. The final seven-pass checkpoint contains 62,545 updates,
+using AdamW rate $10^{-4}$, weight decay 0.01 and gradient clipping 1. Six
+teacher-rejected cases affect matcher training only; the SS population is
+still 9,149. No test matching-head training or calibration is performed.
+
+The selected SS uses identity values and no new learned readout. An evaluated
+alternative anchors learned logit refinement to its initial score:
+\begin{equation}
+ a_{rhk}=\operatorname{softmax}_{k\in\mathcal K_r}
+ [\log p_r(k)+s_{rhk}(\theta)-s_{rhk}(\theta_0)].
+\end{equation}
+Four-head probabilities average before native value aggregation. Prior-weighted
+centering of the score difference preserves this softmax, and zero prior
+support remains zero. This initialization reproduces Fixed weights, but an
+initialization safeguard is not evidence of a quality advantage. Learned
+V/output transforms are distinct alternatives. Absent deformation-query
+channels and source modules are physically removed in their respective
+controls.
+
+The original SS/PBR base and frozen matcher tensors, LoRA initialization,
+per-rank input/noise/timestep traces, and saved checkpoint/config hashes are
+verified in the experimental artifacts. Main SS comparisons use a native
+microbatch 96 without accumulation; native PBR uses four ranks with
+microbatch 6, accumulation 1 and global batch 24. Shape stages, image encoders,
+Omega and the matching decoder remain frozen during generative fine-tuning.
+
+\subsection{Original module family and independent training}
+\input{typeset/dev-ss128.tex}
+\input{typeset/dev-original-module-effects.tex}
+\input{typeset/dev-independent-ss.tex}
+The original 12-model family has ten prespecified module contrasts; its
+adjusted intervals include zero. Two follow-up evidence designs are reported
+separately. In the original FULL family, ray minus voxel macro IoU is
+$-0.000236$, with adjusted interval $[-0.000878,0.000351]$. Member minus mean
+is$-0.000601$, with $[-0.002246,0.001262]$. These results do not establish a
+positive quality effect or equivalence, and the original learned readout is
+not the selected Fixed architecture.
+
+The two-seed SS study uses 4,000 source-cluster draws for three IoU contrasts
+separately within each seed and for the fixed-two-checkpoint mean. It is not
+a simultaneous nine-comparison or training-seed-population interval. Fixed
+minus V1 is positive in both actual runs; Fixed minus Top-1 remains uncertain.
+For selected Fixed SS, two fresh VAL36 loads verify latent/occupancy
+consistency and tail-batch behavior before TEST. The V1/Top-1 controls retain
+their own archived checkpoint-binding and native parity checks; these are
+not a two-fresh-load study of all seven ablation checkpoints.
+
+\input{typeset/dev-independent-pbr.tex}
+The two-seed PBR training diagnostic retains each producer's fixed-four
+GT-shape target reference and declared initial-render policy. Across seeds,
+input RGB, cameras, noise and initial latent checks are exact, but these
+curves are not pooled as common-pixel source-preservation evidence.
+
+\subsection{Paired geometric and appearance studies}
+\input{typeset/dev-geometry-contrasts128.tex}
+\input{typeset/dev-completed-fixed-contrasts.tex}
+\input{typeset/dev-joint32.tex}
+\input{typeset/dev-joint128.tex}
+\input{typeset/dev-pbr-appearance32.tex}
+\input{typeset/dev-paired-pbr32.tex}
+All 48 downstream family values are retained unrounded in the source-bound
+artifact. The displayed geometric intervals use that complete correction;
+the separate SS diagnostic family averages three noises per asset. The
+historical V1-geometry PBR table and the same-selected-Fixed table in the Main
+text describe different fixed geometries. Their points are not exchanged or
+pooled. Generated-geometry appearance and geometry results remain distinct
+from fixed-GT-shape training diagnostics.
+
+\subsection{Matching evidence and its limits}
+\input{typeset/dev-matching32.tex}
+\input{typeset/dev-ray-evidence.tex}
+On 31,408 native observable Top-1-miss/Top-K-hit relations, mean GT mass is
+1.6266\% for post-hoc Uniform, 6.4601\% for Fixed, and 6.1756\% for learned
+refinement. The learned-minus-Fixed interval includes zero. Candidate
+diagnostics and a relationship's stored annotation do not establish a
+population quality gain or a visibility calibration. The illustration is
+selected by the original conditional lexicographic rule, not downstream
+render quality. Post-hoc Uniform mass is not the matched Uniform training arm.
+
+\subsection{Full-frame and foreground sensitivity}
+The primary table retains full-frame metrics. The existing producer also
+reports foreground PSNR and GT-only-crop DreamSim/CLIP, with common GT-defined
+crops across models. These reveal sensitivity to foreground/background
+composition without model-specific recentering or alignment. They are
+supplementary descriptive endpoints, not a new primary family.
+\ifFinalReportReady
+\input{final-results/foreground-sensitivity.tex}
+\input{final-results/adjusted-contrasts.tex}
+\else
+The actual final foreground table and 16 adjusted primary comparisons are
+pending complete frozen ten-metric collection.
+\fi
+
+\subsection{Qualitative selection and remaining examples}
+The original metadata declaration fixes two examples from distinct sources
+without candidate scores. The first is placed in the Main text; the second
+and every conditional lower-median example are included here. Empty categories
+remain empty and overlapping categories share one panel. Category counts
+describe eligibility, not population success rates. Images reuse exactly the
+scored float arrays and official uint8 conversion, with target8/source9/10,
+common M1 original-material references, and no model-specific crop or rerender.
+\ifFinalReportReady
+\input{final-results/qualitative-supplement.tex}
+\fi
+
+\subsection{Execution and reproducibility scope}
+All 5 fixed pipelines use 508 test examples from 134 source clusters and one
+prescribed generation noise per example. Global occupancy ratios are
+distinguished from mean per-asset IoU. All 2,540 SS archives are checked for
+actual latent hashes, packed occupancy and TP/FP/FN consistency; occupancy is
+not substituted for surface CD/F-Score or appearance metrics. Generated
+geometry is not aligned independently per output. PBR comparisons retaining
+the same geometry use identical original guide values/order/scale and
+rendering triangles.
+
+The test campaign bounds complete-asset credits and retires only local raw
+duplicates after every declared consumer completes and fresh canonical
+file-server SHA/size checks pass. Scored images, guides, reports, source
+assets and weights are retained. An initial storage-connection metadata
+omission caused a controlled stop; the recovered namespace retains the same
+frozen model/numerical protocol and SS inputs. Operational reader-ledger
+transactions are serialized without signalling GPU workers. Such recovery
+does not constitute a new model or a test-driven hyperparameter choice.
+The final metric and qualitative artifacts retain actual producer/file hashes
+and the original model-freeze/declaration lineage.

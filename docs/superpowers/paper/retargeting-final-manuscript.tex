@@ -1,0 +1,72 @@
+\documentclass[10pt,twocolumn]{article}
+\usepackage[margin=0.7in,columnsep=0.25in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx,hyperref}
+\setlength{\emergencystretch}{1em}
+\setcounter{dbltopnumber}{4}
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\textfraction}{0.05}
+\newcommand{\pending}{\textemdash}
+\newif\ifFinalReportReady
+\IfFileExists{final-results/provenance.tex}{\input{final-results/provenance.tex}}{}
+\title{Ray-Based Semantic Evidence Retargeting for Multi-View 3D Editing}
+\author{Anonymous manuscript}
+\date{}
+\begin{document}
+\raggedbottom
+\maketitle
+\ifFinalReportReady\else
+\noindent\textbf{Evaluation-in-progress preview.} The architecture and evaluation
+protocol are frozen. Development tables below contain actual measurements;
+the final TEST508 table, qualitative panels, and result-dependent writing
+remain pending. This preview is not a completed paper.
+\fi
+
+\begin{abstract}
+An edited image and undeformed source views describe different geometric
+states of the same object. Direct multi-view projection can therefore deliver
+appearance features to an incorrect region after deformation. We study a
+feature retargeting path that retains the native target conditioning and
+adapts source evidence through camera-ray groups. A frozen semantic matcher
+provides correspondence proposals; the geometry stage shares their weighted
+evidence across each ray and uses a gated source-contrast retargeter. The
+appearance stage uses a separately evaluated Top-1 retargeter on generated
+geometry. We distinguish retrieval diagnostics, matched geometric ablations,
+and fixed-geometry appearance comparisons, preserving the pretrained function
+at initialization. The evaluation separates source appearance, target
+alignment, and global image-distribution endpoints, with source-cluster
+uncertainty and a development-only model freeze.
+\ifFinalReportReady
+\input{final-results/abstract-findings.tex}
+\else
+The completed development studies motivate this stage-specific composition;
+the frozen held-out comparison is still running and its findings are not
+asserted here.
+\fi
+\end{abstract}
+
+\input{sections/introduction.tex}
+\input{sections/related-work.tex}
+\input{sections/method.tex}
+\input{sections/experiments.tex}
+\input{sections/results.tex}
+\input{sections/discussion.tex}
+
+\section{Conclusion}
+\ifFinalReportReady
+\input{final-results/conclusion.tex}
+\else
+We formulate semantic feature retargeting as source adaptation within a
+pretrained multi-view carrier and distinguish the geometric and appearance
+objectives of its stages. The completed development ablations provide
+conditional evidence and unresolved component-level uncertainty; they do not
+establish that every matching or attention component is necessary. The final
+conclusion will follow the complete frozen TEST508 comparison.
+\fi
+
+\clearpage
+\bibliographystyle{plain}
+\bibliography{references}
+\clearpage
+\appendix
+\input{sections/supplement.tex}
+\end{document}

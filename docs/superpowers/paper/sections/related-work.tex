@@ -1,0 +1,39 @@
+\section{Related work}
+\paragraph{Generation and editing.}
+Sparse representations support high-resolution geometry and materials in
+TRELLIS.2~\cite{xiang2025trellis2}; Pixal3D introduces pixel-aligned projection
+conditioning~\cite{li2026pixal3d}. Reconstruction--generation combinations
+include ReconViaGen~\cite{chang2025reconviagen}, RecGen3D~\cite{huang2026recgen3d},
+and GenRecon~\cite{schmid2026genrecon}. We continue the supplied multi-view
+LoRA implementation rather than claim projection or multi-view conditioning
+as a new mechanism. Its TRELLIS.2/DINOv3 implementation differs from the
+published Pixal3D backbone; checkpoint lineage is specified below.
+
+ShapeUP learns source-shape/edited-image translation and uses source renders
+for texture~\cite{gat2026shapeup}. GeoStyle deforms a source mesh from an image
+style reference~\cite{choi2026geostyle}; APAP~\cite{yoo2024apap} and
+SpaceControl~\cite{fedele2025spacecontrol} combine geometric control with
+generative priors. TextureDreamer transfers appearance to a supplied target
+shape~\cite{yeh2024texturedreamer}. Our evaluated input is instead edited
+target RGB plus undeformed source RGB with calibrated cameras, and the output
+geometry is predicted. Source-view appearance conditioning itself is not our
+novelty claim, and these input differences preclude an unexecuted quantitative
+comparison with source-mesh or target-shape methods.
+
+\paragraph{Correspondence and aggregation.}
+MV-Adapter supports multi-view generation~\cite{huang2025mvadapter}.
+MVDiffusion exchanges correspondence-conditioned information and uses
+zero-initialized residual layers~\cite{tang2023mvdiffusion}; this initialization
+principle is a safeguard we reuse. CorrAdapter aggregates matched regions
+for multi-image consistency~\cite{zhang2026corradapter}. Our question concerns
+semantic evidence delivered into a 3D projection-conditioning path when the
+observed images intentionally depict different geometries.
+
+Diffusion and DINO features expose complementary correspondence
+properties~\cite{tang2023dift,zhang2023twofeatures}. VGGT-$\Omega$
+learns geometry-aware representations~\cite{wang2026vggtomega}, and
+RoMa-$\Omega$ separates feature similarity, learned probes, and dense
+matching~\cite{nordstrom2026romaomega}. Its co-visibility confidence is distinct
+from our categorical weighting over retained proposals. These works motivate
+separating descriptor quality, matching, aggregation, and generative effects;
+they do not establish those effects in our editing task.

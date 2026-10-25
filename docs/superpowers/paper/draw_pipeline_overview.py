@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch
 
 
-def draw(output):
+def draw(output, *, selected=False):
     output.mkdir(parents=True, exist_ok=False)
     plt.rcParams.update({'font.family':'DejaVu Sans', 'pdf.fonttype':42, 'ps.fonttype':42})
     fig, ax = plt.subplots(figsize=(12.6, 6.6))
@@ -33,7 +33,7 @@ def draw(output):
         ax.add_patch(FancyArrowPatch(points[-2],points[-1],arrowstyle='-|>',
             mutation_scale=11,linewidth=1.35,color=color,linestyle=style,zorder=1))
 
-    ax.text(.2,8.67,'A   SS source adaptation: working Fixed Top-K candidate',
+    ax.text(.2,8.67,'A   SS source adaptation: '+('selected Fixed Top-K' if selected else 'working Fixed Top-K candidate'),
         fontsize=15,fontweight='bold',color=ink)
     box(.2,7.0,2.8,1.05,'Edited target RGB\n+ 3 source RGBs\nCalibrated cameras')
     box(3.6,7.0,3.0,1.05,'Frozen native encoder\nDINOv3 feature maps\nTarget T; sources S')
@@ -75,7 +75,7 @@ def draw(output):
     arrow([(15.43,3.325),(15.9,3.325),(15.9,6.7),(13.4,6.7),(13.4,7.23)],adapt)
 
     ax.plot([.2,17.4],[2.35,2.35],color='#C3C9D0',lw=.8)
-    ax.text(.2,2.05,'B   Actual stage composition under study',fontsize=14,fontweight='bold',color=ink)
+    ax.text(.2,2.05,'B   '+('Frozen stage composition' if selected else 'Actual stage composition under study'),fontsize=14,fontweight='bold',color=ink)
     box(.2,.72,2.8,.88,'SS64\nLoRA + source R',learned,12.0)
     box(3.6,.72,3.0,.88,'Shape512\nFrozen',frozen,12.5)
     box(7.3,.72,3.0,.88,'Shape1024\nFrozen',frozen,12.5)
@@ -85,15 +85,18 @@ def draw(output):
         arrow([(start,1.16),(stop,1.16)])
     ax.text(.2,.27,'Same four RGB views / cameras condition the native stages; PBR uses its own source conditioner.',
         fontsize=11.2,color=ink)
-    fig.savefig(output/'working-pipeline-overview.pdf',metadata={'Title':'Implemented working Fixed SS evidence path and stage composition'})
-    fig.savefig(output/'working-pipeline-overview.png',dpi=180)
+    stem='selected-pipeline-overview' if selected else 'working-pipeline-overview'
+    fig.savefig(output/(stem+'.pdf'),metadata={'Title':'Implemented '+('selected' if selected else 'working')+' Fixed SS evidence path and stage composition'})
+    fig.savefig(output/(stem+'.png'),dpi=180)
     plt.close(fig)
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path,required=True)
-    draw(parser.parse_args().output_dir)
+    parser.add_argument('--selected',action='store_true')
+    args=parser.parse_args()
+    draw(args.output_dir,selected=args.selected)
 
 
 if __name__=='__main__':

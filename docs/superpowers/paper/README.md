@@ -1,5 +1,26 @@
 # 논문 초안과 결과 표
 
+2026-10-26 본문·Supplement 후속: 새 진입점
+[`retargeting-final-manuscript.tex`](retargeting-final-manuscript.tex)와 `sections/`를
+작성했다. 실제 DEV 표/그림을 유지한13쪽 preview(v578)는 본문6·참고문헌2·Supplement5쪽,
+인용24개이며 전체13쪽 시각 검수를 마쳤다. SS geometry/PBR appearance 표를 분리하고
+VAL36 및 독립 seed의 실제 증명 범위를 명시했다. 원고 첫쪽에 평가 진행 중인 preview임을
+표시한다. 기존19쪽 draft(v560)는 이력으로 유지한다.
+[구성과 실제 검증·남은 작업](../reports/2026-10-26-main-supplement-manuscript-progress-ko.md).
+
+새 source를 빌드할 때는 기존 closed `tables/*.tex`의 내용은 그대로 두고 외부 snapshot의
+`typeset/`에서 table→table* float 환경만 바꾼다. `dev-ray-evidence.tex`도 figure*로
+배치한다. 실제 closed ray PDF와 `draw_pipeline_overview.py --selected`의 vector
+구조도를 외부 `figures/`에 넣는다. cached Tectonic0.17.0의 `--only-cached --untrusted`
+컴파일과 원본 byte 대조·실제 시각 검수를 사용했다. v578은 overfull/미해결 인용 없이
+성공했으며 underfull32개는 log에 보존했다. v577의9pt italic cache 실패도 보존했다.
+
+`final-results/`는 아직 없다. 실제 TEST10metric/Main/정성 export를 검증한 뒤에만
+그 결과와 writing을 이 경로에 바인딩하고 `provenance.tex`에서 final flag를 설정한다.
+기존 template나 DEV 값을 실제 TEST 표로 넣지 않는다. Main 정성 그림은 원래 v355의
+첫 outcome-blind 사례이고, 두 번째 및 모든 conditional 사례는 Supplement에 싣는다.
+이 배치는 최종 TEST 그림을 보기 전에 고정했다. 최종 조합·수치 protocol을 바꾸지 않는다.
+
 2026-10-26 실제 실행 후속: 다섯 모델의 SS TEST508을 정상 종료했고2,540개 archive의
 byte/latent/occupancy count를 검증했다(v574). Raw-cache SSH 설정을 보완하고 실제
 5모델/8retirement16개 raw duplicate NAS 검증을 거친 `v570` cascade가 진행 중이다.

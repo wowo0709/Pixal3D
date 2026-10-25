@@ -1,5 +1,11 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-26 writing 후속: 본문6·참고문헌2·Supplement5쪽의 실제13쪽 preview(v578)를
+작성·컴파일하고 전체13쪽을 시각 검수했다. 원본 DEV 수치·48-family와 stage별 선정
+기준을 유지했으며 frozen numerical505개 source도 byte가 같다. TEST v570은 정상
+실행 중이다. 실제10metric/표·그림/결과 종속 writing과 최종 감사는 계속 남아 있다.
+[원고 구성·검증·남은 종료 조건](2026-10-26-main-supplement-manuscript-progress-ko.md).
+
 2026-10-26 TEST 실행: 다섯 SS의 실제508×5 archive 검증을 마쳤다(v574).
 `v565`의 raw-retirement 접속 설정 누락을 발견해 종료·완료/partial 결과를 보존하고,
 실제 한 asset의5모델/8retirement·16rawfile NAS 검증을 통과했다(v569).

@@ -1,0 +1,39 @@
+\section{Introduction}
+Consider editing an object's shape from a single target image while retaining
+appearance evidence from its original views. The edited target and the
+sources depict different geometric states. Even with calibrated cameras, a
+source feature projected along its original ray need not describe the desired
+edited region. A pretrained multi-view generator supplies a useful 3D prior,
+but its native spatial associations do not resolve this intentional conflict.
+
+Semantic correspondence can reconnect related regions across the edit.
+However, selecting one match can discard a useful alternative, while mixing
+many matches can transfer irrelevant values. A better retrieval score also
+does not establish that the generated surface or material improves. The
+delivery path matters: adapted evidence enters an existing projection-based
+conditioning function whose target contribution and source features already
+have a trained numerical scale.
+
+We study source adaptation within that native function. Voxels projecting to
+the same source-camera patch share one evidence decision. A frozen matcher
+constructs semantic proposals from the observed target members of that ray;
+the selected SS design aggregates native values without a new value/output
+projection. A source-contrast retargeter then supplies a gated correction to
+the native carrier. Its zero initialization preserves the original function,
+and rays without proposal support retain the pretrained prior. The target
+conditioning stream is retained; exact target output preservation remains
+an evaluation question.
+
+Our experiments distinguish stage objectives. SS candidates are evaluated
+for geometric alignment under common frozen downstream models. PBR
+candidates are evaluated for source appearance on identical generated
+geometry, guides, noise, and rendering triangles. This produces a measured
+composition of Fixed Top-K SS and a separate Top-1 retargeting PBR stage,
+rather than requiring one aggregation operator to be best at both tasks.
+
+The contributions are an explicit ray-shared source-adaptation formulation;
+matched tests separating raw retrieval, decoder descriptors, scalar scores,
+aggregation, and retargeting; and a stage-specific evaluation with a frozen
+held-out protocol. Candidate coverage, component effects, and final pipeline
+quality are separate claims. We retain negative results and uncertainty
+instead of inferring necessity from the architecture alone.

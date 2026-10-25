@@ -1,0 +1,35 @@
+\section{Discussion and limitations}
+\ifFinalReportReady
+\input{final-results/discussion.tex}
+\fi
+\paragraph{Stage objectives and the delivery path.}
+An SS geometric change can alter rendered source appearance even with a
+common PBR, so cross-SS LPIPS/DreamSim cannot establish an appearance-module
+effect. Conversely, fixed-geometry PBR comparisons do not test geometric
+improvement. We report both groups for the composed system while selecting
+each stage for its own objective. Native target conditioning is retained,
+but the output depends jointly on all stages and need not preserve target
+RGB exactly.
+
+\paragraph{Candidate uncertainty.}
+Higher candidate coverage and GT probability mass need not improve a
+generated asset. A well-supported ray can still match incorrectly; support
+is not physical visibility and relative posterior mass is not calibrated
+correctness. The native fallback handles absent evidence, not every
+confident mismatch. Additional learned refinement has not established a
+surface-quality advantage in the completed development comparison. The
+existence of ray sharing, semantic matching, or attention does not prove
+their necessity.
+
+\paragraph{Scope of the evidence.}
+The original FULL, its ray/member controls, and the selected shared-evidence
+design differ in multiple components. Their differences do not isolate
+shared routing or the final ray unit. Two SS training seeds confirm
+occupancy trends of combined branches; the two-seed PBR diagnostic uses
+four GT-shape target examples. Neither quantifies full-pipeline training-seed
+variability. Test sources are disjoint within DeformNeXt, while overlap with
+earlier multi-view pretraining is not audited. Input-camera evaluation and
+renderer-specific FID/KID do not establish novel-view quality or human
+naturalness judgments. Full-frame appearance scores can be influenced by
+background; the existing foreground/GT-crop sensitivity is reported
+separately without changing the primary endpoints.

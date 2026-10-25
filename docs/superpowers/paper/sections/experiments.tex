@@ -1,0 +1,75 @@
+\section{Experimental setup}
+\paragraph{Data and initialization.}
+DeformNeXt-10k supplies 9,149 SS training, 508 validation, and 508 test
+examples. PBR training excludes ten recorded oversized training examples,
+using 9,139; no test asset is excluded by that training limit. Source UID and
+source-asset clusters are disjoint across these deformation splits. Overlap
+with earlier multi-view pretraining is not established. The earlier mixed385
+subset of 80,892 training and 950 validation assets is pretraining lineage,
+not the deformation fine-tuning set.
+
+We load the original configurations and complete base+LoRA weights:
+SS64/Shape512 step 4,210 and Shape1024/PBR1024 step 16,850. The matching backbone
+is VGGT-Omega epoch 7. SS uses 480 updates, global batch 96, LoRA rank/alpha 16,
+and denoiser/conditioner learning rates $10^{-5}/10^{-4}$. PBR uses 1,900
+updates, global batch 24, and rates $5\times10^{-6}/10^{-4}$. These are
+approximately five training passes. Ablations retain paired inputs,
+initialization, budget, sampler, and noise. Removed modules/channels are
+physically absent, not filled with zeros.
+
+\paragraph{Development and freeze.}
+SS diagnostics use DEV128/93 sources and three paired generation noises,
+averaged within an example. Surface ablations use the same 128 examples,
+one noise, frozen Shape and common Top-1 R PBR. PBR appearance uses DEV32
+with identical generated geometry, archived guides, texture noise, actual
+rendering triangles, and references. SS selection uses CD/F-Score; PBR
+selection uses source LPIPS/DreamSim with complementary CLIP. Cross-SS
+appearance is a secondary diagnostic, not a veto of geometric improvement.
+
+Two independent SS training seeds for V1/R/Fixed and two PBR seeds for
+vanilla/R are reported separately. The SS confirmation concerns occupancy;
+PBR confirmation is a four-example GT-shape target-camera training diagnostic.
+Neither is two-seed full-pipeline quality confirmation. Two fresh loads on
+VAL36 verify the selected SS checkpoint, archived latent/occupancy arrays,
+prefix32, and the final batch of four. Actual weight/config/cache bindings
+and the complete evaluation protocol are frozen before TEST inference.
+
+\paragraph{Comparators and generation.}
+The frozen TEST comparison contains five physical pipelines: original
+source-only RGB4; original edited-target RGB1+source RGB3; vanilla V1;
+Top-1 R; and selected Fixed SS+Top-1 R PBR. Source-only includes the original
+M0 view at target camera8, not just three sources. Edited inputs are M1 RGB
+at8 plus M0 RGB at9/10/11. Shape weights are common. Original zero controls
+retain original PBR; V1 uses vanilla 1900 PBR and R/selected use Top-1 R 1900.
+SS generation uses batch 8, 12 steps, guidance 3 and the prescribed per-asset
+noise map. Native downstream sampling configurations are retained.
+
+\paragraph{Metrics and references.}
+Source LPIPS~\cite{zhang2018lpips}, DreamSim~\cite{fu2023dreamsim}, and separate
+OpenAI CLIP image cosine~\cite{radford2021clip} average cameras 9/10. Target
+PSNR/SSIM~\cite{wang2004ssim}/2D mask IoU use 8. References use original
+materials on edited M1 geometry, not undeformed source pixels. Surface CD
+is the symmetric mean unsquared Euclidean nearest-point distance, using
+20,000 area-weighted samples. F-Score uses threshold 0.02 in the common
+source-defined normalized frame~\cite{tatarchenko2019surface}; there is no
+per-output ICP alignment. Voxel IoU is diagnostic. Full-frame image scores
+are primary; foreground/GT-only crops are supplementary.
+
+FID~\cite{heusel2017fid}/KID~\cite{binkowski2018kid} use the same 1,524 images
+per model/reference, cameras 8--10, official Inception 2048 FP32 features,
+and torch-fidelity 0.3.0 float64 reductions. KID uses 100 subsets of 1,000 and
+seed 42017, retaining signed raw values. Distribution differences are
+descriptive; subset variability is not a source-cluster interval. These are
+input-camera evaluations, not evidence of novel-view performance.
+
+\paragraph{Statistical scope.}
+Means weight deformation examples equally. Paired bootstrap resamples source
+clusters, retaining within-source dependence; equal-source sensitivity is
+also retained. The development downstream family is six contrasts across
+eight endpoints, with 48,000 draws and 48-comparison Bonferroni intervals.
+Its geometry endpoints guide SS interpretation; this family is not reduced
+after observing results. Stage IoU has its separate six-contrast family.
+The selected TEST model versus V1/R uses 4,000 draws with seed 20261022,
+eight pairwise endpoints and a 16-comparison family across 134 sources.
+Intervals condition on frozen checkpoints and generation, not a population
+of training seeds. A zero-containing interval does not prove equivalence.

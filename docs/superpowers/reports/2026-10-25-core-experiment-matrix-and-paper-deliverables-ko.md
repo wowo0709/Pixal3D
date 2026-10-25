@@ -1,5 +1,11 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+2026-10-26 writing 후속: 실제13쪽 본문·Supplement preview(v578)를 작성·compile·
+전체13쪽 시각 검수·file4 보존했다. SS geometry/PBR appearance를 분리했고 기존
+numeric tables/원래 통계 범위를 유지했다. TEST v570은 같은 frozen505개 수치 source로
+실행 중이며 실제 최종10metric/표·그림/결과 종속 writing은 계속 남아 있다.
+[구성과 검수·종료 조건](2026-10-26-main-supplement-manuscript-progress-ko.md).
+
 2026-10-26 실제 TEST 후속: SS508×5 정상 종료·2,540개 archive 검증(v574)을
 마쳤다. 중간 파일 정리의 SSH metadata 누락을 복구하고 실제 첫5모델/8retirement
 검증을 통과한 새 `v570` cascade가 GPU0–3·6·7에서 진행 중이다. 후속10metric,

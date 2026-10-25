@@ -1,5 +1,10 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 writing 후속: SS geometry/PBR appearance를 분리한 실제13쪽 본문·
+Supplement preview(v578)를 작성·컴파일·전체 시각 검수했다. 기존 cell·caption과
+24개 인용은 closed 원본과 동일하며, final TEST claim은 아직 쓰지 않았다.
+[원고 구성·검증·남은 종료 조건](2026-10-26-main-supplement-manuscript-progress-ko.md).
+
 2026-10-26 TEST 실행: 다섯 SS의 실제508×5 archive 검증을 마쳤다(v574).
 Macro IoU는 source-only0.400929, edited-zero0.443873, V1 0.469682,
 R 0.477200, Fixed0.477227이며 occupancy 진단으로 한정한다. Primary CD/F-Score와

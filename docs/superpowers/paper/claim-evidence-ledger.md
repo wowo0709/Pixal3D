@@ -1,5 +1,11 @@
 # 논문 claim과 필요한 근거
 
+2026-10-26 원고 후속: SS geometry와 동일-geometry PBR appearance를 분리한13쪽
+본문·Supplement preview(v578)를 compile·전체 시각 검수·actual file4 보존했다.
+원래 table cell/caption과 모든 zero-containing CI·독립 확인 범위를 유지한다.
+이는 실제 TEST 결과나 모든 모듈의 필수성/appearance 개선을 증명하지 않는다.
+[새 원고·증거 범위와 남은 종료 조건](../reports/2026-10-26-main-supplement-manuscript-progress-ko.md).
+
 2026-10-26 TEST 후속: SS508×5의 실제2,540개 archive 검증을 완료했다(v574).
 Voxel IoU는 진단이며 primary geometry/appearance의 대체값으로 쓰지 않는다.
 현재 동일 freeze의 `v570` cascade·10metric이 진행 중이다. 운영 오류 복구와 실제
