@@ -68,6 +68,14 @@ IoU를 혼합하지 않는다. Raw/D1-cos 첫 epoch96의0.460716/0.461137도 최
 아니다. 초기 per-asset metric·GT/count/seed와 처음96개의 실제 학습 trace는
 정확히 같으며 당시 V1은0.463801이다. 예정된480·최종128×3·cascade 비교를 유지한다.
 
+후속 같은 seed101 quick32 epoch192는 V1/Spatial/Raw/D1-cos/Fixed/Top-1이
+0.467447/0.465800/0.463297/0.463916/0.463634/0.460882다. Raw−Spatial은
+−0.002503, D1-cos−Raw는+0.000619, Fixed−D1-cos는−0.000282다. 전체6개 모델의
+같은 cold 기록·GT/count/noise·192 trace를 검증했다. 이는 작은 중간 panel의
+기술적 점추정이며 최종 module-family/생성 품질/모델 선택의 근거가 아니다.
+`correspondence-first192-paired-readout-v468`과 기존 Raw192 run의 원격 summary를
+대조한 `correspondence-first192-paired-WandB-v470`에 실제 file4 근거를 보존한다.
+
 ## 표·그림과 writing의 역할
 
 | 산출물 | 사용 근거와 남은 범위 |

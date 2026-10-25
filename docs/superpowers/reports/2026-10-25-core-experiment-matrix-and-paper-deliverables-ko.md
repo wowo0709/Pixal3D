@@ -45,6 +45,36 @@ Raw와 D1-cos의 실제 첫 epoch96도 같은 seed101 quick32로 판독했다.
 `Raw101-actual-epoch96-v453`와 `D1Cos101-actual-epoch96-v453`의 원본 prefix·
 per-asset arithmetic 검증·actual file4 closure를 보존했다. 논문 최종 표에는 넣지 않는다.
 
+### 후속: 같은 seed101·epoch192의 correspondence ladder
+
+Raw/D1-cos192의 실제 검증·원격 게시까지 끝났고 중간 수집기 v462는 정상 exit0했다.
+이는 본 학습의 종료가 아니다. 완료된 Spatial192와 같은 V1/Top-1/Fixed baseline을
+합쳐 총6개 모델의 cold per-asset record, GT/ID/count/noise, 처음192개의 실제 학습
+trace 및 baseline history가 같음을 확인한 뒤 TP/FP/FN에서 지표를 재계산했다.
+
+| 모델 | Epoch192 quick32 macro IoU | V1 대비 |
+|---|---:|---:|
+| V1 | 0.467447 | — |
+| Spatial | 0.465800 | −0.001647 |
+| Raw semantic | 0.463297 | −0.004150 |
+| Decoder semantic cosine | 0.463916 | −0.003531 |
+| Fixed scalar weighting | 0.463634 | −0.003813 |
+| Top-1 R | 0.460882 | −0.006565 |
+
+인접 대조 Raw−Spatial은−0.002503, 개선13/하락19다. D1-cos−Raw는+0.000619,
+개선17/하락15이며 Fixed−D1-cos는−0.000282, 개선16/하락16이다. Fixed−Top-1은
++0.002752지만 V1보다 낮다. 따라서 두 epoch 시점에 semantic 전달·scalar weighting의
+우위를 주장하지 않으며 decoder의 작은 양의 점추정도 최종 기여로 쓰지 않는다.
+실제32개·noise1회의 기술적 비교이며 CI·모델 선택·최종6/48대조 family가 아니다.
+예정된480·SS128×3와 common cascade 평가를 유지한다.
+
+원본 각 epoch reader/publisher와 전체 v462 execution bundle은 actual file4로
+닫혔다. `correspondence-first192-paired-readout-v468`에 재계산·개별 paired 차이와
+입력 근거를 보존했다. [기존 Raw192 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Raw101-epoch192-v454)의
+`paired192_ladder/`에 같은6개 평균·인접 비교를 추가하고 원격 수치와 원래 summary의
+보존을 확인했다(`correspondence-first192-paired-WandB-v470`). 새 과학적 arm이나
+새 W&B run을 만들지 않았으며 Main/Ablation의 최종 수치 표는 바꾸지 않았다.
+
 이번 정리의 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개와 PBR R 독립 seed1개 실행의 완료**다.
 Spatial480 학습은 끝났고 SS128×3 평가가 대기 중이다. Fixed SS seed202의480·DEV128×3와
 기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
