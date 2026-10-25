@@ -70,7 +70,8 @@ micro96 capacity를 실제 통과해 본 학습을 시작했다. Fixed seed202�
 후속 paired quick32 step288에서 Uniform0.474767 대 Fixed0.471552다.
 평균 차이+0.003215와 달리 개선14/하락18·median−0.000181이며 큰 개선3개가
 전체 net gain을 주도한다. No-R step192는0.467777 대 Fixed0.463634다.
-Matching decoder의 실제8개 saved state는 동일하고, Fixed/Uniform의28개
+이후 No-R step288은0.469064로 Fixed−no-R가+0.002488로 뒤집혔다.
+Matching decoder의 실제9개 saved state는 동일하고, Fixed/Uniform의28개
 gradient entry 모두에서 R/use/fusion이 학습되고 있다. 이 중간 관측은
 weighting/R의 최종 필요성이나 gradient 단절·saturation의 causal 증거가 아니다.
 최종 표에 옮기지 않으며 [실제 중간 분석](../reports/2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)의 범위를 유지한다.
