@@ -1,18 +1,22 @@
 \begin{table}[t]
 \centering\small
-\begin{tabular}{lrrrr}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrll}
 \toprule
-Training seed&Vanilla IoU&Top-1 branch IoU&Paired change&Cluster CI95\\
+Training seed&Vanilla IoU&Top-1 IoU&Fixed IoU&Fixed minus V1 [CI95]&Fixed minus Top-1 [CI95]\\
 \midrule
-101&0.467355&0.472600&+0.005245&[0.001674, 0.009030]\\
-202&0.467177&0.472346&+0.005169&[0.001780, 0.008677]\\
+101&0.467355&0.472600&0.473471&+0.006116 [0.001139, 0.011309]&+0.000871 [-0.001356, 0.003387]\\
+202&0.467177&0.472346&0.474730&+0.007553 [0.002225, 0.013285]&+0.002385 [-0.000206, 0.005183]\\
+Mean of two&0.467266&0.472473&0.474101&+0.006835 [0.001834, 0.012196]&+0.001628 [-0.000477, 0.003957]\\
 \bottomrule
 \end{tabular}
-\caption{Completed independent SS training pairs on DEV128 (93 source clusters),
-each averaged over three paired generation noises. The branch combines
-Top-1 semantic matching and retargeting. These exploratory intervals resample
-source clusters and condition on the trained checkpoints; generation noise
-and training seed are distinct. This is neither a retargeter-only ablation
-nor a held-out cascade comparison.}
+\caption{Completed SS confirmation on the same DEV128 assets and 93 source
+clusters, averaging three paired generation noises per asset. Each seed
+and the fixed-two-seed mean use the declared three-contrast IoU family
+separately: Top-1 minus V1, Fixed minus V1, and Fixed minus Top-1.
+Intervals use 4,000 paired source-cluster draws and condition on the trained
+checkpoints; they do not estimate a population of training seeds or form
+a simultaneous nine-comparison interval. These are development SS results,
+not retargeter-only effects, model selection, or held-out cascade quality.}
 \label{tab:independent-ss}
 \end{table}

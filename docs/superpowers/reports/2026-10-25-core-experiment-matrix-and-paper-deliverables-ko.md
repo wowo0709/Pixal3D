@@ -1,9 +1,10 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 후속: Fixed202480 학습 완료·DEV128 첫 noise 평가 시작, 실제 RGB matcher 학습 provenance와 Method 보완. TEST는 아직 미측정이다.
+작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
-이번 정리의 남은 본 학습은 **correspondence 대조3개와 PBR R 독립 seed1개 실행의 완료**다.
-Fixed SS seed202의480 학습은 완료됐고 DEV128×3 평가가 진행 중이다.
+이번 정리의 남은 본 학습은 **Raw semantic·Decoder-cosine 대조2개와 PBR R 독립 seed1개 실행의 완료**다.
+Spatial480 학습은 끝났고 SS128×3 평가가 대기 중이다. Fixed SS seed202의480·DEV128×3와
+기존 V1/R을 포함한 두 seed 집계, working Fixed seed101의 VAL36 두 fresh-load 검증은 완료됐다.
 PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
 480 학습과 DEV128×3는 끝났으며 반복하지 않는다. 나머지 핵심은 같은128개 실제
 cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완성이다.
@@ -17,9 +18,9 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 순서 | 남은 실행 | 종료할 때 남겨야 하는 근거 |
 |---|---|---|
-| 1. 최종 문맥의 모듈 대조 | Spatial / Raw semantic / Decoder-cosine 각각480 updates와 SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
+| 1. 최종 문맥의 모듈 대조 | 완료 Spatial480의 SS128×3, Raw semantic / Decoder-cosine의480·SS128×3. 완료 Uniform/no-R는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
 | 2. 실제 출력 평가 | 신규5행×동일 DEV128의 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
-| 3. 독립 확인·재로딩 | Fixed SS seed202480/128×3, PBR R seed2021900 및 두 seed collector, 선택 후보의 VAL36 두 fresh-load | 단일 학습 운·초기 함수 하락·checkpoint composition 문제와 최종 모듈 효과를 구분하는 실제 결과 |
+| 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36 근거 보존. PBR R seed2021900 및 두 seed collector 완료; 최종 binding 변경 시 그 모델의 QA 확인 | SS 반복·재로딩은 완료. PBR 및 최종 composition의 확인을 별도로 마무리 |
 | 4. 최종 모델 동결 | 앞의 근거로 실제 SS/Shape/PBR 조합·checkpoint·code·평가 protocol 확정 | TEST 전에 고정한 모델과 설정. Fixed의 추가 이득이 지지되지 않으면 Top-1 R 선택 가능 |
 | 5. TEST·정성 평가 | TEST508/134 source cluster에서 두 zero-shot·V1·R·Ours의10metric, 고정 사례와 실패 사례 | Main table, paired source-cluster interval, 최종 정성 그림. Ours가 R과 같으면 중복 행 제거 |
 | 6. 논문 완성 | 실제 수치로 Main/Ablation/Mechanism/Supplement와 Results/Discussion 작성, 마지막에 Abstract/Conclusion 확정 | 표·claim 원장·실제 checkpoint/결과가 일치하고 compile·시각 검수를 마친 PDF |
@@ -45,16 +46,17 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 
 | 행 | Correspondence / aggregation / retargeting | 비교와 질문 | 현재 상태 |
 |---|---|---|---|
-| M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 실제 GPU proof·micro96 capacity 완료, GPU6 본 학습 진행 |
-| M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | 실제 GPU proof·micro96 capacity 완료, 본 학습 대기 |
-| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | 실제 GPU proof·micro96 capacity 완료, 본 학습 대기 |
+| M_FIXED_SPATIAL | 원래 spatial3 / Fixed 결합 / R | 다음 raw semantic 행과 비교: semantic 탐색의 효과 | 실제480 학습·checkpoint 보관 완료, SS128×3 대기 |
+| M_FIXED_RAW | Raw semantic64 / cosine weighting / R | Spatial→Raw: semantic correspondence의 묶음 효과 | GPU6 본 학습 진행 |
+| M_FIXED_D1_COS | Decoder semantic64 / cosine weighting / R | Raw→D1 cosine: contextual decoder의 효과 | GPU7 본 학습 진행 |
 | E_FIXED_RAW | Decoder semantic64 / scalar probability weighting / R | D1 cosine→scalar: scalar matching 모듈의 효과 | SS128×3·cascade128×1 완료 |
 | 실제 Top-1 R | Decoder / 실제 최상위 feature1개 / R | Fixed와 비교: 여러 후보 활용의 효과 | SS·cascade 완료, 재학습 불필요 |
 | A_FIXED_UNIFORM | Fixed와 같은64개 후보·value / uniform / R | Fixed와 비교: matching score weighting의 효과 | 480 학습·DEV128×3 완료, IoU0.473613; cascade 대기 |
 | A_FIXED_NO_R | Fixed와 같은 후보·weight·전달 / R 물리적 제거 | Fixed와 비교: 최종 경로에서 retargeting의 효과 | 480 학습·DEV128×3 완료, IoU0.468832; cascade 대기 |
 
-**최종 문맥의 신규 ablation은 총 다섯 개이며 남은 본 학습은 세 개다.**
+**최종 문맥의 신규 ablation은 총 다섯 개이며 남은 본 학습은 두 개다.**
 Uniform/No-R 두 개의 학습·SS 평가는 완료됐고 matching 세 개는 등록돼 있다.
+그중 Spatial480은 완료돼 평가를 기다리며 Raw/D1-cos는 본 학습 중이다.
 각 arm의 proof/capacity/evaluation 작업을 별개의 모델로 세지 않는다.
 
 완료된 동일 DEV128×3에서 Fixed0.473471 대 no-R0.468832의 IoU 차이는
@@ -158,14 +160,15 @@ connector를 바꾸지 않았다. **실제 case와 cache 회수는 아직 시작
 
 ## 4. 독립 확인과 파이프라인 선정
 
-Fixed SS seed202의480 학습은 완료됐고 독립 확인을 위한 DEV128×3 평가가 진행 중이다.
+Fixed SS seed202의480·DEV128×3 및 V1/R/Fixed 두 seed의 실제 집계는 완료됐다.
+Working Fixed seed101의 VAL36 두 fresh-load 검증도 완료됐다.
 남은 독립 본 학습은 PBR R seed202다. PBR vanilla
 seed202의1900 업데이트·여섯 validation·저장은 완료됐다. V1/R SS 두 seed도 완료돼
 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
 
 관측 시 GPU0–3은 완료된 vanilla에 이어 필수 PBR R seed202를 자동으로 시작했다.
-GPU7은 완료된 Fixed seed202의 DEV128 noise0 평가, GPU6은 Spatial 대조의 본 학습을 진행 중이다.
-이후 Raw/D1-cos 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만
+GPU6은 Raw semantic, GPU7은 Decoder-cosine 대조의 본 학습을 진행 중이다.
+Spatial의 SS128×3 및 나머지 학습 후 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만
 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용한다.
 
 Fixed seed202의 실제 첫 epoch96이 완료됐다. 동일 seed202 quick32·noise·GT에서
@@ -224,6 +227,35 @@ median+0.003195, 개선20/하락12다. 실제 처음480 입력/noise/timestep/gl
 실제 시작됐으며 noise1/2도 같은 checkpoint에 연결돼 있다. 학습 종료와 quick32
 양의 차이는 최종128×3·선택 후보의 독립 확인·cascade/TEST 완료를 뜻하지 않는다.
 최종 표에는 계속 기존 완료 scope만 사용한다.
+
+후속 실제 `completed-two-seed-collection-v314/native-result-v1`에서 Fixed202의
+세 noise 평가를 포함한6개 모델 checkpoint·480 trace·GT/ID·생성 noise 정합과
+원본 frozen NN tensor를 검증했다. 같은 DEV128/93source/3noise의 결과는 다음과 같다.
+
+| Training seed | V1 macro IoU | Top-1 R | Fixed | Fixed−V1의3대조 보정 CI95 | Fixed−R의3대조 보정 CI95 |
+|---|---:|---:|---:|---|---|
+| 101 | 0.467355 | 0.472600 | 0.473471 | [+0.001139,+0.011309] | [−0.001356,+0.003387] |
+| 202 | 0.467177 | 0.472346 | 0.474730 | [+0.002225,+0.013285] | [−0.000206,+0.005183] |
+
+Fixed−V1의 점추정은+0.006116/+0.007553으로 두 seed 모두 보정 구간이 양수다.
+Fixed−R은+0.000871/+0.002385지만 보정 구간은 둘 다0을 포함한다.
+두 고정 seed의 평균 차이는 Fixed−V1+0.006835, CI[+0.001834,+0.012196],
+Fixed−R+0.001628, CI[−0.000477,+0.003957]이다. 각 seed와 두 고정 seed 평균은
+각각 사전 선언한3대조 IoU family·4000 source-cluster draws를 사용한다.
+9개 비교 전체의 동시 구간이나 training-seed 모집단의 불확실성은 아니다.
+기존 모듈6대조/cascade48대조와도 구분한다. Quick32의0.481497과 이128×3의
+0.474730은 panel·noise 범위가 다르므로 같은 수치로 취급하지 않는다.
+원래6행 W&B 평균값을 대조하고 같은 run에 실제 대비·일반/보정 CI를 추가한
+[두 seed 집계](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/selected-Fixed-V1-R-two-training-seed-SS128x3-CPU-v314)와
+`Fixed-SS-two-seed-paper-and-WandB-v446`을 실제 file4 SHA/size로 보존했다.
+결론은 combined Fixed의 V1 대비 SS 개선 재현이며 score/decoder/R 단독 효과,
+Top-1 대비 추가 효과 확정이나 full-cascade/TEST 증명이 아니다. 모델·checkpoint 선택은 바꾸지 않았다.
+
+Working Fixed seed101은 `fixed-evidence-candidate-VAL36-v327/parity-v1`에서
+독립 saved-model 로딩2회·36개 전체·72개 latent/occupancy archive의 byte 검증도
+통과했다. 원래 prefix32와 native batch8의 tail4, raw prediction/target latent 및
+occupancy가 일치하고 optimizer update는0이다. 이는 해당 SS binding의 replay QA이며
+PBR/rendering 품질이나 최종 모델 선택의 증명이 아니다. 최종 binding을 바꾸면 그 모델의 QA가 필요하다.
 
 실제 두 queue의 후속 배정도 재확인했다. 완료 Uniform/no-R의256개 exclusive
 cascade case는 GPU0–3 queue와 GPU6/7 queue에128개씩 배치돼 있으며 각 queue에
@@ -317,6 +349,18 @@ V1 **26.331460**, R **26.173503**으로 R−V1은−0.157956dB다.380의−0.316
 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch760-v414)에
 같은 epoch의 원래 panel8개와 곡선을 게시해 원격 summary를 대조했다.
 Generated geometry/source preservation·R1900·두 seed collector 완료로 해석하지 않는다.
+
+실제 R seed202 epoch1140의 같은 fixed4 GT-shape target8에서 pooled PSNR은
+V1 **26.480965**, R **26.403868**이며 차이는−0.077097dB다.760의−0.157956dB보다
+격차가 줄었지만 R이 여전히 낮다. Crop LPIPS는 V1 **0.090744**, R **0.089581**,
+차이−0.001163이며 full-frame LPIPS는0.009401 대0.009212, 차이−0.000189다.
+이는 PSNR 격차 감소와 LPIPS 개선의 중간 target-stage 경향이다. 네 rank의 처음1140
+실제 입력/noise/timestep/global trace와0/380/760/1140의 GT PNG pixel이 같은 seed의
+V1과 같음을 검증했다. `PBR202-R-actual-epoch1140-v413` 및 원래 최신 panel8개·
+곡선·원격 summary를 대조한
+[paired epoch1140 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch1140-v414)를
+실제 file4 SHA/size로 보존했다. Source preservation/generated geometry·R1900·
+최종 두 seed collector·TEST 완료로 사용하지 않으며 예정 budget을 유지한다.
 
 선정 순서:
 
@@ -425,6 +469,14 @@ compile했고2/3/4/13/14쪽을 시각 검수했다. Compiler issue는0이고 기
 그림은 v434와 byte-identical이다.9개 provenance 및40개 paper 산출물의 실제
 file4 SHA/size를 대조했다. 새 품질 실험이나 최종 확인으로 쓰지 않는다.
 
+이어 실제 SS 두 seed·VAL36의 완료 결과를 본문과 독립 표에 반영한
+`paper-draft-Fixed-two-seed-and-VAL36-v447`을16쪽·24개 인용으로 compile했다.
+5/6/10쪽의 validation QA·통계 family·결과/표를 시각 검수했고 warning·미해결 참조·
+overfull/underfull은0이다. 독립 표27개 수치와 순서는 closed export와 같고 영문
+공백 두 곳만 교정했다. 나머지 수치 표·그림은 v440과 byte-identical이며38개
+source/build/review 산출물의 실제 file4 SHA/size를 확인했다. SS에서의 V1 대비
+재현과 Top-1 대비 불확실성을 함께 쓰며 PBR/cascade/TEST와 최종 writing 범위는 유지한다.
+
 1. **Method:** RGB4장/camera, target native stream과 source adaptation, member 기반 semantic 후보, ray 단위 evidence 공유, score-weighted 전달과 R의 정확한 수식을 코드와 맞춘다. No-match는 native source feature를 유지하며 GT visibility를 inference gate로 사용하지 않는 계약을 설명한다.
 2. **Experimental setup:** DeformNeXt split·초기 multi-view LoRA checkpoint·동일 학습 stream·update·global batch·noise·고정 Shape/PBR·metric reference·cluster 통계를 표/본문에 명시한다. Clean80k는 초기 모델의 학습 이력이며 deformation 실험의 데이터가 아니다.
 3. **Ablation/Mechanism:** 실제7행의 matched 결과와6개 사전 대조를 설명한다. 기존 retrieval coverage, Top-1 miss/Top-K hit, GT 후보 probability mass 관측은 활용 가능성의 근거이며 최종 성능의 대체 증거가 아니다. 실제 ray/candidate 그림과 동일 사례의 성공·실패 출력을 함께 넣는다.
@@ -436,11 +488,11 @@ file4 SHA/size를 대조했다. 새 품질 실험이나 최종 확인으로 쓰�
 
 새 backbone/head 탐색, gate/temperature grid, 모든 SS×PBR 조합, target-only, clean80k 재학습, 모든 ablation의 다중 seed, 최종 모델에 없는 query 제거는 추가하지 않는다. Matching coverage·native precision 등 완료된 진단을 반복하지 않는다.
 
-**남은 본 학습은 correspondence3개 + 필수 PBR R seed202의 완료다.**
-Fixed SS seed202의480 학습은 완료됐고 독립 확인을 위한128×3 평가가 진행 중이다.
+**남은 본 학습은 Raw semantic·Decoder-cosine2개 + 필수 PBR R seed202의 완료다.**
+Spatial480 학습, Fixed SS 두 seed의128×3 집계, working Fixed seed101의 VAL36 QA는 완료됐다.
 완료된 Uniform/no-R 학습·SS 평가와 PBR V1 seed202는 재실행하지 않는다. 이후
-신규5개 대조의 downstream 평가·실제 cache 회수, 독립 확인·fresh load,
-모델/protocol freeze, TEST와 논문 마무리가 남아 있다. Arm 수와 proof/capacity/
+세 correspondence의 SS128×3, 신규5개 대조의 downstream 평가·실제 cache 회수,
+PBR 독립 확인·최종 binding QA, 모델/protocol freeze, TEST와 논문 마무리가 남아 있다. Arm 수와 proof/capacity/
 evaluation/CPU cache job 수를 구별한다. 종료 조건은 선택된 실제 pipeline의 효과·
 모듈별 근거·한계와 Main/Ablation/Mechanism/Qualitative 결과 및 논문 문장이 일치하는 것이다.
 

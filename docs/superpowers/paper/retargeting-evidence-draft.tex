@@ -210,8 +210,9 @@ evaluated using three paired generation-noise seeds and 12 sampling steps.
 Generation-noise repetitions are averaged within an example before inference
 over source clusters. They are not independent training seeds. The completed
 main SS ablation results use training seed 101. A completed, separate seed202
-experiment confirms vanilla and the Top-1 semantic-matching/retargeting branch;
-the selected combined candidate and PBR require their own confirmation.
+study evaluates vanilla, the Top-1 semantic-matching/retargeting branch, and
+Fixed evidence under the same three-noise protocol. PBR requires separate
+confirmation.
 Rendering development uses an initial fixed 32-example panel and a completed
 paired 128-example expansion, each with one generation-noise realization.
 
@@ -225,6 +226,13 @@ and metrics, without pooling these curves as a common-pixel quality estimate.
 This small stage diagnostic does not establish source preservation or
 generated-geometry performance. The joint-cascade evaluation retains its
 common rendered-GT requirement.
+
+For the working Fixed seed101 checkpoint, two fresh saved-model loads on
+36 validation examples reproduce all archived prediction/target latent and
+occupancy arrays. The check verifies 72 archive files, the original
+32-example reference prefix, and the final batch of four under native
+batch size eight, without optimizer updates. This establishes SS replay
+and tail-batch consistency, not rendered quality or final pipeline selection.
 
 Final model choice uses both geometric alignment and source preservation,
 rather than SS IoU alone. Required validation fresh-load/cache checks,
@@ -297,6 +305,14 @@ Descriptive input/baseline contrasts remain separate. An interval containing
 zero is not evidence of equivalence or non-inferiority. Independent training
 confirmation is reported separately from uncertainty conditional on the main
 checkpoint and generation protocol.
+
+The completed SS training-confirmation study uses 4,000 paired source-cluster
+draws for three contrasts: Top-1 minus vanilla, Fixed minus vanilla, and
+Fixed minus Top-1. Each training seed and the mean of the two fixed trained
+checkpoints use this three-contrast IoU family separately. The intervals do
+not form a simultaneous nine-comparison interval or estimate uncertainty
+over a population of training seeds. They remain development evidence,
+distinct from the module-ablation and held-out families below.
 
 For the pending final Fixed-context development study, we predeclare six
 contrasts: the three adjacent matching-ladder differences, Fixed versus
@@ -446,25 +462,30 @@ two module contrasts is [-0.000409,0.003161], so this positive point estimate
 does not establish the necessity of refinement. Its change from vanilla is
 0.007439 with the corresponding two-contrast pipeline interval
 [0.002585,0.012504]. These are development results from one training seed;
-the learned candidate's actual cascade is evaluated below, while independent
-training confirmation remains pending.
+the learned candidate's actual cascade is evaluated below. No independent
+training confirmation of learned refinement is claimed.
 
-\paragraph{Independent training of the Top-1 branch.}
-Table~\ref{tab:independent-ss} reports two complete 480-update training pairs
-on the same 128 assets, 93 source clusters, and three generation noises.
-The Top-1 semantic-matching and retargeting branch improves macro SS IoU
-over vanilla by 0.005245 and 0.005169 in training seeds101 and202,
-respectively. Their within-seed source-cluster intervals are positive.
-The improvement averaged over these two fixed seeds is 0.005207, with
-an exploratory source-cluster interval $[0.001826,0.008678]$.
-Actual input/noise/timestep traces agree within each training pair and differ
-between training seeds, while the original LoRA initialization agrees.
-All 701 frozen neural-network tensors in each final checkpoint match the
-original pretrained base. These results support repeatability of the
-combined branch in these two SS training pairs, rather than isolating
-the retargeter or matching decoder. The intervals condition on these
-checkpoints and do not estimate uncertainty over a population of training
-seeds. Selected-model, PBR/cascade, and held-out confirmation remain pending.
+\paragraph{Independent SS training of the combined candidates.}
+Table~\ref{tab:independent-ss} reports vanilla, Top-1, and Fixed after
+480 updates in each of two training seeds, on the same 128 assets,
+93 source clusters, and three generation noises. Top-1 improves macro
+SS IoU over vanilla by 0.005245 and 0.005169 in seeds 101 and 202;
+both three-contrast-adjusted intervals are positive. Fixed improves over
+vanilla by 0.006116 and 0.007553, with corresponding adjusted intervals
+$[0.001139,0.011309]$ and $[0.002225,0.013285]$.
+Its change from Top-1 is positive in both seeds, but both adjusted
+intervals include zero. Averaging the two fixed trained checkpoints gives
+Fixed minus vanilla $+0.006835$ with adjusted interval
+$[0.001834,0.012196]$, and Fixed minus Top-1 $+0.001628$ with interval
+$[-0.000477,0.003957]$. Thus the combined Fixed branch improves over vanilla
+in both measured SS training seeds, while its extra occupancy benefit over
+the strong Top-1 branch remains unresolved.
+Actual input/noise/timestep traces agree within each seed and differ between
+seeds, while the original LoRA initialization agrees. All 701 frozen
+neural-network tensors in each of the six final checkpoints match the
+original pretrained base. These results do not isolate the retargeter,
+matching decoder, or score weighting, and do not establish full-cascade
+generalization. PBR/cascade and held-out confirmation remain pending.
 \input{tables/dev-independent-ss.tex}
 
 In the actual DEV32 fixed-evidence composition, however,
@@ -630,10 +651,10 @@ The final held-out comparison must establish which improvements survive
 the frozen pipeline and protocol.
 
 The original twelve-model, ten-module-contrast family and paired DEV128
-cascade extension are complete. The final-context matched controls, independent training of
-the selected candidate and PBR, and held-out test results are pending.
-Two training pairs confirm the combined Top-1 branch at the SS stage;
-they do not isolate each component or establish cascade generalization.
+cascade extension are complete. Final-context matching controls and downstream
+ablations, independent PBR confirmation, and held-out results remain pending.
+The completed two-seed SS study supports the combined branches relative to
+vanilla; it does not isolate each component or establish cascade generalization.
 Geometric improvement
 does not ensure source appearance improvement. Preserving the direct target
 stream does not guarantee unchanged target output. Input-alpha support is not

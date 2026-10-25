@@ -1,5 +1,34 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Fixed SS 두 seed 집계 완료: 동일128 assets/93source/3noises에서
+seed101의 V1/R/Fixed IoU는0.467355/0.472600/0.473471,
+seed202는0.467177/0.472346/0.474730이다. Fixed−V1의3대조 보정 CI95는
+각각[+0.001139,+0.011309]/[+0.002225,+0.013285]로 양수다.
+Fixed−R은+0.000871/+0.002385이지만 보정 구간은 둘 다0을 포함한다.
+두 고정 seed 평균의 Fixed−R+0.001628도 보정 CI[−0.000477,+0.003957]이다.
+각 seed와 고정 seed 평균이 각각 family3을 쓰며9개 전체 동시 구간이 아니다.
+원본 frozen701 tensor×6 checkpoint, 실제480 trace·초기 RNG·18개 평가의
+모델/GT/noise binding 검증을 완료했다. `completed-two-seed-collection-v314/native-result-v1`
+및 원격6행 평균·대비/CI를 대조한 `Fixed-SS-two-seed-paper-and-WandB-v446`에
+보존했다. Combined Fixed의 V1 대비 SS 개선 재현이며 개별 모듈·Top-1 대비
+추가 이득 확정·full-cascade/TEST 증명이 아니다. Quick32의0.481497과 혼합하지 않는다.
+
+Working Fixed seed101의 VAL36도 `fixed-evidence-candidate-VAL36-v327/parity-v1`에서
+독립 로딩2회·72 archive·36개 전체 prediction/target latent/occupancy·prefix32·
+tail4의 정확한 일치를 통과했다. 이는 그 SS binding의 replay QA이며 rendering
+품질이나 최종 선택의 증명이 아니다. 실제 결과를 반영한 v447 manuscript는16쪽·
+24개 인용으로 compile했고5/6/10쪽과 독립 표27개 수치를 검수했다.
+PBR·matching/cascade·최종 freeze/TEST와 최종 writing은 계속 남아 있다.
+
+후속 actual PBR R202 epoch1140: 같은 GT-shape target4의 PSNR은
+V126.480965 대 R26.403868, 차이−0.077097dB로760보다 격차가 줄었지만
+R이 낮다. Crop LPIPS는0.090744 대0.089581로 차이−0.001163,
+full-frame LPIPS 차이는−0.000189다. 실제1140 rank별 trace와 같은 seed의
+GT pixel 정합을 검증하고 `PBR202-R-actual-epoch1140-v413` 및 원격 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch1140-v414)를
+file4에 보존했다. 소수 target-stage 중간 경향이며 source preservation/
+generated geometry·R1900·최종 두 seed/PBR·TEST 확인이 아니다.
+
 후속 actual Fixed202480 학습 종료: 마지막 validation·normal exit0/drain·
 frozen-base proof·checkpoint pair 보관을 완료했고 기존 GPU7 final128 noise0
 evaluator가 실제 시작됐다. Same-seed quick32 IoU는 Fixed0.481497,

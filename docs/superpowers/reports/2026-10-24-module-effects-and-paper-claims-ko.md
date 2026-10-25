@@ -1,5 +1,7 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-25 후속 완료: Fixed SS의 두 training seed·DEV128×3를 실제 집계했다. V1 대비 IoU 개선은 seed101/202에서+0.006116/+0.007553이며 각각3대조 보정 CI95가 양수다. Top-1 대비+0.000871/+0.002385는 보정 구간이 둘 다0을 포함한다. Combined Fixed의 SS 재현이며 decoder/score/R 단독 효과나 Top-1 대비 추가 효과 확정은 아니다. Working Fixed seed101의 VAL36 두 fresh-load·72 archive·tail4 QA도 완료했다. Spatial480은 끝났고 Raw semantic/Decoder-cosine 본 학습, 세 correspondence의 SS128×3·신규5행 cascade·PBR 독립 확인·최종 freeze/TEST·writing은 계속 남아 있다. [현재 근거·범위·16쪽 manuscript 반영](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 우선한다.
+
 2026-10-25 최신 판독: [최종 문맥의7행·남은 실행·논문 산출물](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 우선한다. Uniform/no-R의480 학습과 DEV128×3는 완료됐다. 실제 완료된 Fixed−Top-1/Uniform/no-R의 세 대비를 원래6개 contrast family로 보정한 IoU CI는 모두0을 포함한다. R 제거 대비의 양의 점추정을 최종 필요성의 증명으로 쓰지 않는다. Fixed는 확률 가중 결합이며 추가 learned Q/K head가 없다. Ray의 원래 matched 품질 우위도 입증되지 않았다. 아래 초기 관측·중간 checkpoint는 해당 조건의 이력이다. 남은 matching3개·공통 cascade·독립 확인·fresh-load·동결 뒤 TEST10metric과 최종 writing을 대신하지 않는다.
 
 2026-10-25 후속: [같은384-step 네 모델 비교](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)에서 V1/Fixed/Uniform/No-R의 macro IoU는0.470704/0.476221/0.477081/0.469716이다. 실제 cold/384 training trace가 같고 Fixed−No-R+0.006505의 긍정적 중간 신호를 관측했다.480/128×3/downstream 최종 기여는 아직 미완료다. [최종 정성 사례 protocol](2026-10-25-final-qualitative-selection-protocol-ko.md)은 TEST metadata로 두 사례를 사전 고정했으며 final image나 TEST quality는 만들지 않았다.

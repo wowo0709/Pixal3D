@@ -2,12 +2,19 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-matcher-training-method-v440`의15쪽·24개
-참고문헌 개발 초안이다. 실제 compiler returncode0이며2/3/4/13/14쪽의 Method·
-수식·reflow된 Discussion/표를 시각 검수했다. Warning·미해결 참조·overfull/underfull은0이다.
-이전 v434의 Discussion은 유지했고 matcher 구조·listwise loss·실제 학습 범위를
-추가했다. 기존 모든 수치 표·그림은 v434와 byte-identical이며 이번40개
-source/build/review 산출물의 실제 file4 SHA/size가 일치한다.
+현재 compiled revision은 `paper-draft-Fixed-two-seed-and-VAL36-v447`의16쪽·24개
+참고문헌 개발 초안이다. 실제 compiler returncode0이며5/6/10쪽의 VAL36 QA·
+통계 protocol·독립 seed 결과/표를 시각 검수했다. Warning·미해결 참조·overfull/underfull은0이다.
+새 독립 표의27개 수치·순서는 실제 closed exporter와 같고 두 곳의 영문 공백만
+교정했다. 나머지 수치 표·그림은 v440과 byte-identical이며 이번38개 source/build/
+review 산출물의 실제 file4 SHA/size가 일치한다. Matcher Method와 이전 Discussion도 유지했다.
+
+Fixed의 SS128×3는 seed101/202에서0.473471/0.474730이며 V1 대비 개선의
+3대조 보정 CI95가 두 seed 모두 양수다. Fixed−Top-1의 보정 구간은 둘 다0을
+포함하므로 추가 이득 확정이나 개별 모듈의 필수성으로 쓰지 않는다.
+`Fixed-SS-two-seed-paper-and-WandB-v446`에서 원래 W&B6행 평균·모든 대비 구간을
+실제 원격 값과 대조했다. Working Fixed seed101의 VAL36는 두 fresh-load·72개
+archive·tail4의 동일성을 통과했다. PBR/cascade·TEST·최종 선택과 writing은 계속 남아 있다.
 
 `matcher-training-method-provenance-v439`는 실제 사용 중인 RGB matcher의
 train9143/validation508·epoch7·62545 updates를 checkpoint에서 확인한9개 산출물이다.
@@ -24,9 +31,9 @@ SS train9149는 유지된다. CPU NN forward·GPU 초기화·재학습은 하지
 통계와 남은 범위는 [핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
 
 현재 `tables/final-ablation-template.tex`에서 Fixed/Top-1은 SS·cascade,
-Uniform/no-R는 SS만 완료다. 세 correspondence arm은 실제 GPU proof·micro96
-capacity를 통과했고 Spatial 본 학습이 진행 중이다. 세480 endpoint·신규5행
-cascade·독립 확인·fresh load·freeze/TEST·최종 writing은 계속 남아 있다.
+Uniform/no-R는 SS만 완료다. Spatial480 학습은 완료됐고 SS128×3 평가가 대기 중이다.
+Raw semantic/Decoder-cosine은 GPU6/7에서 본 학습 중이다. 세 correspondence의
+최종 SS 평가·신규5행 cascade·PBR 독립 확인·freeze/TEST·최종 writing은 계속 남아 있다.
 
 빌드는 아래 이력의 두 figure와 함께
 `working-pipeline-overview-v361/figure-v2/working-pipeline-overview.pdf`를
