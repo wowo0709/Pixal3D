@@ -51,7 +51,7 @@ SS의 동일 DEV128·93 source cluster·generation noise3회·training seed101·
 
 실제 DEV128을 보고 Fixed/RPBR를 다음 검증의 working candidate로 정했다. 아래 선정 기준은 유지한다. Required matched 대조·독립 확인·fresh load를 마치기 전 최종 TEST freeze나 preservation 비열등성 주장을 하지 않는다.
 
-현재의 R, Fixed, Learned 세 pipeline을 동일 DEV128/noise·공통 frozen Shape·공통 Top-1 R PBR로 비교한다. Primary geometry는 CD/F-Score, primary source preservation은 LPIPS/DreamSim이다. CLIP과 SS IoU는 보조 근거다. 임의의 metric 가중합으로 승자를 만들지 않는다.
+현재의 SS 후보를 동일 DEV128/noise·공통 frozen Shape·공통 Top-1 R PBR로 비교한다. 사용자 정정에 따라 SS는 CD/F-Score의 geometry 개선으로 선정하며 IoU는 보조다. Cross-SS LPIPS/DreamSim은 진단이며 geometry 후보를 배제하지 않는다. PBR는 선택한 동일 geometry에서 LPIPS/DreamSim과 보조 CLIP으로 별도 선정한다. 임의 metric 가중합으로 승자를 만들지 않는다.
 
 DEV128에서 Learned의 추가 이득이 뚜렷하지 않으면 Fixed를 우선 검토하고, Fixed가 R 대비 의미 있는 downstream 이점을 제공하지 못하면 R을 강한 기준선으로 유지한다. Geometry와 appearance가 서로 반대면 trade-off를 그대로 보고한다. 최종 모델은 complexity와 관측된 이득을 함께 보고 선택하되, 특정 story를 위해 module을 남기지 않는다. 선택 당시 사용한 metric·paired 차이·불확실성·선택 이유를 기록한다.
 

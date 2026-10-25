@@ -2,15 +2,23 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-complete-SS-and-four-cascades-v514`의
-17쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된6/13/14/15쪽을
+현재 compiled revision은 `paper-draft-stage-specific-SS-PBR-tables-v525`의
+17쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된5/6/13/14/15쪽을
 시각 검수했다. Warning·미해결참조·overfull/underfull0, actual file4 closure를 완료했다.
 모든7개 SS arm·21개 evaluation·6대조 통계가 끝났으며 원래 reducer에서 전체 통계를
 정확히 재현하고 원래 W&B7행·6개 interval을 대조했다. 모든 adjusted CI는0을 포함한다.
-Uniform/no-R의128개 cascade·8metric도 끝나 기존 Fixed/Top-1과 같은4모델 point 표를
-반영했다. SS/Shape/PBR binding과384 GT pixel identity가 같으며 양의 geometry와
-엇갈리는 source LPIPS/DreamSim을 함께 보고한다. 나머지3개 matching cascade와
+Uniform/no-R/Spatial의128개 cascade·8metric도 끝나 기존 Fixed/Top-1과 같은5모델 근거를
+반영했다. SS/Shape/PBR binding과384 GT pixel identity가 같다. SS ablation은
+CD/F-Score와 진단용 voxel IoU 표로, PBR ablation은 동일 geometry의 appearance 표로
+분리했다. SS 후보의 appearance 차이를 geometry 향상의 거부 기준으로 쓰지 않는다.
+나머지 Raw/D1-cos의2개 matching cascade와
 전체48-family·실제 모델 선택·freeze/TEST·최종 writing은 미완료다.
+
+PBR의 vanilla/Top-1 R/feature/raw 네 arm은 같은 V1 geometry에서 실제 DEV32 평가를
+마쳤다. 최종 SS가 정해지면 그 SS의 같은 geometry·native guide·texture noise·render
+triangles에서 네 PBR arm을 비교한다. Fixed를 선택하면 기존 vanilla/R32를 재사용하고
+나머지64 replay를 추가한다. 다른 SS를 선택하면128 texture replay가 필요하며 Shape는
+재생성하지 않는다. 새 PBR 구조가 선택되면 그 실제 구조의 독립 seed 확인도 필요하다.
 
 `cascade_record_json.py`는 저장된 camera JSON key만 정수8/9/10으로 복원한다.
 Mixed/잘못된 camera를 거절하고 값·row 순서는 유지한다. JSON roundtrip 전후 paired
@@ -66,8 +74,8 @@ SS train9149는 유지된다. CPU NN forward·GPU 초기화·재학습은 하지
 통계와 남은 범위는 [핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
 
 현재 `tables/final-ablation-template.tex`의7행 SS는 모두 완료됐고 Fixed/Top-1/
-Uniform/no-R는 cascade도 완료됐다. 두 원래 NN은480과 closure를 정상 종료했으며
-현재 GPU0–3/6/7에서 matching3개 cascade를 진행한다. 전체48-family·freeze/TEST·
+Uniform/no-R/Spatial은 cascade도 완료됐다. 두 원래 NN은480과 closure를 정상 종료했으며
+현재 GPU0–3/6/7에서 나머지 matching cascade를 진행한다. 전체48-family·freeze/TEST·
 최종 writing은 계속 남아 있다. 완료 학습은 다시 돌리지 않는다.
 
 빌드는 아래 이력의 두 figure와 함께

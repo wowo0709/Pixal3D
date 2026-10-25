@@ -1,5 +1,27 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+### 사용자 정정에 따른 stage별 목적과 선정 기준
+
+**SS arm의 목표는 geometry 향상이다.** 공통 Shape/PBR를 고정한 CD↓·surface F-Score↑로
+선정하며 voxel IoU는 보조 진단이다. 서로 다른 SS의 LPIPS/DreamSim은 geometry 변화에
+영향받는 진단값이므로 SS 후보의 geometry 개선을 배제하는 기준으로 사용하지 않는다.
+**Appearance 향상은 PBR arm에서 검증한다.** 선택한 SS·Shape의 실제 geometry,
+native guide·texture noise·render triangles·GT reference를 고정하고 PBR만 바꾼다.
+LPIPS↓·DreamSim↓를 중심으로 CLIP↑와 target PSNR/SSIM을 보고하며, CD/F-Score는
+geometry 동일성 확인값이다. 최종 시스템의10metric 보고와 stage별 선정 기준을 구분한다.
+이미 정의한 DEV48-family·TEST8C 통계 보정을 결과를 본 뒤 줄이지 않는다.
+
+기존 PBR vanilla/Top-1 R/Top-1+feature/Raw Top-K+feature 네1900 checkpoint와
+V1 geometry의 DEV32 같은-mesh 비교는 재사용할 수 있다. 다만 기존 PBR feature/raw
+arm은 carrier/source-use가Top-1인 경로이며, 현재 SS Fixed의 shared weighted evidence와
+같은 구조가 아니다. 이 결과를 SS 모듈의 appearance 효과나 shared PBR 경로의 효과로
+쓰지 않는다. Geometry 기준으로 SS를 정한 뒤 **그 geometry에서 네 PBR를 비교**한다.
+Fixed가 선택되면 완료된 같은-Fixed32 vanilla/R pair를 재사용하고 빠진 feature/raw
+두 replay를 보완한다. 다른 SS면 그 실제 geometry/native guide로 같은4행을 평가한다.
+SS×PBR 전체 grid나 모든 SS arm의 PBR 재학습은 하지 않는다. Shared Top-K/score의
+PBR appearance 기여를 주장하려면 해당 PBR 경로와 같은-support weighting 대조가
+실제로 필요하며, 기존19-tensor feature arm을 그 matched 대조로 이름만 바꾸지 않는다.
+
 ### 최신 완료: 7행 SS·6대조와 Uniform/No-R의 실제 cascade
 
 후속 자원 배분: 아직 시작하지 않은 Raw28 case를 auxiliary에서 main으로 옮겼다.
@@ -305,8 +327,8 @@ Fixed32 texture replay를 다른 SS의 근거로 옮기지 않고 기존 native 
 | 순서 | 남은 실행 | 종료할 때 남겨야 하는 근거 |
 |---|---|---|
 | 1. 최종 문맥의 모듈 대조 | 완료7행 SS·6대조 재사용. 새로운 최종 구조를 선택하는 경우의 독립 seed 외에는 재학습하지 않음 | 기존 Fixed/Top-1을 합친7행 SS 표와 사전 정의6대조 통계 |
-| 2. 실제 출력 평가 | Uniform/no-R 완료 재사용, matching3행×동일 DEV128 cascade, 공통 frozen Shape와 Top-1 R PBR,8metric | 같은 checkpoint의 SS/geometry/appearance 표,48대조 family 통계. 준비된 arm부터 실행하며 나머지 학습을 기다려 일괄 시작하지 않음 |
-| 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36와 실제 PBR 두-seed training QA 근거 보존. 최종 SS 구조 변경 시 그 구조의 seed202·VAL36·binding 확인 | 선택한 실제 구조의 확인을 완료하며 stage fixed4 QA를 full-pipeline 품질로 확대하지 않음 |
+| 2. 실제 출력 평가 | Uniform/no-R/Spatial 완료 재사용, Raw/D1-cos의 동일 DEV128 cascade 완료. 공통 frozen Shape와 Top-1 R PBR에서 SS geometry를 선정한 뒤 같은 선택 geometry에서 PBR4 appearance 비교 | SS CD/F-Score 표와 별도 PBR appearance 표, 원래48대조 family 통계 유지. SS 간 appearance는 geometry 선택의 veto로 쓰지 않음 |
+| 3. 독립 확인·재로딩 | 완료된 Fixed SS 두 seed·VAL36와 실제 PBR 두-seed training QA 근거 보존. 최종 SS 또는 PBR 구조 변경 시 그 실제 구조의 seed202·binding 확인 | 선택 SS의 VAL36를 확인하며 stage fixed4 QA를 full-pipeline 품질로 확대하지 않음. Fixed202/R202를 다른 구조의 근거로 옮기지 않음 |
 | 4. 최종 모델 동결 | 앞의 근거로 실제 SS/Shape/PBR 조합·checkpoint·code·평가 protocol 확정 | TEST 전에 고정한 모델과 설정. Fixed의 추가 이득이 지지되지 않으면 Top-1 R 선택 가능 |
 | 5. TEST·정성 평가 | TEST508/134 source cluster에서 두 zero-shot·V1·R·Ours의10metric, 고정 사례와 실패 사례 | Main table, paired source-cluster interval, 최종 정성 그림. Ours가 R과 같으면 중복 행 제거 |
 | 6. 논문 완성 | 실제 수치로 Main/Ablation/Mechanism/Supplement와 Results/Discussion 작성, 마지막에 Abstract/Conclusion 확정 | 표·claim 원장·실제 checkpoint/결과가 일치하고 compile·시각 검수를 마친 PDF |
@@ -693,7 +715,7 @@ geometry/source preservation·TEST는 계속 남아 있다. 작은 stage 진단�
 
 선정 순서:
 
-1. 최종 문맥의 ablation 및 downstream geometry/appearance를 함께 판독한다.
+1. 최종 SS는 공통 downstream의 CD/F-Score로 선정한다. Cross-SS appearance는 진단으로만 기록하며 geometry 후보를 배제하지 않는다. 그 뒤 동일 geometry에서 PBR appearance arm을 별도로 선정한다.
 2. Working Fixed의 독립 seed 결과와 선택 checkpoint의 fresh-load/composition 정합을 확인한다. 실제 seed별 결과와 평균을 분리해 보고한다.
 3. CD/F-Score와 LPIPS/DreamSim을 primary로 유지한다. 임의 가중합으로 승자를 만들지 않는다. Appearance 악화와 geometry 개선이 함께 있으면 trade-off를 보고한다.
 4. 근거 없는 learned refinement나 개별 요소의 필수성 주장은 제외한다. Fixed가 R보다 추가 이점을 뒷받침하지 못하면 R을 최종 선택할 수 있다. 최종 구조가 바뀌면 그 구조에 유효한 대조만 남긴다.

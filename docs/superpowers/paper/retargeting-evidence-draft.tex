@@ -245,8 +245,14 @@ occupancy arrays. The check verifies 72 archive files, the original
 batch size eight, without optimizer updates. This establishes SS replay
 and tail-batch consistency, not rendered quality or final pipeline selection.
 
-Final model choice uses both geometric alignment and source preservation,
-rather than SS IoU alone. Required validation fresh-load/cache checks,
+Model selection follows the purpose of each stage. SS candidates are selected
+for geometry using CD and surface F-Score under common frozen Shape/PBR
+settings; voxel IoU is a stage diagnostic. Cross-SS appearance differences
+are secondary observations and do not veto geometric gains. PBR candidates
+are compared on identical generated geometry, native guides, texture noise,
+and rendering triangles, using source LPIPS/DreamSim with complementary CLIP.
+Target image metrics are reported separately. The composed pipeline reports
+all ten requested endpoints. Required validation fresh-load/cache checks,
 independent-training confirmation, model selection, and protocol freezing
 precede evaluation on all 508 test examples. The final table compares
 source-only zero-shot, edited-target zero-shot, vanilla fine-tuning,
@@ -304,8 +310,12 @@ dependence between deformations of an asset and between generation noises.
 The original finite ablation family and the subsequent evidence follow-up
 are reported as separate studies. The DEV32 intervals in this draft are
 exploratory and unadjusted; they are not final test confirmation. Primary
-geometry endpoints are CD/F-Score, and primary appearance endpoints are
-LPIPS/DreamSim. Positive CLIP results do not change that priority after the fact.
+geometry endpoints for SS are CD/F-Score. Primary appearance endpoints for
+PBR on fixed geometry are LPIPS/DreamSim. Cross-SS appearance measurements
+are secondary diagnostics; positive CLIP results do not change endpoint
+priority after the fact. The existing 48-comparison development family is
+retained, with its geometric endpoints interpreted for SS; the correction
+is not relaxed after observing results.
 Main scalar means weight deformation examples equally after averaging the
 two source cameras where applicable; equal-source means are also retained.
 The final contract includes the eight pairwise endpoints in the selected
@@ -334,7 +344,7 @@ source-cluster bootstrap draws; unadjusted development intervals are retained
 separately. This family is distinct from the final held-out $8C$ family.
 The seven-model SS study and all six stage contrasts are complete. Uniform-K
 and physical retargeter removal also have complete downstream measurements;
-the three matching-ladder controls and the full 48-comparison downstream
+raw-semantic and decoder-cosine controls and the full 48-comparison downstream
 family remain pending. Stage IoU is 0.473613 for Uniform-K, 0.473471 for
 Fixed, and 0.468832 for physical retargeter removal on the same DEV128 and
 three noises. All six adjusted stage intervals include zero; the positive
@@ -506,9 +516,10 @@ retargeting composition, Chamfer distance decreases by 0.00008579 and surface
 F-Score increases by 0.005146, while source LPIPS increases by 0.001186 and
 DreamSim increases by 0.005393. The exploratory paired interval for the LPIPS
 change is [0.000224, 0.002275]; the F-Score interval is
-[-0.000163, 0.011128]. Therefore this candidate is not established as a general
-improvement over retargeting. It also illustrates why stage-level occupancy
-accuracy is insufficient for selecting a complete editing pipeline.
+[-0.000163, 0.011128]. These appearance differences do not disqualify a
+candidate selected for geometry or measure a PBR-module effect, because
+the SS outputs have different geometry. Occupancy alone remains insufficient
+for SS selection: CD and surface F-Score are the geometric endpoints.
 
 Figure~\ref{fig:dev-tradeoffs} provides actual archived source-camera renders
 for two explicitly selected development cases. The largest F-Score gain is
@@ -551,6 +562,8 @@ final-context downstream comparisons remain required before selecting the
 final pipeline; the completed two-seed SS confirmation is reported separately
 above.
 
+\input{tables/dev-pbr-appearance32.tex}
+
 \paragraph{Completed two-seed PBR training diagnostic.}
 Table~\ref{tab:pbr-training-two-seed} reports the four actual vanilla/R
 checkpoints after 1,900 updates. Within each seed, all six validation epochs
@@ -572,8 +585,8 @@ rendering triangles, and M1 references match. R changes source LPIPS by
 -0.000223 (exploratory interval [-0.000518,0.000038]) and target PSNR by
 0.0666 dB ([-0.0257,0.1665]); neither interval excludes zero. CD and surface
 F-Score are identical by construction. Replacing R PBR with vanilla therefore
-does not resolve the fixed-evidence composition's observed source-appearance
-tradeoff. This stage-isolation result is distinct from comparing pipelines
+does not establish a PBR appearance advantage on this small panel. This
+stage-isolation result is distinct from comparing pipelines
 with different SS geometry.
 
 \input{tables/dev-paired-pbr32.tex}
@@ -622,8 +635,8 @@ Its macro IoU is 0.472267, versus 0.473471 for Fixed. This difference changes
 multiple matching choices and does not isolate semantic retrieval or scalar
 weighting. Raw-semantic and decoder-cosine have also completed 480 updates
 and their own final three-noise evaluations, with macro IoU 0.472975 and
-0.473450. The three matching controls' common cascade comparisons remain
-pending. Training completion, functional checks, and capacity checks are
+0.473450. The spatial control also has a complete cascade evaluation; raw-semantic
+and decoder-cosine cascade comparisons remain pending. Training completion, functional checks, and capacity checks are
 not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
@@ -677,8 +690,9 @@ no-R, Fixed changes F-Score by 0.009020 and source LPIPS by -0.000368, while
 DreamSim increases by 0.001469. These are complete-panel point comparisons,
 not intervals from the still-pending 48-comparison family. They show why
 an occupancy ranking or a geometry improvement alone cannot establish a
-score-weighting or source-preservation advantage. No final model is adopted
-from this partial four-model cascade comparison.
+score-weighting or source-preservation advantage. The spatial cascade is also complete, with CD 0.0129704 and F-Score 0.839333.
+Raw-semantic and decoder-cosine comparisons are still required before final
+geometry-led SS selection; no model is adopted from the five available cascades.
 
 \section{Discussion and limitations}
 \paragraph{Retrieval, aggregation, and adaptation are separate hypotheses.}
@@ -694,21 +708,25 @@ or membership in a strong pipeline as proof of necessity. They also do not
 identify extra learned projections as the cause of earlier failures: the
 original and shared-evidence architectures differ in multiple respects.
 
-\paragraph{Alignment and preservation must be read jointly.}
+\paragraph{Stage-specific effects and final-system reporting.}
 The paired DEV128 cascade gives Fixed a positive exploratory surface F-Score
 difference from Top-1, while source LPIPS and DreamSim have worse point
 estimates. This is a geometric improvement signal with unresolved appearance
-cost, not evidence of uniform superiority. Source references retain the
+cost. SS selection follows the geometric endpoints; this cross-SS appearance
+observation is not a reason to reject its geometric gain. Appearance gains
+must instead be tested by changing PBR on identical generated geometry.
+Source references retain the
 original material on edited geometry, so preservation here concerns
 appearance after deformation rather than equality to undeformed source
-pixels. We retain both endpoint groups in model selection and reporting;
-an interval containing zero does not certify preservation or equivalence.
+pixels. We report both endpoint groups for the composed system while
+keeping the stage-specific selection rules above. An interval containing
+zero does not certify preservation or equivalence.
 The final held-out comparison must establish which improvements survive
 the frozen pipeline and protocol.
 
 The original twelve-model, ten-module-contrast family and paired DEV128
 cascade extension are complete. The final-context SS study is also complete.
-Downstream evaluations for the three matching controls, the full downstream family, and
+Downstream evaluations for raw-semantic and decoder-cosine, the full downstream family, and
 held-out results remain pending. The separate two-seed PBR
 training diagnostic is complete but does not establish pipeline quality.
 The completed two-seed SS study supports the combined branches relative to

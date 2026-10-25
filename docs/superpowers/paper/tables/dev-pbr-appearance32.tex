@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrr}
+\toprule
+PBR arm on identical V1 geometry&LPIPS$\downarrow$&DreamSim$\downarrow$&CLIP$\uparrow$&Target PSNR$\uparrow$&Target SSIM$\uparrow$\\
+\midrule
+Vanilla&0.053099&0.155692&0.942434&24.47068&0.950488\\
+Actual Top-1 + R&0.052984&0.154160&0.942141&24.54852&0.950585\\
+Top-1 + learned feature + R&0.053019&0.154338&0.942222&24.51148&0.950536\\
+Raw Top-K + learned feature + R&0.052986&0.154346&0.942330&24.52061&0.950544\\
+\bottomrule
+\end{tabular}
+\caption{Actual appearance-stage ablation on32 development examples.
+Only PBR changes: generated V1 geometry, native guides, initial texture
+noise, sampler, actual rendering triangles, and material references are paired.
+LPIPS/DreamSim assess source appearance; CLIP is complementary and target
+image metrics are separate. CD/F-Score are identical by construction.
+The feature/Raw arms keep a Top-1 carrier and source-use path; these are not
+matched shared-evidence Fixed PBR controls. Final PBR selection requires
+the chosen SS geometry, rather than transferring this V1-geometry ranking.}
+\label{tab:pbr-appearance32}
+\end{table}

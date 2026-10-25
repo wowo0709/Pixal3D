@@ -6,6 +6,14 @@
 실제 file4의 `SS-confirmation-VAL36-PBR1140-continuation-v449/claim-evidence-ledger.md`에
 보존한다. [핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
 
+사용자 정정: **SS는 geometry(CD/F-Score)로, PBR는 동일 geometry의 appearance
+(LPIPS/DreamSim·보조 CLIP)로 별도 선정**한다. Cross-SS appearance 차이로 SS의
+geometry 후보를 배제하거나 PBR 모듈 효과를 추론하지 않는다. 최종10metric은 모두
+보고하며 기존48/8C family 보정은 유지한다. 선택한 실제 SS geometry의4개 PBR
+comparison을 완료해야 하며 Fixed32 vanilla/R pair만 다른 geometry로 옮겨 쓰지 않는다.
+기존 PBR feature/raw는 Top-1 carrier/use 경로여서 SS Fixed와 같은 shared-evidence
+PBR의 matched 증거로 대체할 수 없다.
+
 ## 현재 완료 범위와 남은 작업
 
 - V1/Top-1 R/Fixed의 두 training seed·DEV128×3 집계는 완료됐다. Fixed는 V1 대비
@@ -118,8 +126,8 @@ GT/count/noise·384 trace를 대조했고 v482/483의 actual file4 closure와 �
 
 Ablation 본문은 SS IoU/CD/F-Score/LPIPS/DreamSim을 중심으로 해석하고 전체
 8metric은 supplement에 모두 보고한다. Main은 LPIPS/DreamSim/CLIP,
-FID/KID, PSNR/SSIM/M-IoU/CD/F-Score의10개 metric이다. Model 선택은 geometry와
-appearance를 함께 사용하며 임의 가중합으로 승자를 만들지 않는다. FID/KID는
+FID/KID, PSNR/SSIM/M-IoU/CD/F-Score의10개 metric이다. SS 선택은 geometry, PBR 선택은 동일 geometry의 appearance를 사용하며 임의
+가중합으로 승자를 만들지 않는다. FID/KID는
 공통 final render population의 분포 요약이며3D 물리적 타당성의 증거가 아니다.
 
 Geometry 향상과 appearance 손실이 함께 있으면 trade-off를 적는다. CI가0을
@@ -190,6 +198,9 @@ Learned/head/member/ray의 음의 결과는 supplement와 discussion에 남긴�
    구현하며 Fixed라는 이름으로 바꾸지 않는다. 원래 계획의 선택 후보 독립 확인에
    따라 그 SS 구조의 seed202와 해당 VAL36 QA가 필요하다. 완료된 V1/R202는
    재사용하며 Fixed202의 근거를 다른 구조로 옮기거나 전 ablation의 seed를 늘리지 않는다.
+   SS는 CD/F-Score로 선택하고 선택한 SS의 동일 geometry에서 네 PBR arm의 appearance를
+   비교한다. 다른 PBR 구조가 선택되면 그 실제 PBR의 seed202 확인이 필요하며 완료된
+   Top-1 R202 training QA를 feature/raw 구조의 독립 확인으로 옮기지 않는다.
 3. Checkpoint/config/code/split/camera/RGB/sampler/noise/composition/metric/statistics를
    동결한다. v424 packet의 qualitative spec과 source map을 기존 numerical pins에
    병합하고 원본 manifest의 actual read-only receipt를 유지한다.

@@ -1,5 +1,27 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+### 사용자 정정에 따른 stage별 목적과 선정 기준
+
+**SS arm의 목표는 geometry 향상이다.** 공통 Shape/PBR를 고정한 CD↓·surface F-Score↑로
+선정하며 voxel IoU는 보조 진단이다. 서로 다른 SS의 LPIPS/DreamSim은 geometry 변화에
+영향받는 진단값이므로 SS 후보의 geometry 개선을 배제하는 기준으로 사용하지 않는다.
+**Appearance 향상은 PBR arm에서 검증한다.** 선택한 SS·Shape의 실제 geometry,
+native guide·texture noise·render triangles·GT reference를 고정하고 PBR만 바꾼다.
+LPIPS↓·DreamSim↓를 중심으로 CLIP↑와 target PSNR/SSIM을 보고하며, CD/F-Score는
+geometry 동일성 확인값이다. 최종 시스템의10metric 보고와 stage별 선정 기준을 구분한다.
+이미 정의한 DEV48-family·TEST8C 통계 보정을 결과를 본 뒤 줄이지 않는다.
+
+기존 PBR vanilla/Top-1 R/Top-1+feature/Raw Top-K+feature 네1900 checkpoint와
+V1 geometry의 DEV32 같은-mesh 비교는 재사용할 수 있다. 다만 기존 PBR feature/raw
+arm은 carrier/source-use가Top-1인 경로이며, 현재 SS Fixed의 shared weighted evidence와
+같은 구조가 아니다. 이 결과를 SS 모듈의 appearance 효과나 shared PBR 경로의 효과로
+쓰지 않는다. Geometry 기준으로 SS를 정한 뒤 **그 geometry에서 네 PBR를 비교**한다.
+Fixed가 선택되면 완료된 같은-Fixed32 vanilla/R pair를 재사용하고 빠진 feature/raw
+두 replay를 보완한다. 다른 SS면 그 실제 geometry/native guide로 같은4행을 평가한다.
+SS×PBR 전체 grid나 모든 SS arm의 PBR 재학습은 하지 않는다. Shared Top-K/score의
+PBR appearance 기여를 주장하려면 해당 PBR 경로와 같은-support weighting 대조가
+실제로 필요하며, 기존19-tensor feature arm을 그 matched 대조로 이름만 바꾸지 않는다.
+
 최신 완료: Raw/D1-cos480과7모델 DEV128×3·전체6대조가 끝났다. IoU ladder는 Spatial0.472267→Raw0.472975→D1-cos0.473450→Fixed0.473471이며6개 family-adjusted CI는 모두0을 포함한다. Uniform/no-R는 실제 cascade128·8metric도 완료했다. Fixed의 geometry 점추정은 양수지만 LPIPS/DreamSim은 비교별로 엇갈리므로 필요성·일반적 preservation 우위로 쓰지 않는다. JSON camera-key 읽기 경계를14개 검사와 실제4모델 exact arithmetic으로 검증하고 pending global CPU reducer 하나를 같은 output의 successor로 연결했다. 실제17쪽/24인용 원고에 전체 SS·4개 cascade를 반영·검수했다. 남은 matching3개 cascade·48-family·최종 조합/조건부 독립 확인·freeze/TEST10metric·최종 writing은 [현재 핵심 실행 행렬](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다. 아래의 과거 pending은 당시 이력이다.
 
 2026-10-25 최신 완료: Spatial의480·DEV128×3·strict 집계는 IoU0.472267이며 논문 ablation의 SS cell과 W&B에 반영했다. 완료된 PBR V1/R×두 seed의 최종1900·원본16장을 게시하고 fixed4 training-QA 표를 넣었다. 새16쪽/24인용 개발 PDF의 수정6쪽을 시각 검수·actual file4 보존했다. Auxiliary의 미실행 Uniform/No-R128 case는 같은 ID·command·plan·출력·수치 설정으로 main0–3에 이관하고 두 dispatcher의 실제 HELD→pending·고유 producer·기존 NN 유지·file4 admission을 확인했다. 남은 Raw/D1-cos480·SS128×3, 신규5행 cascade8metric, 전체 family, 실제 최종 조합·조건부 독립 확인·freeze/TEST10metric·최종 writing은 유지한다. [현재 결과·실행 근거](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)를 우선하며 아래 과거 pending은 당시 이력이다.
