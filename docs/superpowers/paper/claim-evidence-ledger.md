@@ -117,6 +117,13 @@ PBR fixed4 stage trend는 같은 training seed 안의 V1/R·모든 epoch에서 G
 cold prediction latent는 같은 계약을 따른다. 이는 final cascade/TEST의 공통 GT 규칙을
 완화하지 않으며 generated geometry나 source preservation의 확인도 아니다.
 
+최신 실제 PBR R2021520은 V1/R render PSNR26.675535/26.510421,
+crop LPIPS0.088800/0.086774다. R의 LPIPS 점추정은 낮지만 PSNR 격차는1140보다
+커진 mixed target-stage 경향이다. 네 rank1520 trace와 같은 seed의 GT pixel을
+검증했고 원래8개 panel·원격 W&B summary·actual file4 SHA/size를 보존했다
+(`PBR202-R-actual-epoch1520-v413`, `PBR202-epoch1520-WandB-v414`).
+PBR1900·두 seed collector·full-cascade/source/TEST나 모듈의 필수성으로 해석하지 않는다.
+
 실제 BF16 관측의50,516 observable relations 중 Top-1 miss/Top-K hit31,408개에서
 exact GT probability mass는 diagnostic Uniform1.6266%, Fixed6.4601%, Learned6.1756%다.
 Learned−Fixed−0.2844pp의 탐색용 CI95는[−0.9776,+0.4890]pp다. 후보 활용의 진단과

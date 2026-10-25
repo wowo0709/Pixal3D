@@ -405,6 +405,34 @@ V1과 같음을 검증했다. `PBR202-R-actual-epoch1140-v413` 및 원래 최신
 실제 file4 SHA/size로 보존했다. Source preservation/generated geometry·R1900·
 최종 두 seed collector·TEST 완료로 사용하지 않으며 예정 budget을 유지한다.
 
+후속 실제 R seed202 epoch1520의 같은 fixed4 GT-shape target8 결과는 아래와 같다.
+
+| 지표 | V1 | Top-1 R | R−V1 |
+|---|---:|---:|---:|
+| Render PSNR↑ | 26.675535 | 26.510421 | −0.165113 dB |
+| Full-frame LPIPS↓ | 0.009061 | 0.008816 | −0.000246 |
+| Crop LPIPS↓ | 0.088800 | 0.086774 | −0.002026 |
+| Base-color PSNR↑ | 24.938271 | 25.059986 | +0.121715 dB |
+
+LPIPS의 R 우위 점추정은 유지됐지만 PSNR 격차는1140의−0.077097dB에서 다시
+커졌다. 따라서 지속적인 PSNR 수렴이나 전체 지표 개선으로 서술하지 않는다.
+네 rank의 처음1520 실제 입력/noise/timestep/global trace와 같은 seed V1/R의
+0/380/760/1140/1520 GT PNG pixel 일치를 검증했다. Case001의 원래 V1/R
+GT|prediction|error 패널도 직접 확인했으며 이 사례를 평균 효과의 근거로 쓰지 않는다.
+`PBR202-R-actual-epoch1520-v413`의24개 산출물5,905,239bytes와 원래 panel8개·
+곡선·원격 summary를 대조한
+[paired epoch1520 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch1520-v414)의
+2개 산출물14,486bytes를 실제 file4 SHA/size로 보존했다.
+
+실제 네 rank의 마지막10 training update compute median은13.499–13.500초다.
+처음1520의 rank별 최대값 중 peak allocated는44.299GiB, reserved는49.424GiB이며
+global24/micro6×4/accum1을 유지했다. Validation·입출력을 포함한 전체 throughput이나
+최종 OOM 부재 보장으로 확대하지 않는다. 자동 수집기는 이 PBR 작업을 완료했고
+기존 Raw/D1-cos192를 계속 기다린다. 원래 observer는 실제1520 milestone에서
+정상 exit0했으며 학습을 재시작하지 않았다. PBR1900·두 seed collector·generated
+geometry/source preservation·TEST는 계속 남아 있다. 작은 stage 진단이므로 이
+중간 수치를 논문의 Main/Ablation 표에 추가하지 않는다.
+
 선정 순서:
 
 1. 최종 문맥의 ablation 및 downstream geometry/appearance를 함께 판독한다.
