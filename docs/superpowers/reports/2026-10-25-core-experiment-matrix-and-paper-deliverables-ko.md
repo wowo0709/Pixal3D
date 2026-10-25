@@ -1,5 +1,11 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+2026-10-26 실제 실행은 v586이다. v570의 raw-retirement `/proc` 권한 오류와
+완료142 case를 보존하고, 별도 운영 adapter의24검사·실제 NAS raw 정리·dead future
+credit 해제를 거쳐 GPU0–3·6·7에서 새 평가를 시작했다. 원래505개 source byte와
+모델/수치 protocol을 유지한다. 후속10metric→v587 표·그림→v588 W&B를 연결했다.
+[실패와 실제 복구 근거](2026-10-26-proc-access-failure-and-serialized-retirement-recovery-ko.md).
+
 2026-10-26 sensitivity 후속: 기존 동일-geometry PBR4의 foreground/GT-crop32개
 cell과 metric 정의를14쪽 preview(v581)에 반영·검수·actual file4 보존했다(v580/v582).
 바뀐6쪽을 직접 검수하고 앞8쪽의 기존 검수 PNG 동일성을 확인했다. 새 scoring/NN/

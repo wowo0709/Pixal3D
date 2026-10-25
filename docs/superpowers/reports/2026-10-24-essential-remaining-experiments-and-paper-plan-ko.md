@@ -1,5 +1,13 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-26 실제 복구: v570은 raw reader의 `/proc` AccessDenied로 안전 종료됐다.
+142개 완료 case와27개 complete group을 보존했고, protected-reader wait와 동기적
+retirement 운영 adapter의24검사·실제 두 raw file NAS 검증을 통과했다. 원래505개
+source byte/모델/수치 계약을 유지한 새 v586이 GPU0–3·6·7에서 시작했다. 원래 final
+collector의 단일 namespace 계약에 따라 cascade는 재평가하며 SS/학습은 재실행하지
+않는다. 후속10metric→Main/qualitative(v587)→W&B(v588)를 연결했다.
+[실패 원인·검증·실제 복구 범위](2026-10-26-proc-access-failure-and-serialized-retirement-recovery-ko.md).
+
 2026-10-26 sensitivity 후속: 기존 Fixed PBR4의 foreground/GT-crop32개 cell과
 정확한 metric 정의를 실제14쪽 Supplement preview(v581)에 반영·검수했다.
 새 NN/학습/통계 family/선정은 없다. TEST cascade와 최종10metric/표·그림/writing은

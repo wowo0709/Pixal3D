@@ -1,5 +1,12 @@
 # 논문 초안과 결과 표
 
+2026-10-26 실행 복구: 현재 실제 TEST cascade는 v586이며 후속 Main/정성 export는
+v587, W&B는 v588이다. v570의 retirement `/proc` 권한 오류와142개 완료 case를
+보존하고, strict process wait·동기적 ledger 운영 경로를24검사/실제 NAS retirement로
+확인했다. 원래505개 수치 source와 모델·평가 protocol을 유지한다.
+[실제 실패 원인과 재평가 범위](../reports/2026-10-26-proc-access-failure-and-serialized-retirement-recovery-ko.md).
+아래 v570 실행 중 표현은 그 시점의 이력이며 최종 TEST/원고 완료는 계속 남아 있다.
+
 2026-10-26 sensitivity 후속: 기존 동일-Fixed PBR4의 foreground/GT-crop 점수32개를
 실제 closed JSON과 대조해 Supplement 표와 metric 정의에 넣었다. 새14쪽 preview(v581)는
 바뀐9–14쪽을 시각 검수했고1–8쪽은 이전 검수본과 rendered PNG가 같다. Foreground PSNR은
