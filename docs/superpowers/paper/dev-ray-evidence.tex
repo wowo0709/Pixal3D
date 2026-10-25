@@ -1,0 +1,21 @@
+\begin{figure}[p]
+\centering
+\includegraphics[width=\linewidth]{figures/dev-ray-evidence.pdf}
+\caption{Actual saved native ray evidence from the development panel.
+The top row shows the edited target and three original source inputs under
+the native black-background preprocessing. Red and gold boxes mark the
+selected target patch and observed target members; the dashed gold box marks
+the source-camera ray patch. Blue marks the actual Top-1 proposal and green
+the exact GT candidate retained at rank two. The two stored member sites are
+observed target members, not the entire ray context pooled by the retargeter
+and source-use branch. The fixed matching posterior assigns 25.64\% mass to
+the GT candidate in this example. The bottom-right diagnostic averages exact
+GT mass over 31,408 native Top-1-miss/Top-K-hit relations from 32 assets;
+Uniform is post-hoc reweighting, not the matched Uniform training control.
+The illustrated relation is the first eligible relation in lexicographic
+sample order, requiring at least two observed sites, without selection by
+downstream quality. GT is used only for annotation and diagnostic selection.
+These conditional observations do not establish generated-quality gains,
+success frequency, or calibrated visibility.}
+\label{fig:dev-ray-evidence}
+\end{figure}

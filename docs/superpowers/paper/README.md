@@ -1,5 +1,7 @@
 # 논문 초안과 결과 표
 
+2026-10-25 갱신: 최신 compiled revision은 `paper-draft-actual-ray-evidence-v325`의13쪽·24개 인용 초안이다. 실제 native ray 기전 그림은 `actual-ray-evidence-figure-v323`에서 생성·검수·file4 보존을 완료했다. `dev-ray-evidence.tex`는 해당 실제 관측의 입력4장·member·Top-K·확률을 연결하고, 조건부 사례 선정과 진단 Uniform의 범위를 caption에 명시한다. 새 PDF의5·6·10쪽을 직접 검수했고 compiler returncode0, TeX warning·미해결 인용·overfull/underfull0이다. 최종 control/TEST 결과는 아직 미측정이다. 이전 revision은 아래 시점별 기록으로 보존한다.
+
 최신 `paper-draft-final-control-scope-v281`은 최종 구조에 따른 query/score 대조의 의미와 D1-cosine 중간 행을 반영한10쪽 revision이다.24개 인용·compiler returncode0·TeX warning/미해결 인용0이며8/9쪽의 본문과 ablation 표를 시각 검수했다. [최종 문맥 재사용·대조 구현 기록](../reports/2026-10-24-final-context-reuse-and-physical-controls-ko.md)에 실제 source/constructor 검사와 아직 필요한 GPU proof·학습/평가 entry 연결을 구분했다. 이 수정으로 새 arm의 성능이나 최종 모델 선택을 완료한 것은 아니다.
 
 최신 후속 revision은 `paper-draft-independent-V1-output-link-v276`이다. 독립 V1의 실제 DEV128×3 집계와 같은32개에서의 활용/출력 association을 추가했다.10쪽·24개 인용, compiler returncode0·warning/미해결 인용0이며5/6쪽을 시각 검수했다. 원본 V1/R 두-seed 통합 collector도 기존 queue의 storage-successor-v185 job이 정상 pending이고 source295개가 일치함을 확인했다. R 평가 종료 뒤 이 기존 collector를 사용하며 중복 등록하지 않았다. [실제 결과·GPU1 평가 연결 기록](../reports/2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)을 참고한다. 최종 pipeline 선정·독립 R/PBR·TEST는 여전히 남아 있다.
@@ -10,7 +12,7 @@
 
 최신 snapshot은 결과 root `unified-module-pipeline-v1/paper-draft-thirteen-endpoints-v222`에 있다. `audit.json`에 실제 compiler returncode0·PDF SHA256·검수 범위를, `actual-file4-closure.json`에23개 산출물의 실제 파일서버4 SHA256/size 일치를 기록했다. 이후 수정은 기존 snapshot을 덮어쓰지 않고 새 revision으로 빌드한다.
 
-현재 본문은 `figures/dev-tradeoffs.pdf`를 필요로 한다. 이 파일은 실제 render에서 만든 산출물이므로 Git에 넣지 않는다. 외부 build 디렉터리에 소스를 복사하고, 결과 root의 `paper-compact-DEV-tradeoffs-v230/dev-tradeoffs.pdf`를 해당 상대 경로에 배치한 뒤 그 source 디렉터리에서 `tectonic --untrusted --keep-logs retargeting-evidence-draft.tex`로 빌드한다. 원본 figure의 SHA256/size는 같은 결과 폴더의 `file4-closure.json`과 대조한다.
+현재 본문은 `figures/dev-tradeoffs.pdf`와 `figures/dev-ray-evidence.pdf`를 필요로 한다. 두 파일은 실제 관측·render에서 만든 산출물이므로 Git에 넣지 않는다. 외부 build 디렉터리에 소스를 복사하고, 결과 root의 `paper-compact-DEV-tradeoffs-v230/dev-tradeoffs.pdf`와 `actual-ray-evidence-figure-v323/figure/dev-ray-evidence.pdf`를 해당 상대 경로에 배치한 뒤 그 source 디렉터리에서 `tectonic --untrusted --keep-logs retargeting-evidence-draft.tex`로 빌드한다. 원본 figure의 SHA256/size는 각 결과 폴더의 `file4-closure.json`과 대조한다.
 
 실제 figure를 포함한 후속 revision `paper-draft-actual-qualitative-v231`은8쪽으로 빌드·검수했다. Compiler returncode0, TeX warning/미해결 인용0이며 figure가 있는6쪽의 패널·annotation·caption을 시각적으로 확인했다.23개 source/build 산출물의 실제 file4 SHA256/size 일치를 확인했다. 위7쪽 revision도 figure 추가 전의 immutable snapshot으로 보존한다. 두 PDF 모두 개발 결과 초안이다.
 
@@ -36,6 +38,7 @@
 | `tables/dev-matching32.tex` | 동일 frozen matching checkpoint의 관측 가능 관계 단위 진단; 생성 품질과 별도 |
 | `tables/dev-paired-pbr32.tex` | 같은 E_FIXED_RAW SS geometry에서 vanilla/R PBR의 실제 짝비교 |
 | `dev-qualitative.tex` | 실제 DEV render의 trade-off 그림과 선택 규칙; 외부 figure asset staging 필요 |
+| `dev-ray-evidence.tex` | 실제 native ray/member·후보·확률의 기전 그림; 조건부 진단과 matched 학습 결과를 구분 |
 | `tables/final-main-template.tex` | TEST508의10개 metric 양식; 전부 미측정 |
 | `tables/final-ablation-template.tex` | Matching ladder/aggregation/R 대조; 실제 Fixed/Top-1 두 행만 측정 |
 

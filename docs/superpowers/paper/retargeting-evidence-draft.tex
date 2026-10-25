@@ -5,7 +5,7 @@
 \newcommand{\pending}{\textemdash}
 \title{Ray-Based Semantic Evidence Retargeting for Multi-View 3D Editing}
 \author{Working manuscript; title and final model subject to confirmation}
-\date{Development draft, 24 October 2026 UTC}
+\date{Development draft, 25 October 2026 UTC}
 \begin{document}
 \maketitle
 
@@ -289,6 +289,14 @@ The prior's larger mass than uniform supports its use of candidate evidence;
 it does not establish generated-quality improvement over a matched uniform
 model. Exact patch correspondence also does not capture every potentially
 useful semantic candidate.
+
+Figure~\ref{fig:dev-ray-evidence} connects these measurements to the actual
+RGB inputs, observed ray members, retained proposals, and saved posterior.
+It illustrates a recoverable Top-1 error, rather than selecting a successful
+generated asset. The observed member IDs are distinguished from the full
+native ray context used for source-use and retargeter pooling. In particular,
+a high source-use value is not interpreted as calibrated surface visibility.
+\input{dev-ray-evidence.tex}
 
 We also joined per-asset learned-minus-fixed mass changes to the same
 cascade32 outputs. Spearman associations with improvements in CD, F-Score,

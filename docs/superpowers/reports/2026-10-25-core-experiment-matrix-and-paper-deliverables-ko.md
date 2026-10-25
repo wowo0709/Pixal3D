@@ -94,13 +94,13 @@ FID/KID는 작은 ablation마다 반복하지 않고 최종 공통 render popula
 |---|---|---|
 | Main table | 위4/5개 모델×10 metric, 목적별3개 column group | TEST 실제 값 전부 남음 |
 | Ablation table | Panel A: spatial→raw→decoder cosine→scalar. Panel B: Top-1/Uniform/no-R 대 Fixed | Fixed/Top-1은 실제 값, 신규5행 미완료 |
-| Mechanism figure/table | Retrieval coverage→유효 후보 probability mass→같은 사례의 출력 변화 | 기존 관측 재사용, matched Uniform 결과와 연결 |
+| Mechanism figure/table | Retrieval coverage→유효 후보 probability mass→같은 사례의 출력 변화 | 실제 native ray 그림·본문 삽입 완료; matched Uniform 결과와 최종 출력 연결은 남음 |
 | Qualitative figure | 같은 asset/view의 GT·두 zero-shot·V1·R·Ours, 성공과 실패 | 최종 모델 render와 명시적인 사례 선정 기준 필요 |
 | Supplement | 모든8metric, 기존 ray/member/learned 음의 결과, 두 seed, protocol·실패 사례 | 기존 완료 결과 반영·최종 정합 검수 |
 
 Ablation 본문 열은 `Correspondence / Weighting / R | SS IoU / CD / F-Score / LPIPS / DreamSim`으로 구성한다. 기존12모델 원래 문맥의 수치를 신규 최종 문맥의 행에 옮기지 않는다. Matching-aware weighting과 추가 learned attention을 구분한다.
 
-Writing 순서는 problem/method·protocol 정리 → DEV ablation/기전 → 독립 재현 → TEST main results → discussion → abstract/conclusion 확정이다. 이미12page/24reference compiled 개발 초안이 있으며, 남은 작업은 실제 최종 표·그림·claim을 넣고 PDF를 검수하는 것이다. 현재 contribution의 표현은 다음 범위가 적절하다.
+Writing 순서는 problem/method·protocol 정리 → DEV ablation/기전 → 독립 재현 → TEST main results → discussion → abstract/conclusion 확정이다. 실제 native ray 그림을 삽입한13page/24reference 개발 초안을 compile·검수했으며, 남은 작업은 실제 최종 표·정성 결과·claim을 넣고 PDF를 검수하는 것이다. 현재 contribution의 표현은 다음 범위가 적절하다.
 
 > We aggregate uncertain semantic correspondence evidence at the camera-ray level and adapt source conditioning while retaining the native target-conditioning stream. Matched ablations evaluate retrieval, score-weighted aggregation, and retargeting separately; geometric alignment and source appearance preservation are reported independently.
 
