@@ -222,6 +222,19 @@ tensor의 전체4모델 대조는 기존 two-seed collector가 R 완료 후 수�
 pixel이 같은 seed202 V1과 정확히 같다. 네 rank 각각의 첫32 학습 trace도 같음을
 확인했다. 이는 실제 live prefix 확인이며 R1900·두 seed paired collector 완료가 아니다.
 
+후속 R seed202의 실제 epoch380 validation이 완료됐다. 같은 fixed4·GT-shape·
+target8에서 pooled PSNR은 V1 **26.167063**, R **25.850750**으로 R−V1은
+−0.316313dB다. Crop LPIPS는 V1 **0.093817**, R **0.096099**로 차이+0.002283,
+full-frame LPIPS는0.009921 대0.010286으로 차이+0.000365다. 현재 첫 epoch의
+target-stage 경향은 R에 불리하다. 네 rank의 실제 처음380 입력/noise/timestep/global
+trace가 완료 V1과 같고,0/380의 실제 GT PNG pixel도 같은 seed의 V1과 정확히
+같음을 검증했다. 초기 predicted PBR latent도 같다. `PBR202-R-actual-epoch380-v413`에
+원래 panel8개·paired validation·380 trace를 포함한12개 산출물을 실제 file4 SHA/size로
+보존했다. [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch380-v414)에
+두 모델의 원래 GT/Pred/error panel8개와 수치를 게시하고 원격 summary를 대조했다.
+소수 target-stage 경향을 source preservation/generated geometry·R1900·독립 확인으로
+확대하지 않으며 약속한1900 업데이트와 기존 strict two-seed collector를 유지한다.
+
 선정 순서:
 
 1. 최종 문맥의 ablation 및 downstream geometry/appearance를 함께 판독한다.

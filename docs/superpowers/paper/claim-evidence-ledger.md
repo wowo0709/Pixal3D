@@ -1,5 +1,13 @@
 # 논문 claim과 필요한 근거
 
+후속 actual PBR R202 epoch380: 같은 fixed4 GT-shape target8에서 V1 PSNR
+26.167063 대 R25.850750, crop LPIPS0.093817 대0.096099로 현재 R에 불리하다.
+실제 네 rank380 trace, 입력/GT/seed/camera,0/380 GT PNG pixel과 초기 predicted
+latent의 pairing을 검증했다. `PBR202-R-actual-epoch380-v413` 및 원격 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-paired-epoch380-v414)에
+원래 panel8개와 수치를 보존했다. 첫 epoch·target4 결과이며 source preservation/
+generated geometry 또는 R1900/두 seed collector의 완료로 쓰지 않는다.
+
 후속 actual 완료3대조 통계: `completed-three-of-six-SS-contrasts-v409`에서
 전체6개 family를 그대로 유지한12,000 source-cluster draw를 집계했다.
 Fixed−Top-1 IoU+0.000871의 보정 CI95는[−0.001642,+0.003679],
