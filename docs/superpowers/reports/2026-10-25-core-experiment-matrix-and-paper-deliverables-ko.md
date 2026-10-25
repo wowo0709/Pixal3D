@@ -32,6 +32,38 @@ producer 확인→actual file4 activation 순서를 지켰다. HELD는 자원 �
 prelaunch/activation closure가 근거다. 이후 case retirement가 찾는 원래 job ID·plan도
 그대로다. 새 과학적 arm·학습 재시작은0이며 Raw/D1-cos는 계속6/7에서 학습한다.
 
+### 후속: 같은 seed101·epoch384의 correspondence ladder
+
+기존 SS epoch 수집기는 Raw/D1-cos288/384의 네 own reader·원격 게시를 모두 마치고
+정상 exit0했다. 본 NN의 종료가 아니며 두 원래 학습은480을 향해 계속한다.
+기존 paired reducer로6개 모델의 cold per-asset·GT/ID/count/noise와 실제384 input/
+noise/timestep trace 및 baseline history를 대조했다. 같은 quick32·생성 noise1회다.
+
+| 모델 | Epoch384 macro IoU | V1 대비 |
+|---|---:|---:|
+| V1 | 0.470704 | — |
+| Spatial | 0.471145 | +0.000441 |
+| Raw semantic | 0.475796 | +0.005092 |
+| Decoder semantic cosine | 0.475938 | +0.005234 |
+| Fixed scalar weighting | 0.476221 | +0.005517 |
+| Top-1 R | 0.472579 | +0.001875 |
+
+Raw−Spatial은+0.004651(개선17/하락15), D1-cos−Raw는+0.000141(16/16),
+Fixed−D1-cos는+0.000284(15/17)다. 각각 median은+0.000891/−0.000387/−0.000032다.
+따라서 semantic 전달의 양의 평균 신호와 작은 decoder/score 추가 차이를 분리하며,
+평균의 양수만으로 모든 사례의 개선이나 개별 모듈의 필수성을 주장하지 않는다.
+같은 시점 Fixed−Top-1은+0.003642(21/11)다. 최종128×3·cascade·6/48대조 family·
+CI·모델 선택·TEST가 아닌 중간 기술적 비교이며 최종 수치 표는 바꾸지 않았다.
+`correspondence-paired-epoch384-v482`와 `correspondence-paired-epoch384-WandB-v483`에
+actual file4 근거를 보존했고 [기존 Raw384 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Raw101-epoch384-v454)의
+원래 summary를 유지하면서 같은6개 모델·대조 값을 추가·검증했다.
+
+이관한 첫 실제 case23a9d6b35679758a도 완료됐다. `actual-first-relocated-DEV-case-postconditions-v500`에서
+원래 case ID/command/plan/output producer가 main에 하나뿐이고, retired local3개만
+없으며 나머지30개 case file의 SHA/size는 같음을 확인했다. 삭제 후 실제 NAS 원본3개도
+fresh read로 재대조했다. 209,678,935bytes의 지정된 로컬 중복 회수이며 원본 삭제·
+NN 재학습·재렌더는0이다. 자원 이관의 실제 운영 검증이지 신규 품질 효과가 아니다.
+
 ### 앞선 실제 완료: PBR 독립 집계와 첫 DEV cache 회수
 
 PBR R seed202는1900·최종 validation·정상 exit0/drain과 native/wrapper actual file4

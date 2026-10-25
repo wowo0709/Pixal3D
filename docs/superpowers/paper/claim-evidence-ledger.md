@@ -90,6 +90,15 @@ Fixed−D1-cos는−0.001770(15/17)이다. 같은 cold·GT/count/noise·288 trac
 Semantic 전달의 긍정적 중간 신호를 decoder/scalar의 최종 효과·family·cascade·
 TEST나 새 모델 선택으로 확대하지 않는다.
 
+같은 epoch384 quick32의 V1/Spatial/Raw/D1-cos/Fixed/Top-1은
+0.470704/0.471145/0.475796/0.475938/0.476221/0.472579다.
+Raw−Spatial+0.004651(17/15), D1-cos−Raw+0.000141(16/16),
+Fixed−D1-cos+0.000284(15/17)이며 세 median은+0.000891/−0.000387/−0.000032다.
+Semantic 전달의 양의 평균 신호와 작은 decoder/score 차이를 분리한다. 실제 cold·
+GT/count/noise·384 trace를 대조했고 v482/483의 actual file4 closure와 기존 Raw384
+원격 값 보존을 확인했다. 최종128×3·6/48 family·cascade·선택·TEST가 아니다.
+기존 네 epoch 수집기의 exit0는 수집 완료이며 원래480 본 학습 중단이 아니다.
+
 ## 표·그림과 writing의 역할
 
 | 산출물 | 사용 근거와 남은 범위 |
