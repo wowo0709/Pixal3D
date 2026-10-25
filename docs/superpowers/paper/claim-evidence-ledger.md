@@ -1,5 +1,11 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Fixed202 epoch192: 같은32개에서 Fixed0.465424, Top-1 R0.462070,
+V10.466631이다. Fixed−R+0.003354는 양수지만 Fixed−V1−0.001207은 여전히
+음수다. 첫192 입력 trace와 cold pairing을 확인했으며 최종480/128×3/cascade
+또는 독립 확인 완료로 쓰지 않는다. 실제 근거는 `Fixed202-actual-epoch192-v400`
+및 `Fixed202-epoch192-WandB-v401`이고 최종 표는 갱신하지 않았다.
+
 후속 실제 v393/v396: PBR V1 seed2021900과 여섯 GT-shape target4 validation이 완료됐다.
 Pooled PSNR26.057314→26.862564, crop LPIPS0.095142→0.086446이며 source preservation/
 generated geometry나 R의 우위는 여기서 입증하지 않는다. R seed202는 본 학습 중이고

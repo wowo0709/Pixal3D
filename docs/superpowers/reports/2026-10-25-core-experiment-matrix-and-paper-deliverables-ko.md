@@ -141,6 +141,17 @@ median 차이는 각각+0.004203/+0.000280이므로 mean과 median의 방향을 
 검증한 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/selected-Fixed-seed202-epoch96-v389)는
 `selected-Fixed-seed202-epoch96-WandB-v389`에 보존했다.
 
+후속 실제 epoch192에서 같은 seed202 quick32 macro IoU는 V1 **0.466631**,
+Top-1 R **0.462070**, Fixed **0.465424**다. Fixed−R은+0.003354로 바뀌었고
+개선22/하락10·median+0.001912다. Fixed−V1은−0.001207, 개선14/하락18·
+median−0.002838로 여전히 평균 우위가 없다. V1과의 평균 격차는96의−0.001993보다
+줄었지만 이를 최종 개선으로 해석하지 않는다. 세 모델의 첫192 실제 asset/noise/
+timestep/global trace가 같다. 새 reusable epoch reader는 기존 두 actual epoch96
+readout의 전체 macro cell과96 trace에 정확히 일치함을 확인한 뒤 사용했다.
+실제 snapshot/closure는 `Fixed202-actual-epoch192-v400`, 원격 summary를 검증한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch192-v401)는
+`Fixed202-epoch192-WandB-v401`에 있다. 최종 ablation/TEST table에는 넣지 않았다.
+
 Spatial seed101의 첫 epoch96도 완료됐다. 같은 seed101 quick32의 macro IoU는
 V1 **0.463801**, Top-1 R **0.461619**, Fixed **0.461789**, Spatial **0.461504**다.
 Spatial−Fixed는−0.000285, Spatial−V1은−0.002297이며 처음96개 실제 학습 trace와
