@@ -2,6 +2,23 @@
 
 ### 최신 완료: 7행 SS·6대조와 Uniform/No-R의 실제 cascade
 
+후속 자원 배분: 아직 시작하지 않은 Raw28 case를 auxiliary에서 main으로 옮겼다.
+원래 ID·command·case plan·출력·모델/입력/수치 source는 같다. 실제 dispatcher의
+28 HELD→원래 descriptor 제거→main pending·고유 producer 확인→actual file4
+activation을 마쳤다(`Raw-case-mainGPU-rebalance-v519`). Raw 배치는 main92/aux36이며
+기존 active case와 다른 descriptor의 상대 순서는 유지했다. 새 arm·재학습은0이다.
+
+완료 시간 추정은 관측된 최근 queue별40개(총80개) case의 중앙값150.70/154.80초,
+평균161.15/162.84초에서 계산했다. 신규 cascade는 관측 당시390/640 완료였으며
+자원 재배분 후 남은 DEV 생성·metric/family 집계는 약2–3시간으로 추정한다.
+TEST는4/5개 고유 모델에 따라2,032/2,540 case다. 같은160초/case·GPU6개로 단순
+외삽하면 약15.05/18.81시간이며, SS 포함 native TEST의 실제 속도는 freeze 후 첫
+case들에서 다시 측정해야 한다. 현재는 TEST 평가16–22시간과 최종 metric·그림/
+writing·검수를 합쳐 **현재부터24–36시간**을 작업 범위로 잡는다. 다른 SS 구조를
+선택하면 그 실제 구조의 seed202·VAL36·binding과 필요 PBR 짝비교에 **6–10시간 추가**를
+예상한다. 이는 완료 실적이나 약속 시각이 아니며 실제 선택·실행 속도로 갱신한다.
+
+
 Raw semantic과 Decoder-cosine은 각각480 update·최종 validation·정상 exit0/drain·
 native/wrapper file4 보존을 마쳤다. 세 noise씩을 포함한7모델/21평가와 전체6대조의
 기존 reducer 집계도 완료됐다. `complete-seven-model-SS-paper-export-v509`에서
@@ -274,7 +291,9 @@ cascade8metric, 독립 확인, freeze 후 TEST508의10metric과 표·writing 완
 최종 DEV 근거로 Fixed/R과 다른 SS 구조를 선택하면, [원래 독립 확인 계획](2026-10-24-essential-remaining-experiments-and-paper-plan-ko.md)의
 §5.1에 따라 **그 실제 구조의 seed202 확인**이 필요하다. 완료된 Fixed202를 새 구조의
 근거로 대신 쓰지 않는다. V1/R202는 재사용하고 모든 ablation의 seed를 늘리지 않는다.
-실제 final binding·VAL36·freeze/export도 선택 구조에 맞춰야 한다. Quick32 순위만으로
+실제 final binding·VAL36·freeze/export도 선택 구조에 맞춰야 한다. 최종 SS가 바뀌면 원래 계획§2.4의
+동일 geometry에서 vanilla/Top-1 R PBR 짝비교도 그 실제 SS에서 확인한다. 완료된
+Fixed32 texture replay를 다른 SS의 근거로 옮기지 않고 기존 native guide를 재사용한다. Quick32 순위만으로
 새 후보를 선택하거나 조건부 추가 학습을 지금 등록하지 않는다.
 
 후속 실제 실행 연결: [다섯 control의 cascade·8metric·논문 집계 등록](2026-10-25-final-fixed-cascade-metrics-continuation-ko.md). 기준선116개 평균값과 GT 재사용을 검증하고, own SS archive에 의존한 connector5개 및 최종 reducer를 등록했다. 아래의 후속 연결 미완료 설명은 해당 실행 기록으로 갱신하며, 실제 신규 cascade 품질은 계속 미완료다.
