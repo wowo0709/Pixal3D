@@ -2,7 +2,15 @@
 
 작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
-최신 writing 갱신은 `paper-draft-current-claims-and-completed-Spatial-v458`이다.
+최신 writing 갱신은 `paper-draft-explicit-development-test-separation-v478`이다.
+현재 config와 split metadata를 actual local/file4 SHA·size로 재대조한 v477에서
+train9149/validation508/TEST508의 sample/source UID/cluster 교집합은 모두0이고,
+DEV32/128은 validation subset이며 TEST와 분리됨을 확인했다. TEST 예측이나 품질·
+geometry 값은 열지 않았다. 이 역할을 본문에 명시하고 실제16쪽·24개 인용의5/6쪽을
+시각 검수했다. Warning·미해결 참조·overfull/underfull0이며 모든 수치 표·그림은
+v458과 byte-identical이다. Actual file4 closure를 완료했으며 새 품질 결과는 아니다.
+
+이전 writing 갱신 `paper-draft-current-claims-and-completed-Spatial-v458`에서는
 완료 Spatial480을 진행 중으로 적은 원고 문장을 고치고, 남은 독립 확인이 PBR임을
 명확히 했다. Claim 원장의 과거 미완료 상태도 현재 근거와 분리해 정리했다.
 실제16쪽·24개 인용으로 compile했고 수정12/13쪽을 시각 검수했다.

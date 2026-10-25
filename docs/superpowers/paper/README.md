@@ -2,13 +2,19 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-current-claims-and-completed-Spatial-v458`의
-16쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된12/13쪽의
-PBR 독립 확인 범위·Spatial480 완료·미완료 SS/cascade와 표를 시각 검수했다.
-Warning·미해결 참조·overfull/underfull은0이다. 모든 수치 표·그림은 이전 v447과
+현재 compiled revision은 `paper-draft-explicit-development-test-separation-v478`의
+16쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된5/6쪽의
+DEV32/128·validation·TEST 역할과 metric/statistical protocol을 시각 검수했다.
+Warning·미해결 참조·overfull/underfull은0이다. 모든 수치 표·그림은 이전 v458과
 byte-identical이고 실제 source/build/review 산출물의 file4 SHA/size가 일치한다.
-현재 claim 원장은 과거 실행 이력과 현재 미완료 상태가 섞이지 않게 정리했다.
-이는 새 품질 측정이나 최종 TEST·논문 완료가 아니다.
+`current-training-DEV-TEST-split-metadata-v477`에서 현재 학습 config와 실제
+train9149/validation508/TEST508 metadata의 sample/source UID/cluster 무교차,
+DEV128의 validation 포함과 TEST 분리를 확인했다. 원본 manifest의 현재 local/remote
+SHA·size도 같으며 TEST quality나 geometry 값을 열지 않았다. 새 품질 측정이나
+최종 TEST·논문 완료가 아니다.
+
+이전 v458에서 PBR 독립 확인 범위·Spatial480 완료를 반영하고12/13쪽을 검수했다.
+현재 claim 원장은 과거 실행 이력과 현재 미완료 상태가 섞이지 않게 정리되어 있다.
 
 이전 v447에서 VAL36 QA·통계 protocol·독립 seed 결과/표의5/6/10쪽을 검수했고,
 독립 표의27개 수치·순서는 실제 closed exporter와 같음을 확인했다.

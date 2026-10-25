@@ -17,8 +17,8 @@
   신규5개 control의 cascade128·8metric·전체 family 통계는 미완료다.
 - PBR V1 seed202는1900 완료, R seed202는 진행 중이다. 최종 두-seed PBR collector,
   실제 조합 선택·protocol freeze·TEST508·최종 표/정성 그림/writing은 미완료다.
-- 최신 검수된 개발 manuscript는 v458의16쪽·24개 참고문헌이다. 실제 compile과
-  수정12/13쪽 시각 검수·file4 closure를 완료했고 모든 수치 표·그림은 v447과
+- 최신 검수된 개발 manuscript는 v478의16쪽·24개 참고문헌이다. 실제 compile과
+  수정5/6쪽 시각 검수·file4 closure를 완료했고 모든 수치 표·그림은 v458과
   byte-identical이다. 현재 prose 정리는 새 수치나 최종 논문 완료가 아니다.
 
 ## Claim별 현재 판정
@@ -118,6 +118,13 @@ Source camera9/10 reference는 edited M1 geometry의 원래 source material이�
 따라서 undeformed M0 RGB와의 픽셀 일치가 아니라 deformation 후 appearance 보존을
 평가한다. Target camera8의 편집 목표와 source 역할을 분리하며 입력 camera 평가를
 새 시점 일반화로 쓰지 않는다. CD/F-Score에는 결과별 ICP나 scale fitting을 하지 않는다.
+
+현재 학습 config·DEV panel·TEST manifest를 metadata로 다시 확인한 v477에서
+train9149/validation508/TEST508의 sample ID·source UID·source cluster 교집합은
+모두0이다. Source cluster 수는 각각1790/132/134이며 DEV128은 validation의
+128개/93 source subset이다. 원본 local/actual file4 manifest SHA·size는 기존 감사와
+같다. 이는 deformation split 사이의 분리이며 이전 mixed385 pretraining과의 source
+무교차를 입증하지 않는다. 이 검증에서 TEST 예측·품질·geometry 값을 열지 않았다.
 
 PBR fixed4 stage trend는 같은 training seed 안의 V1/R·모든 epoch에서 GT PNG pixel의
 정확한 일치를 요구한다. 독립 seed 사이에는 native 초기-render bound 안에서 GT pixel이

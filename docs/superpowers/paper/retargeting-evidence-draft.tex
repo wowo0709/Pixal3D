@@ -207,6 +207,11 @@ absent channels are not replaced by zero placeholders.
 \subsection{Development, independent confirmation, and final test}
 The SS development panel contains 128 examples from 93 source-asset clusters,
 evaluated using three paired generation-noise seeds and 12 sampling steps.
+Both the 32-example and 128-example development panels are subsets of the
+508-example validation split. They are disjoint from the final test split in
+sample identity, source UID, and source-asset cluster; the test split contains
+134 source-asset clusters. This separation is verified from the manifests,
+without accessing held-out predictions or quality measurements.
 Generation-noise repetitions are averaged within an example before inference
 over source clusters. They are not independent training seeds. The completed
 main SS ablation results use training seed 101. A completed, separate seed202
