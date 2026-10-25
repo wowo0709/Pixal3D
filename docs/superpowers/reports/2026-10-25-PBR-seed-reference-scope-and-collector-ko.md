@@ -51,12 +51,34 @@ seed별 stage reference로 명시적으로 구분한다. 테스트 fixture는 �
 
 ## 남은 실행과 논문 해석
 
-기존 pending CPU collector만 새 version과 source pin으로 연결한다. Seed202
+기존 pending CPU collector 하나를 실제 `v345` worker와 `v346` plan/source pin으로
+교체했다. 원래 job 이름·output·dependency를 유지하고 신규 closure 두 개로
+실행을 gate했다. 다른 descriptor는 정확히 같고 기존 세 NN의 PID/birth도
+재확인했다. Prelaunch6개/40,069bytes와 activation1개/4,650bytes가 실제 file4와
+일치했다. 원본17개 source pin은 바꾸지 않고 새 reader/summary/worker/preparer만
+추가했다. 공개 코드 commit은 `59120e7`이며 원격 feature branch에 push했다.
+
+Seed202
 vanilla/R의 실제1,900 학습과 네 rank terminal·archive·공통 seed 내 GT 확인이
 끝나기 전에는 최종 두-seed 확인 결과를 만들지 않는다. 현재 seed202 R는 아직
 관측하지 않았으며 결과를 추정하지 않는다.
+
+이후 vanilla seed202의1,140 검증이 실제 완료돼0/380/760/1140의 입력/GT pixel
+정합과 원래 pooled metric을 재검증했다. Foreground PSNR은14.946447→15.370098,
+crop LPIPS는0.095142→0.090744, crop SSIM은0.949160→0.951521이다. 네 GT-shape
+사례의 학습 추세이며 retargeting/source preservation/전체 cascade의 효과가 아니다.
+실제 기존 [W&B run](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/required-PBR-vanilla-s202-v196)의
+validation scalar와1140 panel metadata도 API로 확인했다. 두 scalar의 JSON 왕복이
+1ULP 달랐으며 그 차이를 기록하고 원래 metric은 그대로 보존했다.
+`PBR-seed202-epoch1140-stage-progress-v351`의4개 artifact/70,859bytes가 file4와 같다.
 
 논문 protocol과 claim 원장에 seed별 reference 범위를 명시했다. Fixed4는 GT shape
 조건의 target8 학습 추세 확인이다. Generated geometry·source preservation·최종
 pipeline 재현성을 대신하지 않는다. 최종 SS 대조5개·독립 Fixed·cascade8metric·
 모델 동결·TEST508의10metric·최종 표/정성/writing은 계속 미완료다.
+
+실제 수정 PDF는13pages/24references로 compile됐고 warnings/overfull/underfull은0이다.
+변경한 protocol4쪽과 다음5쪽을 이미지로 직접 검수했다. `paper-draft-PBR-reference-scope-v347`의
+31개 artifact/977,753bytes가 실제 file4와 일치한다.
+[개발 PDF](/root/dev/.cache/deformnext-retargeting/paper-preview-20261025-v347.pdf)는
+최종 ablation·TEST 결과가 미완료인 초안이다.
