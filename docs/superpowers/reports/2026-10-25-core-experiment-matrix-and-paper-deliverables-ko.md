@@ -2,6 +2,13 @@
 
 작성: 2026-10-25. 후속: Fixed SS 두 seed의128×3 집계·seed101 VAL36 재로딩 검증 완료,16쪽 manuscript 반영. TEST는 아직 미측정이다.
 
+최신 writing 갱신은 `paper-draft-current-claims-and-completed-Spatial-v458`이다.
+완료 Spatial480을 진행 중으로 적은 원고 문장을 고치고, 남은 독립 확인이 PBR임을
+명확히 했다. Claim 원장의 과거 미완료 상태도 현재 근거와 분리해 정리했다.
+실제16쪽·24개 인용으로 compile했고 수정12/13쪽을 시각 검수했다.
+Warning·미해결 참조·overfull/underfull0이며 모든 수치 표·그림은 v447과
+byte-identical이다. 실제 file4 closure를 완료했으며 최종 품질·TEST·writing 완료는 아니다.
+
 ### 2026-10-25 후속 실행: 최종 평가 배치와 첫 epoch 판독
 
 세 correspondence의 기존 최종 평가9개를 GPU6/7 queue에서 GPU0–3 queue로

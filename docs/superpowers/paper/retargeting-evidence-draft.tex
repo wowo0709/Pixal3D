@@ -534,8 +534,9 @@ endpoint-specific tradeoffs rather than a universal preservation claim.
 
 The PBR same-geometry comparison does not currently establish an additional
 benefit from feature correction or raw Top-K appearance input over Top-1
-retargeting. Stage-specific composition and independent training confirmation
-remain required before selecting the final pipeline.
+retargeting. Independent PBR training confirmation and final-context
+downstream comparisons remain required before selecting the final pipeline;
+the completed two-seed SS confirmation is reported separately above.
 
 We additionally paired vanilla and Top-1 R PBR on the same fixed-evidence SS
 outputs. Across 32 cases, the native guides, initial texture noise, actual
@@ -567,7 +568,7 @@ matched controls and independent training. This decision favors observed
 geometry and the simpler readout while retaining R as a strong appearance
 control. It is not a held-out model freeze or a universal quality claim.
 The intervals are exploratory after DEV32 screening; final-context
-ablation, independent confirmation, and TEST508 remain necessary.
+ablation, independent PBR confirmation, and TEST508 remain necessary.
 \input{tables/dev-joint128.tex}
 
 \section{Ablation and final-table completion}
@@ -584,9 +585,12 @@ training/evaluation entries and checkpoint schemas. All three have passed
 actual native cold-function/backward checks and three-update microbatch-96
 capacity checks without gradient accumulation. Their initial per-asset
 metrics, target identities, and generation seeds match the paired vanilla
-reference; frozen base weights remain unchanged. Spatial training is in
-progress, while the three complete 480-update endpoints and downstream
-results remain pending. Functional and capacity checks are not quality gains.
+reference; frozen base weights remain unchanged. Spatial has completed
+480 updates with normal process termination and a frozen-base/matcher check.
+Its final SS evaluation is pending; raw-semantic and decoder-cosine training
+are in progress. All three controls' final SS128 three-noise and common
+cascade results remain pending. Training completion, functional checks, and
+capacity checks are not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a

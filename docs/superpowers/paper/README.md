@@ -2,12 +2,17 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-Fixed-two-seed-and-VAL36-v447`의16쪽·24개
-참고문헌 개발 초안이다. 실제 compiler returncode0이며5/6/10쪽의 VAL36 QA·
-통계 protocol·독립 seed 결과/표를 시각 검수했다. Warning·미해결 참조·overfull/underfull은0이다.
-새 독립 표의27개 수치·순서는 실제 closed exporter와 같고 두 곳의 영문 공백만
-교정했다. 나머지 수치 표·그림은 v440과 byte-identical이며 이번38개 source/build/
-review 산출물의 실제 file4 SHA/size가 일치한다. Matcher Method와 이전 Discussion도 유지했다.
+현재 compiled revision은 `paper-draft-current-claims-and-completed-Spatial-v458`의
+16쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된12/13쪽의
+PBR 독립 확인 범위·Spatial480 완료·미완료 SS/cascade와 표를 시각 검수했다.
+Warning·미해결 참조·overfull/underfull은0이다. 모든 수치 표·그림은 이전 v447과
+byte-identical이고 실제 source/build/review 산출물의 file4 SHA/size가 일치한다.
+현재 claim 원장은 과거 실행 이력과 현재 미완료 상태가 섞이지 않게 정리했다.
+이는 새 품질 측정이나 최종 TEST·논문 완료가 아니다.
+
+이전 v447에서 VAL36 QA·통계 protocol·독립 seed 결과/표의5/6/10쪽을 검수했고,
+독립 표의27개 수치·순서는 실제 closed exporter와 같음을 확인했다.
+해당 수치와 matcher Method·Discussion은 v458에도 유지했다.
 
 Fixed의 SS128×3는 seed101/202에서0.473471/0.474730이며 V1 대비 개선의
 3대조 보정 CI95가 두 seed 모두 양수다. Fixed−Top-1의 보정 구간은 둘 다0을
