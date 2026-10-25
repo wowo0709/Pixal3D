@@ -22,7 +22,23 @@ SS×PBR 전체 grid나 모든 SS arm의 PBR 재학습은 하지 않는다. Share
 PBR appearance 기여를 주장하려면 해당 PBR 경로와 같은-support weighting 대조가
 실제로 필요하며, 기존19-tensor feature arm을 그 matched 대조로 이름만 바꾸지 않는다.
 
-### 최신 완료: 7행 SS·6대조와 Uniform/No-R의 실제 cascade
+### 최신 완료: 7행 SS·6대조와 5개 cascade·조건부 PBR 비교 준비
+
+Spatial까지128개 cascade·8metric을 완료해 실제 완료 조합은 Fixed/Top-1/Uniform/
+No-R/Spatial의5개다. Raw/D1-cos의 cascade와 전체48-family 통계는 진행 중이다.
+`paper-draft-stage-specific-SS-PBR-tables-v525`의17쪽·24인용 개발 원고는 SS geometry
+표와 별도 PBR appearance 표를 포함하며5/6/13/14/15쪽을 시각 검수했다.
+
+`conditional-Fixed-geometry-PBR4-completion-v528/prelaunch-v1`에는 Fixed가 실제 SS로
+선정될 때 빠진 feature/raw 두 mode의64개 replay 설정을 준비했다. 두 native1900
+checkpoint·4-rank 완료,32개 own prediction·native guide·고정 render mesh,
+452개 현재 수치 source pin을 확인했다. 모든64개 설정의 모델/guide/noise/render
+binding을 별도로 대조하고 file4 SHA·size를 보존했다(v529). 기존 vanilla/R64개를
+재사용하고 SS/Shape forward를 추가하지 않는다. 현재 queue에는 등록하지 않았다.
+실제 full7 geometry 선정 후 Fixed인 경우 첫 사례 두 개를 실행해 pair proof·정상
+session drain·file4 결과를 확인한 뒤 나머지62개를 연결한다. 다른 SS가 선정되면
+이 설정을 실행하지 않고 그 SS의 실제 geometry로 네 mode를 비교한다. 준비 완료는
+품질 향상·최종 선정·TEST 완료를 뜻하지 않는다.
 
 후속 자원 배분: 아직 시작하지 않은 Raw28 case를 auxiliary에서 main으로 옮겼다.
 원래 ID·command·case plan·출력·모델/입력/수치 source는 같다. 실제 dispatcher의
