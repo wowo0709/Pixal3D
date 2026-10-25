@@ -1,5 +1,21 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Fixed202 epoch384: 같은 quick32 IoU는 Fixed0.475685,
+V10.471561, Top-1 R0.471829다. Fixed−V1+0.004124, Fixed−R+0.003856이고
+처음384 실제 학습 trace가 같다. 이전288보다 평균 차이는 커졌지만 최종480/
+DEV128×3·독립 확인이나 retargeter/score 단독 효과가 아니다. 실제
+`Fixed202-actual-epoch384-v400`과 원격 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch384-v401)에
+보존했다. 최종 표나 선택 checkpoint는 바꾸지 않았다.
+
+후속 Main export 준비는 새로운 품질 근거가 아니다. 실제 frozen TEST508의 같은
+8/10metric JSON에서 원래 camera-role mean·raw signed KID·공식 pool 수·보정 CI를
+보존하도록 구현했고15개 synthetic 계약 검사 및 강화된 immutability 검사가
+통과했다. 현재 compile·검수한 표는 명시적인 engineering fixture다. Actual Main
+table과 Results/Discussion은 여전히 TEST 이후 작업이다. `final-paper-export-readiness-v424`
+packet은 v420의 추가 source map을 확장하며 TEST 전에 기존 numerical pins에
+병합해야 한다. 기존 v312 SS/cascade ablation exporter는 그대로 재사용한다.
+
 후속 actual Spatial101 epoch288: 같은 quick32 macro IoU는 Fixed0.471552,
 Spatial0.468629, V10.468973, Top-1 R0.467991이다. Spatial−Fixed−0.002923,
 Spatial−V1−0.000344이며 첫288 실제 학습 trace가 같다.192의 순위 역전은 중간

@@ -1,6 +1,6 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 후속 관측: v420 최종 정성 exporter 준비와 실제 metadata/원본 manifest 검증, Spatial101 epoch288.
+작성: 2026-10-25. 후속: Fixed202 epoch384 실제 paired readout, v424 Main table export·기존 ablation 재사용·확장 source packet. TEST는 아직 미측정이다.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
 PBR R 독립 seed1개 실행의 완료**다. PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -199,6 +199,17 @@ Top-1 R **0.468336**, Fixed **0.472018**이다. Fixed−V1은+0.001985,
 실제 file4 SHA/size로 보존했다. 아직 final480/DEV128×3·독립 확인 완료가 아니며
 최종 표와 claim은 유지한다.
 
+이후 실제 epoch384의 같은 seed202 quick32 macro IoU는 Fixed **0.475685**,
+V1 **0.471561**, Top-1 R **0.471829**다. Fixed−V1은+0.004124,
+개선18/하락14·median+0.003712이고, Fixed−R은+0.003856,
+개선19/하락13·median+0.002413이다. 처음384 실제 학습 입력/noise/timestep/global
+trace도 세 모델에서 같다.288의 V1 대비 평균 차이+0.001985보다 커졌지만
+final480/DEV128×3의 독립 확인이나 module 단독 효과가 아니다.
+`Fixed202-actual-epoch384-v400`의4개 산출물과 원격 summary를 대조한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Fixed202-epoch384-v401)의
+audit를 실제 file4 SHA/size로 보존했다. 약속한480 budget과 최종 평가를 유지하며
+이 중간 checkpoint를 최종 표에 채우거나 모델 선택으로 사용하지 않는다.
+
 실제 두 queue의 후속 배정도 재확인했다. 완료 Uniform/no-R의256개 exclusive
 cascade case는 GPU0–3 queue와 GPU6/7 queue에128개씩 배치돼 있으며 각 queue에
 두 arm이64개씩 있다. GPU6/7의128개는 선행 조건을 충족했고 현재 SS 종료 뒤
@@ -340,6 +351,18 @@ source·검사 근거·engineering layout 및 실제 freeze에 병합할 필수 
 유지한 채 TEST 전에 추가해야 한다. 최종10metric의 같은 frozen model·508/134source·
 1524 camera 기록과 원래 float/uint8 scored-image hash를 확인한 뒤만 export한다.
 실제 최종 TEST 그림은 계속 남아 있으며 engineering fixture를 결과로 사용하지 않는다.
+
+Main table의 실제 JSON→TeX·claim evidence exporter도 구현했다.
+`export_final_main_table.py`는 frozen TEST508의 같은8/10metric 보고서·물리 모델·
+1524 scored camera 기록을 요구한다.8개 camera-role 평균을 원래508 per-asset
+값과 대조하고 raw signed KID·공식 pool 수·원래 보정 interval을 보존한다.
+15개 synthetic 계약 검사와 변경된 immutability 검사가 통과했고 테스트용 표를
+compile·시각 검수했다. 실제 TEST 표나 품질 수치를 생성한 것은 아니다.
+`final-paper-export-readiness-v424/freeze-requirements.json`은 위 v420 source map에
+Main exporter를 합친 현재 packet이며 TEST 전에 기존 numerical source map을
+유지한 채 병합해야 한다. 기존 v312의 actual SS/cascade ablation TeX·evidence
+worker는 실제 queue command의 self-SHA를 확인해 재사용한다. 새 실험 arm이나
+중복 GPU/ablation 작업을 추가하지 않았다.
 
 1. **Method:** RGB4장/camera, target native stream과 source adaptation, member 기반 semantic 후보, ray 단위 evidence 공유, score-weighted 전달과 R의 정확한 수식을 코드와 맞춘다. No-match는 native source feature를 유지하며 GT visibility를 inference gate로 사용하지 않는 계약을 설명한다.
 2. **Experimental setup:** DeformNeXt split·초기 multi-view LoRA checkpoint·동일 학습 stream·update·global batch·noise·고정 Shape/PBR·metric reference·cluster 통계를 표/본문에 명시한다. Clean80k는 초기 모델의 학습 이력이며 deformation 실험의 데이터가 아니다.

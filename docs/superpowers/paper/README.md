@@ -34,10 +34,18 @@ file4 SHA256/size를 확인한 외부 source snapshot에서 전용 Tectonic0.17.
 검사·시각 검수했다. 실제508 metadata·134 source와 두 고정 ID는 원래 v355 선언과
 정확히 같고, 원본 manifest의 현재 remote/local SHA·size도 읽기 전용으로 대조했다.
 
-`final-qualitative-export-readiness-v420/freeze-requirements.json`의 선언 spec과
-source pins를 실제 TEST 전에 evaluation protocol에 **병합**해야 한다. 기존 numerical
+`final-paper-export-readiness-v424/freeze-requirements.json`은 v420의 선언 spec과
+source pins에 Main table exporter를 추가한 packet이다. 실제 TEST 전에 evaluation
+protocol에 **병합**해야 한다. 기존 numerical
 source mapping을 대체하지 않는다. 실제 freeze·최종10metric 이후의 실행만 허용하며,
 현재 검수한 그림은 명시적인 engineering fixture다. 최종 TEST 그림은 계속 미완료다.
+
+`export_final_main_table.py`도 실제 frozen TEST508의 같은8/10metric 보고서에서
+Main TeX·보정 구간별 evidence·writing 범위를 내보내도록 구현했다.15개 synthetic
+계약 검사가 통과했고 수정한 immutability 검사도 다시 통과했다. 카메라 역할/표본 수/
+raw KID/원래 CI를 바꾼 입력은 거절한다. 테스트용 TeX를 compile·시각 검수했으며
+실제 TEST Main table이나 새 품질 수치는 생성하지 않았다. 기존 v312 ablation
+TeX/evidence 작업은 중복 구현하지 않고 그대로 사용한다.
 
 ## 이전 revision 이력
 
