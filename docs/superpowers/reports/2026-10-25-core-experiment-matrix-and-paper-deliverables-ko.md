@@ -1,6 +1,6 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 실행 상태 재확인: 2026-10-25 04:35 UTC.
+작성: 2026-10-25. 후속 관측: v392 CPU 실행 연결, v393 PBR 완료, v396 Spatial 첫 epoch.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
 PBR vanilla/R 독립 seed2개 실행의 완료**다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -99,15 +99,21 @@ footprint와 실제 local stat을 조사했다. 로컬 여유는 약531GiB, 파�
 이는 미래 출력의 실제 최소 필요량이나 hard bound가 아니지만, 전체 누적을 그대로
 허용하는 계획에는 headroom을 인증하지 못했다. 실제 case별 admission 검사는 계속 유지한다.
 
-다음 필수 작업은 완료 case의 CPU cache 회수 실행·등록이다. 최종 metric reducer는
+완료 case의 CPU cache 회수 실행·등록을 v392에서 연결했다. 최종 metric reducer는
 `geometry/prediction.npz`를 다시 읽으므로 이 파일과 native guide·scored pixel·JSON·
 checkpoint는 유지한다. 회수 후보는 `geometry/geometry-evaluation.npz`,
 `PBR/prediction.npz`, `PBR/geometry-evaluation.npz` 세 로컬 복사본뿐이다.
-새 `dev_cascade_cache_retirement.py`의 소유권·완료/native consumer·canonical
-identity 선택 규칙과 관련51개 검사를 완료했다. **현재 이 모듈은 삭제하지 않는
-validator이며 실제 회수 CLI·640개 case 이후 CPU 연결은 아직 미완료다.**
-실행에서는 fresh remote SHA/size, 미완료 reader/open FD, local inode를 재확인하고
-intent/회수 journal을 file4에 보존해야 한다. 현재 어떤 파일도 삭제하지 않았다.
+`dev_cascade_cache_retirement.py`의 선택 규칙과 관련51개 검사 이후 실제
+`retire_dev_cascade_cache.py` CPU 실행을 구현했고 관련47개 검사를 통과했다.
+각 case closure와 원래 GPU job의 실제 성공·native child 종료를 확인한 뒤 fresh
+remote SHA/size, 미완료 reader/open FD, local inode를 재검사하고 intent/journal을
+file4에 보존한다. 640개 CPU 후속 작업과 실제 context/policy를 등록했다.
+기존262개 case/metric descriptor가 원본 placement와 정확히 같음을 대조했고
+실제 remote hasher·두 queue의 reader scan도 통과했다. NN source·GPU job·v375
+connector를 바꾸지 않았다. **실제 case와 cache 회수는 아직 시작되지 않았으므로
+회수된 공간이나 실제 first-case integration 성공을 주장하지 않는다.**
+첫 실제 회수와 저장 공간 추이를 확인하는 것은 계속 남아 있다.
+실행 policy/등록 receipt는 `DEV640-bounded-local-cache-v392`에 있다.
 기존 checkpoint cache reader도 두 queue의 미생성 future bundle에 보수적으로
 거절했으므로 이를 우회해 중간 checkpoint를 삭제하지 않았다.
 
@@ -115,9 +121,14 @@ intent/회수 journal을 file4에 보존해야 한다. 현재 어떤 파일도 �
 
 ## 4. 독립 확인과 파이프라인 선정
 
-남은 독립 학습은 선택 Fixed의 SS seed202 한 개와 PBR vanilla/R seed202다. V1/R SS 두 seed는 완료돼 반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
+남은 독립 학습은 선택 Fixed의 SS seed202 한 개와 PBR R seed202다. PBR vanilla
+seed202의1900 업데이트·여섯 validation·저장은 완료됐다. V1/R SS 두 seed도 완료돼
+반복하지 않는다. 모든 ablation의 seed를 늘리지 않는다.
 
-관측 시 GPU0–3은 필수 PBR vanilla seed202를 계속 학습 중이며 이후 R seed202가 의존 작업이다. GPU7은 proof/capacity를 통과한 Fixed seed202의 실제 본 학습, GPU6은 Spatial 대조의 실제 본 학습을 진행 중이다. Spatial의 actual first5 assets/noise/timestep/global input·초기 LoRA/RNG/TRAIN order가 V1과 같은 것도 실제 runtime prefix audit로 확인했다. 이후 Raw/D1-cos 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만 사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용하도록 연결돼 있다.
+관측 시 GPU0–3은 완료된 vanilla에 이어 필수 PBR R seed202를 자동으로 시작했다.
+GPU7은 Fixed seed202, GPU6은 Spatial 대조의 실제 본 학습을 진행 중이다.
+이후 Raw/D1-cos 학습과 평가가 등록돼 있다. 실제 작업은 승인된 GPU0/1/2/3/6/7만
+사용한다. Cascade case는 SS 우선순위를 유지하면서 두 queue의 가용 GPU를 사용한다.
 
 Fixed seed202의 실제 첫 epoch96이 완료됐다. 동일 seed202 quick32·noise·GT에서
 macro IoU는 V1 **0.465671**, Top-1 R **0.464190**, Fixed **0.463678**이다.
@@ -129,6 +140,29 @@ median 차이는 각각+0.004203/+0.000280이므로 mean과 median의 방향을 
 실제 source snapshot/audit는 `selected-Fixed-seed202-epoch96-v388`, 원격 수치까지
 검증한 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/selected-Fixed-seed202-epoch96-v389)는
 `selected-Fixed-seed202-epoch96-WandB-v389`에 보존했다.
+
+Spatial seed101의 첫 epoch96도 완료됐다. 같은 seed101 quick32의 macro IoU는
+V1 **0.463801**, Top-1 R **0.461619**, Fixed **0.461789**, Spatial **0.461504**다.
+Spatial−Fixed는−0.000285, Spatial−V1은−0.002297이며 처음96개 실제 학습 trace와
+초기 개별 metric·GT·seed는 같다. 아직 semantic retrieval의 최종 우위나 무효를
+판정하지 않는다. `Spatial101-first-epoch96-v396`에 실제 prefix와 audit를 보존했다.
+
+완료된 PBR vanilla seed202는4개 rank 모두1900 업데이트·LoRA optimizer360개·
+frozen/DDP completion proof를 통과했다. 각 rank의 실제1900 trace와24개 원래 PNG의
+GT pixel identity, 여섯 validation을 재확인했다. 고정 GT shape·target4에서 pooled
+PSNR **26.057314→26.862564**, foreground PSNR **14.946447→15.751697**,
+full-frame LPIPS **0.010104→0.008700**, crop LPIPS **0.095142→0.086446**다.
+Global24·DDP4·rank micro6·accum1이며 마지막10 update compute median은
+12.895–12.898초, peak allocated43.66GiB/reserved48.46GiB 이하였다.
+이는 source preservation이나 generated geometry의 평가가 아니다. 저장된 base
+tensor의 전체4모델 대조는 기존 two-seed collector가 R 완료 후 수행한다.
+`PBR202-V1-completed1900-readout-v393`와 범위를 분리한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-V1-complete-Spatial101-epoch96-v397)에
+완료 stage와 Spatial 중간 결과를 보존했다.
+
+진행 중인 R seed202도 초기4개 입력·noise·GT/camera·예측 latent와 초기 GT PNG
+pixel이 같은 seed202 V1과 정확히 같다. 네 rank 각각의 첫32 학습 trace도 같음을
+확인했다. 이는 실제 live prefix 확인이며 R1900·두 seed paired collector 완료가 아니다.
 
 선정 순서:
 
@@ -203,7 +237,12 @@ Writing 순서는 problem/method·protocol 정리 → DEV ablation/기전 → �
 
 새 backbone/head 탐색, gate/temperature grid, 모든 SS×PBR 조합, target-only, clean80k 재학습, 모든 ablation의 다중 seed, 최종 모델에 없는 query 제거는 추가하지 않는다. Matching coverage·native precision 등 완료된 진단을 반복하지 않는다.
 
-**남은 본 학습은 correspondence3개 + 선택 SS seed202 + 필수 PBR seed202 두 실행의 완료다.** Uniform/no-R의 완료된 학습·SS 평가는 재실행하지 않는다. 이후 신규5개 대조의 downstream 평가, 독립 확인·fresh load, 모델/protocol freeze, TEST와 논문 마무리가 남아 있다. Arm 수와 proof/capacity/evaluation job 수를 구별한다. 종료 조건은 기대한 story를 만드는 것이 아니라, 선택된 실제 pipeline의 효과·모듈별 근거·한계와 Main/Ablation/Mechanism/Qualitative 결과 및 논문 문장이 서로 일치하는 것이다.
+**남은 본 학습은 correspondence3개 + 선택 SS seed202 + 필수 PBR R seed202의 완료다.**
+완료된 Uniform/no-R 학습·SS 평가와 PBR V1 seed202는 재실행하지 않는다. 이후
+신규5개 대조의 downstream 평가·실제 cache 회수, 독립 확인·fresh load,
+모델/protocol freeze, TEST와 논문 마무리가 남아 있다. Arm 수와 proof/capacity/
+evaluation/CPU cache job 수를 구별한다. 종료 조건은 선택된 실제 pipeline의 효과·
+모듈별 근거·한계와 Main/Ablation/Mechanism/Qualitative 결과 및 논문 문장이 일치하는 것이다.
 
 ## 근거
 

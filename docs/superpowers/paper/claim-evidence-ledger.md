@@ -1,5 +1,15 @@
 # 논문 claim과 필요한 근거
 
+후속 실제 v393/v396: PBR V1 seed2021900과 여섯 GT-shape target4 validation이 완료됐다.
+Pooled PSNR26.057314→26.862564, crop LPIPS0.095142→0.086446이며 source preservation/
+generated geometry나 R의 우위는 여기서 입증하지 않는다. R seed202는 본 학습 중이고
+초기 latent·같은 seed GT PNG4개·네 rank의 첫32 학습 trace는 V1과 같다.
+Spatial seed101 epoch96 IoU0.461504는 같은 epoch Fixed0.461789·V10.463801보다
+낮다. 첫96 실제 stream·초기 기록의 pairing은 통과했지만 최종480/128×3 결과가 아니다.
+이 중간 수치를 final ablation/TEST 표에 옮기지 않았다. 실제 audit와 범위를 분리한
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/PBR202-V1-complete-Spatial101-epoch96-v397)는
+[최신 핵심 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)에 연결했다.
+
 2026-10-25 04:35 UTC: Fixed seed202의 실제 epoch96 quick32 macro IoU는
 0.463678로 같은 seed202 V1 0.465671·Top-1 R0.464190보다 평균이 낮다.
 처음96개 학습 stream과 초기 개별 metric의 일치는 확인했다. 이는 초기 구현 하락의
