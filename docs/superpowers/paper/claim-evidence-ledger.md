@@ -1,5 +1,17 @@
 # 논문 claim과 필요한 근거
 
+후속 actual Spatial101 epoch384: 같은 quick32 macro IoU는 Fixed0.476221,
+Top-1 R0.472579, Spatial0.471145, V10.470704다. Spatial−Fixed−0.005076,
+개선13/하락19·median−0.003567이며 Spatial−V1+0.000441,
+개선15/하락17·median−0.000399다. 처음384 실제 입력/noise/timestep/global
+trace가 네 모델에서 같고 개별 GT·noise·metric count 정합도 검증했다.
+Fixed와 Spatial은 decoder/score/candidate 수가 함께 다르므로 이 차이를 semantic
+retrieval의 단독 효과로 쓰지 않는다. 실제 `Spatial101-actual-epoch384-v400`의
+4개 산출물을 file4 SHA/size로 보존하고
+[paired epoch384 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Spatial101-epoch384-v401)의
+원격 summary도 원본과 대조했다. 최종480/128×3·인접 matching ladder·
+cascade·family 통계와 TEST는 계속 남아 있으며 최종 표나 선택은 바꾸지 않았다.
+
 후속 actual PBR R202 epoch760: 같은 GT-shape target4에서 PSNR은
 V126.331460 대 R26.173503으로 R−V1−0.157956dB, crop LPIPS는
 0.092188 대0.091747로 차이−0.000441이다. Full-frame LPIPS 차이도

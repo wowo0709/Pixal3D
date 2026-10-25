@@ -249,6 +249,18 @@ Spatial−V1은−0.000344, 개선15/하락17·median−0.001538이다.
 [W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Spatial101-epoch288-v401)의
 게시 audit도 `Spatial101-epoch288-WandB-v401`에 실제 file4 SHA/size로 보존했다.
 
+다음 실제 epoch384의 같은 seed101 quick32 macro IoU는 Fixed **0.476221**,
+Top-1 R **0.472579**, Spatial **0.471145**, V1 **0.470704**다.
+Spatial−Fixed는−0.005076, 개선13/하락19·median−0.003567이며,
+Spatial−V1은+0.000441, 개선15/하락17·median−0.000399다.
+처음384 실제 입력/noise/timestep/global trace가 네 모델에서 같고 개별 GT·noise·
+metric count 정합도 확인했다. Fixed와 Spatial에는 decoder/score/candidate 수도
+달라 semantic retrieval 단독 효과가 아니다. `Spatial101-actual-epoch384-v400`의
+4개 산출물을 실제 file4 SHA/size로 보존하고
+[paired epoch384 W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/Spatial101-epoch384-v401)의
+원격 summary도 원본과 대조했다. 최종480/128×3·인접 matching ladder·
+cascade·family 통계를 유지하며 중간 checkpoint를 최종 표나 선택으로 사용하지 않는다.
+
 완료된 PBR vanilla seed202는4개 rank 모두1900 업데이트·LoRA optimizer360개·
 frozen/DDP completion proof를 통과했다. 각 rank의 실제1900 trace와24개 원래 PNG의
 GT pixel identity, 여섯 validation을 재확인했다. 고정 GT shape·target4에서 pooled
