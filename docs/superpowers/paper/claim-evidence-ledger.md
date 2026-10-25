@@ -10,6 +10,8 @@
 
 남은 실행과 표·writing의 최신 통합 계획은 [논문 완성을 위한 핵심 실험 정리](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)를 따른다. Matching score 효과를 검증하기 위해 동일 Top-K의 Uniform-K 대조를 핵심 계획에 포함하며 사용자 정의 No-score=Top-1과 구분한다.
 
+현재 실행 상태와 최종 claim·표·writing 완료 조건은 [2026-10-25 핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)에 갱신했다. 신규5개 대조의 최종 품질은 아직 미측정이다.
+
 | Claim 후보 | 현재 근거 | 미완료 검증 | 현재 허용하는 표현 |
 |---|---|---|---|
 | V1 기준선이 독립 학습에서도 재현된다 | Seed1010.467355, seed2020.467177; 실제480 trace·startup RNG가 다르고 초기 LoRA·학습 조건·DEV128×3 pairing 일치 | 선택 모델·PBR의 독립 효과와 full-cascade 확인은 별도 | 두 실제 V1 실행의 유사한 점추정; 동등성이나 임의 training seed population의 보장 아님 |
@@ -76,6 +78,8 @@ Primary geometry는 CD/F-Score, primary source appearance는 LPIPS/DreamSim이�
 학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측한 활용 진단이 완료됐다. Native BF16의50,516개 observable relation 중 Top-1 miss/Top-K hit31,408개에서 exact GT mass는 Uniform-K1.6266%, Fixed6.4601%, Learned6.1756%다. Learned−Fixed는−0.2844pp, 탐색용 cluster CI95 [−0.9776,+0.4890]pp로 추가 이득을 확인하지 못했다. Prior 대비 확률 변화 자체는 실제로 관측됐다. 따라서 matching prior의 후보 활용과 learned refinement의 추가 효과를 나누어 서술한다.
 
 과거 CPU FP32 진단50,493개와 actual BF16 관계50,516개는 projection precision의 patch rounding 차이로 분모가 다르며, native GPU 주소의 실제 재구성으로 원인을 확인했다. 기존 CPU core parity를 GPU precision parity로 확대 해석하지 않는다. 저장 관측의 source-use·correction 및 downstream association은 진단이며, diagnostic Uniform-K는 matched 학습 ablation을 대신하지 않는다. 실제 audit/closure와 남은 실험은 [최신 핵심 계획](../reports/2026-10-24-paper-critical-remaining-experiments-and-ablation-design-ko.md)의 기전 항목에 연결했다.
+
+`actual-ray-evidence-figure-v323`은 위 실제 저장 관측과 원본 RGBA의 native black-background RGB 전처리를 사용한 기전 그림이다. 사전순 첫 Top-1 miss/Top-K hit·관측 member2개 이상 관계를 선택했으며 예시의 GT 후보는 rank2, probability mass25.64%다. GT는 주석과 진단 subset에만 사용했고 새 NN forward는 없다. 전체 native ray와 저장된 observed member를 구분했다. 실제 PNG를 검수하고 PDF/PNG·선정 근거를 file4에 보존했다. 이 조건부 예시나 pooled mass를 ray/weighting의 최종 품질 우위, 성공 빈도, matched Uniform의 결과 또는 target RGB 완전 보존의 증거로 쓰지 않는다. Manuscript 삽입·compile은 별도 미완료 작업이다.
 
 같은32개에서 Learned−Fixed exact GT mass와 실제 출력 개선을 연결한 Spearman rho는 CD−0.0828, F-Score+0.0623, source LPIPS+0.1683, source DreamSim+0.0400이며 네 탐색용 CI 모두0을 포함한다. 정답 mass refinement가 최종 품질을 개선한다는 연결 근거는 아직 부족하다. 연관성 부재가 causal effect 부재를 증명하는 것도 아니다. [독립 V1·실제 활용/출력 연결 기록](../reports/2026-10-24-independent-V1-readout-and-utilization-output-link-ko.md)에 수치와 실제 audit를 남겼다.
 

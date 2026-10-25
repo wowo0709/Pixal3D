@@ -93,3 +93,42 @@ Uniform−Fixed의 macro 차이는 step96의−0.000653에서 step192의+0.00216
 - `paper-draft-final-Fixed-SS-integration-scope-v315`.
 
 [Cascade 실행 연결](2026-10-25-final-fixed-cascade-metrics-continuation-ko.md), [전체 핵심 행렬](2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md), [claim 원장](../paper/claim-evidence-ledger.md).
+
+## 후속: 전체128개 입력 검증과 실제 ray 기전 그림
+
+2026-10-25 00:39 UTC 재확인 시 Uniform260/480, No-R235/480,
+PBR vanilla202845/1900이었다. 기존 학습은 계속 진행했다.
+
+- 다섯 pending CPU connector의 cascade placement를 main0–3/auxiliary6–7로
+  나누고 SS 학습·검증을 우선하도록 연결했다. 각 arm의128 case와3 metric 단계는
+  두 queue 등록을 실제 확인한 activation receipt 뒤에 실행된다. 기존 NN 소스,
+  실행 중 프로세스와 모델 출력 경로는 바꾸지 않았다.
+- 후속 입력 감사에서 제가 extension 입력 목록의 범위를 잘못 가정한 것을
+  발견했다. 기존 `input-data-v241/assets.json`은128 sample ID를 선언하지만
+  `records`는 추가96개만 담고 있었다. 원래 완료된128 평가에서는 기존32개를
+  따로 재사용했으므로 해당 평가의 누락이 아니다. 새 connector가 이를
+  전체 목록으로 사용하면 실패할 수 있어 실행 전에 수정했다.
+- `complete-asset-inputs-v322`에서 원본128개 전체를 만들고 실제 file4의1379개
+  고유 입력 파일과 로컬 SHA256/size를 대조했다. 추가96개 record는 기존 목록과
+  정확히 같고, 기존32개는 닫힌 실제 geometry plan의 row/RGB4장/geometry 입력
+  hash와 일치한다. 누락된 로컬 파일은0개이며 데이터 추가 다운로드나 재전처리는
+  없었다. 새 strict validator는96개 목록을 전체128개로 받을 수 없게 한다.
+- Own archive가 아직 없는 다섯 CPU descriptor만 새 `v322` worker/plan으로
+  교체했다. 모두 pending 상태를 확인했고 원본 manifest hash·128개 순서도
+  검사하도록 했다. 준비10개 artifact/608,454bytes와 activation1개/408bytes는
+  실제 file4와 일치한다. 등록을 신규 control의 품질 완료로 세지 않는다.
+- 저장된 실제 native32 관측에서 ray/member·semantic 후보·실제 posterior의
+  그림을 만들고 PNG를 직접 검수했다. 선택은 sample ID 사전순의 첫
+  Top-1 miss/Top-K hit·관측 member2개 이상 관계이며 downstream 품질을 보고
+  고르지 않았다. 예시는 GT candidate rank2, 실제 probability mass25.64%다.
+  DEV32의 recoverable31,408 relation에 대한 Uniform1.63%/Fixed6.46%/
+  Learned6.18%는 진단 집계이며 matched Uniform 학습 결과가 아니다.
+  전체 native ray context와 저장된 관측 member를 구분해 표시했다.
+  새 NN forward·generation·render는0회다.
+
+그림은 `actual-ray-evidence-figure-v323`의 PDF/PNG와 selection/audit에 있으며
+10개 artifact/723,559bytes가 실제 file4에 보존됐다. 아직 manuscript에 삽입해
+컴파일한 그림은 아니다. 실제 최종 출력의 성공·실패 figure와는 별개다.
+공개 구현 commit은 placement `c02a48d`, 전체 입력 validator와 그림
+`3902656`이며, 논문의 metric·claim·writing 판정 기준은 최신 핵심 행렬에
+갱신했다. 추가 학습 arm은 없다.
