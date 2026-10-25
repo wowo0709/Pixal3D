@@ -1,5 +1,12 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-26 TEST 실행: 다섯 SS의 실제508×5 archive 검증을 마쳤다(v574).
+`v565`의 raw-retirement 접속 설정 누락을 발견해 종료·완료/partial 결과를 보존하고,
+실제 한 asset의5모델/8retirement·16rawfile NAS 검증을 통과했다(v569).
+같은 frozen 모델·수치 source의 새 `v570` bounded cascade가 GPU0–3·6·7에서
+정상 진행 중이며,10metric→Main/qualitative(v571)→W&B 검증(v572)을 연결했다.
+[실제 완료 범위·복구·남은 writing·시간 추정](2026-10-26-frozen-TEST508-execution-and-recovery-ko.md)을 따른다.
+
 2026-10-26 최신: **SS는 geometry, PBR는 동일 geometry의 appearance로 분리**해
 DEV 선택과 실제 모델/protocol freeze(v558)를 마쳤다. Fixed SS + Top-1 R PBR를
 선정했다. SS48개 보정 구간과 PBR의 vanilla 대비 두 primary CI는 모두0을 포함한다.

@@ -1,5 +1,11 @@
 # 논문 claim과 필요한 근거
 
+2026-10-26 TEST 후속: SS508×5의 실제2,540개 archive 검증을 완료했다(v574).
+Voxel IoU는 진단이며 primary geometry/appearance의 대체값으로 쓰지 않는다.
+현재 동일 freeze의 `v570` cascade·10metric이 진행 중이다. 운영 오류 복구와 실제
+retirement 증거는 [최신 기록](../reports/2026-10-26-frozen-TEST508-execution-and-recovery-ko.md)을 따른다.
+최종 generalization·module necessity·appearance superiority claim은 아직 확정하지 않는다.
+
 2026-10-26 갱신: 같은 Fixed geometry의 PBR4 비교를 완료했고 LPIPS/DreamSim
 점추정이 모두 가장 좋은 Top-1 R을 선정했다. Vanilla 대비 ΔLPIPS−0.000222934,
 ΔDreamSim−0.000517370의 exploratory CI는 모두0을 포함한다. SS는 CD/F-Score

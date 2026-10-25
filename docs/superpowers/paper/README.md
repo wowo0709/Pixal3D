@@ -1,5 +1,12 @@
 # 논문 초안과 결과 표
 
+2026-10-26 실제 실행 후속: 다섯 모델의 SS TEST508을 정상 종료했고2,540개 archive의
+byte/latent/occupancy count를 검증했다(v574). Raw-cache SSH 설정을 보완하고 실제
+5모델/8retirement16개 raw duplicate NAS 검증을 거친 `v570` cascade가 진행 중이다.
+후속10metric→Main/qualitative(v571)→W&B readback(v572)을 연결했다.
+[실제 완료·실패 복구·남은 산출물](../reports/2026-10-26-frozen-TEST508-execution-and-recovery-ko.md).
+아래 v565는 이전 namespace의 이력이며 최종 표/그림/논문은 아직 미완료다.
+
 2026-10-26 source 갱신: 선정된 동일 Fixed geometry의 PBR4 비교를 완료해 별도
 `tables/dev-selected-pbr-appearance32.tex`에 넣었다. SS는 geometry, PBR는 appearance로
 각각 Fixed/Top-1 R을 선정하고 실제 DEV-only model/protocol freeze(v558)를 실행했다.

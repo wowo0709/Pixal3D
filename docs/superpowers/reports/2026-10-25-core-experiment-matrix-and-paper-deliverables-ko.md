@@ -1,5 +1,11 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+2026-10-26 실제 TEST 후속: SS508×5 정상 종료·2,540개 archive 검증(v574)을
+마쳤다. 중간 파일 정리의 SSH metadata 누락을 복구하고 실제 첫5모델/8retirement
+검증을 통과한 새 `v570` cascade가 GPU0–3·6·7에서 진행 중이다. 후속10metric,
+사전 Main/qualitative(v571), 원격 W&B 검증(v572)을 연결했다.
+[최신 실제 범위·복구·남은 시간](2026-10-26-frozen-TEST508-execution-and-recovery-ko.md)을 우선한다.
+
 2026-10-26 최신: 동일 Fixed32의 PBR4 비교가 실제128 case·384 view와 W&B
 12행/이미지4장 검증까지 완료됐다. SS는 CD/F-Score, PBR는 같은 geometry의
 LPIPS/DreamSim으로 **Fixed SS + Top-1 R PBR**를 선정하고 실제 protocol/model

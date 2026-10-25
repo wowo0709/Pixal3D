@@ -1,5 +1,12 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 TEST 실행: 다섯 SS의 실제508×5 archive 검증을 마쳤다(v574).
+Macro IoU는 source-only0.400929, edited-zero0.443873, V1 0.469682,
+R 0.477200, Fixed0.477227이며 occupancy 진단으로 한정한다. Primary CD/F-Score와
+appearance/global metric은 실제 `v570` cascade 이후 평가한다. 모델 선택은 DEV-only
+v558을 따른다. 운영 metadata 오류의 실제 복구·raw 정리 검증과 남은10metric/표/그림/
+writing은 [최신 실행 기록](2026-10-26-frozen-TEST508-execution-and-recovery-ko.md)을 따른다.
+
 2026-10-26 최신: **SS는 geometry, PBR는 동일 geometry의 appearance로 분리**해
 DEV 선택과 실제 모델/protocol freeze(v558)를 마쳤다. Fixed SS + Top-1 R PBR를
 선정했다. SS48개 보정 구간과 PBR의 vanilla 대비 두 primary CI는 모두0을 포함한다.

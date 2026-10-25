@@ -1,5 +1,10 @@
 # SS geometry와 PBR appearance의 분리 평가·선정
 
+실제 TEST 후속: SS508×5가 정상 종료됐고 archive2,540개를 검증했다(v574).
+수치 source를 유지한 `v570` cascade와10metric→표/그림→원격 logging을 진행한다.
+아래 SS 실행 중·v565 표현은 이전 이력이며
+[최신 운영 복구와 완료/미완료 범위](2026-10-26-frozen-TEST508-execution-and-recovery-ko.md)를 따른다.
+
 SS arm은 geometry 향상이 목적이다. 공통 frozen Shape/PBR에서 CD↓·surface
 F-Score↑로 판단하며 voxel IoU는 진단값이다. Cross-SS LPIPS/DreamSim은 SS의
 geometry 개선을 거부하는 기준이 아니다. Appearance는 동일 geometry에서 PBR만
