@@ -1,5 +1,7 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-25 Method 반영: [실제 SS·stage 파이프라인 구조도](2026-10-25-working-pipeline-method-figure-ko.md)를 넣고 Omega key/native value,16³ conditioning grid/SS64, ray context·abstention을 코드와 대조했다.14쪽 PDF의2/3/4쪽을 검수하고 실제 file4에 보존했다. NN이나 실험 계획을 바꾸지 않았으며 최종 control·cascade·독립 확인·freeze/TEST·최종 결과 writing은 계속 남아 있다.
+
 2026-10-25 후속: [Final qualitative protocol](2026-10-25-final-qualitative-selection-protocol-ko.md)에서 실제 TEST manifest metadata만으로 source-distinct 두 사례와 이후 conditional lower-median 규칙을 사전 고정했다.14쪽 개발 PDF를 compile·검수했다. [Same384 네 모델](2026-10-25-ray-mechanism-paper-and-final-readiness-ko.md)의 실제 학습 trace·metric 집계와 W&B 게시도 완료했다. 신규5개 control의 최종480/128×3·cascade·독립 확인·fresh load·freeze/TEST·최종 writing은 계속 남아 있다.
 
 2026-10-25 후속 실행: [독립 PBR seed 집계의 reference 범위 수정과 실제1140 검증](2026-10-25-PBR-seed-reference-scope-and-collector-ko.md). 완료 시 실패할 기존 GT 조건 충돌을 실제 PNG로 확인해 pending CPU collector 하나를 새 버전으로 연결했다. NN source·학습·다른 descriptor는 유지했다. Protocol을 반영한13쪽 PDF도 compile·검수했다. 원래 다섯 SS 대조와 downstream·독립 확인·fresh load·freeze/TEST·최종 writing 범위는 그대로 남아 있다.

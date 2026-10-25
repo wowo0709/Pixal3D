@@ -113,6 +113,13 @@ SHA/size를 다시 확인했다. 이후 joint improvement/geometry loss/appearan
 최종 이미지는 아직 없다. [고정 ID와 정확한 선정 규칙](qualitative-selection-protocol.md),
 [실제 실행 근거](../reports/2026-10-25-final-qualitative-selection-protocol-ko.md)를 따른다.
 
+`pipeline-overview.tex`는 실제 Fixed SS의 Omega matching key·native DINO value·
+shared evidence·R·native projection과 별도 Top-1 PBR을 구분한 vector schematic이다.
+Method의16³ grid/SS64·temperature0.05·target context pool·abstention 정의를
+source와 맞췄다. 구조 설명이며 ray/shared evidence/score의 독립 성능 기여를
+입증하는 그림이 아니다. 최종 선택이 달라지면 해당 실제 구조로 갱신한다.
+[실제 그림과14쪽 PDF 검수](../reports/2026-10-25-working-pipeline-method-figure-ko.md)를 참고한다.
+
 실제 cascade와 같은32 asset/noise에서 SS IoU는 R0.476967·Fixed0.478940·Learned0.477442다. Full128×3의 learned/fixed 순위와 다르다. 서로 다른 panel/noise의 순위 차이만으로 모듈 구현 오류나 loss의 causal failure를 결론내리지 않는다.
 
 학습된 Fixed/Learned의 실제 conditioning을 같은32개에서 관측한 활용 진단이 완료됐다. Native BF16의50,516개 observable relation 중 Top-1 miss/Top-K hit31,408개에서 exact GT mass는 Uniform-K1.6266%, Fixed6.4601%, Learned6.1756%다. Learned−Fixed는−0.2844pp, 탐색용 cluster CI95 [−0.9776,+0.4890]pp로 추가 이득을 확인하지 못했다. Prior 대비 확률 변화 자체는 실제로 관측됐다. 따라서 matching prior의 후보 활용과 learned refinement의 추가 효과를 나누어 서술한다.

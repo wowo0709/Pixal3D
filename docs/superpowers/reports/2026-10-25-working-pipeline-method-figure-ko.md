@@ -39,3 +39,16 @@ fallback은 target RGB output의 완전 보존을 뜻하지 않는다. 최종 �
 최종 control480/128×3·actual cascade8metric·독립 확인·fresh load·freeze·
 TEST508/10metric·최종 정성·Results/Discussion/Abstract/Conclusion은 계속
 미완료다. 이 구조도나 이전 intermediate IoU를 그 근거로 대신하지 않는다.
+
+## 실제 산출물과 검수
+
+`working-pipeline-overview-v361`의7개 artifact/872,946bytes가 실제 file4와
+SHA256/size 일치한다. 공개 drawing source와 caption, 구현 source8개의 SHA,
+수정 전 sketch와 검수한 `figure-v2` vector PDF/PNG를 보존했다.
+
+`paper-draft-working-pipeline-method-v362`의14쪽/24references 초안을 실제
+compile했다. Warning/overfull/underfull0이며 그림·연결 본문·수식이 있는2/3/4쪽을
+PNG로 검수했다. 삽입한 vector figure는 닫힌 원본과 bytes가 같고 TeX도 공개
+현재 source와 일치한다.36개 artifact/1,257,682bytes가 실제 file4와 일치했다.
+[개발 PDF](/root/dev/.cache/deformnext-retargeting/paper-preview-20261025-v362.pdf)는
+최종 결과와 제출 형식/분량의 편집이 남은 작업 초안이다.
