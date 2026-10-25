@@ -406,8 +406,8 @@ over vanilla by 0.004723, with its two-pipeline-contrast family interval
 $[0.000288,0.009394]$, but its change from Top-1 retargeting is $-0.000522$
 with interval $[-0.003339,0.002567]$. A positive pipeline comparison therefore
 does not establish necessity of its individual modules. Final-context
-weighting, physical retargeter removal, and valid query controls remain
-separate required experiments.
+weighting, physical retargeter removal, and query formulation remain
+distinct questions; the final Fixed design has no learned Q/K query head.
 \input{tables/dev-original-module-effects.tex}
 
 The fixed-evidence candidate improves development SS macro IoU from 0.467355
@@ -531,9 +531,13 @@ and scalar scores. Comparing spatial directly with scalar Fixed would change
 both retrieval and the matching network, so that comparison is not treated
 as a one-component removal. All matching-ladder rows retain the same Fixed carrier/use/R
 and identity values. The three correspondence controls now have own native
-training/evaluation entries and checkpoint schemas, but their GPU proof,
-capacity, training and downstream results remain pending. Constructor and
-unit-check success are not empirical quality evidence.
+training/evaluation entries and checkpoint schemas. All three have passed
+actual native cold-function/backward checks and three-update microbatch-96
+capacity checks without gradient accumulation. Their initial per-asset
+metrics, target identities, and generation seeds match the paired vanilla
+reference; frozen base weights remain unchanged. Spatial training is in
+progress, while the three complete 480-update endpoints and downstream
+results remain pending. Functional and capacity checks are not quality gains.
 Only a missing matched control in the selected architecture requires new
 ablation training. An inference-time module deletion is a diagnostic, not a
 replacement for matched training. Top-1 versus weighted Top-K identifies a
@@ -554,6 +558,22 @@ a quality effect in Fixed. Its ray-pooled retargeting/use queries remain
 part of the architecture. Likewise, differences between
 the original FULL implementation and a shared-evidence implementation cannot
 be attributed solely to shared routing without a matching routing control.
+
+\paragraph{Completed final-context retargeting and aggregation contrasts.}
+Table~\ref{tab:completed-fixed-contrasts} reports the three currently available
+comparisons from the prespecified six-contrast SS family. The reference
+population, 12,000 bootstrap draws, random seed, and six-comparison correction
+are unchanged from the registered complete-study reducer. No pending model
+is substituted, and this partial result is not a completed seven-model study.
+Fixed exceeds physical no-R by 0.004639 macro IoU. Its unadjusted interval
+is positive, but the six-contrast interval is $[-0.000811,0.010633]$.
+The adjusted intervals for Fixed minus actual Top-1 and Fixed minus Uniform-K
+also include zero. Thus these completed stage comparisons do not yet establish
+retargeter necessity, a score-weighting benefit, or equivalence between
+aggregation choices. They motivate completing the planned matching ladder
+and common downstream measurements, rather than changing endpoints or
+discarding unfavorable controls.
+\input{tables/dev-completed-fixed-contrasts.tex}
 
 \section{Limitations and pending claims}
 The original twelve-model, ten-module-contrast family and paired DEV128

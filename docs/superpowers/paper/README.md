@@ -1,5 +1,36 @@
 # 논문 초안과 결과 표
 
+## 현재 revision: 2026-10-25
+
+현재 compiled revision은 `paper-draft-completed-SS-contrasts-v412`의15쪽·24개
+참고문헌 개발 초안이다. 실제 compiler returncode0이며12쪽의 ablation 본문과
+14쪽의 새 통계 표를 시각 검수했다. 최종 모델·TEST·논문 완료를 의미하지 않는다.
+
+`tables/dev-completed-fixed-contrasts.tex`는 완료된 실제128×3 결과의 세 대조를
+담는다. 사전 정의한 전체6개 family를 유지했으며 Fixed−No-R의+0.004639도
+보정 CI95[−0.000811,+0.010633]는0을 포함한다. Fixed−Top-1/Uniform도 보정
+구간은0을 포함한다. 새 표의15개 수치를 실제 closed JSON과 반올림까지 대조했다.
+통계와 남은 범위는 [핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
+
+현재 `tables/final-ablation-template.tex`에서 Fixed/Top-1은 SS·cascade,
+Uniform/no-R는 SS만 완료다. 세 correspondence arm은 실제 GPU proof·micro96
+capacity를 통과했고 Spatial 본 학습이 진행 중이다. 세480 endpoint·신규5행
+cascade·독립 확인·fresh load·freeze/TEST·최종 writing은 계속 남아 있다.
+
+빌드는 아래 이력의 두 figure와 함께
+`working-pipeline-overview-v361/figure-v2/working-pipeline-overview.pdf`를
+source의 `figures/working-pipeline-overview.pdf`로 배치해야 한다. 각 원본의 실제
+file4 SHA256/size를 확인한 외부 source snapshot에서 전용 Tectonic0.17.0의
+`--only-cached --untrusted` 빌드를 사용한다. 전역 패키지는 바꾸지 않았다.
+첫 v411은 새 표의9pt math font가 캐시에 없어 PDF 생성이 실패한 기록이다.
+수치는 유지하고 기존 표와 같은 text 표기로 바꿔 v412에서 성공했으며 실패 로그도
+보존한다. PDF/source/log는 Git 대신 file4 실험 산출물로 관리한다.
+
+## 이전 revision 이력
+
+아래의 “최신”·pending·쪽수 설명은 각 revision 당시의 기록이다. 현재 실행 상태는
+위 요약과 핵심 실행 행렬을 따른다.
+
 최신 `paper-draft-close-prior-method-scope-v339`는 가까운 선행연구의 Method·공식 코드와 실제 native 구현의 차이를 반영한13쪽/24개 인용 revision이다.1·2·6쪽을 검수했고 compiler warning·미해결 인용·overfull/underfull0이다. [대조 근거](../reports/2026-10-25-closest-method-scope-and-writing-ko.md)에 검토 범위와 lineage를 기록했다. 신규 control/TEST 결과는 계속 미측정이다.
 
 2026-10-25 갱신: 최신 compiled revision은 `paper-draft-actual-ray-evidence-v325`의13쪽·24개 인용 초안이다. 실제 native ray 기전 그림은 `actual-ray-evidence-figure-v323`에서 생성·검수·file4 보존을 완료했다. `dev-ray-evidence.tex`는 해당 실제 관측의 입력4장·member·Top-K·확률을 연결하고, 조건부 사례 선정과 진단 Uniform의 범위를 caption에 명시한다. 새 PDF의5·6·10쪽을 직접 검수했고 compiler returncode0, TeX warning·미해결 인용·overfull/underfull0이다. 최종 control/TEST 결과는 아직 미측정이다. 이전 revision은 아래 시점별 기록으로 보존한다.

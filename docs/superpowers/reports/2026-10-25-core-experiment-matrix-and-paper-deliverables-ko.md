@@ -1,6 +1,6 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
-작성: 2026-10-25. 후속 관측: v392 CPU 실행 연결, v393 PBR 완료, v400/v401 Spatial epoch192 실제 집계·게시.
+작성: 2026-10-25. 후속 관측: v409 완료3대조의 사전 family6 통계, v410 원격 게시, v412 실제 논문 반영·검수.
 
 이번 정리의 남은 본 학습은 **correspondence 대조3개, 선택 Fixed의 SS 독립 seed1개,
 PBR R 독립 seed1개 실행의 완료**다. PBR vanilla 독립 seed는 완료됐다. 앞의5개 신규 ablation 중 Uniform/no-R의
@@ -62,6 +62,27 @@ Uniform/No-R 두 개의 학습·SS 평가는 완료됐고 matching 세 개는 �
 +0.000142이므로 score weighting의 stage 우위는 확인되지 않았다. 이는 동등성이나
 효과 부재의 증명도 아니다. 각 arm의 세 실제 종료·checkpoint·GT·ID를 기존
 `validate_series`로 검사하고 actual file4 SHA/size 검증까지 완료했다.
+
+후속 `completed-three-of-six-SS-contrasts-v409`에서 실제 완료된 네 모델을 다시
+위 validator로 검증하고 사전 정의6개 대조 중 가능한3개를 집계했다. 원래 전체
+reducer와 동일한12,000 draw·seed20261025·source-cluster resampling·family6을
+유지했으며 미완료3개를 제외해 보정 수를 줄이지 않았다. Fixed−Top-1의 보정 IoU
+CI95는[−0.001642,+0.003679], Fixed−Uniform은[−0.002590,+0.002233],
+Fixed−No-R는[−0.000811,+0.010633]이다. 마지막의 일반 CI95는
+[+0.000565,+0.009024]지만 family 보정 후에는0을 포함한다. 따라서 현재 direct R
+효과는 긍정적인 점추정과 보정 전 구간으로 한정하며 최종 필요성으로 쓰지 않는다.
+나머지 matching3개·전체7행·cascade·독립 확인은 계속 남아 있다. 실제12개
+noise evaluation·GT/count/ID·checkpoint binding을 확인하고 명시적 cluster 반복
+계산으로 bootstrap 수치도 대조했으며 실제 file4 SHA/size 검증을 마쳤다.
+
+세 대비의 실제 mean·일반/보정 interval을
+[W&B](https://wandb.ai/youngwoojeon-unist/pixal3d-deformnext-retargeting/runs/completed-SS-three-of-six-family-v410)에
+게시하고 원격 summary를 원본과 대조했다. `paper-draft-completed-SS-contrasts-v412`는
+실제15쪽으로 compile했고12쪽 본문·14쪽 통계 표를 시각 검수했다. 표의3행×5개
+수치를 실제 JSON과 순서·반올림까지 대조했으며36개 산출물의 actual file4 SHA/size가
+일치한다. 첫 v411은 전용 캐시의9pt math font 부재로 PDF 생성이 실패했다.
+수치는 유지하고 기존 표와 같은 text 표기를 써 v412에서 성공했으며 v411의28개
+실패/source 산출물도 file4에 보존했다. NN source·학습·패키지는 바꾸지 않았다.
 
 세 correspondence arm의 GPU proof/capacity도 실제 완료됐다. Native conditioning과
 same-noise flow 예측이 초기 기준선과 일치하며, 동일 quick32의 개별 asset metric·GT·
