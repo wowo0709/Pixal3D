@@ -1,5 +1,11 @@
 # 최종 파이프라인·모듈 검증·논문 완성을 위한 남은 작업
 
+2026-10-26 sensitivity 후속: 기존 동일-geometry PBR4의 foreground/GT-crop32개
+cell과 metric 정의를14쪽 preview(v581)에 반영·검수·actual file4 보존했다(v580/v582).
+바뀐6쪽을 직접 검수하고 앞8쪽의 기존 검수 PNG 동일성을 확인했다. 새 scoring/NN/
+선정은 없으며 TEST v570과 최종10metric/표·그림/writing 범위는 유지한다.
+[실제 수치·정의·claim 범위](2026-10-26-PBR-foreground-sensitivity-and-metric-definitions-ko.md).
+
 2026-10-26 writing 후속: 실제13쪽 본문·Supplement preview(v578)를 작성·compile·
 전체13쪽 시각 검수·file4 보존했다. SS geometry/PBR appearance를 분리했고 기존
 numeric tables/원래 통계 범위를 유지했다. TEST v570은 같은 frozen505개 수치 source로

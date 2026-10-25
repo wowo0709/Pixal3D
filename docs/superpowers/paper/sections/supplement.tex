@@ -34,6 +34,41 @@ microbatch 96 without accumulation; native PBR uses four ranks with
 microbatch 6, accumulation 1 and global batch 24. Shape stages, image encoders,
 Omega and the matching decoder remain frozen during generative fine-tuning.
 
+\subsection{Metric implementation details}
+Let $A,B$ be the two sets of 20,000 area-weighted surface samples and
+$d(a,B)=\min_{b\in B}\lVert a-b\rVert_2$. The reported unsquared distance is
+\begin{equation}
+ \mathrm{CD}=\tfrac12\left[|A|^{-1}\sum_{a\in A}d(a,B)
+                  +|B|^{-1}\sum_{b\in B}d(b,A)\right].
+\end{equation}
+Precision is the fraction of $A$ with distance at most 0.02 to $B$;
+recall reverses the roles. Surface F-Score is their harmonic mean, or zero
+when both fractions vanish. The source-defined normalization and stored GT
+point sample are common to models; there is no independent output alignment.
+
+Photometric scores use the archived 512-pixel float RGB and nominal unit
+range. Native PSNR is $-10\log_{10}\mathrm{MSE}$ over the full image;
+VGG LPIPS receives the affine normalization from $[0,1]$ to $[-1,1]$.
+SSIM uses an 11-pixel Gaussian window, standard deviation 1.5 and the native
+zero padding. Mask IoU thresholds both alpha maps at 0.5.
+
+DreamSim uses the official trained ensemble; complementary CLIP uses a
+separate original OpenAI ViT-B/16 image encoder. Their paths clamp RGB to
+$[0,1]$, round to nearest 8-bit RGB, and apply their respective official
+preprocessing. Inception receives the same full-frame 8-bit conversion.
+Neural metric evaluation uses FP32, TF32 off and no autocast. Source scores
+average cameras 9/10 within an example; camera 11 conditions generation but
+is not added to the scored pool. Target scores use camera 8.
+
+Supplementary foreground PSNR uses the union of predicted and GT alpha
+masks above 0.5. It averages RGB squared error only on that union and clamps
+the resulting MSE below at $10^{-12}$ before taking the logarithm. This is
+not a common GT-only mask. The separate GT crop is the GT-alpha bounding box
+with padding $\lceil0.1\max(w,h)\rceil$, clipped to the image boundary;
+the identical box crops prediction and reference for every model. It can
+retain background inside the rectangle and does not align or recenter
+individual predictions.
+
 \subsection{Original module family and independent training}
 \input{typeset/dev-ss128.tex}
 \input{typeset/dev-original-module-effects.tex}
@@ -88,11 +123,21 @@ selected by the original conditional lexicographic rule, not downstream
 render quality. Post-hoc Uniform mass is not the matched Uniform training arm.
 
 \subsection{Full-frame and foreground sensitivity}
-The primary table retains full-frame metrics. The existing producer also
-reports foreground PSNR and GT-only-crop DreamSim/CLIP, with common GT-defined
-crops across models. These reveal sensitivity to foreground/background
-composition without model-specific recentering or alignment. They are
-supplementary descriptive endpoints, not a new primary family.
+\input{typeset/dev-selected-pbr-foreground32.tex}
+The primary table retains full-frame metrics. The existing producer's
+supplementary scores on identical selected Fixed geometry show that Top-1 R
+minus vanilla changes source DreamSim by $-0.000517$ full-frame and
+$-0.000893$ on the common GT crop. Source CLIP instead changes by
+$-0.000487$ and $-0.000270$, respectively. Foreground PSNR changes by
+$-0.01205$ dB at source cameras and $+0.06557$ dB at the target. Thus the
+small primary appearance points are not a consistent advantage across
+perceptual similarity, semantic cosine and pixel alignment. Feature has the
+lowest crop DreamSim point and Raw has the highest crop CLIP point; these
+descriptive changes in ranking do not reselect the frozen PBR model.
+Absolute foreground PSNR is much lower than its full-frame value because
+the pixel support differs; a high full-frame PSNR alone does not establish
+foreground fidelity. These are existing supplementary endpoints, not a new
+primary family or additional independent confirmation.
 \ifFinalReportReady
 \input{final-results/foreground-sensitivity.tex}
 \input{final-results/adjusted-contrasts.tex}

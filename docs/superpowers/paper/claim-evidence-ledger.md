@@ -1,5 +1,11 @@
 # 논문 claim과 필요한 근거
 
+2026-10-26 PBR sensitivity: 기존 Fixed32의 crop DreamSim에서도 Top-1 R−vanilla
+−0.000893의 점추정이지만 crop CLIP−0.000270·source foreground PSNR−0.01205dB로
+일관된 appearance 우위는 아니다. 기존 source primary CI는0을 포함하고 모델 freeze는
+그대로다. Union-mask foreground/공통 GT crop을 구분한 실제14쪽 preview(v581)에
+반영했다. [원본 수치·정의와 claim 범위](../reports/2026-10-26-PBR-foreground-sensitivity-and-metric-definitions-ko.md).
+
 2026-10-26 원고 후속: SS geometry와 동일-geometry PBR appearance를 분리한13쪽
 본문·Supplement preview(v578)를 compile·전체 시각 검수·actual file4 보존했다.
 원래 table cell/caption과 모든 zero-containing CI·독립 확인 범위를 유지한다.

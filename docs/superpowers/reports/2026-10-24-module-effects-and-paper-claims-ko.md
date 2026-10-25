@@ -1,5 +1,11 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 PBR sensitivity: 동일 geometry의 기존 foreground/GT-crop 지표를
+Supplement에 반영했다(v580/v581). Crop DreamSim의 작은 R 개선점은 유지되지만
+CLIP·source pixel 지표까지 일관된 우위는 아니다. Foreground PSNR은 alpha 합집합,
+GT crop은 공통 GT bbox라는 실제 정의와32개 cell을 대조했다.
+[수치·조건부 해석](2026-10-26-PBR-foreground-sensitivity-and-metric-definitions-ko.md).
+
 2026-10-26 writing 후속: SS geometry/PBR appearance를 분리한 실제13쪽 본문·
 Supplement preview(v578)를 작성·컴파일·전체 시각 검수했다. 기존 cell·caption과
 24개 인용은 closed 원본과 동일하며, final TEST claim은 아직 쓰지 않았다.

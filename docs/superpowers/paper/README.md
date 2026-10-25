@@ -1,5 +1,12 @@
 # 논문 초안과 결과 표
 
+2026-10-26 sensitivity 후속: 기존 동일-Fixed PBR4의 foreground/GT-crop 점수32개를
+실제 closed JSON과 대조해 Supplement 표와 metric 정의에 넣었다. 새14쪽 preview(v581)는
+바뀐9–14쪽을 시각 검수했고1–8쪽은 이전 검수본과 rendered PNG가 같다. Foreground PSNR은
+예측/GT alpha 합집합이며, GT-only crop과 구분한다. Primary endpoint/family·모델 선정은
+바꾸지 않았다. [수치·정의·해석 범위](../reports/2026-10-26-PBR-foreground-sensitivity-and-metric-definitions-ko.md).
+아래13쪽(v578)은 직전 이력이며 최종 TEST 결과와 writing은 계속 남아 있다.
+
 2026-10-26 본문·Supplement 후속: 새 진입점
 [`retargeting-final-manuscript.tex`](retargeting-final-manuscript.tex)와 `sections/`를
 작성했다. 실제 DEV 표/그림을 유지한13쪽 preview(v578)는 본문6·참고문헌2·Supplement5쪽,

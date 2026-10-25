@@ -1,0 +1,25 @@
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrr}
+\toprule
+\multicolumn{5}{l}{A. Source appearance: full frame and common GT-defined crop}\\
+PBR arm&\shortstack{DreamSim\\full$\downarrow$}&\shortstack{DreamSim\\GT crop$\downarrow$}&\shortstack{CLIP\\full$\uparrow$}&\shortstack{CLIP\\GT crop$\uparrow$}\\
+\midrule
+Vanilla&0.158346&0.194194&0.942179&0.935360\\
+Actual Top-1 + R&0.157828&0.193302&0.941692&0.935090\\
+Top-1 + learned feature + R&0.157985&0.193285&0.941759&0.935348\\
+Raw Top-K + learned feature + R&0.158261&0.193599&0.941559&0.935625\\
+\midrule
+\multicolumn{5}{l}{B. Pixel alignment: full frame and alpha-union foreground}\\
+PBR arm&\shortstack{Source PSNR\\full$\uparrow$}&\shortstack{Source PSNR\\foreground$\uparrow$}&\shortstack{Target PSNR\\full$\uparrow$}&\shortstack{Target PSNR\\foreground$\uparrow$}\\
+\midrule
+Vanilla&23.68253&11.62652&24.47775&12.34999\\
+Actual Top-1 + R&23.67047&11.61447&24.54433&12.41556\\
+Top-1 + learned feature + R&23.65548&11.59947&24.51012&12.38134\\
+Raw Top-K + learned feature + R&23.66457&11.60856&24.52268&12.39391\\
+\bottomrule
+\end{tabular}
+\caption{Existing supplementary scores on the same selected Fixed geometry, 32 development examples and 32 source clusters. Source cameras9/10 are averaged per example; target uses8. The GT-alpha bounding box, padded by10\% of its larger side, defines one common prediction-independent crop; it may still contain background. Foreground PSNR instead averages RGB squared error over the union of predicted/GT alpha$>0.5$, so its mask can vary by output. Full-frame PSNR/SSIM and the primary source LPIPS/DreamSim retain their original definitions. These descriptive sensitivities neither change the primary endpoint/family nor reselect the frozen PBR checkpoint.}
+\label{tab:dev-fixed-pbr-foreground}
+\end{table}

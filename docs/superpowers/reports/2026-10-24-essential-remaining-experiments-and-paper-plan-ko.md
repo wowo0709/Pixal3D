@@ -1,5 +1,10 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-26 sensitivity 후속: 기존 Fixed PBR4의 foreground/GT-crop32개 cell과
+정확한 metric 정의를 실제14쪽 Supplement preview(v581)에 반영·검수했다.
+새 NN/학습/통계 family/선정은 없다. TEST cascade와 최종10metric/표·그림/writing은
+계속 진행한다. [실제 근거와 해석 범위](2026-10-26-PBR-foreground-sensitivity-and-metric-definitions-ko.md).
+
 2026-10-26 writing 후속: 본문6·참고문헌2·Supplement5쪽의 실제13쪽 preview(v578)를
 작성·컴파일하고 전체13쪽을 시각 검수했다. 원본 DEV 수치·48-family와 stage별 선정
 기준을 유지했으며 frozen numerical505개 source도 byte가 같다. TEST v570은 정상
