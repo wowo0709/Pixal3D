@@ -58,6 +58,11 @@ coordinator/keeper와 모든 campaign token의 부재, canonical failure/release
 기존 두 dispatcher에 연결했다. Coordinator와 두 keeper는 실제로 시작했고
 GPU0·1·2·3·6·7에 여섯 native case worker를 배치했다.
 
+새 실행의 첫 asset에서 실제 다섯 case와8개 retirement role이 모두 완료됐고
+group audit/file4 closure를 확인했다. Local raw16개 정리와 원격 원본 보존은 원래
+strict retirement 계약을 따른다. 이 확인 시점의 새 진행은13/2540이었다. 이는 새
+동기 운영 경로의 실제 coupled 실행 증거이며 전체508 품질 완료를 의미하지 않는다.
+
 원래 final collector는 case audit/worker terminal의 실제 output이 하나의
 `campaign_root/cases/<sample hash>/<alias>`와 일치하도록 검증한다. 다른 namespace의
 worker terminal이나 archive 경로를 새 실행인 것처럼 고쳐 쓰지 않는다. 이 동결된
