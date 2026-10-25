@@ -1,5 +1,29 @@
 # 가까운 선행연구와 실제 구현의 구분
 
+2026-10-25 후속: matching probability의 의미를 원문·실제 코드와 구분했다.
+[RoMa-Ω §3.3–4.2](https://arxiv.org/html/2609.09507v1)는 raw nearest-neighbor,
+learned probe, dense matcher를 별도로 비교하고 warp의 confidence를 co-visibility로
+감독한다. [VGGT-Ω §3.2/A.2](https://arxiv.org/html/2605.15195v1)는 마지막 token의
+positive/negative pair objective를 설명한다. 우리 D1의 topology-listwise objective와
+같은 loss 또는 confidence라고 쓰지 않는다. 이는 두 방법의 원문 범위에 대한 설명이며
+외부 방법의 성능을 우리 생성 결과로 일반화하지 않는다.
+
+실제 working Fixed config·`member_ray_posterior`·`consistent_ray_evidence`의
+softmax/Top-K 재정규화·valid-support abstention을 대조했다. $p_r$는 retained 후보
+안에서의 상대 mass이지 correctness/covisibility의 calibrated probability가 아니다.
+관측/support가 없는 경우의 native fallback은 지원되는 잘못된 매칭까지 검출하지
+않는다. Method·Discussion에 이 한계를 명시했고 기존 NN/config/checkpoint·수치
+source·평가 protocol은 유지했다. 새 visibility gate나 학습 arm을 넣지 않았다.
+두 원문의 v1 HTML은 실제 HTTP200·byte/SHA로 확인하고 원문 전체를 재배포하지
+않는 retrieval metadata를 `matching-probability-paper-method-scope-v503`에 보존했다.
+CorrAdapter 본문은 여전히 직접 fetch403이며 기존 공식 코드 근거 범위를 유지한다.
+
+`paper-draft-matching-probability-scope-v505`는 실제16쪽·24개 인용으로 compile했고
+2/4/14/15쪽을 시각 검수했다. Warning·미해결참조·overfull/underfull0이며 모든 수치
+표·그림은 v494와 byte-identical이다. 실제 source/build/review42개·1,561,823bytes의
+file4 SHA/size를 확인했다. 새 생성 품질·모듈 효과·freeze/TEST 결과는 아니다.
+
+
 2026-10-25 UTC. GPU 학습을 유지하며 세 논문의 Method와 한 공식 코드의
 설계를 대조했다. 새로운 실험 arm·외부 모델 실행·데이터 다운로드는 없다.
 서로 다른 문제 설정의 기존 성능을 우리 모듈의 효과로 사용하지 않는다.

@@ -4,6 +4,16 @@
 
 ### 최신 실제 실행: Spatial 최종 SS·PBR 표와 평가 자원 재배치
 
+후속 writing은 `paper-draft-matching-probability-scope-v505`다. RoMa-Ω/VGGT-Ω의
+해당 Method 원문과 실제 working Fixed softmax/Top-K/config를 대조해 categorical
+weight와 calibrated correctness/covisibility confidence를 구분했다. Native fallback이
+support 있는 오매칭까지 검출하지 않는 한계를 명시했고 NN·config·수치 설정은
+유지했다. 실제16쪽·24개 인용의2/4/14/15쪽을 시각 검수했으며 모든 수치 표·그림은
+앞선 v494와 byte-identical이다. Warning·미해결 참조·overfull/underfull0, actual file4
+closure를 마쳤다. [원문·코드와 writing 범위](2026-10-25-closest-method-scope-and-writing-ko.md)를
+따른다. 최종 대조·cascade·모델 선정·freeze/TEST·writing 완료를 뜻하지 않는다.
+
+
 Spatial의 own DEV128×3를 원래 full-study `validate_series`로 집계했다.
 Checkpoint·128 asset/93 source·세 noise·GT identity와 실제 terminal을 확인했고
 IoU는 **0.47226657090313745**다. Fixed0.4734709996851256과의 차이+0.0012044288은

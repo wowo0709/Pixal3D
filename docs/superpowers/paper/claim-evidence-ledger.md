@@ -20,10 +20,11 @@
   tensor×4·LoRA360×4·1900 rank trace·초기 identity·같은 seed의6epoch GT pixel을
   확인했다. Fixed4 target-stage training QA이며 inferential quality나 full-cascade
   seed 확인이 아니다. 최종 조합 선택·freeze·TEST508·최종 writing은 미완료다.
-- 최신 검수된 개발 manuscript는 v494의16쪽·24개 참고문헌이다. Spatial SS cell과
-  완료 PBR4행 training-QA 표를 원본 JSON에서 반영했고 수정5/10/11/13/14/15쪽을
-  시각 검수·file4 보존했다. 실제 warning/미해결참조/overfull/underfull0이며 나머지
-  수치 표·그림은 그대로다. 최종 control·cascade·TEST·writing 완료는 아니다.
+- 최신 검수된 개발 manuscript는 v505의16쪽·24개 참고문헌이다. Matching probability와
+  correctness/covisibility confidence, support 없는 native fallback의 범위를 원문·코드로
+  구분하고2/4/14/15쪽을 검수·file4 보존했다. 실제 warning/미해결참조/overfull/underfull0,
+  모든 수치 표·그림은 v494와 같다. 앞선 v494의 Spatial SS cell·PBR4행 training-QA
+  표도 유지했다. 최종 control·cascade·TEST·writing 완료는 아니다.
 
 ## Claim별 현재 판정
 

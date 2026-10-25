@@ -78,6 +78,13 @@ VGGT-$\Omega$ learns geometry-aware representations through reconstruction
 training~\cite{wang2026vggtomega}. RoMa-$\Omega$ distinguishes zero-shot
 feature matching from learned matching on feed-forward 3D
 representations~\cite{nordstrom2026romaomega}.
+Its controlled experiments separate nearest-neighbor similarity, a learned
+probe, and a full dense matcher; its warp confidence is supervised by
+co-visibility. These are different quantities from a categorical weighting
+of retained appearance proposals. The published VGGT-$\Omega$ objective
+also supervises positive and negative last-layer token pairs, rather than
+the topology-derived listwise proposal objective used by our separate D1
+decoder.
 These works motivate separating raw descriptor quality, learned matching,
 and candidate aggregation. Our experiments additionally ask whether their
 correspondence evidence improves generated geometry and source appearance

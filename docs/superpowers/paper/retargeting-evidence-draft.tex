@@ -114,6 +114,11 @@ The observation support uses input image alpha and camera addresses. It is
 not an inferred surface-visibility mask.
 Empty observed-member sets or fewer than 64 valid source patches abstain,
 retaining native conditioning rather than inventing proposal values.
+The normalized $p_r$ allocates relative mass within retained candidates;
+it is not calibrated correctness or a co-visibility probability. A wrong
+candidate set can still receive concentrated mass, so valid proposal support
+does not certify a correct correspondence. Our native fallback responds to
+missing observation or proposal support, not to an inferred occlusion label.
 
 \subsection{Matching-aware evidence aggregation}
 The fixed-evidence candidate aggregates original source values $v_k$ as
@@ -694,6 +699,11 @@ stream does not guarantee unchanged target output. Input-alpha support is not
 surface visibility, and the source-use gate is not a calibrated occlusion
 predictor. The final abstract, concluding superiority claims, quantitative
 contribution statements, and final model label must follow these experiments.
+In particular, normalizing matching scores cannot recover a correct feature
+that is absent from the proposals. Nor does the native fallback detect every
+incorrect but well-supported match. This motivates reporting retrieval
+coverage, probability allocation, and generated-output quality as separate
+measurements, without adding a visibility gate to the pretrained carrier.
 \bibliographystyle{plain}
 \bibliography{references}
 \end{document}

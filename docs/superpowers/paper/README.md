@@ -2,16 +2,27 @@
 
 ## 현재 revision: 2026-10-25
 
-현재 compiled revision은 `paper-draft-explicit-development-test-separation-v478`의
-16쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된5/6쪽의
-DEV32/128·validation·TEST 역할과 metric/statistical protocol을 시각 검수했다.
-Warning·미해결 참조·overfull/underfull은0이다. 모든 수치 표·그림은 이전 v458과
-byte-identical이고 실제 source/build/review 산출물의 file4 SHA/size가 일치한다.
-`current-training-DEV-TEST-split-metadata-v477`에서 현재 학습 config와 실제
-train9149/validation508/TEST508 metadata의 sample/source UID/cluster 무교차,
+현재 compiled revision은 `paper-draft-matching-probability-scope-v505`의
+16쪽·24개 참고문헌 개발 초안이다. 실제 compiler returncode0이며 수정된2/4/14쪽과
+float 배치가 바뀐15쪽을 시각 검수했다. Warning·미해결 참조·overfull/underfull0이며
+모든 수치 표·그림은 v494와 byte-identical이다. Actual file4 closure를 완료했다.
+원문과 working Fixed 코드/config를 대조해 categorical matching probability와
+calibrated correctness/covisibility confidence를 구분했다. Native fallback은 관측/
+proposal support가 없을 때 적용되며, support가 있는 잘못된 매칭을 모두 검출하지
+않는다는 한계를 Method·Discussion에 명시했다. NN/config·학습·수치 설정은 그대로다.
+[원문·코드 검토 범위](../reports/2026-10-25-closest-method-scope-and-writing-ko.md)를 따른다.
+
+이전 v494에서는 최종 Spatial SS128×3 IoU0.472267과 완료 PBR V1/R 두 training seed의
+1900-step4행 표를 반영하고5/10/11/13/14/15쪽을 검수했다. PBR 원본16장과 원격
+4행 metric을 대조했으며 fixed4 GT-shape training QA의 mixed LPIPS/PSNR 경향이다.
+Full-cascade/source/TEST 품질 또는 개별 모듈의 필수성으로 쓰지 않는다.
+
+이전 v478에서는 DEV32/128·validation·TEST 역할과 metric/statistical protocol을
+반영했다. `current-training-DEV-TEST-split-metadata-v477`에서 현재 학습 config와
+실제 train9149/validation508/TEST508 metadata의 sample/source UID/cluster 무교차,
 DEV128의 validation 포함과 TEST 분리를 확인했다. 원본 manifest의 현재 local/remote
-SHA·size도 같으며 TEST quality나 geometry 값을 열지 않았다. 새 품질 측정이나
-최종 TEST·논문 완료가 아니다.
+SHA·size도 같으며 TEST quality나 geometry 값을 열지 않았다. 최종 모델 선정·TEST·
+논문 writing은 계속 남아 있다.
 
 이전 v458에서 PBR 독립 확인 범위·Spatial480 완료를 반영하고12/13쪽을 검수했다.
 현재 claim 원장은 과거 실행 이력과 현재 미완료 상태가 섞이지 않게 정리되어 있다.
@@ -25,7 +36,8 @@ Fixed의 SS128×3는 seed101/202에서0.473471/0.474730이며 V1 대비 개선�
 포함하므로 추가 이득 확정이나 개별 모듈의 필수성으로 쓰지 않는다.
 `Fixed-SS-two-seed-paper-and-WandB-v446`에서 원래 W&B6행 평균·모든 대비 구간을
 실제 원격 값과 대조했다. Working Fixed seed101의 VAL36는 두 fresh-load·72개
-archive·tail4의 동일성을 통과했다. PBR/cascade·TEST·최종 선택과 writing은 계속 남아 있다.
+archive·tail4의 동일성을 통과했다. PBR 두-seed training QA도 완료됐으나 최종
+cascade·TEST·모델 선택과 writing은 계속 남아 있다.
 
 `matcher-training-method-provenance-v439`는 실제 사용 중인 RGB matcher의
 train9143/validation508·epoch7·62545 updates를 checkpoint에서 확인한9개 산출물이다.
@@ -42,9 +54,9 @@ SS train9149는 유지된다. CPU NN forward·GPU 초기화·재학습은 하지
 통계와 남은 범위는 [핵심 실행 행렬](../reports/2026-10-25-core-experiment-matrix-and-paper-deliverables-ko.md)을 따른다.
 
 현재 `tables/final-ablation-template.tex`에서 Fixed/Top-1은 SS·cascade,
-Uniform/no-R는 SS만 완료다. Spatial480 학습은 완료됐고 SS128×3 평가가 대기 중이다.
-Raw semantic/Decoder-cosine은 GPU6/7에서 본 학습 중이다. 세 correspondence의
-최종 SS 평가·신규5행 cascade·PBR 독립 확인·freeze/TEST·최종 writing은 계속 남아 있다.
+Spatial/Uniform/no-R는 SS만 완료다. Raw semantic/Decoder-cosine은 GPU6/7에서 본
+학습 중이며 두 모델의 최종 SS128×3·신규5행 cascade·freeze/TEST·최종 writing은
+계속 남아 있다. 네 own epoch288/384 수집기는 정상 종료했으며 본 학습 중단이 아니다.
 
 빌드는 아래 이력의 두 figure와 함께
 `working-pipeline-overview-v361/figure-v2/working-pipeline-overview.pdf`를
