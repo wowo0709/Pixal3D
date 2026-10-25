@@ -40,6 +40,17 @@ session drain·file4 결과를 확인한 뒤 나머지62개를 연결한다. 다
 이 설정을 실행하지 않고 그 SS의 실제 geometry로 네 mode를 비교한다. 준비 완료는
 품질 향상·최종 선정·TEST 완료를 뜻하지 않는다.
 
+PBR 평가 연결도 `evaluation-prelaunch-v1`에 조건부 준비했다(v533). 실제 선택 뒤
+coverage CPU→새192개 view의 official GPU 평가+기존192개 점수 재사용→원래4모델
+집계와 W&B를 실행한다. `selected_pbr_official_reuse.py`의15개 검사가 통과했고,
+실제 기존384개 view에서 모든 score/image audit·원래4000-draw 평균/대조/CI/
+interaction/per-asset 통계의 exact 일치를 확인했다(v531). 재사용 점수의 모델 weights,
+registry, source/camera, 실제 shared-NPZ SHA를 확인한다. 실제 V1 geometry 점수를
+Fixed pixel에 대응시키는 오류와 실제 SS 선정 기록 없이 coverage/summary를 시작하는
+경우를 실행으로 거절했다(v534). 두 negative check는 의도한 검증이며 학습 실패가 아니다.
+새 helper는 기존 수치 reducer·실행 중 NN을 바꾸지 않는다. 평가3개 descriptor는 아직
+미등록이며, 이 검증은 새 appearance 결과·SS 선택·TEST 완료를 뜻하지 않는다.
+
 후속 자원 배분: 아직 시작하지 않은 Raw28 case를 auxiliary에서 main으로 옮겼다.
 원래 ID·command·case plan·출력·모델/입력/수치 source는 같다. 실제 dispatcher의
 28 HELD→원래 descriptor 제거→main pending·고유 producer 확인→actual file4

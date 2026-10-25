@@ -20,6 +20,15 @@ triangles에서 네 PBR arm을 비교한다. Fixed를 선택하면 기존 vanill
 나머지64 replay를 추가한다. 다른 SS를 선택하면128 texture replay가 필요하며 Shape는
 재생성하지 않는다. 새 PBR 구조가 선택되면 그 실제 구조의 독립 seed 확인도 필요하다.
 
+이 비교의 coverage→official GPU→4모델 집계·W&B 설정도 조건부 준비를 마쳤다(v533).
+Fixed 선정 시 기존 vanilla/R의192개 official view를 재사용하고 새 feature/raw192개만
+GPU에서 측정한다. `selected_pbr_official_reuse.py`는 모델 가중치·registry·source·camera·
+실제 scored-NPZ SHA를 확인한 뒤 arm 이름만 대응시키며 점수와 image audit는 유지한다.
+15개 검사 및 실제 기존384개 view의 평균·대조·bootstrap 구간 전체 불변을 확인했다(v531).
+기존 V1 geometry 점수를 Fixed pixel에 섞으면 실제로 거절하며, 아직 없는 SS 선정
+기록으로 coverage/summary를 실행해도 output·NN 전에 거절하는 것을 확인했다(v534).
+이 경로는 아직 등록·실행 전이며 appearance 향상이나 최종 PBR 선정의 근거가 아니다.
+
 `cascade_record_json.py`는 저장된 camera JSON key만 정수8/9/10으로 복원한다.
 Mixed/잘못된 camera를 거절하고 값·row 순서는 유지한다. JSON roundtrip 전후 paired
 mean·interval 불변 등14개 검사와 실제4모델의 endpoint exact 일치를 확인했다.
