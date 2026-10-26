@@ -101,3 +101,16 @@ guide가 없어도 원래 scored RGB·GT·alpha archive **225개**가 기존 obs
 원래 505개 수치 source·실행 중인 그룹은 변경하지 않았다. 이 시각 `v636`
 coordinator와 5개 작업자는 살아 있고 신규 346/1,155 case가 완료됐으며
 로컬 여유는 약158.6 GiB다. 운영 공간 확보이며 최종 품질 근거는 아니다.
+
+21:01 UTC 후속: `actual-closed-current-guide-offload-v656-bulk7`에서 실제
+완료 audit·raw retirement·로컬 guide가 모두 갖춰진 **14개 그룹/70개 guide**의
+중복본 **2,616,690,206 bytes(2.4370 GiB)**만 정리했다. Case 완료 수만으로
+15번째 그룹을 포함하지 않고 준비 시점의 종료·reader·열린 파일 및 실제
+파일서버 정본 SHA256/크기 검사를 따랐다. Guide 없이 원래 scored RGB·GT·alpha
+archive **210개**가 기존 observation과 정확히 일치했다. 최종
+`retirement/audit.json`은 `PASS_ACTUAL_CLOSED_CURRENT_GUIDE_DUPLICATES_OFFLOADED`,
+실제 file4 receipt는 `PASS`/`local_equals_actual_file4_SHA256=true`다.
+정본 guide·scored image·원래 505개 수치 source·실행 중인 그룹은 유지했다.
+이 시각 `v636` coordinator와 5개 작업자는 살아 있고 신규 421/1,155 case가
+완료됐으며 로컬 여유는 약156.0 GiB다. 이 작업은 저장 공간 운영이며 최종
+품질 수치나 모듈 효과의 근거가 아니다.
