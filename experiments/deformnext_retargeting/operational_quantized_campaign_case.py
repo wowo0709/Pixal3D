@@ -7,6 +7,7 @@ from pathlib import Path
 from . import run_selected_campaign_case as campaign_case
 from . import run_selected_final_case as native
 from .cascade_view_roles import file_sha256 as sha
+from .operational_quantized_case_integrity import adapt_case_validator
 from .selected_pipeline_model_contract import require
 
 
@@ -18,7 +19,8 @@ def execute(path):
     path = Path(path)
     context = json.loads(path.read_text())
     sources = context.get('operational_source_SHA256', {})
-    for name in ('operational_quantized_campaign_case.py', 'operational_quantized_render_phase.py'):
+    for name in ('operational_quantized_campaign_case.py', 'operational_quantized_render_phase.py',
+                 'operational_quantized_case_integrity.py'):
         source = Path(__file__).with_name(name)
         require(sources.get(str(source)) == sha(source), 'pin independent final GT QA adapter: ' + name)
     render = Path(__file__).with_name('operational_quantized_render_phase.py')
@@ -45,10 +47,11 @@ def execute(path):
         return terminal
 
     def validate(case, **kwargs):
-        result = old_validate(case, **kwargs)
+        proof_path = Path(context['output']) / 'render' / 'operational-raster-gate.json'
+        adjusted, ast_proof = adapt_case_validator(old_validate, proof_path)
+        result = adjusted(case, **kwargs)
         require(len(altered) == 1 and altered[0]['phase'] == 'render',
                 'exactly one pinned final render phase required')
-        proof_path = Path(context['output']) / 'render' / 'operational-raster-gate.json'
         proof = json.loads(proof_path.read_text())
         require(proof['status'] == 'PASS_UNIFORM_INTEGER_PIXEL_GT_RASTER_QA'
                 and proof['operational_source_SHA256'] == sources[str(render)]
@@ -56,7 +59,7 @@ def execute(path):
                 'uniform GT QA proof required before case audit')
         result['operational_GT_raster_admission'] = dict(path=str(proof_path), SHA256=sha(proof_path),
             policy=proof['policy'], original_render_source_unchanged=True,
-            metric_math_and_GT_arrays_unchanged=True)
+            metric_math_and_GT_arrays_unchanged=True, original_case_checks_AST_proof=ast_proof)
         return result
 
     native.run_child, native.validate_case_reports = run_child, validate

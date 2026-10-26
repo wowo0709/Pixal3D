@@ -17,6 +17,15 @@ def test_campaign_case_wrapper_uses_unpatched_original_spawn():
         assert OriginalCampaign.spawn is not MultiSourceCampaign.spawn
 
 
+def test_case_validator_replaces_only_the_gt_raster_gate(tmp_path):
+    from experiments.deformnext_retargeting.operational_quantized_case_integrity import adapt_case_validator
+    from experiments.deformnext_retargeting.selected_final_case_integrity import validate_case_reports
+    adjusted, proof = adapt_case_validator(validate_case_reports, tmp_path / 'gate.json')
+    assert adjusted is not validate_case_reports
+    assert proof['changed_GT_raster_admission_expressions'] == 1
+    assert proof['all_other_original_case_checks_unchanged'] is True
+
+
 def test_thin_alpha_integer_pixel_boundary():
     raster = torch.zeros((64, 64), dtype=torch.bool)
     raster[16:46, 16:46] = True

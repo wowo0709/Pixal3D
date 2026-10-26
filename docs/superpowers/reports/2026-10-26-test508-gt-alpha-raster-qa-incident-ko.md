@@ -18,6 +18,8 @@
 
 기존 실패 사례를 별도 출력에서 이 규칙으로 재실행해 camera 8, 9, 10의 렌더 결과를 모두 생성했다. 파일서버4에 `actual-quantized-GT-raster-failed-view-render-pilot-v624`로 보존했다. 이 pilot의 수치는 모델 선택이나 최종 결과로 사용하지 않는다.
 
+추가 점검에서 사례 검증기 `selected_final_case_integrity.py`에도 연속형 `>=0.99` 검사가 독립적으로 한 번 더 있음을 확인했다. v630 운영 실행은 렌더가 통과한 뒤 이 검증기에서 중단됐다. 원본 검증기 전체 함수의 AST 중 해당 검사식 한 곳만 실제 렌더 출력의 정수 픽셀 QA 증빙을 검증하는 식으로 바꾸는 별도 운영 adapter를 추가했다. 기존 실패 사례의 실제 geometry, render, shared 보고서와 종료 기록을 입력으로 검증기 전체를 다시 실행해 `PASS_ACTUAL_SELECTED_PHYSICAL_TEST508_CASE`를 확인했다. 나머지 원본 사례 검사식은 유지된다. v627의 첫 실행은 스케줄러 wrapper 재귀 때문에 NN 시작 전 중단됐고, 이 오류도 수정했다. 두 실패 실행과 예약 취소 기록은 각각 별도 파일서버4 네임스페이스에 보존한다.
+
 ## 완료 조건
 
 227개 기존 그룹과 v611의 50개 새 그룹은 각각 실제 group audit, 모델별 case audit, 종료 기록, scoring archive 해시 및 GT 픽셀 일치를 확인한 뒤에만 재사용한다. 남은 231개 그룹은 새로운 네임스페이스에서 실행한다. 이후 508개 전체에 대해 사전 지정된 10개 metric, source-cluster 신뢰구간, Main/Qual 결과와 논문 표를 산출한다. 현 시점에 최종 TEST 수치나 논문 결론은 없다.
