@@ -35,3 +35,14 @@ guide를 정리한 그룹도 포함한 작은 이질적 표본이므로 전체23
 크기로 외삽하지 않는다. 다만 완료 그룹에서 guide가 보관량의 큰 부분이므로,
 로컬 여유와 `DiskBudget`의 두 그룹 동시 입장 margin을 보면서 완료 그룹만
 추가 정리한다. Scored archive는 평가 입력으로 계속 보존한다.
+
+15:51 UTC 후속: pilot과 분리한 `actual-closed-current-guide-offload-v650-bulk1`에서
+추가로 완전히 닫힌 **9개 그룹/45개 guide**, 1,456,518,625 bytes(1.3565 GiB)의
+로컬 중복본만 정리했다. 원래 세 producer manifest, 그룹 audit, 모든 다섯 case의
+terminal과 8개 raw retirement, 활성 reader와 열린 파일, 매 batch의 실제 파일서버
+SHA256/크기를 확인했다. 정리 후 원래 scored RGB·GT·alpha archive **135개**가
+case observation과 정확히 일치했다. `retirement/audit.json`과 file4 receipt는
+각각 `PASS_ACTUAL_CLOSED_CURRENT_GUIDE_DUPLICATES_OFFLOADED` 및
+`PASS`/`local_equals_actual_file4_SHA256=true`다. 이전 pilot의 그룹을 다시
+선택하지 않았고, 실행 중인 그룹·정본 guide·scored archive·모델은 보존했다.
+`v636` coordinator/worker는 계속 실행 중이며 새 case는 51/1,155개다.
