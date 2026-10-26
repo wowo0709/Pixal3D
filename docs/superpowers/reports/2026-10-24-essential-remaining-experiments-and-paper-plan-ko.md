@@ -1,5 +1,10 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+후속 v604 원고 입력 연결은 실제10metric·Main/Qual 완료를 선행 조건으로 등록했다.
+Main 수치/캡션·사전 정성 예시 순서를 유지하며 최종 flag와 결과 의존 prose는 쓰지
+않는다. 30개 검사·개발14쪽 PDF 변경14쪽 검수 후에도 실제 TEST·writing·최종 검수는
+남아 있다. [최신 원고 입력·검수 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+
 후속 v601: 재사용129개 group의 guide645개(22.840GiB)는 canonical NAS에 유지하고
 로컬 중복본만 offload했다. Guide 없이 scored archive1,935개를 원래 reader로
 재검증했고79개 검사·실제41개 batch를 통과했다. v595는 재시작하지 않고 계속한다.

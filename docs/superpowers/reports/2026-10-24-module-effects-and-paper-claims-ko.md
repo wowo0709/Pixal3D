@@ -1,5 +1,9 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+후속 v604는 실제10metric·Main/Qual 완료 후 원고 입력만 연결하도록 등록했다.
+30개 검사와 개발14쪽 PDF의 변경14쪽 검수를 마쳤지만,실제 최종 입력·결과 의존
+writing·최종 PDF는 미완료다. [최신 원고 입력·검수 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+
 후속 v601: 이미 완료된 재사용129개 group의 guide645개 로컬 중복본22.840GiB를
 실제 NAS 검증 후 offload했고,guide 없이 기존 평가 archive1,935개의 원래 입력
 정합을 확인했다. 현재 v595 실행·context와 원래505개 수치 source는 유지한다.

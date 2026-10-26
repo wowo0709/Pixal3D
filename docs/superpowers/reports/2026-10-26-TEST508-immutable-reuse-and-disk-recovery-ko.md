@@ -1,5 +1,30 @@
 # TEST508 완료 그룹 재사용과 디스크 복구
 
+## 후속: 실제 최종 산출물의 원고 입력 연결 준비
+
+v604는 실제 ten-metric과 원래 Main/qualitative exporter가 모두 닫힌 뒤에만
+원고 입력 bundle을 만드는 CPU 작업이다. 원래 Main50개 cell·캡션·단위는 유지하고
+float와 폭 표현만 가역적으로 전체 폭으로 바꾼다. 기존 foreground/GT-crop40개
+descriptive cell과16개 보정 구간도 원래 보고값을 사용한다. 추가 metric이나
+bootstrap을 실행하거나 TEST를 보고 모델을 재선정하지 않는다.
+
+정성 예시는 원래 첫 outcome-blind를 Main에,두 번째와 나머지 고유 conditional
+panel을 Supplement에 둔다. 빈 category를 채우지 않고,조건이 겹치면 같은 panel을
+참조한다. 기존 PDF/PNG를 그대로 복사하며 crop·rerender·예시 순서 변경은 거부한다.
+입력 연결/기존 Main exporter의30개 synthetic metadata 검사도 통과했다.
+**실제 최종 입력 bundle은 아직 미생성**이다. 이 작업은 Abstract/Results/Discussion/
+Conclusion을 자동으로 쓰거나 `FinalReportReady`를 켜지 않는다. 실제 수치에 따른
+writing과 최종 PDF 검수는 여전히 필수다.
+
+개발 원고 v603은 실제14쪽 compile에 성공했다. 이전 검수본 v581과1–13쪽의
+렌더링이 같고,수정된14쪽은 실제로 보아 새 재사용·guide lifecycle 설명의 배치를
+확인했다. 기존 표15개(원래14개와 foreground32-cell 표)의 bytes는 모두 같다.
+Overfull·undefined reference·missing glyph는 없으며 개발 preview 표시는 유지한다.
+최종 TEST 표나 최종 논문을 완성했다는 뜻이 아니다.
+
+실제 근거: `actual-final-TEST508-manuscript-input-activation-v604`,
+`stage-separated-main-and-supplement-manuscript-preview-v603`.
+
 ## 후속: 완료된 재사용 guide의 NAS 보존·로컬 offload
 
 v601에서 재사용이 확정된 기존129개 group의 **guide645개,24,524,331,737 bytes
