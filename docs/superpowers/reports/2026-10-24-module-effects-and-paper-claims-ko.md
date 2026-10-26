@@ -1,5 +1,16 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 23:31 UTC 실제 진행: 최종 `v636` TEST508은 신규 **600/1,155
+case**를 완료했고, 검증된 불변 재사용 1,385개를 합쳐 **1,985/2,540 case
+(78.1%)**다. Coordinator와 GPU 0·1·2·6·7 작업자가 살아 있다. 실제
+10metric→Main/정성→W&B 확인→원고 입력은 cascade 결과와 release closure를
+선행 조건으로 대기한다. 따라서 최종 TEST 우위, 보정 구간, 결과 의존
+Abstract/Results/Discussion/Conclusion은 아직 주장하지 않는다. SS geometry는
+CD/F-Score, 동일 geometry의 PBR appearance는 LPIPS/DreamSim 중심으로
+판단한다. 시각·속도·남은 종료 조건은
+[필수 계획의 최신 상태](2026-10-24-essential-remaining-experiments-and-paper-plan-ko.md)를
+따른다. 아래 진행 문구는 각 시점의 이력이다.
+
 2026-10-26 16:03 UTC 운영 갱신: 실제 최종 TEST508은 `v636`에서 이전 세
 실행의 검증된 complete group 277개/1,385 case를 불변 재사용하고, 남은
 231개 group/1,155 case를 평가 중이다. 이 시각 신규 62 case가 완료됐고
