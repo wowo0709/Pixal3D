@@ -1,5 +1,16 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 16:03 UTC 운영 갱신: 실제 최종 TEST508은 `v636`에서 이전 세
+실행의 검증된 complete group 277개/1,385 case를 불변 재사용하고, 남은
+231개 group/1,155 case를 평가 중이다. 이 시각 신규 62 case가 완료됐고
+coordinator와 작업자가 살아 있다. 전체 cascade 종료 후 실제 10metric
+(`v636`) → Main/정성 결과(`v637`) → W&B readback(`v638`) → 원고 입력
+(`v639`)이 대기한다. **최종 TEST 지표, 보정 구간, 결과 의존 논문 서술은
+아직 없다.** 아래 `v611` 및 이전 버전의 ‘현재’ 표기는 해당 시점의 이력이다.
+[GT QA와 v636 복구](2026-10-26-test508-gt-alpha-raster-qa-incident-ko.md),
+[세 producer 재사용과 guide 정리](2026-10-26-test508-three-producer-guide-lifecycle-ko.md),
+[필수 계획의 현재 상태](2026-10-24-essential-remaining-experiments-and-paper-plan-ko.md)를 따른다.
+
 2026-10-26 12:07 UTC 현재: 최종 TEST508 `v611`은 두 실패 실행에서 실제
 검증한 complete group 227 asset/1,135 case만 불변 재사용하고, 남은
 281 asset/1,405 case를 GPU 0·1·2·6·7에서 실행 중이다. 새 71 case가 완료돼
