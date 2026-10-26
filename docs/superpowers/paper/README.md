@@ -1,5 +1,13 @@
 # 논문 초안과 결과 표
 
+2026-10-26 12:16 UTC 현재 실제 TEST cascade는 `v611`이다. 두 이전 실행에서
+검증된 227개 complete asset group/1,135 case만 불변 재사용하고, 남은
+281 asset/1,405 case를 GPU 0·1·2·6·7에서 실행한다. 실제 10metric→Main/정성
+그림→W&B readback→원고 입력 묶음은 종료 후 연결돼 있다. 최종 결과에 따른
+Abstract/Results/Discussion/Conclusion, PDF 시각 검수와 file4 보존은 남아 있다.
+[현재 실행·복구 기록](../reports/2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을
+따르며, 아래 `v586`/`v570` 실행 중 문구는 당시 이력이다.
+
 2026-10-26 실행 복구: 현재 실제 TEST cascade는 v586이며 후속 Main/정성 export는
 v587, W&B는 v588이다. v570의 retirement `/proc` 권한 오류와142개 완료 case를
 보존하고, strict process wait·동기적 ledger 운영 경로를24검사/실제 NAS retirement로

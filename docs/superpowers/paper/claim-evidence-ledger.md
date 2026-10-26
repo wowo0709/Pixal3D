@@ -1,10 +1,12 @@
 # 논문 claim과 필요한 근거
 
-2026-10-26 현재 TEST는 v586 운영 복구 namespace에서 진행한다. v570의
-retirement process-access 실패와142개 완료 case는 보존했다. 별도 운영 source
-세 개를 추가하고 원래505개 source byte/모델/수치 계약을 유지했다. 최종 품질 claim은
-전체 새2540 case와10metric 이후 확정한다.
-[검증과 재평가 범위](../reports/2026-10-26-proc-access-failure-and-serialized-retirement-recovery-ko.md).
+2026-10-26 12:16 UTC 현재 TEST는 실제 `v611` namespace에서 진행한다. 완료된
+두 이전 캠페인의 complete group 227 asset/1,135 case만 검증해 재사용하며,
+나머지 281 asset/1,405 case는 실제 실행 중이다. 원래505개 수치 source와
+동결 모델·protocol은 같다. 최종 품질 claim은 전체 508 asset×5 model의 실제
+cascade, 10metric, source-cluster 통계와 정성 결과가 모두 닫힌 뒤 확정한다.
+[현재 재사용·실행 근거](../reports/2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md).
+아래 `v570`/`v586` 실행 중 표현은 당시 이력이다.
 
 2026-10-26 PBR sensitivity: 기존 Fixed32의 crop DreamSim에서도 Top-1 R−vanilla
 −0.000893의 점추정이지만 crop CLIP−0.000270·source foreground PSNR−0.01205dB로
