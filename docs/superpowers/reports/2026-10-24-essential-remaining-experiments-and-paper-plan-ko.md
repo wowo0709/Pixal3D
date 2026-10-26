@@ -8,6 +8,8 @@
 runtime을 확인한다. [원인, 전체 GT 감사, 운영 수정과 공개 범위](2026-10-26-test508-gt-alpha-raster-qa-incident-ko.md).
 [세 producer 재사용·완료 그룹 guide 정리 pilot](2026-10-26-test508-three-producer-guide-lifecycle-ko.md)은
 별도 운영 검증이며 평가 수치나 모듈 효과를 바꾸지 않는다.
+[종료된 PBR 학습의 미래 쓰기 예약 해제](2026-10-26-test508-dead-pbr-credit-release-ko.md)로
+현재 TEST 두 그룹 동시 입장 여유를 늘렸으며 실제 파일 삭제는 없었다.
 
 2026-10-26 12:07 UTC 현재: 실제 TEST508 실행은 `v611`이다. 실패한 `v586`과
 `v595`에서 각각 검증된 complete group만 합쳐 227 asset/1,135 case를
