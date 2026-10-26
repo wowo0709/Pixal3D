@@ -21,12 +21,17 @@ RGB·GT·alpha·uint8 및 동일 reference, 실제 모델·SS prediction·종료
 해제했다. 이는 예약 장부 정리이며 과학 결과 파일 삭제나 물리 공간64GiB 회수가
 아니다. GPU 3을 제외한0·1·2·6·7에 **v611 후속 실행**을 연결했고, 실제
 coordinator PID3429892와 두 keeper의 identity·GPU 환경, 첫 두 asset의 worker를
-확인했다. 새281개 group·1,405개 사례가 남아 있다. v610 준비 시 GPU 3의 CPU
+확인했다. 새281개 group·1,405개 사례를 실행한다. v610 준비 시 GPU 3의 CPU
 affinity 항목이 남아 검사가 모델 실행 전에 거부됐고, 별도 v611에서 이를 바로잡았다.
 두 실행의 case root만 metadata로 결합하는 코드와39개 대조 검사가 통과했다.
 
+11:21 UTC 후속: v611의 첫 완전한 group에서 실제5모델 사례·8개 strict raw 정리,
+16개 로컬 raw 중복본 제거와 canonical NAS 보존을 원본 종료 기록·파일서버 해시로
+확인했다(v617). 새 완료 사례는 당시7/1,405개다. v610의 모델 실행 전 설정 오류는
+별도 실패 기록과 NAS receipt로 보존했다(v616).
+
 v611 완료 후 원래11개 GPU metric 작업·collector→Main/qualitative→W&B 실제
-readback과 원고 입력 작업을 새 경로에 예약했다. 이 시각에는 새 사례0/1,405개,
+readback과 원고 입력 작업을 새 경로에 예약했다. 11:14 UTC에는 새 사례0/1,405개였고,
 최종10개 metric·표·그림·결과에 따른 원고·최종 PDF는 **미완료**다. SS는 CD·surface
 F-Score의 geometry, PBR는 동일 geometry에서 LPIPS·DreamSim의 appearance로
 해석한다. 서로 다른 SS/PBR가 함께 바뀌는 최종 pipeline 대비로 PBR 단독 효과를
@@ -35,7 +40,9 @@ F-Score의 geometry, PBR는 동일 geometry에서 LPIPS·DreamSim의 appearance�
 실제 근거: `actual-TEST508-GPU-admission-failure-preservation-v606`,
 `actual-dead-TEST508-credit-cancellation-v607`,
 `actual-complete-two-campaign-TEST508-group-reuse-verification-v608`,
-`actual-remaining-TEST508-and-metrics-activation-v611` 및 각 NAS receipt.
+`actual-remaining-TEST508-and-metrics-activation-v611`,
+`actual-remaining-TEST508-and-metrics-activation-v610/failure-record-v1`,
+`actual-first-complete-group-after-two-campaign-reuse-v617` 및 각 NAS receipt.
 
 ## 후속: 실제 최종 산출물의 원고 입력 연결 준비
 
