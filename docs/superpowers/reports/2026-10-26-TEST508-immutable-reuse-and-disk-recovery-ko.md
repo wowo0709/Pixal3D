@@ -1,5 +1,42 @@
 # TEST508 완료 그룹 재사용과 디스크 복구
 
+## 최신 운영 후속: GPU 3 메모리 간섭과 두 실행의 완료 그룹 결합
+
+2026-10-26 11:14 UTC 기준, v595는 새491개 사례를 마친 뒤 GPU 3의
+`minimum_free_GPU_bytes=64GiB` admission 검사에서 SELECTED 사례 하나가
+모델 실행 전에 거부되어 종료됐다. 실패 당시의 가용 메모리는 저장되지 않았으므로
+정확한 최저값을 추정하지 않는다. 종료 뒤 GPU 3에서 별도 메모리 약23.8GiB와
+높은 사용률을 관측했다. GPU OOM이나 모델 품질 실패가 아니다. 실제 coordinator,
+두 keeper와 자식 세션의 종료·drain, 실패 worker와 원래 사례 기록을 보존했다.
+
+v595의 새491개 가운데 **98개 완전한 asset group·490개 사례**만 재사용한다.
+나머지 완료1개를 포함한 불완전 group과 실패 기록은 그대로 남기고 다섯 모델을
+새 namespace에서 다시 실행한다. 원래 v586의129개 완료 group·645개 사례와
+합쳐 **227개 group·1,135개 사례**다. 신규98개 group의 모든1,470개 scored archive를
+RGB·GT·alpha·uint8 및 동일 reference, 실제 모델·SS prediction·종료 기록과
+대조했다. 기존129개 group의1,935개 archive는 앞선 실제 검증을 재확인했다.
+원래505개 과학·수치 source와 모델·sampler·평가/정성 선택 규칙은 바꾸지 않았다.
+
+실제 종료 소유자가 잡고 있던 미래 쓰기 예약6건(64GiB)을 NAS 증거를 닫은 뒤
+해제했다. 이는 예약 장부 정리이며 과학 결과 파일 삭제나 물리 공간64GiB 회수가
+아니다. GPU 3을 제외한0·1·2·6·7에 **v611 후속 실행**을 연결했고, 실제
+coordinator PID3429892와 두 keeper의 identity·GPU 환경, 첫 두 asset의 worker를
+확인했다. 새281개 group·1,405개 사례가 남아 있다. v610 준비 시 GPU 3의 CPU
+affinity 항목이 남아 검사가 모델 실행 전에 거부됐고, 별도 v611에서 이를 바로잡았다.
+두 실행의 case root만 metadata로 결합하는 코드와39개 대조 검사가 통과했다.
+
+v611 완료 후 원래11개 GPU metric 작업·collector→Main/qualitative→W&B 실제
+readback과 원고 입력 작업을 새 경로에 예약했다. 이 시각에는 새 사례0/1,405개,
+최종10개 metric·표·그림·결과에 따른 원고·최종 PDF는 **미완료**다. SS는 CD·surface
+F-Score의 geometry, PBR는 동일 geometry에서 LPIPS·DreamSim의 appearance로
+해석한다. 서로 다른 SS/PBR가 함께 바뀌는 최종 pipeline 대비로 PBR 단독 효과를
+주장하지 않는다.
+
+실제 근거: `actual-TEST508-GPU-admission-failure-preservation-v606`,
+`actual-dead-TEST508-credit-cancellation-v607`,
+`actual-complete-two-campaign-TEST508-group-reuse-verification-v608`,
+`actual-remaining-TEST508-and-metrics-activation-v611` 및 각 NAS receipt.
+
 ## 후속: 실제 최종 산출물의 원고 입력 연결 준비
 
 v604는 실제 ten-metric과 원래 Main/qualitative exporter가 모두 닫힌 뒤에만
