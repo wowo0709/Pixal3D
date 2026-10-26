@@ -1,5 +1,10 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+후속 v601: 이미 완료된 재사용129개 group의 guide645개 로컬 중복본22.840GiB를
+실제 NAS 검증 후 offload했고,guide 없이 기존 평가 archive1,935개의 원래 입력
+정합을 확인했다. 현재 v595 실행·context와 원래505개 수치 source는 유지한다.
+[기존 복구 기록의 후속 절](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+
 2026-10-26 04:26 UTC 최신: v586은 실제 disk admission 실패로 종료됐다.
 원래505개 수치 source와 모델을 유지하고 **완료129개 group/645개 case를 실제
 검증해 재사용**, v595에서 남은379개 group을 실행 중이다. DEV raw640개의

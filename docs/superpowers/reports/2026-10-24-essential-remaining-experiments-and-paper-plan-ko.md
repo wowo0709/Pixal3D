@@ -1,5 +1,10 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+후속 v601: 재사용129개 group의 guide645개(22.840GiB)는 canonical NAS에 유지하고
+로컬 중복본만 offload했다. Guide 없이 scored archive1,935개를 원래 reader로
+재검증했고79개 검사·실제41개 batch를 통과했다. v595는 재시작하지 않고 계속한다.
+[기존 복구 기록의 후속 절](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+
 2026-10-26 04:26 UTC 최신: v586의 실제 disk admission 실패를 보존하고,
 동일 모델·원래505개 수치 source에서 검증된129개 complete group/645개 case를
 재사용한다. v595는 남은379개 group만 새 namespace에서 실제 실행 중이며

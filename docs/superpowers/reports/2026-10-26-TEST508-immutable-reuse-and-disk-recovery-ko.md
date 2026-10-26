@@ -1,5 +1,32 @@
 # TEST508 완료 그룹 재사용과 디스크 복구
 
+## 후속: 완료된 재사용 guide의 NAS 보존·로컬 offload
+
+v601에서 재사용이 확정된 기존129개 group의 **guide645개,24,524,331,737 bytes
+(22.840GiB)**를 실제 NAS hash·크기와 다시 대조한 뒤 로컬 중복본만 정리했다.
+현재 실행 중인 v595와 partial group,scored image,case/group/terminal metadata,
+GT/data·모델·checkpoint는 선택하지 않았다. Canonical guide는 원래 file4 경로에
+그대로 있다. v592 당시 guide 보존과 구분되는 후속 lifecycle이다.
+
+먼저 완료된129개 group의 다섯 case와8개 raw consumer,실제 phase/worker 종료를
+확인했다. 두 dispatcher와 old/current private reader ledger,실제 open file을 검사하고,
+NAS intent를 먼저 닫은 뒤 reader·inode를 다시 확인했다. **41개 batch가 실제 완료**했고
+큐 descriptor가 바뀐9개 attempt는 삭제하지 않고 defer·보존한 뒤 새 검사로 진행했다.
+Pending/HELD/unknown reader나 unreadable plan,protected process를 생략하지 않는다.
+
+Guide가 모두 로컬에 없는 상태에서 원래 scored-pixel reader로 **1,935개 archive를
+다시 읽어 producer RGB/GT/alpha·uint8 observation과 모두 일치**함을 확인했다.
+후속 official metric·표·그림은 이 scored archive와 보존된 metadata를 사용한다.
+CPU NN forward/학습은0이다. 실제 경계 조건79개 검사도 통과했다.
+
+원래505개 과학·수치 source와 v595 context·coordinator·GPU worker를 수정하거나
+재시작하지 않았다. 실제 여유 공간은 약174GiB로 늘었다. 이는 새 group의 기존
+disk admission을 돕는 운영 조치이며 max2·case4GiB·workspace16GiB 조건이나
+과학적 arm·평가 protocol을 바꾼 것이 아니다. 아래04:26 관측은 그 시점의 이력이다.
+
+실제 근거: `actual-immutable-reused129-guide-offload-v601/prelaunch-v1`,
+`actual-immutable-reused129-guide-offload-v601/retirement/audit.json` 및 실제 NAS receipt.
+
 2026-10-26 04:26 UTC 실제 관측이다. 최종 선택은 TEST 전 v558에서 동결한
 **Fixed SS + Top-1 R PBR**다. SS는 geometry CD/F-Score, PBR는 동일 geometry의
 source appearance를 기준으로 해석한다. 이번 작업은 운영 복구이며 새로운 과학적
