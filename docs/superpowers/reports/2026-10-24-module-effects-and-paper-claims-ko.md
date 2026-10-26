@@ -1,5 +1,16 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 12:07 UTC 현재: 최종 TEST508 `v611`은 두 실패 실행에서 실제
+검증한 complete group 227 asset/1,135 case만 불변 재사용하고, 남은
+281 asset/1,405 case를 GPU 0·1·2·6·7에서 실행 중이다. 새 71 case가 완료돼
+전체 논리적 진행은 1,206/2,540이며 coordinator와 작업자는 살아 있다.
+실제 10metric(`v611`)→Main/Qual(`v612`)→W&B readback(`v613`)→원고 입력
+(`v614`)은 cascade 완료 후 순서대로 대기한다. **SS 효과는 CD/F-Score의
+geometry, PBR 효과는 동일 geometry에서 LPIPS/DreamSim 중심의 appearance로
+판단한다.** 최종 TEST 품질·논문 결론은 아직 미확정이다. 아래 `v595`와
+이전 버전의 실행 중 표현은 당시 이력이며,
+[현재 복구 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+
 후속 v604는 실제10metric·Main/Qual 완료 후 원고 입력만 연결하도록 등록했다.
 30개 검사와 개발14쪽 PDF의 변경14쪽 검수를 마쳤지만,실제 최종 입력·결과 의존
 writing·최종 PDF는 미완료다. [최신 원고 입력·검수 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.

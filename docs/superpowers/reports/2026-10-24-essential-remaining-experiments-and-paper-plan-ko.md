@@ -1,5 +1,15 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-26 12:07 UTC 현재: 실제 TEST508 실행은 `v611`이다. 실패한 `v586`과
+`v595`에서 각각 검증된 complete group만 합쳐 227 asset/1,135 case를
+불변 재사용하고, 나머지 281 asset/1,405 case를 GPU 0·1·2·6·7에서 실제
+실행한다. 이 시각 새 71 case가 완료돼 전체 논리적 진행은 1,206/2,540이다.
+실행 coordinator와 GPU 작업자는 살아 있다. 전체 cascade 종료 뒤 실제
+10metric(`v611`)→Main/Qual(`v612`)→W&B readback(`v613`)→원고 입력(`v614`)
+작업이 순서대로 대기한다. 아래 `v595` 및 이전 버전의 실행 중 표현은 당시
+이력이며, 현재 실행·재사용·원래 수치 source 검증은
+[운영 복구 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+
 후속 v604 원고 입력 연결은 실제10metric·Main/Qual 완료를 선행 조건으로 등록했다.
 Main 수치/캡션·사전 정성 예시 순서를 유지하며 최종 flag와 결과 의존 prose는 쓰지
 않는다. 30개 검사·개발14쪽 PDF 변경14쪽 검수 후에도 실제 TEST·writing·최종 검수는
