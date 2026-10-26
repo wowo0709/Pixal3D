@@ -1,5 +1,24 @@
 # TEST508 완료 그룹 재사용과 디스크 복구
 
+## 2026-10-26 14:19 UTC 후속: 현재 v611의 닫힌 그룹 guide 정리
+
+실행 중인 v611의 group audit는 다섯 native case와8개 raw retirement를 마치고
+file4 closure·예약 해제까지 끝난 뒤에만 생성된다. 이 **완결·닫힌 그룹**만 따로
+선택하는 운영 경로를 추가했다. 한 그룹/5개 guide pilot(v620)을 먼저 실행하고,
+나머지44개 그룹/220개 guide(v621)를 같은 검사로 처리했다. 총45개 그룹의
+225개 로컬 guide 중복본 **8,379,191,461 bytes(7.8037GiB)**를 정리했다.
+매 batch에서 실제 reader ledger5개와 열린 파일·정본 NAS SHA256/크기를 다시
+검사했고, 제거 뒤 원래 scored archive **675개**의 RGB·GT·alpha observation을
+case producer와 정확히 대조했다. 두 최종 audit와 file4 closure가 PASS다.
+
+현재 열린 그룹·완결되지 않은 case, scored archive, 원격 guide 정본, 모델과
+원래505개 수치 source는 건드리지 않았다. v611 coordinator와 GPU 작업자는 계속
+실행 중이며 새 계산은 확인 시점228/1,405 case다. v615의 두 번째 재사용 producer
+정리까지 합한 이번 후속의 로컬 guide 회수량은 **24,185,286,711 bytes
+(22.524GiB)**다. 여유 공간은 약164GiB로 늘었다. 남은 실행 동안 디스크 입장
+기준을 계속 확인하고, 추가 완료 그룹 정리는 같은 엄격한 절차로만 수행한다.
+10개 최종 metric과 논문 결과는 여전히 미완료다.
+
 ## 2026-10-26 14:12 UTC 후속: 두 번째 재사용 producer의 guide 정리
 
 v611의 새 계산이 221/1,405 case까지 진행되는 동안, 로컬 여유 공간의 장기 감소를
