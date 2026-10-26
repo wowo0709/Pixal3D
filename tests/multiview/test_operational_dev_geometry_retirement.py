@@ -8,7 +8,7 @@ import pytest
 
 from experiments.deformnext_retargeting.dev_cascade_cache_retirement import ARMS, own_contract
 from experiments.deformnext_retargeting.operational_dev_geometry_retirement import (
-    pending_reads, reader_snapshot, validate_geometry_candidate,
+    actual_queue_jobs, pending_reads, prior_closed_retirements, reader_snapshot, validate_geometry_candidate,
 )
 
 
@@ -124,3 +124,74 @@ def test_second_snapshot_sees_new_actual_reader_and_new_queue_plan(tmp_path, mon
     second, second_queue = reader_snapshot(policy, [folder])
     assert second == ['new-reader'] and first_queue != second_queue
     assert raw.exists()
+
+
+def queues(tmp_path, job, main_state, aux_job=None, aux_state=None):
+    rows = []
+    for label, jobs, states in [('main', [job], {job['name']: main_state}),
+        ('aux', [aux_job] if aux_job else [], {job['name']: aux_state or dict(status='HELD')})]:
+        jp, sp = tmp_path / (label + '-jobs.json'), tmp_path / (label + '-states.json')
+        jp.write_text(json.dumps(jobs)); sp.write_text(json.dumps(states))
+        rows.append(dict(jobs=str(jp), states=str(sp)))
+    return dict(reader_queues=rows)
+
+
+def test_migrated_held_history_cannot_override_actual_completed_owner(tmp_path):
+    folder = tmp_path / 'geometry'
+    plan = tmp_path / 'plan.json'
+    plan.write_text(json.dumps(dict(generation=str(folder))))
+    job = dict(name='migrated-reader', command=['python', '--plan', str(plan)])
+    policy = queues(tmp_path, job, dict(status='completed', returncode=0))
+    jobs, states, _ = actual_queue_jobs(policy)
+    assert jobs == [job] and states == {job['name']: dict(status='completed', returncode=0)}
+    assert pending_reads(jobs, states, [folder]) == []
+
+
+def test_actual_held_owner_cannot_borrow_completed_history_from_other_queue(tmp_path):
+    folder = tmp_path / 'geometry'
+    plan = tmp_path / 'plan.json'
+    plan.write_text(json.dumps(dict(generation=str(folder))))
+    job = dict(name='actual-held-reader', command=['python', '--plan', str(plan)])
+    policy = queues(tmp_path, job, dict(status='HELD'), aux_state=dict(status='completed', returncode=0))
+    jobs, states, _ = actual_queue_jobs(policy)
+    assert pending_reads(jobs, states, [folder]) == [job['name']]
+
+
+def test_two_actual_descriptors_cannot_share_an_owner(tmp_path):
+    job = dict(name='duplicated', command=[])
+    policy = queues(tmp_path, job, dict(status='completed'), aux_job=job)
+    with pytest.raises(ValueError, match='one actual dispatcher owner'):
+        actual_queue_jobs(policy)
+
+
+@pytest.mark.parametrize('problem', [None, 'failed', 'changed-bytes', 'outside', 'duplicate',
+    'still-present', 'symlink', 'missing-proof', 'not-canonical', 'wrong-size'])
+def test_only_explicit_closed_prior_batches_establish_retired_files(tmp_path, problem):
+    raw = tmp_path / 'owned/case/geometry/prediction.npz'
+    rows = [dict(case_root=str(raw.parent.parent))]
+    audit = dict(status='PASS_COMPLETED_DEV_LATE_GEOMETRY_LOCAL_DUPLICATES_RETIRED',
+        canonical_file4_retained=True, guides_pixels_metrics_and_checkpoints_retained=True,
+        original505_numerical_sources_unchanged=True, bytes_retired=20,
+        retired=[dict(path=str(raw), bytes=20, sha256='a' * 64,
+            local_duplicate_only=True, canonical_file4_retained=True)])
+    path = tmp_path / 'closed-batch.json'
+    if problem == 'failed': audit['status'] = 'FAILED'
+    if problem == 'outside': audit['retired'][0]['path'] = str(tmp_path / 'other/prediction.npz')
+    if problem == 'not-canonical': audit['retired'][0]['canonical_file4_retained'] = False
+    if problem == 'wrong-size': audit['bytes_retired'] = 19
+    path.write_text(json.dumps(audit))
+    spec = dict(path=str(path), SHA256=sha256(path.read_bytes()).hexdigest(), receipt=str(tmp_path / 'receipt.json'))
+    if problem == 'changed-bytes': path.write_text('{}')
+    if problem in ['still-present', 'symlink']:
+        raw.parent.mkdir(parents=True)
+        if problem == 'symlink': raw.symlink_to(tmp_path / 'absent-target')
+        else: raw.write_bytes(b'actual bytes')
+    def read(path, receipt):
+        if problem == 'missing-proof': raise ValueError('actual closed receipt unavailable')
+        assert receipt == spec['receipt']
+        return json.loads(open(path).read())
+    policy = dict(prior_retirement_batches=[spec, spec] if problem == 'duplicate' else [spec])
+    if problem is None:
+        assert prior_closed_retirements(policy, rows, read) == {str(raw): audit['retired'][0]}
+    else:
+        with pytest.raises(ValueError): prior_closed_retirements(policy, rows, read)

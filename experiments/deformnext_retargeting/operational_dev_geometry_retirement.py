@@ -84,16 +84,29 @@ def pending_reads(jobs, states, folders):
     return sorted(readers)
 
 
-def reader_snapshot(policy, folders):
+def actual_queue_jobs(policy):
+    """Bind each state to its current descriptor, excluding migrated history.
+
+    Dispatchers deliberately retain HELD history after moving a descriptor.
+    Such history must not overwrite the state in the descriptor's actual queue.
+    An actual HELD descriptor remains unfinished and therefore protected.
+    """
     jobs, states, snapshots = [], {}, {}
     for queue in policy['reader_queues']:
         payload = Path(queue['jobs']).read_bytes()
         rows = json.loads(payload)
         require(len({r['name'] for r in rows}) == len(rows), 'unique actual queue jobs required')
+        require(not set(states) & {r['name'] for r in rows}, 'one actual dispatcher owner per descriptor required')
         jobs.extend(rows)
-        states.update(json.loads(Path(queue['states']).read_text()))
+        own_states = json.loads(Path(queue['states']).read_text())
+        states.update({r['name']: own_states.get(r['name'], {}) for r in rows})
         snapshots[queue['jobs']] = sha(queue['jobs'])
         require(Path(queue['jobs']).read_bytes() == payload, 'queue changed during reader inspection')
+    return jobs, states, snapshots
+
+
+def reader_snapshot(policy, folders):
+    jobs, states, snapshots = actual_queue_jobs(policy)
     readers = pending_reads(jobs, states, folders)
     files = {str(Path(p) / 'prediction.npz') for p in folders}
     for process in psutil.process_iter():
@@ -103,6 +116,36 @@ def reader_snapshot(policy, folders):
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             pass
     return sorted(set(readers)), snapshots
+
+
+def prior_closed_retirements(policy, rows, read):
+    """Explicitly adopt closed successful batches; never infer absent files.
+
+    A fresh policy/output is still mandatory. A failed batch or an unclosed
+    journal cannot establish that a missing local file was safely retired.
+    """
+    eligible = {str(Path(r['case_root']) / 'geometry/prediction.npz') for r in rows}
+    retired = {}
+    for spec in policy.get('prior_retirement_batches', []):
+        require(set(spec) == {'path', 'SHA256', 'receipt'} and sha(spec['path']) == spec['SHA256'],
+            'exact prior batch bytes and explicit producer receipt required')
+        audit = read(spec['path'], spec['receipt'])
+        require(audit.get('status') == 'PASS_COMPLETED_DEV_LATE_GEOMETRY_LOCAL_DUPLICATES_RETIRED'
+            and audit.get('canonical_file4_retained') is True
+            and audit.get('guides_pixels_metrics_and_checkpoints_retained') is True
+            and audit.get('original505_numerical_sources_unchanged') is True
+            and audit.get('retired') and audit['bytes_retired'] == sum(t['bytes'] for t in audit['retired']),
+            'actual successful closed prior retirement batch required')
+        for token in audit['retired']:
+            p = Path(token['path'])
+            require(str(p) in eligible and str(p) not in retired
+                and token.get('local_duplicate_only') is True and token.get('canonical_file4_retained') is True
+                and type(token['bytes']) is int and token['bytes'] > 0
+                and isinstance(token['sha256'], str) and len(token['sha256']) == 64
+                and not p.exists() and not p.is_symlink(),
+                'unique exact prior-owned absent local duplicate required')
+            retired[str(p)] = token
+    return retired
 
 
 def write(path, value):
@@ -158,15 +201,14 @@ def execute(path):
         for key in ['scientific_source_SHA256', 'operational_source_SHA256']:
             require(all(sha(p) == d for p, d in policy[key].items()), 'pinned retirement or numerical source changed')
     guard()
-    jobs, states = [], {}
-    for queue in policy['reader_queues']:
-        jobs.extend(json.loads(Path(queue['jobs']).read_text()))
-        states.update(json.loads(Path(queue['states']).read_text()))
+    jobs, states, _ = actual_queue_jobs(policy)
+    previous = prior_closed_retirements(policy, rows, read)
+    rows = [r for r in rows if str(Path(r['case_root']) / 'geometry/prediction.npz') not in previous]
     output.mkdir(parents=True, exist_ok=False)
     def emit(event):
         with (output / 'process-access-events.jsonl').open('a') as stream:
             stream.write(json.dumps(event, allow_nan=False) + '\n')
-    selected = []
+    selected = list(previous.values())
     with process_access_waits(emit=emit):
         for offset in range(0, len(rows), policy['batch_size']):
             batch = rows[offset:offset + policy['batch_size']]
@@ -248,7 +290,8 @@ def execute(path):
                     GiB_retired=sum(t['bytes'] for t in selected) / 2**30)), flush=True)
     guard()
     result = dict(status='PASS_ACTUAL_DEV640_LATE_GEOMETRY_RAW_LOCAL_DUPLICATES_RETIRED',
-        files=len(selected), bytes_retired=sum(t['bytes'] for t in selected),
+        files=len(selected), previously_closed_files=len(previous), newly_retired_files=len(selected)-len(previous),
+        bytes_retired=sum(t['bytes'] for t in selected),
         actual_fresh_remote_hash_verified=True, canonical_file4_retained=True,
         original505_numerical_sources_unchanged=True, no_new_NN_or_quality_computation=True,
         full_goal_complete=False)
