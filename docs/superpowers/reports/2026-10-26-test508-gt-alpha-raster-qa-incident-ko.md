@@ -22,6 +22,14 @@
 
 v636 재실행에서는 해당 원래 실패 사례의 생성, 세 카메라 렌더, 공통 material 평가, 원본 나머지 사례 검사를 끝내고 실제 case audit `PASS_ACTUAL_SELECTED_PHYSICAL_TEST508_CASE`와 파일서버4 closure를 생성했다. 이것은 첫 사례의 운영 수정 검증 결과이며, 508개 전체 평가 완료나 성능 개선 결과는 아니다.
 
+논문 Experimental setup과 Supplement에 post-TEST 운영 수정, 전체 GT-only 감사 범위,
+유일한 경계 사례와 수치 계산 불변성을 명시했다. 수정한 개발 preview를 실제14쪽으로
+컴파일하고 변경된4·9쪽과 마지막14쪽을 시각 확인했다. 파일서버4 증거는
+`actual-GT-raster-protocol-compact-manuscript-preview-v643`,
+`actual-GT-raster-protocol-compact-visual-review-v644`,
+`actual-GT-raster-protocol-visual-inspection-v645`다. 실제 TEST 결과가 들어간
+최종 원고나 PDF 검수는 별도로 남아 있다.
+
 ## 완료 조건
 
 227개 기존 그룹과 v611의 50개 새 그룹은 각각 실제 group audit, 모델별 case audit, 종료 기록, scoring archive 해시 및 GT 픽셀 일치를 확인한 뒤에만 재사용한다. 남은 231개 그룹은 새로운 네임스페이스에서 실행한다. 이후 508개 전체에 대해 사전 지정된 10개 metric, source-cluster 신뢰구간, Main/Qual 결과와 논문 표를 산출한다. 현 시점에 최종 TEST 수치나 논문 결론은 없다.
