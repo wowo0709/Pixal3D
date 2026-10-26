@@ -11,7 +11,7 @@ from experiments.deformnext_retargeting import selected_final_metric_inputs as o
 from experiments.deformnext_retargeting.operational_selected_case_reuse import (
     STATUS, adapt_case_root, physical_case_root, validate_manifest,
 )
-from experiments.deformnext_retargeting.operational_reused_campaign_entry import RemainingCampaign
+from experiments.deformnext_retargeting.operational_reused_campaign_entry import RemainingCampaign,base_operational_sources,verify_reuse_sources
 from experiments.deformnext_retargeting.operational_campaign_entry import SerializedRetirementCampaign
 from experiments.deformnext_retargeting.operational_reused_metric_entry import collector_descriptors
 
@@ -153,3 +153,28 @@ def test_actual_serialized_cpu_workers_finish_without_retirement_size_scan_race(
     assert len([k for k,c in calls if k=='case'])==10
     assert len([k for k,c in calls if k=='retirement'])==14
     assert list(mirror.rglob('prediction.npz')) and not list((engine.root/'cases').rglob('prediction.npz'))
+
+
+def test_reuse_pins_preserve_original_strict_three_source_retirement_contract(tmp_path,monkeypatch):
+    from experiments.deformnext_retargeting import operational_reused_campaign_entry as module
+    from experiments.deformnext_retargeting import run_selected_final_campaign as frozen
+    from experiments.deformnext_retargeting.cascade_view_roles import file_sha256 as sha
+    root=Path(module.__file__).resolve().parent
+    names=['operational_process_access.py','operational_retirement_wait.py','operational_campaign_entry.py',
+        'operational_reused_campaign_entry.py','operational_reused_metric_entry.py','operational_selected_case_reuse.py']
+    context=dict(operational_source_SHA256={str(root/n):sha(root/n) for n in names})
+    verify_reuse_sources(context)
+    assert len(base_operational_sources(context))==3
+    seen=[];waited=[];collected=[]
+    def spawn(self,name,c,entry,**kw):
+        seen.append((c,entry));self.own[name]=dict(child=SimpleNamespace(wait=lambda:waited.append(True)))
+    monkeypatch.setattr(frozen.Campaign,'spawn',spawn)
+    obj=RemainingCampaign.__new__(RemainingCampaign);obj.context=context;obj.root=tmp_path;obj.own={}
+    obj.collect=lambda:collected.append(True)
+    obj.spawn('retire',{},'experiments.deformnext_retargeting.retire_selected_final_raw',
+        sid='fixture',alias='SELECTED',kind='retirement')
+    assert obj.context is context and len(context['operational_source_SHA256'])==6
+    assert seen[0][0]['operational_source_SHA256']==base_operational_sources(context)
+    assert waited==collected==[True]
+    context['operational_source_SHA256'][str(root/'operational_selected_case_reuse.py')]='a'*64
+    with pytest.raises(ValueError):verify_reuse_sources(context)

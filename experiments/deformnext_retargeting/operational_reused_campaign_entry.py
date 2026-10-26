@@ -8,11 +8,30 @@ from . import run_selected_final_campaign as frozen
 from .operational_campaign_entry import SerializedRetirementCampaign
 from .operational_process_access import process_access_waits
 from .operational_retirement_wait import verify_operational_sources
+from .cascade_view_roles import file_sha256 as sha
 from .operational_selected_case_reuse import load_manifest
 from .selected_pipeline_model_contract import require
 
 
 MODULE = 'experiments.deformnext_retargeting.operational_reused_campaign_entry'
+
+
+def base_operational_sources(context):
+    root = Path(__file__).resolve().parent
+    names = ['operational_process_access.py','operational_retirement_wait.py','operational_campaign_entry.py']
+    return {str(root / name): context['operational_source_SHA256'][str(root / name)] for name in names}
+
+
+def verify_reuse_sources(context):
+    # The original retirement adapter deliberately accepts exactly three pins.
+    # Keep that contract; verify additional reuse entries independently here.
+    verify_operational_sources(dict(context, operational_source_SHA256=base_operational_sources(context)))
+    expected = context['operational_source_SHA256']
+    root = Path(__file__).resolve().parent
+    require({str(root / name) for name in ['operational_reused_campaign_entry.py',
+        'operational_reused_metric_entry.py','operational_selected_case_reuse.py']} <= set(expected)
+        and all(sha(path) == digest for path,digest in expected.items()),
+        'all additional actual reuse-adapter bytes must be separately pinned')
 
 
 def command(context, path, keeper=None):
@@ -28,6 +47,17 @@ class RemainingCampaign(SerializedRetirementCampaign):
         self.full_ids = list(self.ids)
         self.ids = [sid for sid in self.full_ids if sid not in self.reused]
         require(self.ids, 'a real successor must execute remaining groups')
+
+    def spawn(self, name, context, module, *, sid, alias, kind, gpu='', role=None):
+        if kind != 'retirement':
+            return super().spawn(name, context, module, sid=sid, alias=alias, kind=kind, gpu=gpu, role=role)
+        verify_reuse_sources(self.context)
+        original = self.context
+        try:
+            self.context = dict(original, operational_source_SHA256=base_operational_sources(original))
+            return super().spawn(name, context, module, sid=sid, alias=alias, kind=kind, gpu=gpu, role=role)
+        finally:
+            self.context = original
 
     def start_cases(self):
         # External filesystem writers can consume free bytes after admission.
@@ -68,7 +98,7 @@ def operational_runtime():
 def main():
     path = Path(sys.argv[sys.argv.index('--plan') + 1])
     context = json.loads(path.read_text())
-    verify_operational_sources(context)
+    verify_reuse_sources(context)
     root = Path(context['campaign_root'])
     def emit(event):
         root.mkdir(parents=True, exist_ok=True)
