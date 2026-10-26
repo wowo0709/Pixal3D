@@ -76,3 +76,16 @@ archive **240개**가 guide 없이도 기존 observation과 정확히 일치했�
 변경하지 않았다. 이 시각 `v636` coordinator/worker는 살아 있고 신규
 196/1,155 case가 완료됐으며 로컬 여유는 약159.9 GiB다. 이는 운영 공간 확보로,
 최종 10metric 또는 논문 품질 결론의 근거가 아니다.
+
+18:58 UTC 후속: `actual-closed-current-guide-offload-v654-bulk5`에서 추가로
+완전히 닫힌 **15개 그룹/75개 guide**의 로컬 중복본 **2,291,930,103 bytes
+(2.1345 GiB)**를 정리했다. 매 batch의 실제 파일서버 정본 SHA256/크기,
+완료 group/case와 8개 raw retirement, reader·열린 파일을 재검증했고,
+guide 없이 원래 scored RGB·GT·alpha archive **225개**가 기존 observation과
+정확히 일치했다. 최종 `retirement/audit.json`은
+`PASS_ACTUAL_CLOSED_CURRENT_GUIDE_DUPLICATES_OFFLOADED`, 실제 file4 receipt는
+`PASS`/`local_equals_actual_file4_SHA256=true`다. 이전에 정리한 그룹,
+정본 guide, scored image, 원래 505개 수치 source와 실행 중인 그룹은
+변경하지 않았다. 이 시각 `v636` coordinator와 작업자는 살아 있고 신규
+273/1,155 case가 완료됐으며 로컬 여유는 약158.9 GiB다. 이는 운영 공간 확보이며
+최종 품질 수치나 모듈 효과의 근거가 아니다.
