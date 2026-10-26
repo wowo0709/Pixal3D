@@ -1,5 +1,22 @@
 # TEST508 완료 그룹 재사용과 디스크 복구
 
+## 2026-10-26 14:12 UTC 후속: 두 번째 재사용 producer의 guide 정리
+
+v611의 새 계산이 221/1,405 case까지 진행되는 동안, 로컬 여유 공간의 장기 감소를
+확인했다. v595에서 v611로 **완결 재사용한 98개 group/490개 case**의
+`native-shape-guides.pt` 로컬 중복본만 별도 v615에서 정리했다. 각 batch마다
+완결 group·case·phase terminal과8개 raw retirement, 현행 다섯 reader ledger와
+실제 열린 파일, 원격 file4 정본의 새 SHA256·크기를 확인했다. 정본을 보존한 채
+490개/15,806,095,250 bytes(14.721GiB)의 로컬 중복본을 제거했다.
+
+Guide가 없는 상태에서 원래 scored RGB·GT·alpha archive **1,470개**를 기존
+pixel reader로 다시 읽어 case별 producer observation과 정확히 대조했다.
+v595의 불완전 group에 남은 guide1개는 대상에서 제외·보존했고, 현재 실행 중인
+v611의 case, context, 모델, 원래505개 수치 source를 건드리지 않았다.
+관련 기존 검사48개가 통과했고 v615 최종 audit·file4 closure가 실제 PASS다.
+로컬 여유 공간은 확인 시점 약158GiB이며, 장기 실행 중 입장 기준과 비교하며
+계속 감시한다. 최종 TEST metric과 논문 결론은 아직 없다.
+
 ## 최신 운영 후속: GPU 3 메모리 간섭과 두 실행의 완료 그룹 결합
 
 2026-10-26 11:14 UTC 기준, v595는 새491개 사례를 마친 뒤 GPU 3의
