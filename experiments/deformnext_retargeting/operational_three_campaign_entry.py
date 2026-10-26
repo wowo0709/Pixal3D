@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 from . import run_selected_final_campaign as frozen
+from .run_selected_final_campaign import Campaign as OriginalCampaign
 from .operational_campaign_entry import SerializedRetirementCampaign
 from .operational_process_access import process_access_waits
 from .operational_reused_campaign_entry import RemainingCampaign, verify_reuse_sources
@@ -39,7 +40,7 @@ class MultiSourceCampaign(RemainingCampaign):
         if kind == 'case':
             require(module == 'experiments.deformnext_retargeting.run_selected_campaign_case',
                     'only the original native campaign case may be wrapped')
-            return frozen.Campaign.spawn(self, name, context,
+            return OriginalCampaign.spawn(self, name, context,
                 'experiments.deformnext_retargeting.operational_quantized_campaign_case',
                 sid=sid, alias=alias, kind=kind, gpu=gpu, role=role)
         return super().spawn(name, context, module,

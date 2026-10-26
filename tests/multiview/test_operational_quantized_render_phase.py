@@ -6,6 +6,17 @@ from experiments.deformnext_retargeting.operational_quantized_render_phase impor
 from experiments.deformnext_retargeting.topology_labels import RasterAgreementError, mask_agreement
 
 
+def test_campaign_case_wrapper_uses_unpatched_original_spawn():
+    from experiments.deformnext_retargeting import run_selected_final_campaign as frozen
+    from experiments.deformnext_retargeting.operational_three_campaign_entry import (
+        MultiSourceCampaign, OriginalCampaign, operational_runtime,
+    )
+    with operational_runtime():
+        assert frozen.Campaign is MultiSourceCampaign
+        assert OriginalCampaign is not frozen.Campaign
+        assert OriginalCampaign.spawn is not MultiSourceCampaign.spawn
+
+
 def test_thin_alpha_integer_pixel_boundary():
     raster = torch.zeros((64, 64), dtype=torch.bool)
     raster[16:46, 16:46] = True
