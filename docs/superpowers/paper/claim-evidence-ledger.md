@@ -66,16 +66,17 @@ PBR의 matched 증거로 대체할 수 없다.
 - PBR V1/R×seed101/202의1900과 strict collector는 완료됐다. 실제 frozen700
   tensor×4·LoRA360×4·1900 rank trace·초기 identity·같은 seed의6epoch GT pixel을
   확인했다. Fixed4 target-stage training QA이며 inferential quality나 full-cascade
-  seed 확인이 아니다. 최종 조합 선택·freeze·TEST508·최종 writing은 미완료다.
-- 최신 검수된 개발 manuscript는 v550의17쪽·24개 인용이다. 전체7행 SS·6대조와
-  7개 cascade·geometry12개 보정 구간을 실제 closed JSON에서 반영하고7/14/15/16쪽을 시각 검수·
-  file4 보존했다. SS geometry/PBR appearance 표를 분리했고 warning/미해결참조/
-  overfull/underfull0이다. Raw geometry와 새 geometry 구간 표 외 수치·그림은 이전 revision과 같다.
+  seed 확인이 아니다. 동일 Fixed geometry의 PBR4 비교와 DEV-only 최종 조합 선정·
+  model/protocol freeze(v558)는 완료했다. TEST cascade와 최종 writing은 진행/대기 중이다.
+- 최신 검수된 개발 manuscript는 v578의13쪽·24개 인용이다. 본문6·참고문헌2·
+  Supplement5쪽을 실제 compile하고 전13쪽을 시각 검수·file4 보존했다.
+  SS geometry/PBR appearance 표를 분리했고 최종 TEST 수치·결과 의존 문장은
+  아직 넣지 않았다. v550의17쪽은 이전 개발 revision이다.
 - Camera JSON key 복원만 수행하는 reader를14개 회귀 검사·실제4모델의 값/행/endpoint
   exact 일치로 검증했다. 원래 pending global CPU reducer는 HELD 후 같은 output의
   successor로 교체했고 고유 producer·actual file4 admission을 확인했다. 새 full7 생산
-  집계는 실제 정상 종료했고 original SS/cascade integration도 완료됐다. 최종 PBR 선정·
-  freeze/TEST·최종 writing 완료를 뜻하지 않는다.
+  집계는 실제 정상 종료했고 original SS/cascade integration도 완료됐다. 이후
+  PBR 선정·freeze를 마쳤으나 TEST10metric·최종 writing은 아직 완료되지 않았다.
 
 ## Claim별 현재 판정
 
@@ -95,10 +96,10 @@ PBR의 matched 증거로 대체할 수 없다.
 | Member 후보가 품질을 개선한다 | 별도 matching DEV32의 exact@64 50.76%→73.36%; 그러나 완료된 FULL mean 제어 IoU0.472679 대 member FULL0.472078 | 원래 member−mean family CI[−0.002246,+0.001262]. 최종 identity-value 경로의 독립 효과는 미입증 | 후보 coverage 개선은 확인; 기존 FULL에서 생성 품질의 양의 점추정은 아님 |
 | Retargeting이 유효하다 | 최종 Fixed−물리적 no-R의 CD−0.0001990·F-Score+0.009020, SS IoU+0.004639 | 완료 family48 F-Score CI[−0.001582,+0.020293], CD 및 family6 IoU도0 포함. 단독 R의 독립 seed 효과는 미확인 | 가장 큰 matched geometry 점추정이나 보정 후 필요성은 미확정. V1/R 두 seed는 R 단독 ablation 아님 |
 | Shared evidence 전달 자체가 개선 원인이다 | E_FIXED_RAW SS0.473471; FULL과는 복수 차이 | 동일 후보/가중치/R/V의 split-vs-shared 대조가 있어야 인과 주장 | 현재는 구조 설명; 독립 causal claim 보류 |
-| E_FIXED_RAW가 R보다 좋은 최종 모델이다 | Fixed는7개 arm 중 CD/F-Score 두 점추정이 가장 좋아 실제 SS로 선정. R 대비 F-Score+0.003963, family48 CI[−0.000910,+0.009748] | 같은 Fixed geometry의 PBR4 비교 실행 중. 최종 PBR/필요시 해당 구조 seed202·freeze/TEST는 남음. 기존 Fixed SS 두 seed·VAL36 QA는 완료 | Geometry 기반의 DEV 선택이며 확정 우위가 아님. Source appearance는 PBR에서 별도 검증; 최종 보편적 우위 미확정 |
+| E_FIXED_RAW가 R보다 좋은 최종 모델이다 | Fixed는7개 SS arm 중 CD/F-Score 두 점추정이 가장 좋아 geometry stage로 선정. R 대비 F-Score+0.003963, family48 CI[−0.000910,+0.009748]. 동일 Fixed geometry PBR4에서 Top-1 R의 LPIPS/DreamSim 점추정이 가장 낮아 PBR stage로 선정했고 두 primary CI는0 포함 | DEV-only 조합·protocol freeze(v558)는 완료. 실제 TEST10metric·source-cluster 통계와 최종 정성 결과는 대기 | 두 stage의 조건부 DEV 선정이며 SS 모듈의 확정 효과나 PBR appearance 우위·최종 보편적 우위는 미확정 |
 | Source 적응과 target 보존을 구조적으로 분리한다 | Native MV4 carrier·target 경로 유지, source map correction만 추가 | 실제 target/source 결과 및 실패 사례 | 입력 target stream 유지 ≠ output RGB 완전 보존 |
 | Ray 구조가 더 빠르다 | 현재 실행 시간은 FFN chunk 등이 다름 | 동일 precision/batch/chunk/sampler benchmark | 순수 속도 배수 주장 보류 |
-| 최종 파이프라인이 일반화한다 | TEST 미실행 | 선택·protocol freeze 후 TEST508·source-cluster 통계 | 최종 generalization claim 보류 |
+| 최종 파이프라인이 일반화한다 | DEV-only freeze(v558)와 SS TEST508×5 archive 검증(v574)은 완료. 실제 다섯 pipeline cascade는 v611에서 실행 중 | 전체508×5 cascade·10metric·source-cluster 통계·정성 결과 | 최종 generalization claim 보류 |
 
 ## 수치와 통계의 범위
 
@@ -158,13 +159,14 @@ GT/count/noise·384 trace를 대조했고 v482/483의 actual file4 closure와 �
 | `tables/dev-independent-ss.tex` | 실제 V1/R/Fixed 두 seed와 고정 seed 평균; 개별 모듈의 인과 효과 아님 |
 | `tables/dev-completed-fixed-contrasts.tex` | 완료7모델·전체6대조 family. 21개 원본 평가 exact 재현 및 원격7행/6구간 확인 |
 | `tables/dev-joint32.tex`, `dev-joint128.tex`, `dev-paired-pbr32.tex` | 해당 panel/noise의 실제 cascade와 같은 geometry의 PBR 비교를 구분 |
-| `tables/final-ablation-template.tex` | Spatial→Raw→D1 cosine→scalar ladder와 Top-1/Uniform/no-R 직접 대조. 모든 SS 완료; Fixed/Top-1/Uniform/no-R의 cascade 완료, matching3개 cascade는 진행 |
+| `tables/final-ablation-template.tex` | Spatial→Raw→D1 cosine→scalar ladder와 Top-1/Uniform/no-R 직접 대조. 일곱 SS의 실제 cascade128·geometry/appearance 평가와48-family 보정 통계 완료; 모듈 필수성 주장과 구분 |
 | `tables/dev-independent-pbr.tex` | 완료1900의 V1/R×seed101/2024행. 원격4행·원본16장·actual file4 근거; fixed4 training QA 범위 |
 | `tables/final-main-template.tex` | 동결 뒤 TEST508/134 source의4/5개 실제 pipeline·사용자 지정10metric. 모든 품질 값 미측정 |
 | `dev-ray-evidence.tex` | 실제 RGB/ray member/후보/posterior. 조건부 예시이며 평균 품질 효과의 근거 아님 |
 | 최종 정성 그림 | v355 metadata-only 고정2사례와 conditional lower-median 정책. 실제 TEST 이미지 미완료 |
 
-Ablation 본문은 SS IoU/CD/F-Score/LPIPS/DreamSim을 중심으로 해석하고 전체
+Ablation 본문은 SS의 CD/F-Score를 geometry primary로, IoU를 보조 진단으로,
+동일 geometry PBR의 LPIPS/DreamSim을 appearance primary로 해석하고 전체
 8metric은 supplement에 모두 보고한다. Main은 LPIPS/DreamSim/CLIP,
 FID/KID, PSNR/SSIM/M-IoU/CD/F-Score의10개 metric이다. SS 선택은 geometry, PBR 선택은 동일 geometry의 appearance를 사용하며 임의
 가중합으로 승자를 만들지 않는다. FID/KID는
