@@ -69,6 +69,15 @@ the identical box crops prediction and reference for every model. It can
 retain background inside the rectangle and does not align or recenter
 individual predictions.
 
+The edited GT mesh is rasterized independently. After a post-TEST GT-only
+audit of all 1,524 views, the one-pixel-dilated raster gate permits at most
+$\lceil0.01N_{\mathrm{GT}\alpha}\rceil$ outside pixels. The original
+continuous 0.99 containment gate rejected one thin-object view (7/648
+outside pixels; containment 0.9891975); the uniform integer rule admits all
+views. The failed run is retained. Only this admission gate was adapted in
+rendering and case validation; GT, predictions, metric formulas and frozen
+model selection are unchanged. The gate is not a score.
+
 \subsection{Original module family and independent training}
 \input{typeset/dev-ss128.tex}
 \input{typeset/dev-original-module-effects.tex}
