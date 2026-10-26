@@ -1,5 +1,11 @@
 # Frozen TEST508 실제 실행과 운영 복구
 
+2026-10-26 04:26 UTC 최신 운영 상태는 [완료129개 그룹 재사용과 남은379개
+실제 실행 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+아래 v570은 proc-access 실패,v586은 disk admission 실패로 실제 종료됐고 보존했다.
+v595가 실제 실행 중이며 기존 source·모델·결과를 유지한다. 아래 시간 추정과
+v570/v571/v572 실행 중 표현은 당시 이력이다.
+
 DEV 선택은 **Fixed SS + Top-1 R PBR**이며 `v558`에서 모델·입력·sampler·camera·
 수치 source와10metric protocol을 TEST 전에 동결했다. SS는 geometry CD/F-Score,
 PBR는 동일 geometry의 source appearance를 기준으로 선정했다. 개별 모듈의 DEV48개

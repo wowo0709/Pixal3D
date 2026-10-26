@@ -1,5 +1,12 @@
 # 현재 모듈 효과와 논문에서 주장할 수 있는 범위
 
+2026-10-26 04:26 UTC 최신: v586은 실제 disk admission 실패로 종료됐다.
+원래505개 수치 source와 모델을 유지하고 **완료129개 group/645개 case를 실제
+검증해 재사용**, v595에서 남은379개 group을 실행 중이다. DEV raw640개의
+로컬 중복 정리와 dead credit 해제,새10metric→Main/Qual(v597)→W&B(v598) 연결은
+[최신 복구 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+최종10metric·논문은 아직 미완료이며 아래 v570/v586의 실행 중 표현은 당시 이력이다.
+
 2026-10-26 운영 복구: 이전 v570은 retirement process-inspection 권한 오류로
 종료됐다. 원래 수치/모델 계약을 유지한 새 v586 cascade와 v587/v588 후속 경로가
 실제 시작됐다. 완료142 case·partial 결과는 보존하며 최종2540 완료로 쓰지 않는다.

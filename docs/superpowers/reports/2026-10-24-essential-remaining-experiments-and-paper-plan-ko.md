@@ -1,5 +1,12 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-26 04:26 UTC 최신: v586의 실제 disk admission 실패를 보존하고,
+동일 모델·원래505개 수치 source에서 검증된129개 complete group/645개 case를
+재사용한다. v595는 남은379개 group만 새 namespace에서 실제 실행 중이며
+최종508 전체10metric→Main/Qual(v597)→W&B(v598)를 연결했다. Source pin·실제
+종료/이미지 검증·DEV raw640개 정리는 [최신 복구 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
+최종 metric·결과 의존 writing·PDF 검수와 원래 전체 계획 completion audit는 남아 있다.
+
 2026-10-26 실제 복구: v570은 raw reader의 `/proc` AccessDenied로 안전 종료됐다.
 142개 완료 case와27개 complete group을 보존했고, protected-reader wait와 동기적
 retirement 운영 adapter의24검사·실제 두 raw file NAS 검증을 통과했다. 원래505개
