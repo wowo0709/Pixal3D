@@ -44,11 +44,15 @@ compiler에 없어 실패했다. 실패 source/log/terminal을 보존하고 원�
 
 ## 실제 평가 상태와 남은 종료 조건
 
-현재 campaign은 `actual-selected-five-model-TEST508-cascade-v570`다.
-이번 확인 시점에94/2,540 case가 완료됐고 CPU coordinator와 retirement guard의
-실제 PID/birth/command를 대조했다. GPU0·1·2·3·6·7의 허용 범위를 유지한다.
-개별 case의 짧은 zombie/회수 상태는 coordinator가 terminal을 수거하는 구간이며,
-campaign 종료·실패로 해석하거나 이를 이유로 재시작하지 않는다.
+2026-10-26 13:42 UTC 현재 campaign은
+`actual-selected-five-model-TEST508-remaining-cascade-v611`이다. 이전 실패
+실행에서 완결·검증된 227 asset/1,135 case를 불변 재사용하고, 남은 281 asset/
+1,405 case 중 186 case를 새로 완료했다(전체 논리 진행 1,321/2,540).
+CPU coordinator와 GPU0·1·2·6·7의 case worker/하위 geometry process를 실제
+PID·명령·GPU 점유로 확인했다. 작업자 교체와 짧은 회수 구간은 campaign 종료로
+해석하지 않는다. 10metric→Main/Qual→W&B readback→원고 입력 callback은
+완전한 cascade closure 후 실행되도록 대기 중이다. 최신 운영 증거는
+[v611 복구 기록](2026-10-26-TEST508-immutable-reuse-and-disk-recovery-ko.md)을 따른다.
 
 1. 동일 frozen 다섯 pipeline의 TEST508 cascade와 raw-retirement closure를 완료한다.
 2. 연결된 원래10metric collector에서 전체2,540 case·1,524 image/model을 평가하고
