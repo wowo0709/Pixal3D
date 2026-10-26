@@ -64,3 +64,15 @@ scored image·case audit·실행 중인 그룹은 유지했다. 이 시각 `v636
 새 `v652-bulk3` 준비에서 이름을 바로잡고 실제 정리에는 그 policy만 사용했다.
 `v651-bulk2/retirement` 산출물은 없다. 이 운영 정리는 최종 품질 수치나 모듈
 효과의 근거가 아니다.
+
+17:57 UTC 후속: `actual-closed-current-guide-offload-v653-bulk4`에서 다시 완전히
+닫힌 **16개 그룹/80개 guide**의 로컬 중복본 **3,370,518,224 bytes
+(3.1390 GiB)**를 정리했다. 매 batch의 파일서버 정본 SHA256, 완료 group/case,
+8개 raw retirement, reader·열린 파일을 새로 확인했고, 정리 후 원래 scored
+archive **240개**가 guide 없이도 기존 observation과 정확히 일치했다. 최종
+`retirement/audit.json`은 `PASS_ACTUAL_CLOSED_CURRENT_GUIDE_DUPLICATES_OFFLOADED`,
+실제 file4 receipt는 `PASS`/`local_equals_actual_file4_SHA256=true`다. 이전에
+정리한 그룹·정본 guide·scored image·원래 505개 수치 source·실행 중인 그룹은
+변경하지 않았다. 이 시각 `v636` coordinator/worker는 살아 있고 신규
+196/1,155 case가 완료됐으며 로컬 여유는 약159.9 GiB다. 이는 운영 공간 확보로,
+최종 10metric 또는 논문 품질 결론의 근거가 아니다.
