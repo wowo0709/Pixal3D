@@ -1,12 +1,12 @@
 \section{Method}
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/selected-pipeline-overview.pdf}
-\caption{Selected architecture, not a performance claim. Matching descriptors
-and native value features remain distinct. Source-camera ray groups share a
-posterior and source correction; the target stream and global native tokens
-are retained. SS uses Fixed Top-K evidence with no new Q/K or V/output head.
-PBR uses its own Top-1 retargeter. Shape512/1024 remain frozen.}
+\includegraphics[width=\textwidth]{final-results/figures/paper-overall.pdf}
+\caption{Stage-level overview. The edited target follows the native Pixal3D
+conditioning path. Semantic evidence from undeformed source views corrects
+the SS geometry carrier; Shape512/1024 are frozen. PBR uses a separately
+selected Top-1 source retargeter for appearance. Figures~\ref{fig:matching}
+and~\ref{fig:retargeting} explain the correspondence and source correction.}
 \label{fig:selected-pipeline}
 \end{figure*}
 
@@ -26,6 +26,15 @@ projection defines membership without target surface depth or a
 surface-visibility write mask at inference.
 
 \subsection{Semantic proposals and matching scores}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{final-results/figures/paper-matching.pdf}
+\caption{Frozen semantic correspondence. Omega descriptors generate source
+proposals and the D1 decoder scores them. Distinct observed target patches
+sharing a source-camera ray vote into one Top-K posterior. Matching keys are
+separate from the native source values used for generation.}
+\label{fig:matching}
+\end{figure}
 Each observed target patch $m$ retrieves 64 semantic proposals across the
 three source images. A frozen D1 decoder contextualizes its descriptor and
 produces scores $s_{mk}$. The decoder has one query-only cross-attention block
@@ -61,6 +70,16 @@ valid proposals abstain. A concentrated $p_r$ need not be correct: native
 fallback detects missing support, not every confident mismatch.
 
 \subsection{Matching-aware aggregation and retargeting}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{final-results/figures/paper-retargeting.pdf}
+\caption{One source-camera ray shares its posterior across intersected grid
+sites. The selected SS path weights native source values, forms a bounded
+source-contrast correction, and adds that correction to the native MV4
+carrier. The target contribution and global tokens remain in the carrier;
+unsupported rays retain the native source path.}
+\label{fig:retargeting}
+\end{figure}
 The selected SS stage aggregates untransformed native values,
 \begin{equation}
  E_r=\sum_{k\in\mathcal K_r}p_r(k)v_k.

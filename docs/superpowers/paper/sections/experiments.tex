@@ -35,7 +35,7 @@ prefix32, and the final batch of four. Actual weight/config/cache bindings
 and the complete evaluation protocol are frozen before TEST inference.
 
 \paragraph{Comparators and generation.}
-The frozen TEST comparison contains five physical pipelines: original
+The frozen inferential TEST comparison contains five physical pipelines: original
 source-only RGB4; original edited-target RGB1+source RGB3; vanilla V1;
 Top-1 R; and selected Fixed SS+Top-1 R PBR. Source-only includes the original
 M0 view at target camera8, not just three sources. Edited inputs are M1 RGB
@@ -43,6 +43,16 @@ at8 plus M0 RGB at9/10/11. Shape weights are common. Original zero controls
 retain original PBR; V1 uses vanilla 1900 PBR and R/selected use Top-1 R 1900.
 SS generation uses batch 8, 12 steps, guidance 3 and the prescribed per-asset
 noise map. Native downstream sampling configurations are retained.
+
+Table~\ref{tab:final-main} also includes a post-hoc descriptive input
+reference: the original Pixal3D single-view SS, Shape512, Shape1024, and PBR
+denoiser checkpoints, with the project's calibrated projective DINO
+conditioner, receive only the edited M1 target RGB at camera 8. It uses the
+same 508 TEST examples, per-asset seeds, input-camera scoring views, and
+original-material M1 references. The original single-view pipeline retains
+its native 12-step sampler and guidance, including SS guidance 7.5. It has no
+multi-view or deformation fine-tuning. It was evaluated after the five-model
+freeze, so it is not included in the adjusted comparison family.
 
 \paragraph{Metrics and references.}
 Source LPIPS~\cite{zhang2018lpips}, DreamSim~\cite{fu2023dreamsim}, and separate

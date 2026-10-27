@@ -6,6 +6,7 @@
 &\multicolumn{3}{c}{Source preservation}&\multicolumn{2}{c}{Global naturalness}&\multicolumn{5}{c}{Target alignment}\\
 Model&LPIPS$\downarrow$&DreamSim$\downarrow$&CLIP$\uparrow$&FID$\downarrow$&KID$\downarrow$&PSNR$\uparrow$&SSIM$\uparrow$&M-IoU$\uparrow$&CD$\downarrow$&F-Score$\uparrow$\\
 \midrule
+Pixal3D RGB1 zero-shot&0.060898&0.162024&0.940617&34.147430&0.0016813205&24.5428&0.951388&0.927251&0.0178908&0.743113\\
 Zero-shot, source-only RGB4&0.061884&0.153975&0.943278&36.089871&0.0014905934&22.4062&0.936489&0.814896&0.0167443&0.766221\\
 Zero-shot, edited target + source RGB3&0.058324&0.154276&0.942090&35.024202&0.001618189&23.5416&0.945824&0.882545&0.0148793&0.808255\\
 Vanilla V1&0.057245&0.151460&0.942854&34.658819&0.0017537581&23.8360&0.946375&0.889032&0.0141140&0.828473\\
@@ -13,6 +14,6 @@ Top-1 R&0.056329&0.151162&0.943177&34.930351&0.001822029&23.9966&0.947295&0.8982
 Selected model&0.056201&0.152069&0.943018&34.361368&0.0016011107&24.0283&0.947532&0.901072&0.0136001&0.834532\\
 \bottomrule
 \end{tabular}}
-\caption{Actual frozen TEST508 results from134 source clusters. Source LPIPS/DreamSim/CLIP average cameras9/10; target PSNR/SSIM/2D mask IoU use camera8. Surface CD is symmetric unsquared Euclidean distance; F-Score uses threshold0.02 in the common normalized frame. Official Inception2048 FID/KID use the same1524-image prediction/reference pools. KID is signed and shown in raw units, without clipping or rescaling. References use original materials on edited M1 geometry. These are input-camera evaluations. The selected physical model is SELECTED; a merged baseline is not repeated as another model.}
+\caption{TEST508 (508 edits; 134 source clusters). The first row uses original Pixal3D single-view denoisers with calibrated projective DINO conditioning and edited target RGB only. This post-hoc descriptive reference is outside the frozen five-model contrasts. Source metrics average input cameras 9--10; target metrics use camera 8. CD and F-Score use a common normalized frame (F@0.02). FID/KID use identical 1,524-image original-material M1 reference pools; KID is signed raw units. All evaluated views are input cameras.}
 \label{tab:final-main}
 \end{table*}

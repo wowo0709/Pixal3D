@@ -1,5 +1,13 @@
 Table~\ref{tab:final-main} reports the complete frozen five-pipeline
-comparison on 508 TEST objects and 134 source clusters. Supplying the edited
+comparison plus the added single-view reference on 508 TEST objects and 134
+source clusters. The added RGB1 row has the highest target input-camera
+PSNR/SSIM/mask IoU points (24.543 dB/0.95139/0.92725), but its surface CD
+and F-Score (0.01789/0.74311) are worse than the four-view edited zero-shot
+and selected models. Its source LPIPS/DreamSim/CLIP are
+0.06090/0.16202/0.94062, versus 0.05620/0.15207/0.94302 for the selected
+model. Original single-view denoisers and native guidance differ from the
+multi-view controls, so these descriptive differences cannot be attributed
+to view count alone. Within the frozen five-model family, supplying the edited
 target RGB changes the zero-shot target PSNR from 22.406 to 23.542 dB,
 mask IoU from 0.8149 to 0.8825, CD from 0.01674 to 0.01488, and surface
 F-Score from 0.7662 to 0.8083. Vanilla fine-tuning reaches 23.836 dB,
@@ -29,7 +37,8 @@ higher (worse) DreamSim and slightly lower F-Score. Every one of the eight
 predeclared adjusted intervals contains zero. This comparison does not
 establish that the selected Top-K weighted SS path contributes additional
 held-out quality beyond the retargeting baseline, nor does it establish
-equivalence. The selected model has the lowest FID point (34.361), while
-the source-only zero-shot model has the lowest KID point (0.001491). FID
+equivalence. The added single-view baseline has the lowest FID point (34.147),
+while the source-only four-view zero-shot model has the lowest KID point
+(0.001491). FID
 and signed raw KID summarize common 1,524-image input-camera pools and are
 descriptive, without a paired significance claim.

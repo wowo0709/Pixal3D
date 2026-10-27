@@ -1,0 +1,56 @@
+{
+  "status": "PASS_POST_HOC_SINGLE_VIEW_RGB1_TEST508_TEN_METRICS",
+  "sample_count": 508,
+  "source_clusters": 134,
+  "images": 1524,
+  "model": "Original Pixal3D single-view zero-shot, edited target RGB1",
+  "table_order": [
+    "LPIPS",
+    "DreamSim",
+    "CLIP",
+    "FID",
+    "KID",
+    "PSNR",
+    "SSIM",
+    "M_IoU",
+    "CD",
+    "FScore"
+  ],
+  "primary_ten_metrics": {
+    "LPIPS": 0.060898332126020624,
+    "DreamSim": 0.16202437736856656,
+    "CLIP": 0.9406170555808413,
+    "PSNR": 24.542797199384434,
+    "SSIM": 0.9513879410159869,
+    "M_IoU": 0.9272509000710586,
+    "CD": 0.01789075372247272,
+    "FScore": 0.7431129811728382,
+    "FID": 34.14743037562681,
+    "KID": 0.0016813204662910987
+  },
+  "distribution": {
+    "frechet_inception_distance": 34.14743037562681,
+    "kernel_inception_distance_mean": 0.0016813204662910987,
+    "kernel_inception_distance_std": 0.00018094816268529327,
+    "images_per_pool": 1524,
+    "feature_dimension": 2048,
+    "statistic_dtype": "float64",
+    "kid_subsets": 100,
+    "kid_subset_size": 1000,
+    "seed": 42017,
+    "unbiased_KID_clamped": false,
+    "KID_subset_std_is_not_CI": true,
+    "package": "torch-fidelity0.3.0",
+    "unequal_pool_counts_allowed": false
+  },
+  "original_five_model_family_unchanged": true,
+  "input_plans": {
+    "inception": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/actual-pixal3d-singleview-TEST508-v1/metrics/plans/inception.json",
+    "perceptual": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/actual-pixal3d-singleview-TEST508-v1/metrics/plans/perceptual.json"
+  },
+  "output_SHA256": {
+    "perceptual": "df68ace581017e0ea0202ada8d43d5e4dcb9d952a6f3bd0677821bc7d1a75cc9",
+    "inception": "4923f59fea14ed8ce900b059bf5b7a5fd83ba5d80f11f4620d73783ac8329a68",
+    "reference": "d8c1c99052d2e7b96af954d16c7d4141382354d9496245e3ad3e135ce55ba991"
+  }
+}
