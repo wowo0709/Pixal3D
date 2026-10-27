@@ -1,5 +1,13 @@
 # 논문 claim과 필요한 근거
 
+2026-10-27 07:45 UTC 현재: 동결된 다섯 TEST pipeline의508×5 실제 cascade,
+campaign audit·release 및 actual file4 SHA closure는 완료됐다. 첫 metric
+활성화 요청의 누락 필드를 보완한 별도 `v667` 요청에서 원래505개 수치 source를
+바꾸지 않고11개 GPU metric 작업과 CPU collector를 등록했고, 첫 다섯 작업이
+실행 중이다. 10metric·source-cluster interval·Main/정성 결과는 아직 닫히지
+않았으므로 TEST 우위·최종 일반화·개별 모듈 필수성 claim은 보류한다.
+[실제 종료와 metric 활성화 복구](../reports/2026-10-27-test508-cascade-closure-and-metric-context-repair-ko.md).
+
 2026-10-26 15:26 UTC 현재: 실제 TEST는 `v636`에서 실행 중이다. 앞선 세 실행의
 검증된 277개 complete group/1,385 case를 원래 경로에서 재사용하고, 나머지
 231개 group/1,155 case를 새로 실행한다. 이 시각 새 case 21개가 완료됐다.

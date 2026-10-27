@@ -1,5 +1,15 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-27 07:45 UTC 실제 진행: 동결된 TEST508×5 **2,540 case cascade가
+실제로 종료**됐고 campaign audit와 release의 actual file4 closure가 모두
+PASS다. 첫 metric 활성화 요청은 현재 campaign_root 필드 누락으로 metric
+output 생성 전 실패했다. 원래505개 수치 source·모델·scored 결과를 유지한
+새 context(`v667`)로 11개 GPU metric 작업과 CPU collector 등록을 완료해
+실제 GPU0·1·2·6·7에서 점수 계산이 시작됐다. 후속 Main/정성·W&B·원고
+입력은 실제10metric closure를 기다린다. 최종 TEST metric, 결과 종속
+writing, 최종 PDF·file4 보존과 전체 completion audit는 남아 있다.
+[cascade 종료·실패 원인·복구 근거](2026-10-27-test508-cascade-closure-and-metric-context-repair-ko.md).
+
 2026-10-27 06:48 UTC 실제 진행: 같은 `v636` coordinator와 GPU 작업자가
 살아 있고 신규 1,155 case 중 **1,096개**, 검증된 재사용 1,385개를 합친
 TEST 전체 **2,481/2,540 case (97.7%)**가 완료됐다. 로컬 여유는 약
