@@ -111,7 +111,30 @@ def local_worker_health()->dict[int,list[int]]:
     return result
 
 
-def render(local:dict,remote:dict|None,error:str|None,health:dict[int,list[int]])->str:
+def local_tail_health()->dict[int,list[tuple[int,int]]]:
+    """Identify live disjoint tail ranks on physical GPUs 6 and 7."""
+    result={gpu:[] for gpu in (6,7)}
+    module='experiments.deformnext_retargeting.run_minimal_test_cascade_worker'
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():continue
+        try:
+            argv=(entry/'cmdline').read_bytes().decode(errors='replace').split('\0')
+            if module not in argv or '--physical-gpu' not in argv:continue
+            gpu=int(argv[argv.index('--physical-gpu')+1])
+            if gpu not in result:continue
+            if (argv[argv.index('--campaign')+1]!=str(PLAN)
+                    or argv[argv.index('--world-size')+1]!='508'):
+                continue
+            rank=int(argv[argv.index('--rank')+1])
+            state=(entry/'stat').read_text().split(') ',1)[1].split(' ',1)[0]
+            if state not in {'Z','X'}:result[gpu].append((int(entry.name),rank))
+        except (OSError,ValueError,IndexError):
+            continue
+    return result
+
+
+def render(local:dict,remote:dict|None,error:str|None,
+           health:dict[int,list[int]],tail:dict[int,list[tuple[int,int]]])->str:
     now=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     n=local['expected']
     lines=['# GT scale 미제공 TEST508 실시간 진행표', '',
@@ -142,6 +165,9 @@ def render(local:dict,remote:dict|None,error:str|None,health:dict[int,list[int]]
     active=', '.join(f'{rank}:{"/".join(map(str,pids)) if pids else "missing"}'
                      for rank,pids in health.items())
     out+=f'\n| Local primary cascade workers (rank: PID) | {active} |'
+    tail_detail=', '.join(f'{gpu}:{"/".join(f"{pid}@{rank}" for pid,rank in rows) if rows else "idle"}'
+                          for gpu,rows in tail.items())
+    out+=f'\n| Local GPU 6/7 tail workers (GPU: PID@index) | {tail_detail} |'
     out+='\n\n'
     if error: out+=f'Remote read error: `{error[:300]}`. This does not mean the job failed.\n\n'
     if (remote is not None and not remote['external_done']
@@ -186,11 +212,13 @@ def main():
         except (OSError,subprocess.SubprocessError,json.JSONDecodeError) as exc:
             remote=None;error=str(exc)
         health=local_worker_health()
-        document=render(local,remote,error,health)
+        tail=local_tail_health()
+        document=render(local,remote,error,health,tail)
         temp=args.output.with_suffix(args.output.suffix+'.tmp')
         temp.write_text(document);temp.replace(args.output)
         print(json.dumps({'time':datetime.now(timezone.utc).isoformat(),
                           'local':local,'remote':remote,'worker_health':health,
+                          'tail_health':tail,
                           'error':error}),flush=True)
         if (args.once
                 or (flag(BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json')

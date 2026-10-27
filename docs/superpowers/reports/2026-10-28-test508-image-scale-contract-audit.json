@@ -3,12 +3,12 @@
   "samples": 508,
   "source_scale_predictions_sha256": "a8a7384958f6a6821443a74fc52ab691b51797880063a8300a4d571e313ea98f",
   "completed": {
-    "V1": 119,
-    "SELECTED": 114,
-    "both": 114
+    "V1": 217,
+    "SELECTED": 213,
+    "both": 213
   },
-  "generation_scale_checks": 233,
-  "selected_top1_archive_checks": 114,
+  "generation_scale_checks": 430,
+  "selected_top1_archive_checks": 213,
   "all_cascade_results_complete": false,
   "M0_M1_mesh_or_GT_scale_used_at_inference": false,
   "V1_SELECTED_equal_image_only_scale_and_RGB_camera_inputs": true

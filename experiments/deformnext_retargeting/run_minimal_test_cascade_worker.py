@@ -18,6 +18,15 @@ def sha(path: Path) -> str:
     return state.hexdigest()
 
 
+def retryable_render_failure(log: str) -> bool:
+    return ('export/untouched metric mesh differ in world space' in log
+            or 'fast simplifier produced' in log
+            or 'fast simplifier did not reach declared render budget' in log
+            or ('RuntimeError: [CuMesh] CUDA error' in log
+                and 'Error code: 9' in log
+                and 'invalid configuration argument' in log))
+
+
 def run(argv: list[str], *, log: Path | None = None, env: dict | None = None,
         timeout: int | None = None) -> None:
     if log is None:
@@ -153,9 +162,7 @@ def main() -> None:
             log = root / 'logs' / 'benchmark-export' / texture_arm / f'{sid}-{budget}.log'
             old_failure = log.read_text(errors='replace') if log.is_file() else ''
             if (old_failure and not glb.exists() and not report_path.exists()
-                    and ('export/untouched metric mesh differ in world space' in old_failure
-                         or 'fast simplifier produced' in old_failure
-                         or 'fast simplifier did not reach declared render budget' in old_failure)):
+                    and retryable_render_failure(old_failure)):
                 print(json.dumps({'phase': 'REUSE_FAILED_GEOMETRY_BUDGET_CHECK',
                                   'sample_id': sid, 'texture_arm': texture_arm,
                                   'failed_budget': budget}), flush=True)
@@ -166,9 +173,7 @@ def main() -> None:
                 break
             except subprocess.CalledProcessError:
                 failure = log.read_text(errors='replace')
-                geometry_failure = ('export/untouched metric mesh differ in world space' in failure
-                                    or 'fast simplifier produced' in failure
-                                    or 'fast simplifier did not reach declared render budget' in failure)
+                geometry_failure = retryable_render_failure(failure)
                 if (budget == 5_000_000 or glb.exists() or report_path.exists()
                         or not geometry_failure):
                     raise

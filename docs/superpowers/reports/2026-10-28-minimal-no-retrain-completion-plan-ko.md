@@ -370,3 +370,17 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 Cycles 렌더 watcher가 요구하는 로컬 동결 SS TEST508 완료 영수증과 외부 baseline **32/32** 청크 완료를 다시 확인했다. node16 공식 surface 영수증도 존재한다. 남은 직접 선행 조건은 외부 7법 learned metric 완료와 그 직후 bridge의 verified-export 경로 인계다.
 - read-only live watcher에 node16 bridge의 실제 프로세스 PID/receipt를 추가하고, `--once` 실제 node16 질의로 bridge PID**1552286** 및 외부 평가 PID**2492093**을 확인했다. 구 watcher를 종료하고 새 코드 PID**704295**로 재시작했다. 08:12 KST paired cascade **203/508**, 공식 export **501/501**, 외부 learned **2/7**이며, bridge는 `waiting on external metrics`로 명시된다. 외부 metric 완료 후 bridge 프로세스가 사라졌는데 영수증이 없으면 live ledger에 주의 문구를 출력한다.
 - 08:14 KST 외부 learned evaluator가 세 번째 결과 파일을 작성해 **3/7**이 됐다. 동일 PID2492093은 `R` 상태이며 누적 실제 읽기 **93.3 GB**로 증가했다. Ours file4 SHA 영수증은 V1 **209/508**, Selected 및 paired **205/508**이다. 공통표 watcher의 입력 경로와 방법 수·공통 분모 검사, 최종 Ours 평가 watcher가 official 501사례에 맞춰 502사례 Ours 렌더를 subset하는 연결을 확인했다.
+
+## 08:19 KST 실행 코드 보존·scale 계약 재검증
+
+- 실행·평가 코드와 현재 결과 독립 논문 초안 154파일을 `wowo0709/feature-retargeting` 브랜치 commit **`fa6a71e`**로 저장하고 GitHub `origin`의 같은 브랜치에 push했다. 전체 새 Python 모듈의 `compileall`, staged whitespace check 및 원격 HEAD 일치를 확인했다. 계속 쓰이는 live ledger는 이후 업데이트될 수 있다.
+- [TEST508 이미지 추정 scale 계약 재감사](2026-10-28-test508-image-scale-contract-audit.json)를 같은 고정 캠페인에 다시 실행했다. 검사 시점의 실제 파일서버 SHA 보관은 V1 **217**, Selected **213**, paired **213**사례이며 generation 기록 **430건**에서 image-only estimator SHA·scale 값·RGB/camera equality 및 M1/M0 mesh/GT-scale 추론 미사용을 모두 통과했다. 아직 paired 508 전체가 완료되지 않았으므로 `all_cascade_results_complete=false`다.
+- 08:20 KST 실시간 표에 GPU6/7의 실제 tail worker PID와 disjoint case rank를 추가했다. 새 watcher PID**710721**의 node16/local 실측은 V1 **219/508**, Selected/paired **216/508**, GPU6 **708633@index451**, GPU7 **710187@index430**, 외부 learned **3/7**이다. 원래 primary rank0–3도 모두 생존한다. 이 행은 GPU 점유율 순간값이 아니라 현재 할당된 실제 작업자를 보여 준다.
+
+## 08:24 KST GPU6 tail의 CuMesh 렌더 예외 복구
+
+- `disjoint-tail-gpu6-7-v2` 관리자가 종료되고 공식 렌더 watcher가 `T`에서 `S`로 풀린 것을 즉시 확인했다. node16 공식 export 구 경로에는 여전히 completion 영수증/bridge 링크가 없으므로 정상 인계가 아니었다. GPU6 index449 V1의 `benchmark-export` 로그에 `CuMesh connectivity.cu` CUDA Error9가 확인됐다. 모델의 `prediction.npz`·`generation.json`·geometry evaluation은 남아 있고 `benchmark.glb`/report는 없어 render-only 단계 실패다. GPU7 index430은 그 전에 file4 SHA archive를 정상 완료했다.
+- 공식 RGB1 export에서 검증한 것과 동일하게 **정확한 CuMesh Error9 invalid configuration**만 더 높은 render-face budget 재시도 대상으로 worker 코드에 추가했다. 실제 실패 로그와 무관한 예외를 넣어 분류를 확인했고 `py_compile`/`git diff --check`를 통과했다. 공식 렌더 watcher PID543994를 다시 `T`로 두고, 완료된 tail 사례를 재사용하는 새 관리자를 PID**713405**, GPU6 rank**449**/GPU7 rank**428**로 재시작했다. GPU6은 기존 25만 face 실패 로그를 재사용하고 50만 face export 자식 PID713414를 실행 중이다. GPU7은 다음 disjoint 사례의 Shape 생성 중이다. 이 사례의 최종 보관 영수증은 아직 대기다.
+- 08:24 KST 새 live 표는 V1 **223/508**, Selected/paired **220/508**, 외부 learned **3/7**이며 primary 0–3 및 tail 6/7의 실제 PID를 다시 확인했다. 미완료 GPU6 case449의 최종 결과와 관리자 생존을 계속 추적한다.
+- 같은 GPU6 index449의 V1 렌더용 GLB는 50만 face 예산으로 성공했고, 원본 표면 대비 q99 world-frame **0.0046204**로 사전 0.01 한도를 통과해 file4 SHA 보관을 완료했다. Selected Shape 생성 자식이 계속 실행 중이므로 이 사례의 paired 완료는 아직 주장하지 않는다. GPU7 index428도 정상 생성 중이며 node16 외부 learned evaluator의 읽기 바이트는 계속 증가한다.
+- 08:29 KST GPU6 index449는 Selected Top-1 PBR 및 Shape까지 file4 SHA 보관을 끝내 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`로 닫혔다. GPU7 index428도 같은 paired 영수증을 완료했다. 새 tail 관리자는 GPU6 rank**447**/GPU7 rank**426**으로 계속 진행 중이다. live ledger는 V1 **229/508**, Selected/paired **226/508**, 외부 learned **3/7**이다. 공식 렌더 watcher PID543994는 인계 전까지 다시 `T`이고 출력 캠페인 디렉터리는 아직 만들어지지 않았다.
