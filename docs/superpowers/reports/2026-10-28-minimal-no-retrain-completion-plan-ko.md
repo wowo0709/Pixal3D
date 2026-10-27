@@ -424,3 +424,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 통합 표 `Input` 열의 ShapeUp=`T1`, SpaceControl=`T1+A1` 표기는 실제 생성 입력을 축소했다. node16의 `/home/seunghyun/editing_reproduction/setup/run-shapeup.py`는 `textured_source_mesh`를 `source.glb`로, M1 target RGB를 `target.png`로 복사해 모델에 준다. `/home/seunghyun/editing_reproduction/setup/run-spacecontrol.py`는 같은 사례·seed의 TRELLIS.2 **raw predicted target proxy mesh**와 M0@8 anchor RGB를 사용한다. 따라서 표를 ShapeUp=`T1+M0`, SpaceControl=`T1+P+A1`로 수정하고 M0/P/A1을 캡션에서 정의했다. 이는 성능 수치 변경이 아닌 입력 권한의 정확한 공개다.
 - 원고 공통 프로토콜에 두 입력과 MVAdapter/CorrAdapter가 target RGB에서 자체 생성한 multi-view를 ReconViaGen에 넘긴다는 사실도 명시했다. 외부법을 동일 T1 입력으로 오인하거나 ShapeUp의 source mesh 접근을 숨기지 않도록 한다.
 - node16의 실제 native launcher 전 행을 다시 대조했다. TRELLIS.2·기존 공식 Pixal3D는 M1@8 RGB만, 직접 ReconViaGen은 `[M1@8,M0@9,M0@10,M0@11]`, MVAdapter/CorrAdapter는 M1@8 RGB에서 자체 생성한 여섯 target view만, ShapeUp은 M1@8 RGB+textured M0 mesh, SpaceControl은 TRELLIS.2 raw target proxy+M0@8 anchor RGB를 소비한다. 표의 `T1/S3/M0/P/A1` 표기와 일치한다. SpaceControl의 proxy는 same-sample/seed TRELLIS.2 출력이고 target GT geometry는 입력되지 않는다.
+
+## 08:58 KST 외부 다섯 번째 방법 검증
+
+- node16 외부 learned evaluator PID**2492093**이 ShapeUp 결과 파일을 새로 닫아 **5/7**이 됐다. 기존 네 방법과 새 ShapeUp 모두 **동일 502개 ID**, source view 1,004개, 실패 0건, 사례별 8개 유한 지표, 유한 FID/KID, `complete_population`/`full_metric_computation` 플래그를 직접 검사해 통과했다. 남은 원본 두 방법은 TRELLIS.2와 SpaceControl이다. 최종 논문 주 표에서는 공식 RGB1 성공 교집합의 N≤501로 9방법 전체를 재평가하므로 이 502건 값을 복사하지 않는다.
+- 같은 시각 Ours V1 **274/508**, Selected 및 paired **271/508** file4 SHA 보관이다. primary 0–3, tail 6/7, tail 연장 대기 프로세스, node16 bridge가 모두 생존 중이다. 최종 10지표와 공통 주 표는 아직 선행 단계 대기다.
