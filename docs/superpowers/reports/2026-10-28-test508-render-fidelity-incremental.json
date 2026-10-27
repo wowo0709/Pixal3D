@@ -1,0 +1,21 @@
+{
+  "status": "PASS_PARTIAL_RENDER_FIDELITY_AUDIT",
+  "expected_per_arm": 508,
+  "archived": {
+    "V1": 232,
+    "SELECTED": 228
+  },
+  "finished_export_not_archived": 0,
+  "actual_render_face_budget_counts": {
+    "250000": 410,
+    "500000": 26,
+    "1000000": 15,
+    "2000000": 7,
+    "5000000": 2
+  },
+  "q99_world_max": 0.009848053377092946,
+  "q99_world_max_sample": "SELECTED/shard000_53845029131b4297973b12fa7d0fe693_d2_fast300fpssupplyv1_balanced_JN_L_target08",
+  "q99_world_limit": 0.01,
+  "geometry_metrics_use_untouched_prediction": true,
+  "GT_fitting_or_alignment": false
+}

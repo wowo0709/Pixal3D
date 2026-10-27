@@ -384,3 +384,7 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 08:24 KST 새 live 표는 V1 **223/508**, Selected/paired **220/508**, 외부 learned **3/7**이며 primary 0–3 및 tail 6/7의 실제 PID를 다시 확인했다. 미완료 GPU6 case449의 최종 결과와 관리자 생존을 계속 추적한다.
 - 같은 GPU6 index449의 V1 렌더용 GLB는 50만 face 예산으로 성공했고, 원본 표면 대비 q99 world-frame **0.0046204**로 사전 0.01 한도를 통과해 file4 SHA 보관을 완료했다. Selected Shape 생성 자식이 계속 실행 중이므로 이 사례의 paired 완료는 아직 주장하지 않는다. GPU7 index428도 정상 생성 중이며 node16 외부 learned evaluator의 읽기 바이트는 계속 증가한다.
 - 08:29 KST GPU6 index449는 Selected Top-1 PBR 및 Shape까지 file4 SHA 보관을 끝내 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`로 닫혔다. GPU7 index428도 같은 paired 영수증을 완료했다. 새 tail 관리자는 GPU6 rank**447**/GPU7 rank**426**으로 계속 진행 중이다. live ledger는 V1 **229/508**, Selected/paired **226/508**, 외부 learned **3/7**이다. 공식 렌더 watcher PID543994는 인계 전까지 다시 `T`이고 출력 캠페인 디렉터리는 아직 만들어지지 않았다.
+
+## 08:30 KST 누적 렌더 근사 fidelity 감사
+
+- 새 [누적 render-only mesh 감사](2026-10-28-test508-render-fidelity-incremental.json)는 현재 file4 SHA 보관된 V1 **230건**, Selected **228건**의 `benchmark.json`·archive receipt를 전수 대조했다. 실제 render face budget 25만/50만/100만/200만/500만 분포는 **410/24/15/7/2**, 원본 표면 대비 q99 world-frame 최대 **0.0098481**로 사전 0.01 한도 초과 **0건**이다. 각 영수증의 GLB·prediction·report SHA, image-only scale, GT fitting 미사용, untouched surface metric 입력도 확인했다. 이는 렌더용 근사와 provenance 감사이며 모델의 TEST 성능 지표가 아니다. 전체 508×2가 아직 아니므로 상태는 `PASS_PARTIAL_RENDER_FIDELITY_AUDIT`이다.
