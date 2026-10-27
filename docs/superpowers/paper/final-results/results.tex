@@ -1,0 +1,35 @@
+Table~\ref{tab:final-main} reports the complete frozen five-pipeline
+comparison on 508 TEST objects and 134 source clusters. Supplying the edited
+target RGB changes the zero-shot target PSNR from 22.406 to 23.542 dB,
+mask IoU from 0.8149 to 0.8825, CD from 0.01674 to 0.01488, and surface
+F-Score from 0.7662 to 0.8083. Vanilla fine-tuning reaches 23.836 dB,
+0.8890, 0.01411, and 0.8285, respectively. These zero-shot and vanilla
+comparisons are descriptive; the predeclared adjusted family tests the
+selected pipeline against the two fine-tuned controls. The different
+zero-shot inputs separate access to edited RGB evidence from the subsequent
+fine-tuning comparison, without treating input availability as a learned
+module effect.
+
+The selected Fixed-SS/Top-1-R-PBR composition has source LPIPS 0.05620 and
+target PSNR 24.028 dB, SSIM 0.94753, and mask IoU 0.90107. Relative to
+vanilla V1, the paired differences are $-0.001044$, $+0.1923$ dB,
+$+0.001156$, and $+0.012041$. Their 16-endpoint family-adjusted 95\%
+intervals exclude zero (Supplementary
+Table~\ref{tab:final-adjusted-contrasts}). The selected pipeline has a
+lower CD point estimate (0.01360 versus 0.01411) and a higher surface
+F-Score (0.83453 versus 0.82847), but the adjusted intervals for both
+contain zero. Source DreamSim is 0.15207 versus V1's 0.15146, and its
+adjusted interval also contains zero; the same is true for source CLIP.
+Thus the held-out support is endpoint-specific, rather than a claim that
+geometry and source appearance improve on every measure.
+
+Against the Top-1 retargeting baseline, the selected pipeline has small
+favorable points for LPIPS, target PSNR, SSIM, mask IoU, and CD, but a
+higher (worse) DreamSim and slightly lower F-Score. Every one of the eight
+predeclared adjusted intervals contains zero. This comparison does not
+establish that the selected Top-K weighted SS path contributes additional
+held-out quality beyond the retargeting baseline, nor does it establish
+equivalence. The selected model has the lowest FID point (34.361), while
+the source-only zero-shot model has the lowest KID point (0.001491). FID
+and signed raw KID summarize common 1,524-image input-camera pools and are
+descriptive, without a paired significance claim.

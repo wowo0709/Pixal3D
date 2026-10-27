@@ -1,5 +1,14 @@
 # 논문 초안과 결과 표
 
+2026-10-27 최종 TEST 갱신: 동결된 다섯 pipeline의 TEST508×5 cascade,
+10개 metric, source-cluster 보정 구간, Main 표·정성 그림과 W&B readback이
+완료됐다. `final-results/`에 실제 TEST 수치와 결과 종속 서술을 넣었으며
+`retargeting-final-manuscript.tex`의 final flag가 활성화됐다. 선택 모델은
+V1 대비 source LPIPS와 target PSNR·SSIM·M-IoU의 보정 구간이 개선 방향으로
+0을 제외한다. Retargeting 기준과의 여덟 구간은 모두 0을 포함한다. 아래의
+"진행 중", "final-results가 아직 없다"는 이전 시점 기록이다. 최종 PDF와
+보존 상태는 [최종 평가·논문 보고서](../reports/2026-10-27-final-TEST508-results-and-manuscript-ko.md)를 따른다.
+
 2026-10-26 15:24 UTC 운영 갱신: 현재 TEST cascade는 `v636`이다. 완료·검증된
 세 이전 실행의 277개 자산 그룹/1,385개 case를 원래 producer 경로에서 재사용하고,
 남은 231개 그룹/1,155개 case를 GPU 0·1·2·6·7에서 실행한다. 실제 coordinator와

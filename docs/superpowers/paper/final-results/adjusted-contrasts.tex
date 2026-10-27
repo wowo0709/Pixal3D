@@ -1,0 +1,27 @@
+\begin{table*}[t]
+\centering\scriptsize
+\begin{tabular}{llrrl}
+\toprule
+Contrast&Endpoint&Difference&Family-adjusted95\% interval&Interpretation\\
+\midrule
+Selected minus Vanilla V1&LPIPS&-0.001044&$[-0.001715,-0.000446]$&benefit supported\\
+Selected minus Vanilla V1&DreamSim&0.000609&$[-0.002974,0.003841]$&uncertain\\
+Selected minus Vanilla V1&CLIP&0.000164&$[-0.002010,0.002200]$&uncertain\\
+Selected minus Vanilla V1&PSNR&0.1923&$[0.0703,0.3201]$&benefit supported\\
+Selected minus Vanilla V1&SSIM&0.001156&$[0.000538,0.001833]$&benefit supported\\
+Selected minus Vanilla V1&M-IoU&0.012041&$[0.005487,0.021451]$&benefit supported\\
+Selected minus Vanilla V1&CD&-0.0005139&$[-0.0014386,0.0000208]$&uncertain\\
+Selected minus Vanilla V1&F-Score&0.006059&$[-0.000676,0.013572]$&uncertain\\
+Selected minus Top-1 R&LPIPS&-0.000129&$[-0.000530,0.000291]$&uncertain\\
+Selected minus Top-1 R&DreamSim&0.000907&$[-0.001656,0.003761]$&uncertain\\
+Selected minus Top-1 R&CLIP&-0.000159&$[-0.002212,0.001829]$&uncertain\\
+Selected minus Top-1 R&PSNR&0.0317&$[-0.0653,0.1267]$&uncertain\\
+Selected minus Top-1 R&SSIM&0.000237&$[-0.000321,0.000673]$&uncertain\\
+Selected minus Top-1 R&M-IoU&0.002863&$[-0.000239,0.008191]$&uncertain\\
+Selected minus Top-1 R&CD&-0.0000233&$[-0.0001668,0.0000903]$&uncertain\\
+Selected minus Top-1 R&F-Score&-0.000226&$[-0.003362,0.002879]$&uncertain\\
+\bottomrule
+\end{tabular}
+\caption{All predeclared selected-versus-control primary comparisons, using the existing source-cluster-adjusted intervals. Source LPIPS/DreamSim/CLIP use9/10; target PSNR/SSIM/M-IoU use8; CD/F-Score use generated surfaces. Values are rounded for display; interpretation uses the original unrounded intervals and metric directions. An interval containing zero does not prove equivalence. FID/KID remain descriptive and are not included in this inferential family.}
+\label{tab:final-adjusted-contrasts}
+\end{table*}

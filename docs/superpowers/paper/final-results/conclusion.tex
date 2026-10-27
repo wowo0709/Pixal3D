@@ -1,0 +1,9 @@
+We evaluated semantic evidence retargeting within a frozen multi-view 3D
+editing pipeline, selecting SS for geometry and PBR for appearance before
+the held-out test. On TEST508, the selected composition improves vanilla
+fine-tuning on source LPIPS and target PSNR, SSIM, and mask IoU under the
+predeclared adjusted comparison. Surface geometry gains and an additional
+benefit over the Top-1 retargeting baseline remain uncertain. The resulting
+claim is a measured pipeline-level improvement on specified endpoints,
+while the separate necessity of matching, weighting, and ray-based
+aggregation remains an open empirical question.

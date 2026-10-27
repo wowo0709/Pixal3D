@@ -1,5 +1,11 @@
 # 남은 필수 실험·평가와 논문 작성 계획
 
+2026-10-27 최종 실행 갱신: 계획된 SS/PBR 개발 비교, 선택·protocol freeze,
+다섯 pipeline의 TEST508×5, 10metric·source-cluster 통계, 정성 그림 및
+결과 종속 논문 작성과 20쪽 PDF 조판을 완료했다. 마지막 PDF 시각 검수와 실제
+file4 최종 보존·전체 completion audit는 [최종 평가·논문 보고서](2026-10-27-final-TEST508-results-and-manuscript-ko.md)에 기록한다. 아래의 실행 중/대기
+표현은 각 기록 시점의 이력이다.
+
 2026-10-27 07:45 UTC 실제 진행: 동결된 TEST508×5 **2,540 case cascade가
 실제로 종료**됐고 campaign audit와 release의 actual file4 closure가 모두
 PASS다. 첫 metric 활성화 요청은 현재 campaign_root 필드 누락으로 metric

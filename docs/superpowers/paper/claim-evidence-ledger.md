@@ -1,5 +1,18 @@
 # 논문 claim과 필요한 근거
 
+2026-10-27 최종 TEST 판정: 동결된 508개 TEST 편집·134개 source cluster에
+대한 다섯 pipeline의 2,540개 cascade, 10개 metric, 원래 사전 선언한
+16-endpoint 보정 family 및 정성 그림이 완료됐다. 선택 모델−V1의 보정 95% 구간은
+source LPIPS −0.001044 [−0.001715,−0.000446], target PSNR +0.1923 dB
+[+0.0703,+0.3201], SSIM +0.001156 [+0.000538,+0.001833], mask IoU +0.012041
+[+0.005487,+0.021451]로 0을 제외한다. DreamSim·CLIP·CD·F-Score는 0을 포함한다.
+선택 모델−retargeting의 여덟 구간도 모두 0을 포함한다. FID/KID는 서술형
+점추정만 보고한다. 따라서 완성 pipeline의 V1 대비 특정 endpoint 개선은
+주장할 수 있지만 semantic matching·score·ray aggregation·retargeter 각자의
+필수성 또는 retargeting 대비 추가 우위는 주장하지 않는다. 아래의 "현재"와
+"미완료"는 이전 시점의 기록이다.
+[최종 수치·판정·한계](../reports/2026-10-27-final-TEST508-results-and-manuscript-ko.md).
+
 2026-10-27 07:45 UTC 현재: 동결된 다섯 TEST pipeline의508×5 실제 cascade,
 campaign audit·release 및 actual file4 SHA closure는 완료됐다. 첫 metric
 활성화 요청의 누락 필드를 보완한 별도 `v667` 요청에서 원래505개 수치 source를

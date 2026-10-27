@@ -1,0 +1,27 @@
+\begin{table*}[t]
+\centering\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrr}
+\toprule
+\multicolumn{5}{l}{A. Source appearance: full frame and common GT-defined crop}\\
+Model&DreamSim full$\downarrow$&DreamSim crop$\downarrow$&CLIP full$\uparrow$&CLIP crop$\uparrow$\\
+\midrule
+Zero-shot, source-only RGB4&0.153975&0.184780&0.943278&0.934490\\
+Zero-shot, edited target + source RGB3&0.154276&0.186046&0.942090&0.935730\\
+Vanilla V1&0.151460&0.184041&0.942854&0.937057\\
+Top-1 R&0.151162&0.183377&0.943177&0.936402\\
+Selected model&0.152069&0.183833&0.943018&0.935886\\
+\midrule
+\multicolumn{5}{l}{B. Pixel alignment: full frame and alpha-union foreground}\\
+Model&\shortstack{Source PSNR\\full$\uparrow$}&\shortstack{Source PSNR\\foreground$\uparrow$}&\shortstack{Target PSNR\\full$\uparrow$}&\shortstack{Target PSNR\\foreground$\uparrow$}\\
+\midrule
+Zero-shot, source-only RGB4&23.17341&11.74087&22.40621&10.94126\\
+Zero-shot, edited target + source RGB3&23.46619&11.90479&23.54157&11.78260\\
+Vanilla V1&23.62321&12.05047&23.83599&12.06429\\
+Top-1 R&23.70646&12.11024&23.99656&12.18422\\
+Selected model&23.71804&12.11966&24.02827&12.21706\\
+\bottomrule
+\end{tabular}
+\caption{Existing supplementary scores for the complete frozen TEST508 pipelines. Source means use cameras9/10; target means use camera8. Crops use the common GT-alpha bounding box with10\% padding. Foreground PSNR uses the union of predicted/GT alpha$>0.5$ and can have output-specific support. These descriptive composed-pipeline sensitivities do not isolate a PBR effect, change the primary family, or reselect a checkpoint.}
+\label{tab:final-foreground}
+\end{table*}
