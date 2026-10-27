@@ -152,3 +152,21 @@ case audit·원래505개 수치 source와 실행 중인 그룹은 보존했다. 
 `v636` coordinator와 작업자가 살아 있고 신규 602/1,155 case가 완료됐으며
 로컬 여유는 약147.1 GiB다. 이는 저장 공간 운영 조치이며 최종 품질 효과의
 근거가 아니다.
+
+2026-10-27 00:25–00:26 UTC 후속: `v660-bulk11`의 12개 완료 그룹/60개
+guide 계획은 실행 중 reader queue가 변해 **unlink 전에 중단**됐다.
+`retirement/audit.json`은
+`ABORTED_READER_QUEUE_CHANGED_BEFORE_ANY_GUIDE_UNLINK`이며 실제 삭제0개,
+60개 로컬 guide 전부 잔존, 실제 file4 receipt `PASS`/
+`local_equals_actual_file4_SHA256=true`를 확인했다. 같은 과학적 모델·수치
+source를 유지하고 새 계획 `actual-closed-current-guide-offload-v661-bulk12`로
+완료된 **13개 그룹/65개 guide**의 로컬 중복본 **2,586,383,109 bytes
+(2.4088 GiB)**를 정리했다. 실제 파일서버 정본 해시와 reader/열린 파일을
+검사했고, guide 없이도 원래 scored RGB·GT·alpha archive **195개**가
+observation과 정확히 같았다. 최종 audit은
+`PASS_ACTUAL_CLOSED_CURRENT_GUIDE_DUPLICATES_OFFLOADED`, 실제 file4 receipt는
+`PASS`/`local_equals_actual_file4_SHA256=true`다. 원격 정본 guide·scored
+image·case audit·원래505개 수치 source와 실행 중인 그룹은 보존했다. 이때
+`v636` 신규 668/1,155 case가 완료됐고 같은 coordinator가 살아 있으며
+로컬 여유는 약147.2 GiB였다. 이는 운영 공간 확보이며 품질 효과의
+근거가 아니다.
