@@ -402,3 +402,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 실시간 두 arm 동일 사례 보관은 **247/508**, V1 단독은 **251/508**로 증가했다. 현재 완료 index는 0–99 전부, 100–199 중 73, 400–449 중 18, 450–507 전부이며 **350–399는 0건**이다. 따라서 primary와 GPU6/7의 다음 disjoint 구간 사이에 충분한 간격이 있다.
 - 외부 evaluator는 4/7 결과를 냈고 PID2492093의 실제 읽기 바이트가 **113.0 GB**로 증가했다. 공식 export bridge는 외부 completion 대기 중이다. 현재 GPU6/7 tail 관리자가 index **401/400**까지 정상 완료했는데도 공식 export가 준비되지 않으면, index **399/398부터 350까지** 이어서 처리하는 [연속 구간 관리자](../../../experiments/deformnext_retargeting/orchestrate_disjoint_tail_extension.py)를 대기 세션 **82248**로 연결했다. 선행 영수증의 연속 index와 두 GPU parity를 검사하고, 공식 export 또는 전체 cascade가 먼저 닫히면 새 작업을 건너뛴다.
 - tail 관리자의 후속 버전은 render mesh 예외로 종료될 때 공식 export가 아직 준비되지 않았다면 공식 렌더 watcher를 성급히 재개하지 않도록 수정했다. 현재 실행 중인 v3 프로세스에는 이 변경이 소급 적용되지 않으므로 현행 실시간 감시도 유지한다. 새 연속 관리자 코드의 compile·영수증 연속성 smoke와 whitespace 검사를 통과했다.
+
+## 08:47 KST 부분 생성 결과와 논문 gate 점검
+
+- 실제 shape/PBR SHA 보관이 끝난 동일 **254사례 쌍**의 generation 기록을 다시 읽었다. V1·Selected는 모든 쌍에서 같은 image-only scale을 사용했고, M1 유래 scale·source M0 mesh·GT geometry를 생성에 쓰지 않았다는 각 생성 영수증도 254쌍 전부 통과했다. Source-M0 정합 전 raw surface에서 Selected−V1 F@0.02 평균은 **+0.003426**, CD(L1) 평균은 **−0.0002255**이고, 개선 사례는 각각 **144/254**, **139/254**다. 완료 사례는 index 0–199의 177건과 400–507의 77건에 몰려 있어 비무작위 부분집합이다. 이 수치는 최종 공통 성공 집합·source-M0 정합·Cycles 렌더·source-cluster CI를 반영하지 않으므로 논문 결과나 모델 선정 근거로 사용하지 않는다.
+- 최종 원고 빌더 `build_fair_manuscript.py`의 필수 입력을 확인했다. 공통 10방법·10지표 표, V1/Selected 8지표 paired CI, 공식 RGB1 대비 16개 보정 대조, 최종 공통 manifest, 공정 teaser의 실제 렌더 SHA와 캡션이 모두 있어야 PDF를 조판한다. 기존 M1-derived-scale 표와 그림을 새 주 비교 수치로 잘못 승격하지 않는 gate다. 아직 이 입력들이 닫히지 않았으므로 최종 PDF는 생성하지 않는다.
+- live watcher는 GPU6/7 tail v3와 뒤따를 v4의 관리자·대기 프로세스를 함께 표시하고, node16 상태 질의의 일시적인 20초 지연을 작업 종료로 오인하지 않도록 질의 제한을 40초로 늘렸다. 한 차례 시간초과 직후 같은 node16 PID2492093/bridge PID1552286을 다시 확인했고, 재질의에서는 정상 응답과 증가한 실제 읽기 바이트를 받았다.
