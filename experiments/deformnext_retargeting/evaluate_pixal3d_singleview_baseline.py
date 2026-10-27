@@ -1,7 +1,7 @@
-"""Run the original Pixal3D single-view stack on edited target RGB only.
+"""Run original Pixal3D single-view weights in our calibrated 1024-cascade stack.
 
 The input and RNG come from the completed frozen TEST508 four-view campaign.
-Only camera 8 is passed to the official pretrained stage models. Ground-truth
+Only camera 8 is passed to the pretrained stage models. Ground-truth
 geometry is loaded after generation solely for the same CD/F-Score protocol.
 """
 from __future__ import annotations

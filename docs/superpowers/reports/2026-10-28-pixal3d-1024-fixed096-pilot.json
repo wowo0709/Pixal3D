@@ -1,0 +1,26 @@
+{
+  "status": "PASS_PIXAL3D_CAMERA_RESOLUTION_FEASIBILITY",
+  "sample_id": "shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08",
+  "target_rgb": "/file4/youngwoo/deformation/exports/pixal3d-approved-unified-auto-3db9a99e456039c706d8/train/render_cond/shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08/view00.png",
+  "target_rgb_sha256": "468c71a371e68217b978bf783d1bbfa92835e4aaa2f9beadefde4087dd0764f5",
+  "camera_params": {
+    "camera_angle_x": 1.0471975511965976,
+    "distance": 1.8,
+    "mesh_scale": 0.96
+  },
+  "camera_source": "provided camera from frozen manifest; explicit GT-free mesh scale",
+  "camera_mode": "given",
+  "given_mesh_scale_provenance": "explicit GT-free input",
+  "same_official_weights_sampler_seed_preprocessing": true,
+  "changed_from_node16_official_ungiven": [
+    "camera_params",
+    "cascade_resolution_and_token_cap"
+  ],
+  "actual_resolution": 1024,
+  "vertices": 4875038,
+  "faces": 10177070,
+  "elapsed_seconds": 135.20221939899784,
+  "raw_surface": "/home/youngwoo/retargeting-unified-test508/clean-scale-pilot/pixal3d-1024-given-fixed096-shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08.npz",
+  "raw_surface_sha256": "b557b2cdf6e6bd538d7c982c1b1e7c1ab2873a1263d656c3f1e920ad42da4126",
+  "metrics_computed": false
+}

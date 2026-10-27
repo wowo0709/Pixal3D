@@ -1,0 +1,87 @@
+% Protocol frozen before the camera-calibrated, scale-unprovided TEST evaluation.
+% Result-dependent claims and tables are guarded separately in results.tex.
+\subsection{Unified benchmark protocol}
+\paragraph{Inputs and camera calibration.}
+The task provides an edited target RGB view and three RGB views of the
+undeformed source object, together with their camera poses, horizontal fields
+of view, and acquisition distances. We do not provide an object-specific
+scale computed from either the source or the edited target mesh to a
+generator. The official single-view Pixal3D control receives only the edited
+target RGB and its camera calibration; its projective pipeline uses the native
+unit-scale default when the scale argument is absent. Our frozen V1 and
+selected multi-view methods use the same image-only scale estimator, trained
+on the training split from RGB/A and camera inputs. We report the actual
+inputs used by each external method; methods without a calibrated-camera
+interface retain their native inference path.
+
+\paragraph{Common population and outputs.}
+We evaluate the frozen TEST508 split, report each method's success count out
+of 508, and compute cross-method ranking only on the intersection of
+successful cases. The new official RGB1 control and our two multi-view
+methods use a 1024 cascade, whereas the previously frozen external Pixal3D
+baseline uses its native 1536 cascade and estimated cameras. Each retains its
+frozen stage sampling settings, which are reported. We do not force other methods to have the same
+triangle count: all raw meshes are sampled with the common 20,000-point
+surface protocol and rendered at 512 pixels using the same Blender/Cycles
+scene, materials, and camera records. For the official single-view Pixal3D
+control and our two multi-view methods, we bake a 2048-pixel texture on a
+render-only mesh with a preferred budget of 250,000 faces. If native mesh
+cleanup or fast simplification fails, or the baked mesh exceeds
+0.01 world units of 99th-percentile nearest-neighbor discrepancy from the
+untouched output, we retry at 500,000 and then one million faces;
+exceptionally complex meshes may then use two or five million faces under the
+same acceptance rule. We record the
+actual budget per example. The untouched 1024
+output is always used for geometric metrics; this bake does not alter the
+generation cascade. At budgets of one million faces or higher, we pre-simplify with
+\texttt{fast-simplification} 0.2.0 and preserve that render mesh's topology
+during PBR baking; the same rule is used for the official and multi-view
+Pixal3D controls. Every baked mesh must pass the same 0.01 world-unit check.
+Other methods retain their native textured exports under
+the common renderer's one-million-face render-only cap. The official
+single-view Pixal3D and
+the edited-target multi-view pipelines are labeled separately because their
+image inputs differ.
+
+\paragraph{Metrics and optional source-mesh registration.}
+Source preservation uses LPIPS, DreamSim, and CLIP cosine on cameras 9 and 10.
+Global naturalness uses FID and KID on the same common-success image pool.
+Target alignment uses PSNR, SSIM, and foreground mask IoU at camera 8, plus
+symmetric unsquared Chamfer distance and F-score at threshold 0.02 on the
+surface samples. The surface frame is normalized by the input source object's
+center and extent, with no per-output alignment in the raw results. A second,
+paired condition applies a similarity transform fitted by trimmed symmetric ICP
+to the available undeformed source mesh \emph{after} generation. Registration
+never uses the edited target mesh, depth, mask, or rendering, and the aligned
+textured outputs are rerendered before image metrics are recomputed. The
+source-aligned condition forms the main comparison; paired raw results show
+the effect of registration separately for target-camera PSNR, SSIM, and mask
+IoU on the exact same success subset. We mark the extra source-mesh input
+explicitly. Confidence intervals resample source clusters, retaining all
+edited examples from a sampled source together. Neither TEST labels nor TEST
+metrics choose a scale estimator, model checkpoint, or ICP hyperparameter.
+
+% Development evidence only; do not treat the small native-render PBR panel as
+% the final common Cycles evaluation or promote old M1-scale tables here.
+% Evidence: docs/superpowers/reports/2026-10-28-scale-ungiven-VAL31-PBR8-paired.json
+\paragraph{Scale-unprovided development gate.}
+We first hold the image-only scale estimator and the downstream Shape512,
+Shape1024, and vanilla PBR weights fixed while changing only the SS stage.
+On 31 source-disjoint validation edits, the V1, Retarget, and Selected
+variants obtain CD $0.012610/0.012435/0.012367$ and F@0.02
+$0.848527/0.850373/0.853088$, respectively. The paired F-score changes
+relative to V1 are $+0.001846$ and $+0.004561$; source-cluster bootstrap
+95\% intervals are $[-0.007848,+0.011855]$ and
+$[-0.005920,+0.016321]$. The intervals include zero, so this panel does not
+establish a geometric gain from either module. Its SS occupancy macro-IoU
+is $0.443674/0.444928/0.442446$; stage occupancy and decoded mesh quality
+are reported separately.
+
+For appearance isolation, we use the same eight image-scale V1 meshes,
+initial PBR noise, and native render references for vanilla and Top-1 R PBR.
+Their source-camera LPIPS is $0.070836/0.070935$, and target-camera PSNR is
+$24.5466/24.5072$ dB. The paired Top-1-minus-vanilla LPIPS and PSNR
+intervals are $[-0.000208,+0.000480]$ and $[-0.1018,+0.0174]$ dB.
+This small native-render panel does not establish appearance improvement;
+the final Blender/Cycles comparison and source-M0 postprocessing remain
+separate evaluations.

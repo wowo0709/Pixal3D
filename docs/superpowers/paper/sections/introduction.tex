@@ -16,6 +16,14 @@ have a trained numerical scale.
 Figure~\ref{fig:teaser} illustrates the distinct target and source evidence
 and the evaluated view roles.
 
+For paired supervision, we construct DeformNeXt-10k using donor-guided
+GeoStyle deformation with source assembly constraints and final-pair
+screening. The dataset retains exact canonical mesh correspondence while
+providing 10,165 accepted edits from 3,483 source assets, rather than one
+fixed edit per object. Section~\ref{sec:data-construction} describes the
+construction, split boundary, and limitations of its shortened production
+optimization budget.
+
 We study source adaptation within that native function. Voxels projecting to
 the same source-camera patch share one evidence decision. A frozen matcher
 constructs semantic proposals from the observed target members of that ray;

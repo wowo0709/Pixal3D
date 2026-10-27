@@ -2,11 +2,14 @@
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{final-results/figures/paper-overall.pdf}
-\caption{Stage-level overview. The edited target follows the native Pixal3D
-conditioning path. Semantic evidence from undeformed source views corrects
-the SS geometry carrier; Shape512/1024 are frozen. PBR uses a separately
-selected Top-1 source retargeter for appearance. Figures~\ref{fig:matching}
-and~\ref{fig:retargeting} explain the correspondence and source correction.}
+\caption{Stage-level overview with archived input images from one edit; all
+four thumbnails use one shared display crop. The edited target retains its
+native Pixal3D conditioning route. Omega and D1 score semantic source
+proposals, and grid sites intersected by a source-camera ray share one
+posterior. Its source correction enters SS64; Shape512/1024 remain frozen,
+while PBR1024 has a separately selected Top-1 source adapter. The ray volume
+is schematic; Figures~\ref{fig:matching} and~\ref{fig:retargeting} detail
+matching and correction.}
 \label{fig:selected-pipeline}
 \end{figure*}
 
@@ -29,10 +32,12 @@ surface-visibility write mask at inference.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{final-results/figures/paper-matching.pdf}
-\caption{Frozen semantic correspondence. Omega descriptors generate source
-proposals and the D1 decoder scores them. Distinct observed target patches
-sharing a source-camera ray vote into one Top-K posterior. Matching keys are
-separate from the native source values used for generation.}
+\caption{Frozen semantic correspondence. The archived target/source RGB
+images provide visual context; colored patch markers and matrix weights
+illustrate the mechanism and are not measured correspondences. Omega
+descriptors generate source proposals and D1 scores them. Distinct observed
+target patches sharing a source-camera ray vote into one Top-K posterior.
+Matching keys remain separate from native generation values.}
 \label{fig:matching}
 \end{figure}
 Each observed target patch $m$ retrieves 64 semantic proposals across the
@@ -73,11 +78,11 @@ fallback detects missing support, not every confident mismatch.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{final-results/figures/paper-retargeting.pdf}
-\caption{One source-camera ray shares its posterior across intersected grid
-sites. The selected SS path weights native source values, forms a bounded
-source-contrast correction, and adds that correction to the native MV4
-carrier. The target contribution and global tokens remain in the carrier;
-unsupported rays retain the native source path.}
+\caption{One source-camera ray shares its posterior across intersected SS
+grid sites. The selected path weights native source values, forms a bounded
+source-contrast correction, and adds it to the native MV4 carrier. The
+target and global contributions remain in the carrier; unsupported rays
+retain the native source path. Bars and grid are schematic.}
 \label{fig:retargeting}
 \end{figure}
 The selected SS stage aggregates untransformed native values,

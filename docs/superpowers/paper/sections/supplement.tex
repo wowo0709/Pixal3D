@@ -2,6 +2,13 @@
 This Supplement retains complete development studies and their limits. It
 does not reinterpret exploratory results as held-out confirmation.
 
+\input{sections/data-construction-details.tex}
+
+\IfFileExists{final-results/scale-ungiven-official-contrasts.tex}{%
+\subsection{Unified benchmark paired contrasts}
+\input{final-results/scale-ungiven-official-contrasts.tex}
+}{}
+
 \subsection{Architecture, matcher and training details}
 D1 has one query-only cross-attention block with four heads of width 32 and
 a 128-dimensional feed-forward bottleneck. Candidate descriptors are unchanged.

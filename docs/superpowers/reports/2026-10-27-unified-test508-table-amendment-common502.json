@@ -1,0 +1,22 @@
+{
+  "schema": "deformnext-unified-test508-table-amendment-v1",
+  "amends": "2026-10-27-unified-test508-table-contract.json",
+  "reason": "User requested FID/KID for incomplete MVAdapter and CorrAdapter from the common success population; apply the same population to every metric to keep denominators aligned.",
+  "timing": "Frozen before any full-population ours common-renderer score was available; external full-score files existed, but no external method or endpoint was selected based on common-subset values.",
+  "common_success_population": {
+    "source": "node16 seven external TEST508 feature caches; all six ours prediction manifests contain all TEST508 samples",
+    "deformations": 502,
+    "source_clusters": 133,
+    "source_view_images": 1004,
+    "frozen_sample_list": "/home/youngwoo/retargeting-unified-test508/common-success-502.json"
+  },
+  "primary_table": {
+    "rows": 13,
+    "success_column_denominator": 508,
+    "all_metric_column_population": "same 502 deformations for all methods",
+    "FID_KID_population": "same 1004 camera9/10 images for all methods",
+    "metrics": ["LPIPS", "DreamSim", "CLIP", "FID", "KID", "PSNR", "SSIM", "M_IoU", "CD", "FScore"]
+  },
+  "secondary_reporting": "Retain full available-population means and failure lists separately; do not mix them into primary common-502 columns.",
+  "claim_scope": "Descriptive protocol-revision comparison on previously inspected TEST508. Success-conditional common-subset results may favor or penalize methods with failures; disclose success counts."
+}

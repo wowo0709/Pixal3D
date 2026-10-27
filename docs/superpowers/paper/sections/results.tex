@@ -1,17 +1,31 @@
 \section{Results}
-\subsection{Frozen held-out comparison}
+\subsection{Unified scale-unprovided comparison}
+\IfFileExists{final-results/scale-ungiven-main-table.tex}{%
+\input{final-results/scale-ungiven-main-table.tex}
+\input{final-results/scale-ungiven-target8-registration.tex}
+\IfFileExists{final-results/unified-results.tex}{%
+\input{final-results/unified-results.tex}
+}{}
+}{%
+The frozen V1 and selected pipelines are being evaluated alongside official
+Pixal3D and seven external methods on the common-success TEST508 population.
+The camera-calibrated, object-scale-unprovided comparison and paired
+source-M0 registration scores will be reported here after all predictions,
+common renders, and ten metrics close. No internal oracle-scale score is used
+as a substitute for a missing unified result.
+}
+
+\subsection{Internal oracle-scale held-out comparison}
 \ifFinalReportReady
 \input{final-results/main-table.tex}
 \input{final-results/results.tex}
 \else
-The five-model TEST508 cascade and ten-metric evaluation are in progress.
-The final Main table will be imported from the closed source-bound collector;
-development means are not substituted into it. The comparison separates the
-information supplied by an edited target from the effect of fine-tuning and
-retargeting. Its geometric and appearance findings remain unasserted here.
+The previously completed M1-derived-scale TEST508 comparison is retained as
+an internal diagnostic. It is evaluated with a different scale input,
+renderer, and image-distribution pool from the unified comparison above.
 \fi
 
-\subsection{Geometric component comparisons}
+\subsection{Development geometry ablations}
 \input{typeset/final-ablation-template.tex}
 All seven SS designs have completed 480 updates, DEV128 three-noise
 diagnostics, and actual surface evaluation under common downstream models.
@@ -30,7 +44,7 @@ module substitution, Top-1 versus weighted Top-K bundles candidate count
 and aggregation, and scalar matching can change support. Uniform on the
 same support is the separate weighting control.
 
-\subsection{Appearance on identical selected geometry}
+\subsection{Development appearance on identical geometry}
 \input{typeset/dev-selected-pbr-appearance32.tex}
 The four PBR variants share actual generated Fixed geometry, native guides,
 texture noise, triangles and references. Top-1 R has the lowest source
@@ -44,7 +58,7 @@ Identical CD/F-Score confirm geometry equality, not a PBR geometry gain.
 The feature/Raw arms retain a Top-1 carrier/use path and do not establish the
 effect of a shared Fixed PBR pathway.
 
-\subsection{Retrieval evidence and generated quality}
+\subsection{Development retrieval and evidence use}
 Decoder matching improves exact rank-one coverage from 1.25\% to 7.73\%
 in the separate DEV32 diagnostic. Member proposals raise exact@64 coverage
 from 50.76\% to 73.36\%. Native evidence-use analysis finds 31,408 observable
@@ -55,7 +69,7 @@ ray-versus-voxel and member-versus-mean studies do not establish positive
 quality effects; their scope differs from the selected identity-value path.
 Full diagnostics and the actual annotated example are in the Supplement.
 
-\subsection{Prespecified qualitative comparison}
+\subsection{Internal oracle-scale qualitative comparison}
 \ifFinalReportReady
 \input{final-results/qualitative-main.tex}
 \else

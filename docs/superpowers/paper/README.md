@@ -1,5 +1,37 @@
 # 논문 초안과 결과 표
 
+> **2026-10-28 평가 계약 감사:** 아래의 기존 TEST508 숫자와 PDF는 target M1 geometry에서 계산한 사례별 `mesh_scale`을 생성 입력으로 사용한 조건의 기록이다. 카메라만 제공되는 clean 주 베이스라인 표로 인용하지 않는다. 정본 후속 계획은 [카메라 제공·GT-free scale 계획](../reports/2026-10-28-camera-given-main-and-scale-audit-ko.md)이며, 기존 6행의 노드16 공통 재평가는 진단으로 계속 진행한다.
+
+새 공통평가의 [본문 프로토콜](sections/unified-evaluation-protocol-draft.tex)은
+`sections/experiments.tex`에 연결했다. [Results](sections/results.tex)는
+scale 미제공 공통 표와 raw/+source-M0 보조 표를 맨 앞에 두고, 기존
+M1-derived-scale TEST 표를 내부 진단으로 분리한다. TEST508의 Ours·공식
+Pixal3D, 공통 성공 집합, 전체 10개 metric이 닫히기 전에는 기존
+`final-results/main-table.tex`와 2026-10-27 PDF를 논문 주 결과로 사용하지
+않는다. 초록·결론의 새 cross-method 문장은 최종 표 이후에 작성한다.
+2026-10-28 06:46 KST source preview는 25쪽으로 조판됐으며 최종본이 아니다.
+최종 공정 teaser를 반영할 때는 `paper-teaser.pdf`, `paper-teaser.png`,
+`paper-teaser-provenance.json`, `paper-teaser-caption.tex`를 같은 생성
+디렉터리에서 함께 `final-results/figures/`로 옮긴다. 최종 조판기는 공통 N,
+렌더 SHA, 캡션을 검사하고 이전 M1-scale 내부 캡션의 혼입을 거부한다.
+최종 조판은 Selected–V1의 8지표 paired 구간 외에도 official RGB1 대비
+V1·Selected의 두 대조×8지표 source-cluster 보정 구간을 요구하고,
+그 평균을 주 표의 같은 셀과 다시 대조한다. 두 모델의 입력 가용성
+(`T1+C` 대 `T1+S3+C`)은 주 표와 해석에 함께 명시한다.
+
+2026-10-27 데이터 구축 과정 반영: 본문 `4.1 DeformNeXt-10k construction`과
+Supplement `A.1`에 GeoStyle/PartNeXt 기반 생성·선별·분할 절차를 추가했다.
+800-step donor LoRA, 300-iteration 생산용 deformation, 선택적 120-iteration
+balanced JN-L과 3,600-iteration 공식 설정 대비 검증 한계를 명시한다.
+제공된 21쪽 PDF를 보존하고, 기존 TEST 수치를 유지한 24쪽 수정본으로
+[`2026-10-27-retargeting-final-manuscript.pdf`](../reports/2026-10-27-retargeting-final-manuscript.pdf)를 갱신했다.
+기존 large-edit 선정에서 네 category의 원본 이미지 16개를 hash 검증한
+Figure 5를 추가했으며 신규 모델 학습이나 3D 렌더는 없다.
+[수정 내용·검수·원본 보존](../reports/2026-10-27-deformnext-data-construction-manuscript-ko.md).
+재빌드 가능한 source/typeset/figure 묶음은
+`/root/dev/pixal3d-inspection/manuscript-geostyle-data-20261027/source`에 있다.
+아래 20쪽 최종 원고와 그 이전 preview 기록은 해당 시점의 이력이다.
+
 2026-10-27 최종 TEST 갱신: 동결된 다섯 pipeline의 TEST508×5 cascade,
 10개 metric, source-cluster 보정 구간, Main 표·정성 그림과 W&B readback이
 완료됐다. `final-results/`에 실제 TEST 수치와 결과 종속 서술을 넣었으며

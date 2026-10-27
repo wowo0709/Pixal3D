@@ -1,0 +1,21 @@
+{
+  "status": "PASS_ONE_CASE_PIXAL3D_CAMERA_SURFACE_DIAGNOSTIC",
+  "sample_id": "shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08",
+  "surface_samples": 20000,
+  "surface_seed": 3627773379,
+  "no_GT_alignment_or_scale_fit": true,
+  "same_official_fixed_export_transform": true,
+  "metrics": {
+    "official_ungiven": {
+      "CD": 0.0969812351641039,
+      "CD_squared_L2": 0.01630612490504403,
+      "FScore": 0.16320136015868517
+    },
+    "official_given": {
+      "CD": 0.09931998880283747,
+      "CD_squared_L2": 0.017074551424816883,
+      "FScore": 0.16519362549800798
+    }
+  },
+  "representative_or_paper_score": false
+}

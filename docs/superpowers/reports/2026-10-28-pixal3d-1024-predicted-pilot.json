@@ -1,0 +1,24 @@
+{
+  "status": "PASS_PIXAL3D_CAMERA_RESOLUTION_FEASIBILITY",
+  "sample_id": "shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08",
+  "target_rgb": "/file4/youngwoo/deformation/exports/pixal3d-approved-unified-auto-3db9a99e456039c706d8/train/render_cond/shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08/view00.png",
+  "target_rgb_sha256": "468c71a371e68217b978bf783d1bbfa92835e4aaa2f9beadefde4087dd0764f5",
+  "camera_params": {
+    "camera_angle_x": 0.7470687549817626,
+    "distance": 1.2757222652435303,
+    "mesh_scale": 1.0
+  },
+  "camera_source": "/home/seunghyun/editing_reproduction/outputs/deformnext-baselines/2026-10-24-frozen-test/runs/shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08__pixal3d__seed0/01_generation/run_meta.json",
+  "camera_mode": "predicted",
+  "same_official_weights_sampler_seed_preprocessing": true,
+  "changed_from_node16_official_ungiven": [
+    "cascade_resolution_and_token_cap"
+  ],
+  "actual_resolution": 1024,
+  "vertices": 4154431,
+  "faces": 8835492,
+  "elapsed_seconds": 115.1861106090073,
+  "raw_surface": "/home/youngwoo/retargeting-unified-test508/camera-factorial-pilot/pixal3d-1024-predicted-shard001_47685d2bec8d49b2a61c18b6d735642a_d2_fast300fpssupplyv1_PA_target08.npz",
+  "raw_surface_sha256": "d834b3e04ac3086c13e55244301cc7e5689ef207fb5ba232ffcdd23f9d9ac960",
+  "metrics_computed": false
+}

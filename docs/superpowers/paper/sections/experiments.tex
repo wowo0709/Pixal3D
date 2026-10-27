@@ -1,7 +1,10 @@
 \section{Experimental setup}
+\input{sections/data-construction.tex}
+
+\subsection{Training and internal oracle-scale evaluation}
 \paragraph{Data and initialization.}
-DeformNeXt-10k supplies 9,149 SS training, 508 validation, and 508 test
-examples. PBR training excludes ten recorded oversized training examples,
+We use the frozen splits in Table~\ref{tab:deformnext-splits}.
+PBR training excludes ten recorded oversized training examples,
 using 9,139; no test asset is excluded by that training limit. Source UID and
 source-asset clusters are disjoint across these deformation splits. Overlap
 with earlier multi-view pretraining is not established. The earlier mixed385
@@ -35,7 +38,7 @@ prefix32, and the final batch of four. Actual weight/config/cache bindings
 and the complete evaluation protocol are frozen before TEST inference.
 
 \paragraph{Comparators and generation.}
-The frozen inferential TEST comparison contains five physical pipelines: original
+The earlier internal oracle-scale TEST comparison contains five physical pipelines: original
 source-only RGB4; original edited-target RGB1+source RGB3; vanilla V1;
 Top-1 R; and selected Fixed SS+Top-1 R PBR. Source-only includes the original
 M0 view at target camera8, not just three sources. Edited inputs are M1 RGB
@@ -47,12 +50,14 @@ noise map. Native downstream sampling configurations are retained.
 Table~\ref{tab:final-main} also includes a post-hoc descriptive input
 reference: the original Pixal3D single-view SS, Shape512, Shape1024, and PBR
 denoiser checkpoints, with the project's calibrated projective DINO
-conditioner, receive only the edited M1 target RGB at camera 8. It uses the
-same 508 TEST examples, per-asset seeds, input-camera scoring views, and
-original-material M1 references. The original single-view pipeline retains
-its native 12-step sampler and guidance, including SS guidance 7.5. It has no
-multi-view or deformation fine-tuning. It was evaluated after the five-model
-freeze, so it is not included in the adjusted comparison family.
+conditioner, receive only the edited M1 target RGB at camera 8. This is a
+project-specific 1024-cascade evaluation, not the official Pixal3D inference
+stack. It uses the same 508 TEST examples, per-asset seeds, scoring cameras,
+native renderer, and original-material M1 references as the five-model
+comparison. The pretrained single-view weights retain their 12-step sampler
+defaults, including SS guidance 7.5. There is no multi-view or deformation
+fine-tuning. It was evaluated after the five-model freeze, so it is not
+included in the adjusted comparison family.
 
 \paragraph{Metrics and references.}
 Source LPIPS~\cite{zhang2018lpips}, DreamSim~\cite{fu2023dreamsim}, and separate
@@ -70,7 +75,13 @@ per model/reference, cameras 8--10, official Inception 2048 FP32 features,
 and torch-fidelity 0.3.0 float64 reductions. KID uses 100 subsets of 1,000 and
 seed 42017, retaining signed raw values. Distribution differences are
 descriptive; subset variability is not a source-cluster interval. These are
-input-camera evaluations, not evidence of novel-view performance.
+camera-8/9/10 evaluations, not evidence of general novel-view performance.
+The RGB1 reference sees only camera 8, so cameras 9/10 are held out for that
+row; the four-view pipelines receive all three scoring cameras as inputs.
+This internal table uses the project's native mesh renderer and
+black-background image compositing. Its scores are not directly comparable
+to the unified Blender/Cycles benchmark below; in particular, the
+object-specific M1-derived scale is available at generation only here.
 
 GT raster quality control uses one-pixel edge tolerance and a uniform
 whole-pixel rounding of its 1\% allowance. The post-TEST correction and
@@ -87,3 +98,5 @@ The selected TEST model versus V1/R uses 4,000 draws with seed 20261022,
 eight pairwise endpoints and a 16-comparison family across 134 sources.
 Intervals condition on frozen checkpoints and generation, not a population
 of training seeds. A zero-containing interval does not prove equivalence.
+
+\input{sections/unified-evaluation-protocol-draft.tex}

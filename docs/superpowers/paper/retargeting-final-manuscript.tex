@@ -14,12 +14,12 @@
 \begin{document}
 \raggedbottom
 \maketitle
-\ifFinalReportReady\else
-\noindent\textbf{Evaluation-in-progress preview.} The architecture and evaluation
-protocol are frozen. Development tables below contain actual measurements;
-the final TEST508 table, qualitative panels, and result-dependent writing
-remain pending. This preview is not a completed paper.
-\fi
+\IfFileExists{final-results/unified-abstract-findings.tex}{}{%
+\noindent\textbf{Unified evaluation in progress.} The completed
+M1-derived-scale internal TEST study is reported separately below. The
+scale-unprovided common-success comparison and its result-dependent claims
+remain pending; this is not a completed manuscript.
+}
 
 \begin{abstract}
 An edited image and undeformed source views describe different geometric
@@ -35,19 +35,23 @@ and fixed-geometry appearance comparisons, preserving the pretrained function
 at initialization. The evaluation separates source appearance, target
 alignment, and global image-distribution endpoints, with source-cluster
 uncertainty and a development-only model freeze.
-\ifFinalReportReady
-\input{final-results/abstract-findings.tex}
-\else
-The completed development studies motivate this stage-specific composition;
-the frozen held-out comparison is still running and its findings are not
-asserted here.
-\fi
+\IfFileExists{final-results/unified-abstract-findings.tex}{%
+\input{final-results/unified-abstract-findings.tex}
+}{%
+The completed internal oracle-scale study motivates this stage-specific
+composition. The common-success scale-unprovided comparison is still
+running, so no cross-method quality gain is asserted here.
+}
 \end{abstract}
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{final-results/figures/paper-teaser.pdf}
-\caption{Cross-geometry editing from one edited target RGB view and three undeformed source RGB views. The lower rows compare scored TEST renders at the target camera and one source camera with the common original-material M1 reference. This is the predeclared conditional joint-improvement example, shown to explain the task rather than estimate a population success rate. All compared renders use the archived full-frame pixels and identical cameras.}
+\IfFileExists{final-results/figures/paper-teaser-caption.tex}{%
+\input{final-results/figures/paper-teaser-caption.tex}
+}{%
+\caption{Cross-geometry editing from one edited target RGB view and three undeformed source RGB views. The lower rows compare scored \emph{internal oracle-scale} TEST renders at the target camera and one source camera with the common original-material M1 reference. This is the predeclared conditional joint-improvement example, shown to explain the task rather than estimate a population success rate. All compared renders use the archived full-frame pixels and identical cameras.}
+}
 \label{fig:teaser}
 \end{figure*}
 
@@ -59,16 +63,16 @@ asserted here.
 \input{sections/discussion.tex}
 
 \section{Conclusion}
-\ifFinalReportReady
-\input{final-results/conclusion.tex}
-\else
+\IfFileExists{final-results/unified-conclusion.tex}{%
+\input{final-results/unified-conclusion.tex}
+}{%
 We formulate semantic feature retargeting as source adaptation within a
 pretrained multi-view carrier and distinguish the geometric and appearance
 objectives of its stages. The completed development ablations provide
 conditional evidence and unresolved component-level uncertainty; they do not
 establish that every matching or attention component is necessary. The final
-conclusion will follow the complete frozen TEST508 comparison.
-\fi
+cross-method conclusion will follow the scale-unprovided TEST508 comparison.
+}
 
 \clearpage
 \bibliographystyle{plain}

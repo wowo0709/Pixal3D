@@ -1,5 +1,26 @@
 # 논문 claim과 필요한 근거
 
+2026-10-28 08:14 KST 공정 주 비교 진행: 공식 Pixal3D RGB1의 원본 표면 및
+render-only mesh는 공통 성공 **501/501**사례에서 완료됐고, 후자의 원본 표면 대비
+q99 world-frame 오차 최대 **0.0099208**은 사전 한도 0.01 이하다. 외부 7법의
+동일 공통 평가 learned 결과는 **3/7**, Ours V1/Selected의 file4 SHA 보관은
+**209/508**/**205/508**이다. 이 숫자는 산출물 진행률과 렌더 근사 검사이지
+모델 품질이 아니다. 최종 공통 N의 10지표·paired CI·teaser 및 결과 종속
+Abstract/Results/Discussion/Conclusion은 아직 없으므로 기존 M1-derived-scale
+우위를 공정 주 비교나 새 논문 결론으로 옮기지 않는다.
+[실시간 진행표](../reports/2026-10-28-scale-ungiven-live.md).
+
+2026-10-28 평가 조건 정정: 아래 2026-10-27의 “최종 TEST” 판정은 다섯 내부
+pipeline에 **target M1 geometry에서 유래한 객체별 scale이 생성 입력으로 제공된**
+조건의 held-out 결과다. 그 조건 안에서의 V1 대비 유의한 endpoint와 모듈 한계는
+유효하지만, scale 미제공 외부 baseline과의 공정한 주 비교 근거로 사용하지 않는다.
+새 주 비교는 기존 checkpoint를 고정한 V1/Selected 두 행과 공식 Pixal3D RGB1을
+camera-given·GT 객체 scale 미제공·1024로 생성하고, 외부 7법과 동일 성공
+교집합·공통 evaluator에서 raw/+source-M0를 채점한다. 현재 그 결과는 대기 중이다.
+VAL31의 Selected/Retarget F@0.02 차이 CI는 0을 포함하므로 새 조건에서의
+geometry·appearance 개선 claim은 TEST 측정 전까지 보류한다.
+[최소 재평가 계획](../reports/2026-10-28-minimal-no-retrain-completion-plan-ko.md).
+
 2026-10-27 최종 TEST 판정: 동결된 508개 TEST 편집·134개 source cluster에
 대한 다섯 pipeline의 2,540개 cascade, 10개 metric, 원래 사전 선언한
 16-endpoint 보정 family 및 정성 그림이 완료됐다. 선택 모델−V1의 보정 95% 구간은

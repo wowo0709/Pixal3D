@@ -1,0 +1,104 @@
+{
+  "status": "PASS_PAIRED_VAL_SUMMARY",
+  "protocol": "camera given, object-specific GT scale absent, image-only frozen scale head",
+  "source_disjoint_cases": 31,
+  "expected_cases": 31,
+  "geometry": {
+    "V1": {
+      "chamfer_L1": 0.012610273944272901,
+      "surface_FScore": 0.8485273652585391,
+      "SS_macro_voxel_IoU": 0.4436735085267717
+    },
+    "Retarget": {
+      "chamfer_L1": 0.012434922131594627,
+      "delta_chamfer_L1_vs_V1": -0.0001753518126782728,
+      "delta_chamfer_L1_CI95": [
+        -0.00048820667265905295,
+        0.000127330539403719
+      ],
+      "chamfer_L1_improved_cases": 16,
+      "surface_FScore": 0.8503734699533478,
+      "delta_surface_FScore_vs_V1": 0.0018461046948085537,
+      "delta_surface_FScore_CI95": [
+        -0.007847880960236116,
+        0.011854919559877795
+      ],
+      "surface_FScore_improved_cases": 14,
+      "SS_macro_voxel_IoU": 0.44492835793534774,
+      "delta_SS_macro_voxel_IoU_vs_V1": 0.0012548494085760247,
+      "delta_SS_macro_voxel_IoU_CI95": [
+        -0.006798653176822864,
+        0.010173259020403225
+      ],
+      "SS_IoU_to_mesh_FScore_delta_correlation": 0.4249306403346403
+    },
+    "Selected": {
+      "chamfer_L1": 0.012366985204306645,
+      "delta_chamfer_L1_vs_V1": -0.00024328873996625494,
+      "delta_chamfer_L1_CI95": [
+        -0.0007108293586364858,
+        0.00017475286134739597
+      ],
+      "chamfer_L1_improved_cases": 15,
+      "surface_FScore": 0.8530884889351469,
+      "delta_surface_FScore_vs_V1": 0.004561123676607755,
+      "delta_surface_FScore_CI95": [
+        -0.005919624815547555,
+        0.016320815226584587
+      ],
+      "surface_FScore_improved_cases": 16,
+      "SS_macro_voxel_IoU": 0.4424458727587967,
+      "delta_SS_macro_voxel_IoU_vs_V1": -0.0012276357679750288,
+      "delta_SS_macro_voxel_IoU_CI95": [
+        -0.010552031664292206,
+        0.007700864847353163
+      ],
+      "SS_IoU_to_mesh_FScore_delta_correlation": 0.6347395009185762
+    }
+  },
+  "pbr": {
+    "source_disjoint_cases": 8,
+    "expected_cases": 8,
+    "renderer": "native DEV diagnostic, not common Cycles final",
+    "target8_M_IoU": {
+      "vanilla": 0.9123408773979892,
+      "top1_only": 0.9121983144184158,
+      "delta_top1_vs_vanilla": -0.00014256297957340736,
+      "delta_CI95": [
+        -0.00029107833849021134,
+        -3.6481052700515493e-06
+      ],
+      "top1_improved_cases": 2
+    },
+    "target8_PSNR": {
+      "vanilla": 24.546626567840576,
+      "top1_only": 24.50722336769104,
+      "delta_top1_vs_vanilla": -0.03940320014953613,
+      "delta_CI95": [
+        -0.10178262591361999,
+        0.01744365692138672
+      ],
+      "top1_improved_cases": 1
+    },
+    "target8_SSIM": {
+      "vanilla": 0.9545776471495628,
+      "top1_only": 0.9538261592388153,
+      "delta_top1_vs_vanilla": -0.0007514879107475281,
+      "delta_CI95": [
+        -0.002105429768562317,
+        0.0001180786639451979
+      ],
+      "top1_improved_cases": 2
+    },
+    "source9_10_LPIPS": {
+      "vanilla": 0.07083556149154902,
+      "top1_only": 0.0709350691176951,
+      "delta_top1_vs_vanilla": 9.950762614607811e-05,
+      "delta_CI95": [
+        -0.0002084299921989441,
+        0.0004803708288818598
+      ],
+      "top1_improved_cases": 6
+    }
+  }
+}

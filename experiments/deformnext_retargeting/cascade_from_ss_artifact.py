@@ -44,13 +44,30 @@ def load_stage(config,checkpoint):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--plan',type=Path,required=True);a=p.parse_args()
     plan=json.loads(a.plan.read_text());gpu=os.environ.get('CUDA_VISIBLE_DEVICES','')
-    if gpu not in {'0','1','2','3'} or gpu not in os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(','):
-        raise ValueError('one explicitly assigned physical GPU0-3 required')
+    if gpu not in {'0','1','2','3','6','7'} or gpu not in os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(','):
+        raise ValueError('one explicitly assigned authorized physical GPU required')
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
     torch.set_num_threads(2);torch.cuda.set_device(0)
     torch.cuda.set_per_process_memory_fraction(plan['allocator_fraction'],0)
     output=Path(plan['output']);output.mkdir(exist_ok=False)
     row=plan['row'];sample_id=row['sample_id']
+    scale_policy=plan.get('object_scale_policy','legacy-target')
+    if scale_policy not in {'legacy-target','image-estimated-v1','native-unit'}:
+        raise ValueError('unknown object scale policy')
+    if scale_policy=='native-unit' and not np.isclose(float(row['mesh_scale']),1.,rtol=0,atol=1e-8):
+        raise ValueError('native-unit control must use canonical scale 1.0')
+    if scale_policy=='image-estimated-v1':
+        source=Path(plan['image_scale_predictions'])
+        receipt=json.loads(source.with_suffix('.receipt.json').read_text())
+        if (receipt['status']!='PASS_IMAGE_ONLY_SCALE_PREDICTIONS'
+                or receipt['output_sha256']!=sha(source)):
+            raise ValueError('image-only scale prediction receipt mismatch')
+        predictions=[json.loads(line) for line in source.read_text().splitlines() if line]
+        found=[value for value in predictions if value['sample_id']==sample_id]
+        if (len(found)!=1 or not np.isclose(float(row['mesh_scale']),
+                found[0]['predicted_mesh_scale'],rtol=0,atol=1e-7)
+                or found[0]['M0_or_M1_mesh_or_GT_scale_used_at_inference'] is not False):
+            raise ValueError('case scale does not match image-only prediction')
     previous=json.loads(Path(plan['SS_evaluation']).read_text())
     entry=next(r for r in previous['native_SS_artifacts']['artifacts'] if r['sample_id']==sample_id)
     artifact=Path(plan['SS_evaluation']).parent/entry['artifact']
@@ -138,6 +155,10 @@ def main():
     np.savez_compressed(output/'geometry-evaluation.npz',prediction_world=prediction_world,target_world=target,
         target_faces=faces,source_center=center,source_extent=extent,anchor_rotation=rotation)
     result=dict(status='PASS_ACTUAL_SS_TO_SHAPE512_SHAPE1024_PBR1024_GENERATION',sample_id=sample_id,
+        object_scale_policy=scale_policy,scale_used_in_generation=float(row['mesh_scale']),
+        image_scale_predictions_sha256=sha(plan['image_scale_predictions']) if scale_policy=='image-estimated-v1' else None,
+        M1_derived_scale_supplied_to_generation=scale_policy=='legacy-target',
+        source_M0_mesh_used_in_generation=False,
         generated_mesh=str(output/'prediction.npz'),actual_resolution=resolution,
         actual_SS32_tokens=len(coords),actual_HR_tokens=len(shape.coords),
         generation_seconds=generation_seconds,peak_allocated_GiB=torch.cuda.max_memory_allocated()/2**30,

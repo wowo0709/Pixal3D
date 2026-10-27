@@ -1,0 +1,531 @@
+{
+  "status": "PASS_FILE4_MIRROR_LOCAL_CACHE_RECLAIM",
+  "local_removed": [
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/transport",
+      "bytes": 243639214902,
+      "files": 9657,
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/transport",
+      "verification": "all remote file names/sizes equal, rsync dry run no size/mtime differences, 3 remote SHA256 samples equal",
+      "sha256_samples": [
+        {
+          "name": "shard000_00eff3c1a0714e088c652b6f70ede0ec_d3_fast300fpssupplyv1_PA_target08.npz",
+          "sha256": "eaff011a844c369ed017330372ebca64b4e16de637d1c82b5d6cd1c1e4be0dfd"
+        },
+        {
+          "name": "shard002_4004894df6f547cea231664d247dd7d5_d1_fast300fpssupplyv1_balanced_JN_L_target08.npz",
+          "sha256": "963e6affbe706a9ef53781e34271d29b43376f46109db2336c8276d5154631c4"
+        },
+        {
+          "name": "teapot_c6730ac5_d2_jnl_target08.npz",
+          "sha256": "16aa70e91bee39f085dbcd9b7afb2a18d322e7c7ca7d692932dd3936625ce338"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/transport_pbr",
+      "bytes": 142370879072,
+      "files": 9657,
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/transport_pbr",
+      "verification": "all remote file names/sizes equal, rsync dry run no size/mtime differences, 3 remote SHA256 samples equal"
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/paired-DEV128-stage-evaluation-v240",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/paired-DEV128-stage-evaluation-v240",
+      "files": 14060,
+      "bytes": 104483862550,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "GPU1-R-reassignment-activation-v282/audit.json",
+          "sha256": "b136abc26702eaf3e8ea5af9e5b41ac7b22f3e4510fa27dd1bc38d5eaadefa18"
+        },
+        {
+          "path": "cases-v249/E_FIXED_RAW/e7f8a314c0966daf/geometry-terminal.json",
+          "sha256": "d088fb930f834316c65846f3ba3e606fc426bc5b41b41cb8dc7deb87148e884a"
+        },
+        {
+          "path": "cases-v249/E_FIXED_RAW/547c81b3f3626e7b/geometry/prediction.npz",
+          "sha256": "d190b21ca3443e0416d46c336ae7feccdea54a1187628c4726a4e2d40fb059ab"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/actual-pixal3d-singleview-TEST508-v1",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/actual-pixal3d-singleview-TEST508-v1",
+      "files": 10505,
+      "bytes": 66817162388,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "assignment-all.json",
+          "sha256": "8a8602b684fe60208343afa266758c1af434aa95d4cbba17bd5bd676519625f2"
+        },
+        {
+          "path": "cases/shard002_37c8436d8f824f82a9098fd4b6ac6ed4_d1_fast300fpssupplyv1_PA_target08/shared/render-evaluation.json",
+          "sha256": "e8ca7e9d5e1127bfb9529a531c15bce8a8e78fe13cff000cfeb9d83a2bb51b03"
+        },
+        {
+          "path": "cases/shard002_708a73d5bbcc418b8c1fb5812fb26b72_d2_fast300fpssupplyv1_PA_target08/geometry/prediction.npz",
+          "sha256": "e25cb529bbb9ba9002af7c6084588985e60e69d0f1f124b0e4b3b86d1065a5bc"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/design-controls-v166",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/design-controls-v166",
+      "files": 256,
+      "bytes": 45982118975,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "C_DECODER_NO_R/capacity-v1/native/capacity.json",
+          "sha256": "d3f01eb01f378fc0b815b807b93aa128bd5e27ecd66daf04770306efd9d36a70"
+        },
+        {
+          "path": "FULL_QK_ONLY/capacity-v1/wrapper/native.log",
+          "sha256": "9cf5a627a649289ebab101f785d543a7d32f223e9384d635bf45e3f6234c56c5"
+        },
+        {
+          "path": "C_DECODER_NO_R/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "41bb45728b7e09939f040bf3c2e5d70295294cdb18cc14d6f1c49cca88c6e68e"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/shared-Fixed-correspondence-campaign-v301",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/shared-Fixed-correspondence-campaign-v301",
+      "files": 1449,
+      "bytes": 43074293199,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "M_FIXED_D1_COS/capacity-v1/native/capacity.json",
+          "sha256": "99a8fd111fe22900d399880e8a7bf0deb28eb24617a5df933db3aefb54427087"
+        },
+        {
+          "path": "M_FIXED_RAW/final-evaluation-v1/noise-1/native/ss-artifacts/d1eda0d9385e57209c1af1a76656c3c47941585ea95513f65d621c43cd62a1d8.npz",
+          "sha256": "121ac44e21e0ad2e23c2d0448ff7b5fef3dad185c2f9a28f5e0d4cf8b5b71805"
+        },
+        {
+          "path": "M_FIXED_D1_COS/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "24a143a9e463ebda8067288ffe3b2cda6de0af6a336f7e13f9aa014d9a40ea66"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/correspondence-controls-v165",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/correspondence-controls-v165",
+      "files": 206,
+      "bytes": 42851982219,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "C_D1_COS/capacity-v1/native/capacity.json",
+          "sha256": "db7006f22ab606f8f86e955df970450502469239d34f0d7990ad683cf4e91b65"
+        },
+        {
+          "path": "C_RAW/science-v1/native/log_20261024_035105.txt",
+          "sha256": "ab97297e2d3389ce43a07253e398a6edf993da047105d63144bae30b7d830a6c"
+        },
+        {
+          "path": "C_D1_COS/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "40ae2c6f36281a646956dbcea55498966dae62d17b1180656f48e638caf8759e"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/common-trained-V1-PBR-cascade32-v167",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/common-trained-V1-PBR-cascade32-v167",
+      "files": 5335,
+      "bytes": 33111286446,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "applied-v1/audit.json",
+          "sha256": "0c4785c56f5336a7abee821dcb7b5cb2fde1a2c8a3a34efc742347e6b80c4ee2"
+        },
+        {
+          "path": "cases/C_TOP1_V/cfc4229469c6636d/shared/camera09.npz",
+          "sha256": "d63bacb136c12605e3985bbbc7e3a47762806b188662e93b5d92d441f63154bf"
+        },
+        {
+          "path": "cases/C_FIXED_TOPK/2777dc8d3e220d0b/generation/prediction.npz",
+          "sha256": "bc1ed93083d9b0ebc5a652335c60d5686e6c1fbbed5f0d89fc1317730b9e4d3d"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/required-PBR-seed202-baselines-v196",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/required-PBR-seed202-baselines-v196",
+      "files": 184,
+      "bytes": 29573833995,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "actual-native-guard-v1/audit.json",
+          "sha256": "f18ef1dc722fe6edef078f9241cd8bc9b5684429f16a08d87eae375b0bfde4e0"
+        },
+        {
+          "path": "top1-only/native/validation-panels/step0001900/case001.png",
+          "sha256": "bf4a270e047dd4fc4a26c186bb717fd5d2be8a99bd26eaa8c081cd6818f213bd"
+        },
+        {
+          "path": "top1-only/native/ckpts/denoiser_step0000380.pt",
+          "sha256": "35da2316a449f91d0df92890c57055fcbc4a695484fb4b4188daf31a21c1b66b"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/final-Fixed-controls-DEV128-cascade-v306",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/final-Fixed-controls-DEV128-cascade-v306",
+      "files": 22694,
+      "bytes": 29128001786,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "A_FIXED_NO_R/activation-v1/audit.json",
+          "sha256": "50147e8d1fb01a201805edad7d5530a17f37e679751a176f818036af763c70bf"
+        },
+        {
+          "path": "M_FIXED_D1_COS/cases/b37320b27757a555/shared.log",
+          "sha256": "ed68592819af6c3be092c03ddc50e9e7a3928e5d75319b0eeb36ebd4d18591a2"
+        },
+        {
+          "path": "A_FIXED_NO_R/cases/fe3b2e0d7bf2ff86/geometry/native-shape-guides.pt",
+          "sha256": "11d6b11b9ffddece8b097def8f2868113aeace6341a744a7b7e57f02e8314256"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/projected-controls-v163",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/projected-controls-v163",
+      "files": 1030,
+      "bytes": 28809843678,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "C_FIXED_TOPK/capacity-v1/native/capacity.json",
+          "sha256": "8919cabffbd43cd0fc718c5bb5d7035e42dfeaf5019233bd84f103e4a6d2b07c"
+        },
+        {
+          "path": "final-evaluation-v164/C_FIXED_TOPK/noise-2/native/ss-artifacts/e17f3760233ad20a4ee924e98d4f8f44b23beb9a079c1e0aa57c733bed7b6fb1.npz",
+          "sha256": "089431b224aa034e3d802f4b96601e9b3542800d5308fd127239046457f33755"
+        },
+        {
+          "path": "C_FIXED_TOPK/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "4aee5c070c9a707eaacde690d5173de68e49083fea7fa5c9a136160f1037896f"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/shared-evidence-final-controls-v284",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/shared-evidence-final-controls-v284",
+      "files": 1018,
+      "bytes": 28696022639,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "A_FIXED_NO_R/capacity-v1/native/capacity.json",
+          "sha256": "f4f02eb2d0e0cc7d1322daba35ce9f6bfd312f41487229c4fc56ea6da069488a"
+        },
+        {
+          "path": "A_FIXED_UNIFORM/final-evaluation-v1/noise-0/native/ss-artifacts/2a763dde00f1715693553a4ded606d8ee0064694ccbce985684c928cd12628e8.npz",
+          "sha256": "ec04fc3e4f3db7c63e70540c2fbf33e4061ac3d77883324ae08d438a2ebc8cd3"
+        },
+        {
+          "path": "A_FIXED_NO_R/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "d378ac1fb6ea2f5fe475c977a2db8786130591a8040cb1351c3b3e52d5b63f4c"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/common-geometry-PBR4-native32-v174",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/common-geometry-PBR4-native32-v174",
+      "files": 4114,
+      "bytes": 22397583879,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "applied-v1/audit.json",
+          "sha256": "22eabfdb2c005b163b54fb4d9b0bc0f0a5d1f6994a32b38a417a1f16ae0bdada"
+        },
+        {
+          "path": "cases/top1-plus-feature/4d7f0d8fa3808933/render/camera09.npz",
+          "sha256": "3f174b804ccb6e16a053f7c4ad928f32ddb4f7260fb1791ab20d3eccee93c8df"
+        },
+        {
+          "path": "cases/vanilla/63b0d4f3bd352285/generation/prediction.npz",
+          "sha256": "0958a8c3c5603c7c570805f36c63529603f51b850d53cf71b91830cb40d24684"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/voxel-query-FFN12-recovery-v188",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/voxel-query-FFN12-recovery-v188",
+      "files": 530,
+      "bytes": 14501179545,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "FULL_VOXEL_Q/capacity-v1/native/capacity.json",
+          "sha256": "6efcdfe3e1c287737bdf9ea77d12744986ffa16b6b7c5042755092e0a3b3fc16"
+        },
+        {
+          "path": "final-evaluation-v1/noise-1/native/ss-artifacts/7941ea700d6650fcca1344f7408a305ec3729c6bb085c41233f87f430d61f9aa.npz",
+          "sha256": "ba925af325846275a367fa51e4a825b2531b5aba93a02925b797ea7973547b98"
+        },
+        {
+          "path": "FULL_VOXEL_Q/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "191f663d964f223fd9f83efe1f95c28f47fee2dd02370c8f1dac8f6294429ab5"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/selected-Fixed-seed202-v297",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/selected-Fixed-seed202-v297",
+      "files": 486,
+      "bytes": 14371224503,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "E_FIXED_RAW/capacity-v1/native/capacity.json",
+          "sha256": "ef09c4fde24e11f1f08c1880ac068636b3db5084e0ee34f47161246eae241300"
+        },
+        {
+          "path": "E_FIXED_RAW/final-evaluation-v1/noise-1/native/ss-artifacts/bf761b38c6a8bb6f2aaea2a79fb29f54e2bb5674e90e84a65891aa1f9754bb96.npz",
+          "sha256": "4b8c6cd7894424123653a889769b538fa0968c3a3198ccc99f9d33c49ca51c2f"
+        },
+        {
+          "path": "E_FIXED_RAW/science-v1/native/ckpts/denoiser_step0000096.pt",
+          "sha256": "6e4ade07b23f2b30d14da0287d4793eb252b6ec5c65ef92d5dce15b4749e8f92"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/fixed-render-geometry-PBR4-native32-v203",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/fixed-render-geometry-PBR4-native32-v203",
+      "files": 2935,
+      "bytes": 12167579513,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "cases/raw-topk-plus-feature/09010a76d4e7cd0b/GT-Pred-Diff.png",
+          "sha256": "bccc2abfb1208845468129651c4b7310413ababab287a07d24a0ada2b34c000d"
+        },
+        {
+          "path": "cases/top1-only/860755df43ea3955/render/render-geometry.npz",
+          "sha256": "58b56ec42867a2c7772638932c16a20f44bbdfbd00bf30e5f69059e967a25c6b"
+        },
+        {
+          "path": "cases/raw-topk-plus-feature/63b0d4f3bd352285/prepared/prediction.npz",
+          "sha256": "9ca1e0d90154e41982c485edfa3f0f2bdada32d90010165883519b8d18ba258f"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/decoder-cosine-Top1-joint-native32-v194",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/decoder-cosine-Top1-joint-native32-v194",
+      "files": 2125,
+      "bytes": 12022668209,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "actual-queue-verification-v1/audit.json",
+          "sha256": "b024c21de231d7536a249d0201210ac6d637861b755e23cfe1fe8f00ce345248"
+        },
+        {
+          "path": "cases/SELECTED/25b8e30ce8c7f44e/render-terminal.json",
+          "sha256": "2550db74f84ec68c3b9d00c79b82019e72336ee0859d439c2057c283c7886eee"
+        },
+        {
+          "path": "base-cases/C_D1_COS/63b0d4f3bd352285/generation/prediction.npz",
+          "sha256": "113a7f8d134e123ee3496ec305316802a02652d514ed87ab694ea79b2330972c"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/consistent-learned-Top1-joint-native32-v216",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/consistent-learned-Top1-joint-native32-v216",
+      "files": 2094,
+      "bytes": 11963614832,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "applied-v1/audit.json",
+          "sha256": "618224265bc2b9f2ef20a76dcd395b7017614248a33f866f3d82790258b1c41b"
+        },
+        {
+          "path": "cases/SELECTED/25b8e30ce8c7f44e/generation/generation.json",
+          "sha256": "778895b02da73dcca77b8dd1f613e6d54d99753946b9c9d89b9626e646b84b65"
+        },
+        {
+          "path": "base-cases/E_LEARNED_RAW/63b0d4f3bd352285/generation/prediction.npz",
+          "sha256": "17b2bba2a600df21514741f5ec5385ae4ef8548f27d5a76b5be3aed3118f2d0b"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/joint-retarget-SS-PBR-native32-v176",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-feature-teacher-pilot-v1/r-mediated-source-pilots-v1/PBR-native-science-runtime-v1/unified-module-pipeline-v1/joint-retarget-SS-PBR-native32-v176",
+      "files": 1074,
+      "bytes": 5378812891,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "applied-v1/audit.json",
+          "sha256": "e28bc5de6890ae9328f0f26b4cbf9a2ac2e6feb3b050a348bb7764e06628cc1a"
+        },
+        {
+          "path": "cases/RETARGET/860755df43ea3955/shared.log",
+          "sha256": "faf74bc29865dbbda13f779cf3fafa40753fa72a550e92ee2748a8a3887ff93b"
+        },
+        {
+          "path": "cases/RETARGET/63b0d4f3bd352285/generation/prediction.npz",
+          "sha256": "1b79f2077af6ba8a9010b950489d8d7ef24210e5cf75e90371c41ed267c6dc52"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/matches_r9_v5",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/matches_r9_v5",
+      "files": 9657,
+      "bytes": 44985106530,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "shard000_00eff3c1a0714e088c652b6f70ede0ec_d3_fast300fpssupplyv1_PA_target08.npz",
+          "sha256": "06a8ffa0bf22f02bcc94b9d3c676f4b57da047cb74dce2c5996770eb8c9e9fb4"
+        },
+        {
+          "path": "shard002_4004894df6f547cea231664d247dd7d5_d1_fast300fpssupplyv1_balanced_JN_L_target08.npz",
+          "sha256": "ad0648a808e300602e19a67d8b6209b8911c29f4a48b16aaa34e17d22a16be21"
+        },
+        {
+          "path": "shard000_00eff3c1a0714e088c652b6f70ede0ec_d3_fast300fpssupplyv1_PA_target08.npz",
+          "sha256": "06a8ffa0bf22f02bcc94b9d3c676f4b57da047cb74dce2c5996770eb8c9e9fb4"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/historical-query-reproduction-v1",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/historical-query-reproduction-v1",
+      "files": 2905,
+      "bytes": 26116699905,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "cached-query-pooling-audit-v1/audit.json",
+          "sha256": "c66b98a360876f6f10826cf8e4c35290aa2937b8e10a4bb6818312542b3d4c6f"
+        },
+        {
+          "path": "faithful-target-patch-R96-v1/runs_ss64/direct-nodq/native/stage_rng/rank0/step0000394.pt",
+          "sha256": "900aea9283f540815abbcf616dd676c7ed2986f3d90d51bf3d3bf89039702cee"
+        },
+        {
+          "path": "faithful-target-patch-R96-v1/runs_ss64/direct-dq/native/ckpts/denoiser_step0000192.pt",
+          "sha256": "99134c647de56881907831b7b7689753513461921ce657a4dcee0a74e9466a65"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-ray-cascade32-v1",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/source-ray-cascade32-v1",
+      "files": 6070,
+      "bytes": 38714869119,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "PBR-epoch3-and-original-pretrain-origin-v1/R-only-epoch3.json",
+          "sha256": "671c60502fb5105a37706c2b27aaca3fa3ee9273691dddd33e30288f485ed4c2"
+        },
+        {
+          "path": "models/member-attention/0d6697818c3da848/render/camera08.npz",
+          "sha256": "44a6faf42519458043f49957f2c5592e55f3a99445d02782b624ea7e733727fc"
+        },
+        {
+          "path": "models/member-top1/2777dc8d3e220d0b/generation/prediction.npz",
+          "sha256": "2778af0b85478fc0cff2bc73549e96a5fb1c3103e320018720dfef2e0c4cff44"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/full-cascade32-render-v2",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/full-cascade32-render-v2",
+      "files": 2021,
+      "bytes": 16112354559,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "09010a76d4e7cd0b/direct/case-completed.json",
+          "sha256": "0535b1f67dc64df090e675408cb153b626e3f0934527485e0db0e4ae443228ab"
+        },
+        {
+          "path": "7d1883b0b916e7c4/direct/shared/camera10.npz",
+          "sha256": "25de03a835f6ba63a071188d243fa223d08797237fbc0f168ae6ea169aaa203b"
+        },
+        {
+          "path": "2777dc8d3e220d0b/v1/generation/prediction.npz",
+          "sha256": "1c807b75d2ea8c778fe8b33bc27ab0163038fe136d55b4da1cd5051dde29b818"
+        }
+      ]
+    },
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/direct-retargeting-v1",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_matching_v2/semantic-topk-search-v1/ray-group-study-v1/anchor-ray-composition-v1/feature-readout-v1/direct-retargeting-v1",
+      "files": 16359,
+      "bytes": 38906797548,
+      "verification": "rsync dry-run size/name parity and 3 remote SHA256 samples",
+      "sha256_samples": [
+        {
+          "path": "PBR-capacity-inputs-v1/audit.json",
+          "sha256": "c2d8d565893da1994e63ff5428f228828044965c3f5078aac020f00898f8a746"
+        },
+        {
+          "path": "PBR-joint-continuation-v1/streamed-projection-v2/runs_world4/direct-retargeting-dq/stage_rng/rank2/step0000766.pt",
+          "sha256": "47041cc0abc1cd5db2291639c520fcdb629ccf71dbe5268ca20190ab86759c7e"
+        },
+        {
+          "path": "PBR-joint-continuation-v1/retarget-only-v1/runs_world4/full-v1/ckpts/denoiser_step0001143.pt",
+          "sha256": "5212923e0c1146578f1033ea440bb210546f6819b5853a106c4065b99a02cf1d"
+        }
+      ]
+    }
+  ],
+  "no_active_file_descriptors": true,
+  "completed_utc": "2026-10-27T19:26:00.793480+00:00",
+  "total_mirror_bytes_removed": 1096176992882,
+  "free_bytes_after": 1102732914688,
+  "additional_full_checksum_archives": [
+    {
+      "local": "/root/dev/.cache/deformnext-retargeting/smoke-native-v2/ss64/ckpts/denoiser_step0000010.pt",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/_local-smoke-archive/smoke-native-v2/ss64/ckpts/denoiser_step0000010.pt",
+      "bytes": 2758554576
+    },
+    {
+      "local": "/root/dev/.cache/deformnext-retargeting/smoke-native-v2/pbr1024/ckpts/denoiser_step0000010.pt",
+      "remote": "/file4/youngwoo/deformation/experiments/retargeting-v1/_local-smoke-archive/smoke-native-v2/pbr1024/ckpts/denoiser_step0000010.pt",
+      "bytes": 2853286647
+    }
+  ],
+  "protected_local_inputs": [
+    "V1 and Selected frozen SS configs/checkpoints",
+    "Shape512/Shape1024/PBR1024 frozen configs/checkpoints",
+    "508 TEST PBR input RGB files and Top-1 PBR config/checkpoint",
+    "TEST508 preparation transport caches",
+    "actual-selected-five-model-TEST508-cascade-v586 (existing guides and diagnostic outputs)",
+    "active rendering chunk stage"
+  ],
+  "skipped": [
+    {
+      "path": "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/experiments/retargeting-v1/rgb_v1/runs_r9_v5",
+      "reason": "remote parity failed: local-only LOCAL_CACHE_ARCHIVE.json"
+    }
+  ],
+  "old_continuous_mirror": {
+    "pid": 3989158,
+    "stopped_after_synced_cycle": 3810,
+    "remote_delete": false,
+    "reason": "no new work under old mirror; protect active evaluation bandwidth"
+  }
+}

@@ -25,8 +25,8 @@ from .replay_pbr_on_generated_shape import tensor_digest
 
 def run(plan):
     gpu = os.environ.get('CUDA_VISIBLE_DEVICES','')
-    if gpu not in {'0','1','2','3'} or gpu not in os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(','):
-        raise ValueError('one assigned physical GPU0-3 required')
+    if not gpu.isdigit() or gpu not in os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(','):
+        raise ValueError('one explicitly assigned physical GPU required')
     config = json.loads(Path(plan['PBR_config']).read_text())
     completion = (json.loads(Path(plan['stage_completion']).read_text())
                   if plan['checkpoint_kind'] == 'trained-native1900' else None)

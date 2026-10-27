@@ -1,0 +1,58 @@
+{
+  "schema": "deformnext-unified-test508-table-contract-v1",
+  "status": "FROZEN_BEFORE_COMMON_RENDERER_OURS_METRICS",
+  "population": {
+    "split": "test",
+    "deformations": 508,
+    "source_clusters": 134,
+    "reference": "original-material-M1",
+    "input_target_camera_id": 8
+  },
+  "common_renderer": {
+    "baseline_protocol_sha256": "5abddf2ff8a51af360e39a1ff7f5dda61d3b54269afa846b3fd14713a6e0fbb1",
+    "engine": "Blender 4.2.3 Cycles",
+    "resolution": 512,
+    "samples": 64,
+    "background": [1, 1, 1],
+    "source_defined_world": true,
+    "per_output_alignment": false
+  },
+  "columns": {
+    "source_view_fidelity": {
+      "cameras": [9, 10],
+      "metrics": ["LPIPS", "DreamSim", "CLIP"],
+      "reference": "M1 GT rendered at the same source cameras",
+      "view_privilege": "input for source-conditioned methods; unobserved for target-only methods"
+    },
+    "distribution": {
+      "cameras": [9, 10],
+      "metrics": ["FID", "KID"],
+      "images_per_complete_method": 1016,
+      "KID_subsets": 100,
+      "KID_subset_size": 100,
+      "KID_seed": 20261020,
+      "incomplete_method_policy": "blank"
+    },
+    "target_edit": {
+      "cameras": [8],
+      "metrics": ["PSNR", "SSIM", "M_IoU"],
+      "reference": "M1 GT under the same Cycles renderer",
+      "status": "additional view; not a value copied from the existing 9/10 baseline evaluation"
+    },
+    "geometry": {
+      "metrics": ["CD", "FScore"],
+      "surface_samples": 20000,
+      "fscore_threshold_world": 0.02,
+      "surface_input": "raw predicted geometry, not render-decimated GLB"
+    }
+  },
+  "rows": {
+    "external_complete": ["trellis2", "pixal3d", "reconviagen", "shapeup", "spacecontrol"],
+    "external_incomplete": ["mvadapter", "corradapter"],
+    "external_cancelled_excluded": ["geostyle"],
+    "internal": ["RGB1_CALIBRATED", "zero-source4", "zero-edited4", "V1", "RETARGET", "SELECTED"]
+  },
+  "incomplete_policy": "report success count and success-conditional per-case means; do not present incomplete FID/KID or rank as complete population",
+  "aggregation": "deformation-weighted means; paired source-cluster uncertainty for matched comparisons",
+  "interpretation": "Protocol-revision descriptive comparison on an already inspected TEST508; do not reselect model or endpoints from these results"
+}

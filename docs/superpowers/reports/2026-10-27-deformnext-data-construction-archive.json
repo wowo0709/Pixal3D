@@ -1,0 +1,7 @@
+{
+  "status": "PASS_REMOTE_CHECKSUM_ARCHIVE",
+  "remote": "rvi@10.0.12.170:/file4/youngwoo/deformation/experiments/retargeting-v1/manuscript-data-construction-20261027-v1/",
+  "files": 263,
+  "manifest_sha256": "512d400a8600de8b1d2df7199bc06dc188fd58fd56f367d4468c675baf1110a9",
+  "pdf_sha256": "e91840d8b05d16a8d791259654f3628e678b5fea47c8f6df6e3c287815011acd"
+}

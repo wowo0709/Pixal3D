@@ -1,0 +1,93 @@
+\subsection{DeformNeXt-10k construction}
+\label{sec:data-construction}
+We construct paired shape edits from the textured assets and hierarchical
+part annotations of PartNeXt~\cite{wang2025partnext}. A canonical source
+$M_0=(V_0,F,\mathcal A_0)$ defines vertex indices, ordered faces, and the
+UV/material/corner-attribute authority. Each accepted variant is
+$M_{1,k}=(V_{1,k},F,\mathcal A_0)$: positions change while correspondence
+and face connectivity/order remain fixed. Shared face indices and barycentric
+coordinates therefore identify corresponding source and edited surface
+points without nearest-neighbor reassignment.
+
+\paragraph{Donor-guided proposals.}
+We select donors from the same category using frozen semantic-role and
+structural-compatibility heuristics. Semantic roles can contain multiple
+disconnected pieces; matching individual leaf meshes or requiring equal
+part counts would unnecessarily restrict shape diversity. Source/donor
+identities and configuration hashes are recorded before each run. Eight
+original-appearance donor renders personalize an SDXL prior with
+GeoStyle~\cite{choi2026geostyle}. The donor is a morphology prior, rather
+than target geometry or an input to the retargeting model.
+
+GeoStyle proposes face-Jacobian changes under image-space score distillation.
+Our production path adds a category prompt and source assembly constraints
+to the reconstruction: selected primary surfaces deform, complementary
+physical components follow rigid motions, and source-derived attachment
+proxies couple their movement. These contacts are geometric estimates,
+not annotated physical joints. The main production configuration uses
+800 donor-specific LoRA updates and 300 deformation iterations; donor LoRA
+and source preprocessing are reused across pairs. This shortened configuration
+was adopted for throughput and is not demonstrated equivalent to the
+official 3,600-iteration configuration. Supplementary details give the
+other changes and retained early configurations.
+
+\paragraph{Final-pair selection.}
+The category-prompt/assembly proposal (PA) and an optional 120-iteration
+Jacobian, crease-aware normal, and neighboring-displacement refinement
+(balanced JN-L) are separate candidates. Each is assessed anew against
+$M_0$. Agreement with the initial proposal or the donor is not an admission
+criterion. We check canonical correspondence, finite geometry and
+catastrophic failures, meaningful deformation, paired RGB usability,
+native-representation survival, and actual training-loader compatibility.
+Multi-view model-assisted screening identifies obvious spikes, detached
+components and assembly collapse; it is not independent human validation.
+Small intersections, gaps and folds are recorded as diagnostics rather
+than universally rejected. The dataset is therefore not certified
+intersection-free. Both meshes retain one source-defined 0.48 frame and
+are rendered with the source materials and matched cameras; edited meshes
+are not independently normalized. All approved distinct variants are
+retained, with near-identical final geometries merged.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/deformnext-construction.pdf}
+\caption{DeformNeXt construction and approved source/edited pairs. Donor
+images guide morphology; source assembly constrains reconstruction, and each
+final candidate is screened independently. Examples show archived RGB
+(camera 8) and clay (camera 14), with a common foreground-union display crop
+and scale for M0/M1 at each camera. Four categories are drawn from a pre-existing
+large-edit illustration selection whose membership was checked against the
+final snapshot. They illustrate visible changes, not typical quality,
+generator yield or a 300-versus-3,600-step comparison.}
+\label{fig:deformnext-construction}
+\end{figure*}
+
+\paragraph{Scope and splits.}
+The final snapshot contains 10,165 distinct deformations from 3,483 source
+UIDs across 50 categories, averaging 2.92 variants per source. This is a
+deformation count, not 10,000 independent source objects or an estimate of
+yield over all PartNeXt assets. After construction, a fixed seed assigns
+approximately 90/5/5 of the examples to train/validation/test while keeping
+every source UID and source geometry cluster in one split
+(Table~\ref{tab:deformnext-splits}). Donor disjointness is not enforced;
+the held-out evaluation measures retargeting on admitted edits from this
+construction process, not generalization to an unseen deformation generator.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Frozen DeformNeXt splits. Variants of one source and geometry
+cluster stay together; category proportions are not forced to be uniform.}
+\label{tab:deformnext-splits}
+\begin{tabular}{lrrrr}
+\toprule
+Split & Edits & UIDs & Clusters & Classes \\
+\midrule
+Train & 9,149 & 3,184 & 1,790 & 50 \\
+Validation & 508 & 153 & 132 & 42 \\
+Test & 508 & 146 & 134 & 42 \\
+\midrule
+Total & 10,165 & 3,483 & 2,056 & 50 \\
+\bottomrule
+\end{tabular}
+\end{table}

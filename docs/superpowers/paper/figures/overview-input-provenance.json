@@ -1,0 +1,10 @@
+{
+  "sample_id": "shard002_ae9e9a122b1841e7a56ecdf0d9ae0427_d1_fast300fpssupplyv1_PA_target08",
+  "purpose": "input views for schematic method figures only; no prediction or metric reused",
+  "input_RGB_SHA256": {
+    "overview-inputs/view00.png": "192d16dc8ebf7f27828aeb2bf01a47a52e8185085345cd258c09421c495fc13c",
+    "overview-inputs/view02.png": "11d4fc5e97b02e4a1469676b4080a64178e74fe7e2dab3cedb51019811cbc564",
+    "overview-inputs/view03.png": "1c66c83ba31039294c83c86ec36d75950ef4a522d8fde6f64784038e1c0e378b",
+    "overview-inputs/view04.png": "d6438f265a5e631516221420061d1d83f85d8a59f2c0aaee625c4167a7ab158b"
+  }
+}

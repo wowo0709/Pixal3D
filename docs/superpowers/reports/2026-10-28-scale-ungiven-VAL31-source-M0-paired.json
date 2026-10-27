@@ -1,0 +1,137 @@
+{
+  "status": "PASS_PAIRED_VAL31_COMMON_SURFACE_RAW_AND_M0",
+  "samples": 31,
+  "source_clusters": 31,
+  "registration": "input_source_M0_only; target_M1_after_correction",
+  "conditions": {
+    "raw_target_M1": {
+      "V1": {
+        "CD": 0.01261923809324224,
+        "FScore": 0.8485444000343376
+      },
+      "Retarget": {
+        "CD": 0.012446238258728206,
+        "delta_CD_vs_V1": -0.00017299983451403339,
+        "delta_CD_CI95": [
+          -0.00047911591505083383,
+          0.000127836694569443
+        ],
+        "CD_improved_cases": 16,
+        "FScore": 0.8504593630776952,
+        "delta_FScore_vs_V1": 0.0019149630433573398,
+        "delta_FScore_CI95": [
+          -0.007698116335531675,
+          0.01160390212744971
+        ],
+        "FScore_improved_cases": 15
+      },
+      "Selected": {
+        "CD": 0.012368736721390208,
+        "delta_CD_vs_V1": -0.000250501371852035,
+        "delta_CD_CI95": [
+          -0.0007312627716396314,
+          0.0001760702330108429
+        ],
+        "CD_improved_cases": 15,
+        "FScore": 0.8528835368395324,
+        "delta_FScore_vs_V1": 0.004339136805194836,
+        "delta_FScore_CI95": [
+          -0.006196796250455985,
+          0.016235449452555898
+        ],
+        "FScore_improved_cases": 15
+      }
+    },
+    "source_aligned_target_M1": {
+      "V1": {
+        "CD": 0.012680087923818225,
+        "FScore": 0.8404687986491932
+      },
+      "Retarget": {
+        "CD": 0.012373464099467367,
+        "delta_CD_vs_V1": -0.00030662382435085863,
+        "delta_CD_CI95": [
+          -0.0007395277371979702,
+          7.833651200145433e-05
+        ],
+        "CD_improved_cases": 21,
+        "FScore": 0.8424299800713214,
+        "delta_FScore_vs_V1": 0.001961181422128282,
+        "delta_FScore_CI95": [
+          -0.007683932276641364,
+          0.011563310915311311
+        ],
+        "FScore_improved_cases": 17
+      },
+      "Selected": {
+        "CD": 0.012460217898532747,
+        "delta_CD_vs_V1": -0.00021987002528547648,
+        "delta_CD_CI95": [
+          -0.0006812296198412225,
+          0.0002784824586973654
+        ],
+        "CD_improved_cases": 21,
+        "FScore": 0.8428739854446448,
+        "delta_FScore_vs_V1": 0.0024051867954514787,
+        "delta_FScore_CI95": [
+          -0.011778238460722854,
+          0.013649038709370854
+        ],
+        "FScore_improved_cases": 16
+      }
+    }
+  },
+  "M0_postprocess": {
+    "V1": {
+      "delta_CD_aligned_minus_raw": 6.084983057598313e-05,
+      "delta_CD_CI95": [
+        -0.0009640630239083634,
+        0.0012718812694565772
+      ],
+      "delta_FScore_aligned_minus_raw": -0.008075601385144637,
+      "delta_FScore_CI95": [
+        -0.0432249578792362,
+        0.023902960452880824
+      ],
+      "correction_scale_median": 1.0244055057457069,
+      "correction_scale_range": [
+        0.9856037593945272,
+        1.067183824309685
+      ]
+    },
+    "Retarget": {
+      "delta_CD_aligned_minus_raw": -7.277415926084193e-05,
+      "delta_CD_CI95": [
+        -0.001103904280876256,
+        0.0009388085040291891
+      ],
+      "delta_FScore_aligned_minus_raw": -0.008029383006373694,
+      "delta_FScore_CI95": [
+        -0.04143487591163861,
+        0.02612641865570308
+      ],
+      "correction_scale_median": 1.017269983831741,
+      "correction_scale_range": [
+        0.9930965170613847,
+        1.0510883117159064
+      ]
+    },
+    "Selected": {
+      "delta_CD_aligned_minus_raw": 9.148117714254185e-05,
+      "delta_CD_CI95": [
+        -0.0010922786393898428,
+        0.001379280748926074
+      ],
+      "delta_FScore_aligned_minus_raw": -0.010009551394887992,
+      "delta_FScore_CI95": [
+        -0.049355696881688796,
+        0.02788852823828388
+      ],
+      "correction_scale_median": 1.0139714812034413,
+      "correction_scale_range": [
+        0.9743955897352798,
+        1.0625238076790602
+      ]
+    }
+  }
+}

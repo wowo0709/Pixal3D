@@ -1,0 +1,107 @@
+\subsection{DeformNeXt construction details and limitations}
+\label{sec:data-construction-details}
+\paragraph{Source semantics and assembly.}
+PartNeXt supplies hierarchical semantic labels, not ground-truth mechanical
+attachments. We map its annotations to the canonical face array and group
+semantic roles before selecting a deformable primary region. Several legs
+can share a semantic role while remaining separate physical followers.
+For reconstruction, exact coincident vertex classes and connectivity define
+numerical physical units. Nearby source surfaces provide frozen
+vertex-to-triangle attachment patches, including barycentric coordinates
+and rest-frame offsets. The default proximity radius is 0.006 times the
+source diagonal, with at most 96 contact samples per component.
+
+The differentiable reconstruction alternates four projected Poisson/rigid
+steps; proper rigid rotations use 32 quaternion iterations. A final
+Dirichlet solve eliminates rigid follower coordinates. Components in
+assembly islands without a deformable primary are fixed. This is a finite
+approximation, not an exact nonlinear optimum or a collision guarantee.
+Internal vertex coalescing is a numerical operation: the exported candidate
+is restored to canonical vertex indices and checked against the unchanged
+face array. Canonical source UVs, material assignments and corner attributes
+remain the rendering authority.
+
+\paragraph{Personalization and optimization budget.}
+The principal donor-reference arm uses eight Cycles RGB images with the
+donor's original appearance. A clay-reference arm was exploratory, not the
+default for the full snapshot. The donor-specific DreamBooth LoRA uses
+800 updates, rank 16, 512-pixel images, batch one, learning rate $10^{-4}$,
+constant scheduling, no warmup, gradient accumulation one, and text-encoder
+training. Its caption is \emph{A photo of TOK sculpture}; the production
+deformation prompt is \emph{A TOK style sculpture of a <category>}.
+Personalization starts from pretrained SDXL, not from a diffusion model
+trained from scratch on the construction dataset. Donor LoRA weights can
+be reused for different sources; source approximate-encoder preparation is
+also cached independently of pair optimization.
+
+The main production adaptation uses 300 deformation iterations, resolution
+512, batch one, and \emph{cage\_loss\_epoch=83}, with seed 37. The official
+configuration used as our baseline has 3,600 iterations, resolution 1,024,
+batch four and a cage-loss interval of 1,000. Main/auxiliary SDS weights
+change from 10/1 to 2.5/0.25 to compensate the official implementation's
+additional batch divisor. This matches the intended gradient scale, not
+the stochastic optimization trajectory or total view-sampling budget.
+The shortened budget was introduced after small feasibility trials produced
+usable final training artifacts. There is no controlled, sufficiently broad
+300-versus-3,600 convergence or quality-equivalence study. More iterations
+could improve donor transfer or instead exacerbate artifacts. Admitted
+early 3,600/600-iteration variants remain in the snapshot with their original
+provenance; the snapshot is not a homogeneous 300-iteration benchmark.
+
+\paragraph{Optional refinement and admission.}
+Balanced JN-L separately optimizes a coarse deformation field for 120 Adam
+iterations at learning rate 0.003. It combines Jacobian and source-crease-aware
+normal terms with an area-weighted residual umbrella Laplacian. For a
+frozen coarse guide $\bar V$ and residual $r_i=v_i-\bar v_i$, this term is
+\begin{equation}
+ E_L=\sum_i m_i\left\|r_i-\sum_{j\in\mathcal N(i)}w_{ij}r_j\right\|_2^2.
+\end{equation}
+Source-graph inverse-edge-length weights are row-normalized, with boundary,
+nonmanifold and sharp-crease edges excluded. The latter term's
+weight is fixed from the initial gradient-norm ratio to the weighted J+N
+terms, without outcome-based weight search. Weak proposal-fidelity/coarse
+terms and source assembly constraints stabilize the solve; proposal fidelity
+is not a final admission requirement. PA and its refined output are both
+retained if independently usable and geometrically distinct. The final
+10,165-example snapshot contains 5,611 PA, 4,548 balanced JN-L and six
+legacy/bootstrap examples. These counts include different inputs and
+configurations and are not a causal comparison of the two arms.
+
+Cheap geometry and deformation diagnostics precede expensive rendering and
+encoding. Diagnostic cards use a small fixed RGB subset (typically three
+views) and eight clay views from the common 24-camera convention; a full
+24-view Cycles sweep is not required for every candidate. Mesh-level
+naturalness and view-level edit visibility are assessed separately.
+The publication audit read and collated all 10,165 Shape512 and all 10,165
+SS examples. Higher-resolution Shape/PBR supervision is prepared separately
+for the native cascade used in this paper. Loader success establishes usable
+artifacts, not a calibrated naturalness probability. Canonical face
+correspondence belongs to the stored mesh pair; it is not asserted for
+surfaces decoded by the native VAEs.
+
+All snapshot entries record \emph{human\_review=false}; screening was
+model-assisted. Selection-biased quality spot checks do not estimate the
+population error rate. Residual small intersections, attachment gaps and
+local folds may remain, and ISIR success is not a prerequisite for inclusion.
+The construction is intended to supply plausible, visible shape changes,
+not certified CAD-quality assemblies. Its source categories are long-tailed
+(2--592 edits per category), rather than category-balanced.
+
+\paragraph{Rendering, provenance and split boundary.}
+The canonical M0 frame and source UV/materials are shared by M0 and each
+final M1. Mesh/attribute, source/donor, configuration and worker hashes,
+diagnostics, render evidence and loader receipts accompany the sample
+identity. The donor is absent from retargeting inputs: an edited M1 view
+provides the desired shape and undeformed M0 views supply appearance.
+Exact face/barycentric surface correspondence can supervise matching;
+it does not supply ground-truth surface visibility at inference.
+
+The logical split uses seed 20261012 and groups all variants of every source
+UID and existing geometry cluster. Orientation-uncertain train-only cases
+remain in training. UID and cluster intersections across splits are zero,
+but donor/source roles may cross split boundaries. The split is assigned
+after the approved snapshot is constructed. It does not establish donor
+disjointness, complete semantic-duplicate removal, independence from earlier
+multi-view pretraining, or an outcome-blind evaluation of GeoStyle's
+population-level feasibility. The fixed indices are mapped by sample
+identity; the original physical storage layout is not the logical split.

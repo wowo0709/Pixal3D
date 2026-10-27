@@ -1,0 +1,40 @@
+{
+  "status": "PASS_TEST508_CAMERA_INPUT_AUDIT",
+  "test_manifest_sha256": "5e67564a299eb9ef400c504fae00c9ebb8478a6571b97254c1098736c728eb05",
+  "test_samples": 508,
+  "official_camera_receipts": 508,
+  "fixed_rig_templates_at_1e-12": 1,
+  "gt_fov_degrees": {
+    "min": 59.99999999999999,
+    "median": 59.99999999999999,
+    "max": 59.99999999999999
+  },
+  "gt_target_distance": {
+    "min": 1.8,
+    "median": 1.8,
+    "max": 1.8
+  },
+  "gt_mesh_scale": {
+    "min": 0.6447024290809326,
+    "median": 0.9181051379323061,
+    "max": 1.240427333772968
+  },
+  "official_moge_fov_degrees": {
+    "min": 18.67129196823409,
+    "median": 35.528757915623885,
+    "max": 58.733535567823026
+  },
+  "official_moge_distance": {
+    "min": 0.8885617256164551,
+    "median": 1.5606529712677002,
+    "max": 3.041451930999756
+  },
+  "official_mesh_scale": {
+    "min": 1.0,
+    "median": 1.0,
+    "max": 1.0
+  },
+  "official_uses_dataset_camera_at_generation": false,
+  "ours_uses_dataset_camera_and_scale_at_generation": true,
+  "score_or_method_selection_performed": false
+}
