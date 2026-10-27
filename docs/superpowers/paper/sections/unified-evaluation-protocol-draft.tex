@@ -12,7 +12,12 @@ unit-scale default when the scale argument is absent. Our frozen V1 and
 selected multi-view methods use the same image-only scale estimator, trained
 on the training split from RGB/A and camera inputs. We report the actual
 inputs used by each external method; methods without a calibrated-camera
-interface retain their native inference path.
+interface retain their native inference path. In particular, ShapeUp receives
+the textured source M0 mesh and the edited target RGB; SpaceControl receives
+an original source anchor RGB and a target proxy mesh predicted from the
+same target RGB by TRELLIS.2. The proxy contains no target GT geometry.
+MVAdapter and CorrAdapter generate their own multi-view images from the target
+RGB before ReconViaGen reconstruction; they receive no original source views.
 
 \paragraph{Common population and outputs.}
 We evaluate the frozen TEST508 split, report each method's success count out

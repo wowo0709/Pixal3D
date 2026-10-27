@@ -18,8 +18,8 @@ LABEL = {'trellis2': 'TRELLIS.2', 'pixal3d': 'Pixal3D official (estimated C)',
          'ours_v1_source_m0': 'Ours vanilla V1',
          'ours_selected_source_m0': 'Ours selected'}
 INPUT = {'trellis2': 'T1', 'pixal3d': 'T1', 'reconviagen': 'T1+S3',
-         'mvadapter': 'T1', 'corradapter': 'T1', 'shapeup': 'T1',
-         'spacecontrol': 'T1+A1',
+         'mvadapter': 'T1', 'corradapter': 'T1', 'shapeup': 'T1+M0',
+         'spacecontrol': 'T1+P+A1',
          'pixal3d_official_rgb1_source_m0': 'T1+C',
          'ours_v1_source_m0': 'T1+S3+C',
          'ours_selected_source_m0': 'T1+S3+C'}
@@ -124,8 +124,9 @@ def main() -> None:
                r'/508 edits. All rows are evaluated with the same cameras, Cycles renderer,'
                r' metric code, and post-generation source-M0-only Sim(3) alignment; no'
                r' target-derived object scale is supplied at generation. T1 is the edited'
-               r' target RGB, S3 three original source RGBs, A1 an original anchor, and'
-               r' C provided camera metadata. Native model input access differs by row;'
+               r' target RGB, S3 three original source RGBs, M0 the textured source mesh,'
+               r' A1 an original anchor RGB, P a TRELLIS.2 target proxy predicted from T1,'
+               r' and C provided camera metadata. Native model input access differs by row;'
                r' the older Pixal3D baseline estimates C and uses a 1536 cascade, while'
                r' the new RGB1 and Ours rows use given C and a 1024 cascade. Source metrics'
                r' use cameras 9/10; target image metrics use camera 8; geometry is measured'

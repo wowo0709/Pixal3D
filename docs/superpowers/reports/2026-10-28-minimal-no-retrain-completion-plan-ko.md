@@ -418,3 +418,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 공통 10방법 표 생성기는 user가 지정한 **source 3개, FID/KID 2개, target alignment 5개**와 방향별 최고 bold·2위 underline을 실제 수치 기준으로 적용한다. 기존 머리글에서 CD/F-Score가 별도 `Geometry` 그룹에 놓여 target alignment에서 빠져 보이던 부분을 **target alignment 5열**로 바로잡았다. 입력 가용성(T1, S3, C)과 Pixal3D 1536 estimated-camera/공식1024 given-camera 차이를 표 캡션에 유지한다.
 - FID/KID는 최종 공통 **N≤501**건의 camera9/10 렌더 **2N장**을 대상으로 재계산하도록 `image_count=n*2`가 강제된다. 원고 프로토콜의 'global naturalness' 표현을 실제 범위인 **평가 source 카메라 분포의 자연스러움**으로 명확히 했다. camera8 target 지표는 별도 GT 렌더와 동일 사례의 raw/+source-M0 보조 표에서 재계산한다.
+
+## 08:54 KST baseline 입력 권한 표기 수정
+
+- 통합 표 `Input` 열의 ShapeUp=`T1`, SpaceControl=`T1+A1` 표기는 실제 생성 입력을 축소했다. node16의 `/home/seunghyun/editing_reproduction/setup/run-shapeup.py`는 `textured_source_mesh`를 `source.glb`로, M1 target RGB를 `target.png`로 복사해 모델에 준다. `/home/seunghyun/editing_reproduction/setup/run-spacecontrol.py`는 같은 사례·seed의 TRELLIS.2 **raw predicted target proxy mesh**와 M0@8 anchor RGB를 사용한다. 따라서 표를 ShapeUp=`T1+M0`, SpaceControl=`T1+P+A1`로 수정하고 M0/P/A1을 캡션에서 정의했다. 이는 성능 수치 변경이 아닌 입력 권한의 정확한 공개다.
+- 원고 공통 프로토콜에 두 입력과 MVAdapter/CorrAdapter가 target RGB에서 자체 생성한 multi-view를 ReconViaGen에 넘긴다는 사실도 명시했다. 외부법을 동일 T1 입력으로 오인하거나 ShapeUp의 source mesh 접근을 숨기지 않도록 한다.
