@@ -413,3 +413,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - node16의 공식 성공 교집합 파일에는 중복 없는 **501개 ID**가 있고, 외부 7방법 원본 reference **502개 ID**의 정확한 부분집합이다. 제외된 한 ID는 공식 Pixal3D RGB1의 기록된 native empty-sparse 실패 사례와 일치한다. 9방법 합치기는 502개 외부 reference에서 이 501개를 선택해 평가기를 다시 실행한다. 이후 Ours 4조건도 같은 501개 reference를 정확한 JSON 행 단위로 대조해 합치고, 해당 subset에서 학습형 지표와 FID/KID를 새로 계산한다. `502` 원본 FID/KID를 주 표에 복사하는 경로는 없다.
 - node16에서 현재 실행 중인 9방법 평가 orchestration 코드와 교집합 병합 코드의 SHA가 로컬 정본과 각각 일치했다. 후속 Ours 바인딩·camera8 점수·13방법 병합 스크립트 세 파일은 미리 node16에 복사해 로컬/원격 SHA 일치를 확인했다. Ours watcher는 시작 직전에 같은 세 파일을 다시 복사한다. 공식 evaluator PID**195556**, Ours renderer/evaluator watcher PID**586065/586066**, bridge PID**1552286**이 생존 중이며, 외부 7방법 evaluator PID**2492093**이 계속 실행된다.
+
+## 08:52 KST 통합 표의 metric 분류·표기 점검
+
+- 공통 10방법 표 생성기는 user가 지정한 **source 3개, FID/KID 2개, target alignment 5개**와 방향별 최고 bold·2위 underline을 실제 수치 기준으로 적용한다. 기존 머리글에서 CD/F-Score가 별도 `Geometry` 그룹에 놓여 target alignment에서 빠져 보이던 부분을 **target alignment 5열**로 바로잡았다. 입력 가용성(T1, S3, C)과 Pixal3D 1536 estimated-camera/공식1024 given-camera 차이를 표 캡션에 유지한다.
+- FID/KID는 최종 공통 **N≤501**건의 camera9/10 렌더 **2N장**을 대상으로 재계산하도록 `image_count=n*2`가 강제된다. 원고 프로토콜의 'global naturalness' 표현을 실제 범위인 **평가 source 카메라 분포의 자연스러움**으로 명확히 했다. camera8 target 지표는 별도 GT 렌더와 동일 사례의 raw/+source-M0 보조 표에서 재계산한다.

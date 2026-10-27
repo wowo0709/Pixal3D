@@ -45,7 +45,9 @@ image inputs differ.
 
 \paragraph{Metrics and optional source-mesh registration.}
 Source preservation uses LPIPS, DreamSim, and CLIP cosine on cameras 9 and 10.
-Global naturalness uses FID and KID on the same common-success image pool.
+Distributional image quality uses FID and KID on the same common-success
+camera-9/10 image pool. These scores describe naturalness at the scored
+source views.
 Target alignment uses PSNR, SSIM, and foreground mask IoU at camera 8, plus
 symmetric unsquared Chamfer distance and F-score at threshold 0.02 on the
 surface samples. The surface frame is normalized by the input source object's

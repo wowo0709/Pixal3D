@@ -101,8 +101,7 @@ def main() -> None:
              r'\begin{tabular}{llrrrrrrrrrr}', r'\toprule',
              r'& & \multicolumn{3}{c}{Source preservation (9/10)}'
              r' & \multicolumn{2}{c}{Distribution (9/10)}'
-             r' & \multicolumn{3}{c}{Target alignment (8)}'
-             r' & \multicolumn{2}{c}{Geometry}\\',
+             r' & \multicolumn{5}{c}{Target alignment (8/M1)}\\',
              r'Method & Input & LPIPS$\downarrow$ & DreamSim$\downarrow$'
              r' & CLIP$\uparrow$ & FID$\downarrow$ & KID$\downarrow$'
              r' & PSNR$\uparrow$ & SSIM$\uparrow$ & M-IoU$\uparrow$'
