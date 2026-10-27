@@ -408,3 +408,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 실제 shape/PBR SHA 보관이 끝난 동일 **254사례 쌍**의 generation 기록을 다시 읽었다. V1·Selected는 모든 쌍에서 같은 image-only scale을 사용했고, M1 유래 scale·source M0 mesh·GT geometry를 생성에 쓰지 않았다는 각 생성 영수증도 254쌍 전부 통과했다. Source-M0 정합 전 raw surface에서 Selected−V1 F@0.02 평균은 **+0.003426**, CD(L1) 평균은 **−0.0002255**이고, 개선 사례는 각각 **144/254**, **139/254**다. 완료 사례는 index 0–199의 177건과 400–507의 77건에 몰려 있어 비무작위 부분집합이다. 이 수치는 최종 공통 성공 집합·source-M0 정합·Cycles 렌더·source-cluster CI를 반영하지 않으므로 논문 결과나 모델 선정 근거로 사용하지 않는다.
 - 최종 원고 빌더 `build_fair_manuscript.py`의 필수 입력을 확인했다. 공통 10방법·10지표 표, V1/Selected 8지표 paired CI, 공식 RGB1 대비 16개 보정 대조, 최종 공통 manifest, 공정 teaser의 실제 렌더 SHA와 캡션이 모두 있어야 PDF를 조판한다. 기존 M1-derived-scale 표와 그림을 새 주 비교 수치로 잘못 승격하지 않는 gate다. 아직 이 입력들이 닫히지 않았으므로 최종 PDF는 생성하지 않는다.
 - live watcher는 GPU6/7 tail v3와 뒤따를 v4의 관리자·대기 프로세스를 함께 표시하고, node16 상태 질의의 일시적인 20초 지연을 작업 종료로 오인하지 않도록 질의 제한을 40초로 늘렸다. 한 차례 시간초과 직후 같은 node16 PID2492093/bridge PID1552286을 다시 확인했고, 재질의에서는 정상 응답과 증가한 실제 읽기 바이트를 받았다.
+
+## 08:49 KST 최종 공통 모집단·평가 인계 감사
+
+- node16의 공식 성공 교집합 파일에는 중복 없는 **501개 ID**가 있고, 외부 7방법 원본 reference **502개 ID**의 정확한 부분집합이다. 제외된 한 ID는 공식 Pixal3D RGB1의 기록된 native empty-sparse 실패 사례와 일치한다. 9방법 합치기는 502개 외부 reference에서 이 501개를 선택해 평가기를 다시 실행한다. 이후 Ours 4조건도 같은 501개 reference를 정확한 JSON 행 단위로 대조해 합치고, 해당 subset에서 학습형 지표와 FID/KID를 새로 계산한다. `502` 원본 FID/KID를 주 표에 복사하는 경로는 없다.
+- node16에서 현재 실행 중인 9방법 평가 orchestration 코드와 교집합 병합 코드의 SHA가 로컬 정본과 각각 일치했다. 후속 Ours 바인딩·camera8 점수·13방법 병합 스크립트 세 파일은 미리 node16에 복사해 로컬/원격 SHA 일치를 확인했다. Ours watcher는 시작 직전에 같은 세 파일을 다시 복사한다. 공식 evaluator PID**195556**, Ours renderer/evaluator watcher PID**586065/586066**, bridge PID**1552286**이 생존 중이며, 외부 7방법 evaluator PID**2492093**이 계속 실행된다.
