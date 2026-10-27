@@ -396,3 +396,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 Pixal3D RGB1의 source-M0 surface 및 렌더 GLB는 **501/501**로 완료됐다. node16 외부 7방법 learned 결과는 **4/7**이며 완료 방법은 Pixal3D, MVAdapter, ReconViaGen, CorrAdapter다. 평가 자식 PID**2492093**의 누적 실제 읽기 바이트는 **112.8 GB**로 증가했고 bridge PID**1552286**은 외부 7방법 completion을 기다린다. 공식 Cycles render watcher는 이 인계 전까지 의도적으로 정지해 GPU 6/7의 Ours tail과 충돌하지 않는다.
 - 계획은 동결 V1·Selected만 GT 객체 scale 없이 TEST508 생성, 동일 최종 성공 교집합의 source-M0-only Sim(3)·공통 10지표·paired CI, 실제 teaser·최종 원고/PDF 순서로 유지한다. 현재 unified 9방법과 Ours 최종 4조건 학습형 metric, 주 비교표, paired CI는 미완료다. 외부 502 전체 수치를 공식 RGB1 성공 501과 섞지 않는다.
 - 외부 평가에서 먼저 닫힌 Pixal3D·MVAdapter·ReconViaGen·CorrAdapter **4개 원본 결과 파일**을 직접 열어 검사했다. 각 파일은 동일한 **502개 sample ID**, 1,004개 source view, 실패 0건, 완전 평가 플래그, 사례별 8개 유한 지표 및 유한한 FID/KID를 가졌다. 이는 원본 common502 평가의 무결성 확인이며, 공식 RGB1을 포함한 최종 공통 **501 이하** 모집단의 FID/KID 재집계를 대신하지 않는다.
+
+## 08:44 KST GPU 6·7 연속 활용 준비
+
+- 실시간 두 arm 동일 사례 보관은 **247/508**, V1 단독은 **251/508**로 증가했다. 현재 완료 index는 0–99 전부, 100–199 중 73, 400–449 중 18, 450–507 전부이며 **350–399는 0건**이다. 따라서 primary와 GPU6/7의 다음 disjoint 구간 사이에 충분한 간격이 있다.
+- 외부 evaluator는 4/7 결과를 냈고 PID2492093의 실제 읽기 바이트가 **113.0 GB**로 증가했다. 공식 export bridge는 외부 completion 대기 중이다. 현재 GPU6/7 tail 관리자가 index **401/400**까지 정상 완료했는데도 공식 export가 준비되지 않으면, index **399/398부터 350까지** 이어서 처리하는 [연속 구간 관리자](../../../experiments/deformnext_retargeting/orchestrate_disjoint_tail_extension.py)를 대기 세션 **82248**로 연결했다. 선행 영수증의 연속 index와 두 GPU parity를 검사하고, 공식 export 또는 전체 cascade가 먼저 닫히면 새 작업을 건너뛴다.
+- tail 관리자의 후속 버전은 render mesh 예외로 종료될 때 공식 export가 아직 준비되지 않았다면 공식 렌더 watcher를 성급히 재개하지 않도록 수정했다. 현재 실행 중인 v3 프로세스에는 이 변경이 소급 적용되지 않으므로 현행 실시간 감시도 유지한다. 새 연속 관리자 코드의 compile·영수증 연속성 smoke와 whitespace 검사를 통과했다.

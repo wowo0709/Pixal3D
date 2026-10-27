@@ -81,7 +81,7 @@ def remote_counts() -> dict:
     host='youngwoo@n16.unist.info'
     command='python3 -c '+shlex.quote(REMOTE_QUERY)
     result=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=8',
-                           '-p','55555',host,command],capture_output=True,text=True,timeout=20,check=True)
+                           '-p','55555',host,command],capture_output=True,text=True,timeout=40,check=True)
     return json.loads(result.stdout)
 
 
@@ -137,7 +137,24 @@ def local_tail_supervisor()->list[int]:
     """Track the live manager, not only its short-lived case children."""
     result=[]
     module='experiments.deformnext_retargeting.use_idle_gpus_for_test_tail'
-    root=str(LOCAL/'disjoint-tail-gpu6-7-v3')
+    roots={str(LOCAL/f'disjoint-tail-gpu6-7-v{version}') for version in (3,4)}
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():continue
+        try:
+            argv=(entry/'cmdline').read_bytes().decode(errors='replace').split('\0')
+            if module not in argv or '--output-root' not in argv:continue
+            if argv[argv.index('--output-root')+1] not in roots:continue
+            state=(entry/'stat').read_text().split(') ',1)[1].split(' ',1)[0]
+            if state not in {'Z','X'}:result.append(int(entry.name))
+        except (OSError,ValueError,IndexError):
+            continue
+    return result
+
+
+def local_tail_extension()->list[int]:
+    result=[]
+    module='experiments.deformnext_retargeting.orchestrate_disjoint_tail_extension'
+    root=str(LOCAL/'disjoint-tail-gpu6-7-v4')
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit():continue
         try:
@@ -153,7 +170,7 @@ def local_tail_supervisor()->list[int]:
 
 def render(local:dict,remote:dict|None,error:str|None,
            health:dict[int,list[int]],tail:dict[int,list[tuple[int,int]]],
-           tail_supervisor:list[int])->str:
+           tail_supervisor:list[int],tail_extension:list[int])->str:
     now=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     n=local['expected']
     lines=['# GT scale 미제공 TEST508 실시간 진행표', '',
@@ -188,6 +205,7 @@ def render(local:dict,remote:dict|None,error:str|None,
                           for gpu,rows in tail.items())
     out+=f'\n| Local GPU 6/7 tail workers (GPU: PID@index) | {tail_detail} |'
     out+=f'\n| Local GPU 6/7 tail supervisor | {"/".join(map(str,tail_supervisor)) if tail_supervisor else "not running"} |'
+    out+=f'\n| Local GPU 6/7 extension waiter | {"/".join(map(str,tail_extension)) if tail_extension else "not running"} |'
     out+='\n\n'
     if error: out+=f'Remote read error: `{error[:300]}`. This does not mean the job failed.\n\n'
     if (remote is not None and not remote['external_done']
@@ -201,8 +219,11 @@ def render(local:dict,remote:dict|None,error:str|None,
     if missing and not flag(LOCAL/'cascade-two-arm-execution-v2-direct-file4/complete.json'):
         out+=('Worker attention: primary rank(s) '+', '.join(missing)
               +' are absent while the cascade is incomplete; inspect recovery receipts.\n\n')
+    active_tail=(LOCAL/'disjoint-tail-gpu6-7-v4' if (LOCAL/'disjoint-tail-gpu6-7-v4').exists()
+                 else LOCAL/'disjoint-tail-gpu6-7-v3')
     if (not tail_supervisor
-            and not flag(LOCAL/'disjoint-tail-gpu6-7-v3/complete.json')
+            and not flag(active_tail/'complete.json')
+            and (active_tail.name.endswith('v4') or not flag(LOCAL/'disjoint-tail-gpu6-7-v3/complete.json'))
             and not flag(LOCAL/'cascade-two-arm-execution-v2-direct-file4/complete.json')
             and (remote is None or not remote['official_bridge_done'])):
         out+='Tail attention: the GPU 6/7 manager ended without a handoff or completion receipt.\n\n'
@@ -235,16 +256,20 @@ def main():
         local=local_counts()
         try: remote=remote_counts();error=None
         except (OSError,subprocess.SubprocessError,json.JSONDecodeError) as exc:
-            remote=None;error=str(exc)
+            remote=None
+            error=(f'{type(exc).__name__}: remote status query timed out'
+                   if isinstance(exc,subprocess.TimeoutExpired) else str(exc)[:300])
         health=local_worker_health()
         tail=local_tail_health()
         supervisor=local_tail_supervisor()
-        document=render(local,remote,error,health,tail,supervisor)
+        extension=local_tail_extension()
+        document=render(local,remote,error,health,tail,supervisor,extension)
         temp=args.output.with_suffix(args.output.suffix+'.tmp')
         temp.write_text(document);temp.replace(args.output)
         print(json.dumps({'time':datetime.now(timezone.utc).isoformat(),
                           'local':local,'remote':remote,'worker_health':health,
                           'tail_health':tail,'tail_supervisor':supervisor,
+                          'tail_extension':extension,
                           'error':error}),flush=True)
         if (args.once
                 or (flag(BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json')

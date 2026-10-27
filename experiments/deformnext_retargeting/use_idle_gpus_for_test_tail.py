@@ -54,6 +54,7 @@ def main() -> None:
     args.output_root.mkdir(parents=True)
     stop = threading.Event()
     results = {'6': [], '7': []}
+    released = False
     os.kill(args.official_render_pid, signal.SIGSTOP)
     print(json.dumps({'phase': 'RESERVE_GPUS_6_7_FOR_DISJOINT_TEST_TAIL',
                       'official_render_pid': args.official_render_pid,
@@ -120,8 +121,12 @@ def main() -> None:
                    'official_export_ready': official_export_complete()}
         (args.output_root / 'complete.json').write_text(json.dumps(receipt, indent=2) + '\n')
         print(json.dumps(receipt), flush=True)
+        released = True
     finally:
-        if state(args.official_render_pid) == 'T':
+        # Keep the official watcher paused after a failed tail case if its
+        # verified export has not been handed over yet.  Resuming it here used
+        # to race a recovery attempt on the same GPUs.
+        if state(args.official_render_pid) == 'T' and (released or official_export_complete()):
             os.kill(args.official_render_pid, signal.SIGCONT)
             print(json.dumps({'phase': 'RESUME_OFFICIAL_RENDER_WATCHER',
                               'pid': args.official_render_pid}), flush=True)
