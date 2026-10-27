@@ -384,7 +384,14 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 08:24 KST 새 live 표는 V1 **223/508**, Selected/paired **220/508**, 외부 learned **3/7**이며 primary 0–3 및 tail 6/7의 실제 PID를 다시 확인했다. 미완료 GPU6 case449의 최종 결과와 관리자 생존을 계속 추적한다.
 - 같은 GPU6 index449의 V1 렌더용 GLB는 50만 face 예산으로 성공했고, 원본 표면 대비 q99 world-frame **0.0046204**로 사전 0.01 한도를 통과해 file4 SHA 보관을 완료했다. Selected Shape 생성 자식이 계속 실행 중이므로 이 사례의 paired 완료는 아직 주장하지 않는다. GPU7 index428도 정상 생성 중이며 node16 외부 learned evaluator의 읽기 바이트는 계속 증가한다.
 - 08:29 KST GPU6 index449는 Selected Top-1 PBR 및 Shape까지 file4 SHA 보관을 끝내 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`로 닫혔다. GPU7 index428도 같은 paired 영수증을 완료했다. 새 tail 관리자는 GPU6 rank**447**/GPU7 rank**426**으로 계속 진행 중이다. live ledger는 V1 **229/508**, Selected/paired **226/508**, 외부 learned **3/7**이다. 공식 렌더 watcher PID543994는 인계 전까지 다시 `T`이고 출력 캠페인 디렉터리는 아직 만들어지지 않았다.
+- 08:37 KST GPU7 index426도 양 arm file4 SHA 보관을 닫았다. V1 render budget 50만 face/q99 **0.0056249**, Selected는 25만·50만 실패 후 100만 face/q99 **0.0042194**로 같은 0.01 한도를 통과했다. GPU7은 index424로 내려가며 계속 실행한다.
 
 ## 08:30 KST 누적 렌더 근사 fidelity 감사
 
 - 새 [누적 render-only mesh 감사](2026-10-28-test508-render-fidelity-incremental.json)는 현재 file4 SHA 보관된 V1 **230건**, Selected **228건**의 `benchmark.json`·archive receipt를 전수 대조했다. 실제 render face budget 25만/50만/100만/200만/500만 분포는 **410/24/15/7/2**, 원본 표면 대비 q99 world-frame 최대 **0.0098481**로 사전 0.01 한도 초과 **0건**이다. 각 영수증의 GLB·prediction·report SHA, image-only scale, GT fitting 미사용, untouched surface metric 입력도 확인했다. 이는 렌더용 근사와 provenance 감사이며 모델의 TEST 성능 지표가 아니다. 전체 508×2가 아직 아니므로 상태는 `PASS_PARTIAL_RENDER_FIDELITY_AUDIT`이다.
+
+## 08:41 KST 계획·실행 중간 점검
+
+- 실시간 file4 SHA 영수증은 V1 **247/508**, Selected 및 동일 사례 두 arm **243/508**이다. primary GPU 0–3 네 작업자와 disjoint GPU 6/7 tail 작업자 두 개 및 관리자 PID**713405**가 실행 중이다. 새 live watcher는 tail 관리자 생존도 표시하고, 공식 render 인계나 cascade 완료 전에 관리자가 종료되면 경고하도록 보강했다. `py_compile`, `git diff --check`, node16 포함 `--once` 실측을 통과한 새 watcher를 재시작했다.
+- 공식 Pixal3D RGB1의 source-M0 surface 및 렌더 GLB는 **501/501**로 완료됐다. node16 외부 7방법 learned 결과는 **4/7**이며 완료 방법은 Pixal3D, MVAdapter, ReconViaGen, CorrAdapter다. 평가 자식 PID**2492093**의 누적 실제 읽기 바이트는 **112.8 GB**로 증가했고 bridge PID**1552286**은 외부 7방법 completion을 기다린다. 공식 Cycles render watcher는 이 인계 전까지 의도적으로 정지해 GPU 6/7의 Ours tail과 충돌하지 않는다.
+- 계획은 동결 V1·Selected만 GT 객체 scale 없이 TEST508 생성, 동일 최종 성공 교집합의 source-M0-only Sim(3)·공통 10지표·paired CI, 실제 teaser·최종 원고/PDF 순서로 유지한다. 현재 unified 9방법과 Ours 최종 4조건 학습형 metric, 주 비교표, paired CI는 미완료다. 외부 502 전체 수치를 공식 RGB1 성공 501과 섞지 않는다.

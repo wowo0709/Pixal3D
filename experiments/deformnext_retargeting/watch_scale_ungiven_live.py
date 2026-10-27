@@ -133,8 +133,27 @@ def local_tail_health()->dict[int,list[tuple[int,int]]]:
     return result
 
 
+def local_tail_supervisor()->list[int]:
+    """Track the live manager, not only its short-lived case children."""
+    result=[]
+    module='experiments.deformnext_retargeting.use_idle_gpus_for_test_tail'
+    root=str(LOCAL/'disjoint-tail-gpu6-7-v3')
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():continue
+        try:
+            argv=(entry/'cmdline').read_bytes().decode(errors='replace').split('\0')
+            if module not in argv or '--output-root' not in argv:continue
+            if argv[argv.index('--output-root')+1]!=root:continue
+            state=(entry/'stat').read_text().split(') ',1)[1].split(' ',1)[0]
+            if state not in {'Z','X'}:result.append(int(entry.name))
+        except (OSError,ValueError,IndexError):
+            continue
+    return result
+
+
 def render(local:dict,remote:dict|None,error:str|None,
-           health:dict[int,list[int]],tail:dict[int,list[tuple[int,int]]])->str:
+           health:dict[int,list[int]],tail:dict[int,list[tuple[int,int]]],
+           tail_supervisor:list[int])->str:
     now=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     n=local['expected']
     lines=['# GT scale 미제공 TEST508 실시간 진행표', '',
@@ -168,6 +187,7 @@ def render(local:dict,remote:dict|None,error:str|None,
     tail_detail=', '.join(f'{gpu}:{"/".join(f"{pid}@{rank}" for pid,rank in rows) if rows else "idle"}'
                           for gpu,rows in tail.items())
     out+=f'\n| Local GPU 6/7 tail workers (GPU: PID@index) | {tail_detail} |'
+    out+=f'\n| Local GPU 6/7 tail supervisor | {"/".join(map(str,tail_supervisor)) if tail_supervisor else "not running"} |'
     out+='\n\n'
     if error: out+=f'Remote read error: `{error[:300]}`. This does not mean the job failed.\n\n'
     if (remote is not None and not remote['external_done']
@@ -181,6 +201,11 @@ def render(local:dict,remote:dict|None,error:str|None,
     if missing and not flag(LOCAL/'cascade-two-arm-execution-v2-direct-file4/complete.json'):
         out+=('Worker attention: primary rank(s) '+', '.join(missing)
               +' are absent while the cascade is incomplete; inspect recovery receipts.\n\n')
+    if (not tail_supervisor
+            and not flag(LOCAL/'disjoint-tail-gpu6-7-v3/complete.json')
+            and not flag(LOCAL/'cascade-two-arm-execution-v2-direct-file4/complete.json')
+            and (remote is None or not remote['official_bridge_done'])):
+        out+='Tail attention: the GPU 6/7 manager ended without a handoff or completion receipt.\n\n'
     stages={
       'Ours cascade':LOCAL/'cascade-two-arm-execution-v2-direct-file4/complete.json',
       'Ours surface':LOCAL/'ours-surface-common502-v2/complete.json',
@@ -213,12 +238,13 @@ def main():
             remote=None;error=str(exc)
         health=local_worker_health()
         tail=local_tail_health()
-        document=render(local,remote,error,health,tail)
+        supervisor=local_tail_supervisor()
+        document=render(local,remote,error,health,tail,supervisor)
         temp=args.output.with_suffix(args.output.suffix+'.tmp')
         temp.write_text(document);temp.replace(args.output)
         print(json.dumps({'time':datetime.now(timezone.utc).isoformat(),
                           'local':local,'remote':remote,'worker_health':health,
-                          'tail_health':tail,
+                          'tail_health':tail,'tail_supervisor':supervisor,
                           'error':error}),flush=True)
         if (args.once
                 or (flag(BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json')
