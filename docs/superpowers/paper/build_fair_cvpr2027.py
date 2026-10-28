@@ -34,6 +34,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--paper-root', type=Path, required=True)
     parser.add_argument('--main-table-json', type=Path, required=True)
+    parser.add_argument('--raw-table-json', type=Path, required=True)
     parser.add_argument('--paired-json', type=Path, required=True)
     parser.add_argument('--official-contrasts-json', type=Path, required=True)
     parser.add_argument('--claim-audit-json', type=Path, required=True)
@@ -50,6 +51,7 @@ def main() -> None:
         raise ValueError('frozen official author kit and Tectonic required')
 
     table = read_json(args.main_table_json)
+    raw_table = read_json(args.raw_table_json)
     paired = read_json(args.paired_json)
     contrasts = read_json(args.official_contrasts_json)
     claim_audit = read_json(args.claim_audit_json)
@@ -63,6 +65,11 @@ def main() -> None:
             or table['samples'] != n
             or len(table['methods']) != 10
             or len(table['metrics']) != 10
+            or raw_table['status'] != 'PASS_RAW_COMMON501_FULL_TABLE'
+            or raw_table['samples'] != n
+            or raw_table['methods'] != table['methods']
+            or raw_table['metrics'] != table['metrics']
+            or raw_table['common_manifest_sha256'] != digest(args.common_manifest)
             or paired['status']
                != 'PASS_GT_SCALE_FREE_OURS_V1_SELECTED_COMMON_PAIRED_EIGHT_ENDPOINTS'
             or paired['samples'] != n
@@ -103,6 +110,7 @@ def main() -> None:
         raise ValueError('final fair teaser/caption/population gate incomplete')
     required = [args.paper_root / SOURCE_NAME,
                 args.paper_root / 'final-results/scale-ungiven-main-table.tex',
+                args.paper_root / 'final-results/scale-ungiven-raw-table.tex',
                 *[args.paper_root / 'final-results' / name for name in RESULT_SLOTS]]
     if any(not path.is_file() for path in required):
         raise FileNotFoundError('final CVPR source, table, or results missing')

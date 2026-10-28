@@ -347,13 +347,14 @@ def render(local:dict,remote:dict|None,error:str|None,
       'Ours Cycles render':BENCHMARK/'ours-two-render-campaign-v2/complete.json',
       'Ours 10-metric evaluation':BENCHMARK/'ours-four-final-evaluation-monitor-v4/complete.json',
       'Common 10-method table':BENCHMARK/'scale-ungiven-main-table-v4/complete.json',
+      'Raw 10-method table':BENCHMARK/'raw-common501-final-table-v1/complete.json',
       'Ours paired uncertainty':BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json',
       'Official RGB1 paired uncertainty':BENCHMARK/'scale-ungiven-official-contrasts-v2/complete.json',
       'Fair common-success teaser':LOCAL/'fair-final-teaser-v2/complete.json',
     }
     out+='| Completion gate | Receipt |\n|---|---|\n'
     for name,path in stages.items():out+=f'| {name} | {"PASS" if flag(path) else "pending"} |\n'
-    out+='\nThe main table uses the final common-success intersection, camera-given where supported, no target-derived object scale at generation, and post-generation source-M0-only Sim(3). The older M1-derived-scale table is an internal diagnostic.\n'
+    out+='\nRaw and source-M0 tables use the same final common-success intersection, camera-given where supported, and no target-derived object scale at generation. The older M1-derived-scale table is an internal diagnostic.\n'
     return out
 
 
@@ -387,6 +388,7 @@ def main():
         if (args.once
                 or (flag(BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json')
                     and flag(BENCHMARK/'scale-ungiven-official-contrasts-v2/complete.json')
+                    and flag(BENCHMARK/'raw-common501-final-table-v1/complete.json')
                     and flag(LOCAL/'fair-final-teaser-v2/complete.json'))):
             break
         time.sleep(args.interval_seconds)

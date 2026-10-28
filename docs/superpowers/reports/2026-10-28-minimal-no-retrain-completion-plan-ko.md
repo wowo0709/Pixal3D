@@ -703,3 +703,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - `chunk029`까지 SHA 검증 보관하고 병렬 완료한 `chunk030`·`chunk031`을 원래 캠페인이 재사용했다. 최종 영수증은 `PASS_OURS_V1_SELECTED_RAW_AND_M0_COMMON502_RENDER_ARCHIVED`, **502사례·6,024장·32청크·추가 학습 0 update**다.
 - Ours 평가 워처 PID586066이 완료 영수증을 받아 node16에서 공통 **501 ID**의 렌더 및 surface 입력 manifest 검사 PID546863을 시작했다. 본 learned metric 결과는 아직 없다. node16 GPU7은 현재 다른 사용자의 프로세스가 약 **13 GiB/95.6 GiB**와 높은 연산 사용률을 보인다. 해당 프로세스는 그대로 두고 Ours 평가가 GPU를 실제로 사용하기 시작한 뒤 속도와 메모리를 확인한다.
+
+## Raw·source M0 두 조건의 전체 지표
+
+- 사용자 요청에 따라 target 지표뿐 아니라 **raw와 source M0 정합 각각의 10방법×10지표 표**를 준비한다. 외부 7방법의 raw 특징을 기존 502개 결과와 비교 검증한 뒤 동일한 공통501로 재집계했고, summary와 7개 사례별 결과를 file4에 SHA 검증 보관했다. 공식 RGB1 raw와 Ours target8 raw/+M0는 이미 완료됐다. Ours source·geometry 네 조건은 기존 공통 evaluator에서 계산 중이다.
+- Raw 전체 표 watcher PID997364는 Ours와 기존 +M0 주 표 완료를 기다린 뒤 동일 ID·조건·성공 수를 검사해 별도 JSON/TeX를 만든다. 두 최종 논문 빌더는 raw와 +M0 표를 모두 요구한다. [Raw 중간 표](2026-10-28-raw-common501-interim-ko.md), [M0 중간 표](2026-10-28-ours-common501-target8-interim-ko.md), [정합 효과 비교](2026-10-28-source-m0-target8-interim-ko.md)를 별도로 확인할 수 있다.

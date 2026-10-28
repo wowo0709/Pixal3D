@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--paper-root',type=Path,required=True)
     parser.add_argument('--support-snapshot',type=Path,required=True)
     parser.add_argument('--main-table-json',type=Path,required=True)
+    parser.add_argument('--raw-table-json',type=Path,required=True)
     parser.add_argument('--paired-json',type=Path,required=True)
     parser.add_argument('--official-contrasts-json',type=Path,required=True)
     parser.add_argument('--claim-audit-json',type=Path,required=True)
@@ -37,6 +38,7 @@ def main():
     args=parser.parse_args()
     if args.output_dir.exists():raise FileExistsError('fresh manuscript build directory required')
     table=json.loads(args.main_table_json.read_text())
+    raw_table=json.loads(args.raw_table_json.read_text())
     paired=json.loads(args.paired_json.read_text())
     official_contrasts=json.loads(args.official_contrasts_json.read_text())
     claim_audit=json.loads(args.claim_audit_json.read_text())
@@ -47,6 +49,10 @@ def main():
     n=common['samples']
     if (table['status']!='PASS_SCALE_UNGIVEN_COMMON_SUCCESS_MAIN_TABLE'
             or table['samples']!=n or len(table['methods'])!=10 or len(table['metrics'])!=10
+            or raw_table['status']!='PASS_RAW_COMMON501_FULL_TABLE'
+            or raw_table['samples']!=n or raw_table['methods']!=table['methods']
+            or raw_table['metrics']!=table['metrics']
+            or raw_table['common_manifest_sha256']!=sha(args.common_manifest)
             or paired['status']!='PASS_GT_SCALE_FREE_OURS_V1_SELECTED_COMMON_PAIRED_EIGHT_ENDPOINTS'
             or paired['samples']!=n or len(paired['metrics'])!=8
             or official_contrasts['status']
@@ -79,6 +85,7 @@ def main():
                 raise ValueError('official paired contrast and paper table differ: '
                                  +method+'/'+metric)
     required=('final-results/scale-ungiven-main-table.tex',
+              'final-results/scale-ungiven-raw-table.tex',
               'final-results/scale-ungiven-target8-registration.tex',
               'final-results/scale-ungiven-official-contrasts.tex',
               'final-results/unified-abstract-findings.tex',

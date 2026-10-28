@@ -10,6 +10,7 @@
 | Official RGB1 501 성공 사례 Cycles | `/root/dev/.cache/deformnext-benchmark-runtime/official-rgb1-render-campaign-v2/complete.json` |
 | Ours 502사례 raw/+M0 Cycles | `/root/dev/.cache/deformnext-benchmark-runtime/ours-two-render-campaign-v2/complete.json` |
 | 최종 성공 교집합 10방법×10지표 | `/root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/complete.json`; 원고 `paper/final-results/scale-ungiven-main-table.tex` |
+| Raw 10방법×10지표 | `/root/dev/.cache/deformnext-benchmark-runtime/raw-common501-final-table-v1/complete.json`; 원고 `paper/final-results/scale-ungiven-raw-table.tex` |
 | V1↔Selected 8지표 paired CI | `/root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-ours-paired-v3/complete.json` |
 | Official RGB1↔V1/Selected 16지표 paired CI | `/root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-official-contrasts-v2/complete.json`; 원고 `paper/final-results/scale-ungiven-official-contrasts.tex` |
 | 실제 공정 teaser | `/root/dev/.cache/deformnext-retargeting/scale-ungiven-test508-20261028/fair-final-teaser-v2/complete.json`; 원고 `paper/final-results/figures/paper-teaser.{pdf,png}` 및 캡션·provenance |
@@ -20,7 +21,7 @@
 
 ## 실측 뒤 작성할 문장
 
-1. `scale-ungiven-main-table.json`의 10방법×10지표 셀과 raw/+M0 target8 표를 확인한다. 최고/2위 서식은 자동 생성되며, KID 표시값은 원값×1,000이다.
+1. `scale-ungiven-main-table.json`과 `raw-common501-table.json`의 10방법×10지표 셀 및 raw/+M0 target8 표를 확인한다. 최고/2위 서식은 자동 생성되며, KID 표시값은 원값×1,000이다. Raw 외부 7방법은 원래 per-image 특징을 동일 501개로 replay했고, Ours raw 2행은 현재 평가가 끝나면 자동 추가된다.
 2. `paired-eight-endpoints.json`에서 Selected−V1의 source/target/geometry 8지표의 8-family interval을 확인한다. `official-contrasts-sixteen-endpoints.json`에서 official RGB1 대비 V1/Selected의 16-family interval을 확인한다. 0을 포함하는 구간은 개선·동등성 어느 쪽도 확정하지 않는다. FID/KID는 점추정만 서술한다.
    [claim 감사기](../../../experiments/deformnext_retargeting/audit_fair_test_claims.py)에 이 세 JSON과 공통 manifest를 전달해 각 endpoint의 방향·보정구간·주 표 평균 일치를 검사하고 `PASS_FAIR_TEST_CLAIM_AUDIT`을 받은 뒤 문장을 작성한다. 이 감사기는 FID/KID와 모델 순위를 기술적 점추정으로만 분류하고, 공식 RGB1 대 Ours를 입력 수가 다른 시스템 비교로 표시한다.
 
@@ -45,6 +46,7 @@ python docs/superpowers/paper/build_fair_manuscript.py \
   --paper-root docs/superpowers/paper \
   --support-snapshot /root/dev/pixal3d-inspection/manuscript-geostyle-data-20261027/source \
   --main-table-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/scale-ungiven-main-table.json \
+  --raw-table-json /root/dev/.cache/deformnext-benchmark-runtime/raw-common501-final-table-v1/raw-common501-table.json \
   --paired-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-ours-paired-v3/paired-eight-endpoints.json \
   --official-contrasts-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-official-contrasts-v2/official-contrasts-sixteen-endpoints.json \
   --claim-audit-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-claim-audit-v1/claim-audit.json \
@@ -66,6 +68,6 @@ python docs/superpowers/paper/build_fair_manuscript.py \
 
 별도 [CVPR 2027 압축 원고](../paper/cvpr2027-submission.tex)를 공식 review 템플릿으로 작성하고 [preview 빌더](../paper/build_cvpr2027_preview.py)로 4쪽(참고문헌 포함)을 조판·시각 검수했다. 레이아웃 오류, 미해결 참조·인용은 0개다. 이 버전은 공통 성공 집합의 최종 표와 teaser가 없다고 본문에 표시한 **protocol preview**다. 실측 결과와 공정 teaser를 넣은 뒤 본문 8쪽 제한 및 LLM Usage Statement를 다시 검수해야 하며, 현재 PDF를 최종 논문으로 사용하지 않는다.
 
-최종 실측이 닫히면 `final-results/cvpr2027-abstract-findings.tex`, `cvpr2027-results.tex`, `cvpr2027-conclusion.tex`에 같은 공통 ID·paired CI에 근거한 문장을 작성한다. 이후 [최종 CVPR 빌더](../paper/build_fair_cvpr2027.py)를 장문 빌더와 동일한 `--main-table-json`, `--paired-json`, `--official-contrasts-json`, `--claim-audit-json`, `--common-manifest`, `--paper-root`, 새 `--output-dir`로 실행한다. 이 빌더는 실측 표·구간·claim 감사·teaser의 ID/SHA와 공식 kit SHA, 본문 8쪽 이내, 보류 문구 부재를 검사하고 전 페이지 review PNG를 만든다. **빌더 통과 뒤에도 실제 그림·표의 가독성을 눈으로 검수한다.**
+최종 실측이 닫히면 `final-results/cvpr2027-abstract-findings.tex`, `cvpr2027-results.tex`, `cvpr2027-conclusion.tex`에 같은 공통 ID·paired CI에 근거한 문장을 작성한다. 이후 [최종 CVPR 빌더](../paper/build_fair_cvpr2027.py)를 장문 빌더와 동일한 `--main-table-json`, `--raw-table-json`, `--paired-json`, `--official-contrasts-json`, `--claim-audit-json`, `--common-manifest`, `--paper-root`, 새 `--output-dir`로 실행한다. 이 빌더는 실측 표·구간·claim 감사·teaser의 ID/SHA와 공식 kit SHA, 본문 8쪽 이내, 보류 문구 부재를 검사하고 전 페이지 review PNG를 만든다. **빌더 통과 뒤에도 실제 그림·표의 가독성을 눈으로 검수한다.**
 
 실측 수치 대신 임시 값과 이전 그림을 넣은 별도 격리 레이아웃 시험에서 압축 원고는 **참고문헌 포함 5쪽, 본문 4쪽, Overfull 0건**으로 조판됐다. 이 시험에서 주 표 캡션의 수식 `10^{-3}`이 CVPR kit/Tectonic 캐시의 9pt 글꼴 오류를 일으켜 같은 의미의 일반 문장으로 바꿨다. 합성 시험의 PDF·수치는 논문 결과로 사용하지 않는다. 압축 본문에는 SS DEV128 geometry 표와 고정 geometry의 PBR DEV32 appearance 표를 각각 유지한다.
