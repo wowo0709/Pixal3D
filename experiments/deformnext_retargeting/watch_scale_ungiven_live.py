@@ -349,7 +349,9 @@ def render(local:dict,remote:dict|None,error:str|None,
       'Common 10-method table':BENCHMARK/'scale-ungiven-main-table-v4/complete.json',
       'Raw 10-method table':BENCHMARK/'raw-common501-final-table-v1/complete.json',
       'Ours paired uncertainty':BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json',
+      'Raw Ours paired uncertainty':BENCHMARK/'raw-ours-paired-v1/complete.json',
       'Official RGB1 paired uncertainty':BENCHMARK/'scale-ungiven-official-contrasts-v2/complete.json',
+      'Fair TEST claim audit':BENCHMARK/'scale-ungiven-claim-audit-v1/complete.json',
       'Fair common-success teaser':LOCAL/'fair-final-teaser-v2/complete.json',
     }
     out+='| Completion gate | Receipt |\n|---|---|\n'
@@ -387,7 +389,9 @@ def main():
                           'error':error}),flush=True)
         if (args.once
                 or (flag(BENCHMARK/'scale-ungiven-ours-paired-v3/complete.json')
+                    and flag(BENCHMARK/'raw-ours-paired-v1/complete.json')
                     and flag(BENCHMARK/'scale-ungiven-official-contrasts-v2/complete.json')
+                    and flag(BENCHMARK/'scale-ungiven-claim-audit-v1/complete.json')
                     and flag(BENCHMARK/'raw-common501-final-table-v1/complete.json')
                     and flag(LOCAL/'fair-final-teaser-v2/complete.json'))):
             break
