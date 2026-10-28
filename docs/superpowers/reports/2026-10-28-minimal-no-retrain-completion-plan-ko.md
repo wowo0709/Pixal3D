@@ -616,3 +616,14 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - [최종 image-only scale 계약 감사](2026-10-28-test508-image-scale-contract-audit-final.json)는 **1,016건 실제 generation**과 508개 paired plan·scale prediction을 전수 대조해 통과했다. 두 arm의 RGB/A·카메라·scale 입력이 동일하고, M0/M1 mesh·GT scale은 추론에 사용하지 않았다. `all_cascade_results_complete=true`다.
 - [최종 렌더 메시 충실도 감사](2026-10-28-test508-render-fidelity-final.json)는 **1,016건**의 원본 prediction/GLB SHA, 사전 한도 q99 world ≤0.01, 원본 표면 geometry metric 사용을 전수 통과했다. face budget 25만/50만/100만/200만/500만은 **912/49/36/16/3건**, 최대 q99는 **0.009997854**다.
 - 전체 cascade 영수증을 받은 Ours 공통502 surface watcher가 node16의 4개 scorer PID729283–729286을 시작했다. 이 단계는 기존 **490개 사례 선계산 캐시**를 사례별 key로 재검증하고 나머지를 계산한다. 공식 RGB1 learned evaluator PID517474도 node16 GPU7에서 계속 실행 중이다. Ours 렌더·최종 표·PDF는 아직 대기다.
+
+## 13:15 KST 공통502 표면 종료·6,024건 렌더 시작
+
+- node16의 Ours 4개 surface scorer가 `PASS_FROZEN_OURS_V1_SELECTED_COMMON502_SURFACE`로 **502사례·1,004행**을 닫았다. 정본 4개 shard의 사례×방법 key가 공통502 ID × {V1, Selected} 집합과 정확히 같고 `registration_reference=input_source_M0_only`임을 별도 확인했다. 사전 캐시 490개는 scorer 안에서 key를 재검증한 뒤 재사용됐다.
+- 후속 렌더 계획 생성기가 `PASS_OURS_V1_SELECTED_RAW_AND_M0_RENDER_PLAN`을 기록했다: 공통502사례 × V1/Selected × raw/+M0 × camera8/9/10, **6,024작업·32청크**다. 로컬 렌더 orchestrator PID586065가 첫 청크의 64개 입력을 direct file4 transport로 staging 중이며 GPU 0·1·2·3·6·7을 배정한다. 청크 완료/검증 보관 영수증은 아직 0/32다.
+- node16 공식 RGB1 raw/+M0 learned evaluator PID517474는 GPU7에서 계속 실행 중이다. 최종 9조건 결과와 Ours 4조건 결과·10방법 주 표는 아직 대기 중이다.
+
+## 13:18 KST Ours 첫 Cycles 청크 검증
+
+- 첫 청크 `chunk000`의 **16사례·192개 렌더**가 local GPU0/1/2/3/6/7에서 완료됐고 file4 전송·checksum 검증 후 로컬 stage를 회수했다. `PASS_RENDER_CHUNK_ARCHIVED_ON_FILE4` 영수증의 전체 소요는 **172.82초**다. 다음 `chunk001` staging이 시작됐으며 캠페인은 **1/32청크**다.
+- 첫 청크 시간만 선형 연장하면 남은 31청크가 약 **1.5시간**이지만 사례별 GLB 크기·렌더 비용과 파일서버 전송 편차가 있으므로 확정 종료 시각은 아니다. 이후 Ours 4조건 learned metric·최종 공통 표·paired CI·그림·PDF 검수가 추가로 필요하다.
