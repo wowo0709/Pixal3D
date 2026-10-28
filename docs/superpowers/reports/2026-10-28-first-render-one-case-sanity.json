@@ -1,0 +1,46 @@
+{
+  "status": "PASS_FIRST_RENDER_ONE_CASE_FORMAT_AND_ALIGNMENT_SANITY",
+  "sample_id": "shard000_07969a00aa6b42e89ff4616d3a278561_d1_fast300rolling128v1_PA_target08",
+  "camera_id": 8,
+  "common_success_example": true,
+  "population_claim": false,
+  "gt_sha256": "2f35db4441359634bbb4598cb9942e90af0de647448a9c8b348b4d532e4de4c0",
+  "predictions": {
+    "ours_v1_raw": {
+      "sha256": "0e86692fc2446838df023ca10235588f68e0b14e0c1fe85e6ad525193edfeeab",
+      "metrics": {
+        "PSNR": 30.573434684731108,
+        "SSIM": 0.9894470394452398,
+        "M_IoU": 0.9184107839659453
+      },
+      "mask_pixels": 5528
+    },
+    "ours_v1_source_m0": {
+      "sha256": "0f8f07af3696a5f5d3f1744ec2a380d014d2492461b8fd34f64401ad5f8b9f2f",
+      "metrics": {
+        "PSNR": 29.41918720815167,
+        "SSIM": 0.987718802141666,
+        "M_IoU": 0.8939788304702412
+      },
+      "mask_pixels": 5590
+    },
+    "ours_selected_raw": {
+      "sha256": "16a7ffbdbbb2178c61af4b095ec5b46205b63d26cd4a1887bc3393ef1f118723",
+      "metrics": {
+        "PSNR": 30.92271707966683,
+        "SSIM": 0.9912967843087149,
+        "M_IoU": 0.9382218148487627
+      },
+      "mask_pixels": 5307
+    },
+    "ours_selected_source_m0": {
+      "sha256": "187595aeee6dfec08a14511f4c1f095d4f7846823eb2bb9bfaf8738bd8cd02c6",
+      "metrics": {
+        "PSNR": 27.6936412116283,
+        "SSIM": 0.9862888296806828,
+        "M_IoU": 0.8750216076058772
+      },
+      "mask_pixels": 5567
+    }
+  }
+}
