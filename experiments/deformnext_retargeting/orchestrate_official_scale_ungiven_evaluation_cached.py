@@ -66,7 +66,10 @@ def main() -> None:
             or list(args.work_root.iterdir())
             or state(args.old_watcher_pid) != 'T'):
         raise ValueError('paused old watcher and empty inherited nine-method root required')
+    frozen_gt = args.baseline_root / 'shared/gt-a02'
     if ((args.reference_root / 'data').resolve() != Path('/file4')
+            or (args.reference_root / 'renders').resolve()
+            != (frozen_gt / 'renders').resolve()
             or not args.metric_python.is_file()
             or not args.metrics_script_python.is_file()):
         raise ValueError('frozen node16 metric/reference paths required')
