@@ -34,3 +34,22 @@
 - 기존 surface 점수는 prediction과 target M1 표면을 각각 20,000점으로 고정 seed 표본화하고, source M0에서 구한 Sim(3)을 생성 후 prediction에 적용한다. M1은 평가에만 사용한다. 동일 입력이라도 공통 evaluator의 계산 및 수치 오차를 최종 대조한다.
 
 원본 디렉터리: node16 `/home/youngwoo/retargeting-unified-test508/ours-v1-selected-source-sim3-final-v1`. `shard0`–`shard3.jsonl` SHA256은 각각 `cff45cd840195e66f10856cbc9d78b6ab7e4731dd7e860dcea7c3045968627c9`, `7f3b8ab3cda22c24c63cbb10a49c866f604e750318e9d45f9e33127ae34aaa7f`, `12d9c96cdc51cfebba923cb79450ab9d286177d29e4193e2b061e02261281c28`, `ca2a9f5ac1372fc01cdd68d46487bb414eedbc6ce97351901156b05d1db49d53`이다. 501 ID subset SHA256은 `91c15aa37f79df13503dace479ea1baae54f9c94dd10ffb836a12bff48102189`이다. 구간은 seed 20261028, 20,000회 source-cluster bootstrap으로 계산했다.
+
+## 10방법 target 정합 중간 통합표
+
+아래는 **동일 공통501·생성 후 source M0 Sim(3)**의 점추정이다. Ours 두 행의 CD/F-Score는 위 surface cache에서 집계한 임시 값이고 나머지 행의 값은 [9조건 공통 evaluator](2026-10-28-common501-nine-method-interim-ko.md) 결과다. Ours의 동일 evaluator 재계산과 source LPIPS·DreamSim·CLIP·FID·KID가 끝나면 모든 열과 순위를 다시 확인한다. 굵게는 현재 각 열의 최고, 밑줄은 두 번째 점추정이다.
+
+| 방법 | PSNR ↑ | SSIM ↑ | Mask IoU ↑ | CD ↓ | F@0.02 ↑ |
+|---|---:|---:|---:|---:|---:|
+| Ours Selected, T1+S3+C | **23.284** | <u>0.9459</u> | **0.8619** | **0.01493** | **0.8047** |
+| Ours V1, T1+S3+C | <u>23.220</u> | **0.9463** | <u>0.8584</u> | <u>0.01512</u> | <u>0.8032</u> |
+| Pixal3D 공식 RGB1, T1+C·1024 | 17.765 | 0.9212 | 0.5302 | 0.05603 | 0.3944 |
+| ReconViaGen, T1+S3 | 19.876 | 0.9310 | 0.6836 | 0.03607 | 0.5848 |
+| Pixal3D 기존, T1·추정 camera·1536 | 18.767 | 0.9216 | 0.6164 | 0.04419 | 0.4846 |
+| ShapeUp, T1+source mesh | 18.019 | 0.9218 | 0.6017 | 0.05045 | 0.5170 |
+| TRELLIS.2, T1 | 18.278 | 0.9210 | 0.5633 | 0.05168 | 0.4779 |
+| TRELLIS.2 + SpaceControl, T1+anchor | 17.373 | 0.9179 | 0.5639 | 0.05173 | 0.4726 |
+| MVAdapter + ReconViaGen, T1 | 18.264 | 0.9180 | 0.5877 | 0.05236 | 0.4175 |
+| CorrAdapter + ReconViaGen, T1 | 18.292 | 0.9202 | 0.5835 | 0.05203 | 0.4131 |
+
+T1은 edited target RGB, S3는 원본 source RGB 3장, C는 제공된 camera다. 방법에 따라 입력 이미지 수·camera·native 출력 조건이 달라 이 표는 **시스템 비교**다. Ours와 공식 RGB1 비교도 입력 수가 다르다. 동일 조건 V1 대비 Selected는 위 paired 구간으로 별도 해석하며, source 보존과 geometry 재계산을 포함한 최종 결과 전에 전체 방법의 우열을 확정하지 않는다.
