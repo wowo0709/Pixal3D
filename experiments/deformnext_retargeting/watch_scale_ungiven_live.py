@@ -12,7 +12,7 @@ import time
 PLAN = Path('/root/dev/.cache/deformnext-retargeting/scale-ungiven-test508-20261028/cascade-two-arm-plans-v1/campaign.json')
 LOCAL = Path('/root/dev/.cache/deformnext-retargeting/scale-ungiven-test508-20261028')
 BENCHMARK = Path('/root/dev/.cache/deformnext-benchmark-runtime')
-REMOTE_QUERY = '''import json
+REMOTE_QUERY = '''import json,os
 from pathlib import Path
 root=Path('/home/youngwoo/retargeting-unified-test508')
 export=root/'official-scale-ungiven-export-common-success-v3-250k'
@@ -39,6 +39,9 @@ nine_ready=(nine/'evaluation/summary.json').is_file()
 metric_worker=None
 bridge_worker=None
 cached_nine_worker=None
+ours_binding_worker=None
+subset_file=root/'official-scale-ungiven-source-sim3-common-success-v2/official-success-common.json'
+subset=json.loads(subset_file.read_text()).get('sample_ids',[]) if subset_file.is_file() else []
 old_nine=Path('/proc/195556/stat')
 old_nine_state=(old_nine.read_text().split(') ',1)[1][0]
  if old_nine.is_file() else 'missing')
@@ -47,6 +50,19 @@ for process in Path('/proc').iterdir():
  try:
   argv=(process/'cmdline').read_bytes().decode(errors='replace').split('\\0')
   state=(process/'stat').read_text().split(') ',1)[1][0]
+  if (str(root/'build_minimal_test_ours_eval_manifests.py') in argv
+      and state not in ('Z','X')):
+   io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
+   current=None
+   for fd in (process/'fd').iterdir():
+    try:
+     parts=Path(os.readlink(fd)).parts
+     current=next((subset.index(part)+1 for part in parts if part in subset),None)
+     if current is not None:break
+    except OSError:continue
+   ours_binding_worker={'pid':int(process.name),'state':state,
+                        'rchar':int(io.get('rchar','0')),
+                        'current_case':current,'total':len(subset)}
   if (str(root/'bridge_official_fast_export.py') in argv
       and state not in ('Z','X')):
    bridge_worker=int(process.name)
@@ -77,6 +93,7 @@ print(json.dumps({'official_surface':score.get('samples'),
  'nine_original_watcher_state':old_nine_state,
  'nine_archive_done':(nine_ready and Path('/file4/youngwoo/deformation/experiments/retargeting-v1/source-sim3-test508-20261028/official-rgb1-scale-ungiven-common-success-v2/final-evaluation/completion.json').is_file()),
  'ours_metric_rows':len(list((ours/'evaluation-ours-four').glob('*-results.json'))),
+ 'ours_binding_worker':ours_binding_worker,
  'ours_done':(ours/'evaluation-ours-four/summary.json').is_file()}))
 '''
 
@@ -251,6 +268,12 @@ def render(local:dict,remote:dict|None,error:str|None,
                 f'not running, old watcher {remote.get("nine_original_watcher_state")}')
         out+=f'\n| Unified cached evaluator | {cached} |'
         out+=f'\n| Ours four-condition learned results | {remote["ours_metric_rows"]}/4 |'
+        binding=remote.get('ours_binding_worker')
+        if binding:
+            case=binding['current_case']
+            detail=(f'case {case}/{binding["total"]} (current file)' if case is not None
+                    else 'current case unavailable')
+            out+=f'\n| Ours input binding | PID {binding["pid"]}, {detail}, read {binding["rchar"] / 1e9:.2f} GB |'
         out+=f'\n| Ours source-M0 surface precache (independent of final score) | {remote["ours_surface_precache_cases"]}/{remote["ours_surface_precache_planned"]} cases; workers {remote["ours_surface_precache_workers"]} |'
     else:
         out+='\n| Node16 status | temporarily unavailable; local work continues |'
