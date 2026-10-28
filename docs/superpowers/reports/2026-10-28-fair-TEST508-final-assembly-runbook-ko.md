@@ -36,7 +36,7 @@
      --common-manifest /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/common-manifest.json \
      --output /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-claim-audit-v1/claim-audit.json
    ```
-3. 감사가 통과하면 아래 생성기로 장문 원고 4개와 CVPR 원고 3개 결과 문안 슬롯을 만든다. 생성기는 유리/불리/미해결 분류, raw/등록 후 수치, 입력 비대칭 한계와 FID/KID의 기술 통계 범위를 감사 JSON에 결속한다. 개별 semantic matching·score·ray sharing·retargeting의 필수성을 최종 V1↔Selected 묶음 비교에서 추론하지 않는다.
+3. 감사가 통과하면 아래 생성기로 장문 원고 4개와 CVPR 원고 3개 결과 문안 슬롯을 만든다. 생성기는 유리/불리/미해결 분류, raw/등록 후 수치, 입력 비대칭 한계와 FID/KID의 기술 통계 범위를 감사 JSON에 결속하고 `fair-findings-provenance.json`에 7개 입력·7개 문안 SHA를 기록한다. 두 최종 빌더는 이 SHA를 모두 재검증한다. 개별 semantic matching·score·ray sharing·retargeting의 필수성을 최종 V1↔Selected 묶음 비교에서 추론하지 않는다.
 
    ```bash
    python docs/superpowers/paper/generate_fair_findings.py \
