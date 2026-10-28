@@ -1,0 +1,33 @@
+{
+  "status": "PASS_FROZEN_TEST508_NATIVE_SUCCESS_COUNTS",
+  "planned_samples": 508,
+  "methods": {
+    "trellis2": 508,
+    "pixal3d": 508,
+    "reconviagen": 508,
+    "mvadapter": 504,
+    "corradapter": 502,
+    "shapeup": 508,
+    "spacecontrol": 508,
+    "pixal3d_official_rgb1_source_m0": 501,
+    "ours_v1_source_m0": 508,
+    "ours_selected_source_m0": 508
+  },
+  "sources": {
+    "external_native_csv": {
+      "path": "/home/seunghyun/editing_reproduction/outputs/deformnext-baselines/all-methods-full_test.csv",
+      "sha256": "362e0fb732d66b2e98a166a114311d918f7e5d81c0a7251040c977cdcf7536aa",
+      "field": "evaluated_successes"
+    },
+    "official_rgb1_surface_receipt": {
+      "path": "/home/youngwoo/retargeting-unified-test508/official-scale-ungiven-source-sim3-common-success-v2/complete.json",
+      "sha256": "70977693b35e006d7362c0455966e74ecb4b14786f109c52fbe407c0497d604c",
+      "field": "samples"
+    },
+    "ours_cascade_receipt": {
+      "path": "/root/dev/.cache/deformnext-retargeting/scale-ungiven-test508-20261028/cascade-two-arm-execution-v2-direct-file4/complete.json",
+      "sha256": "40bd813a14987b4125e93278002ff58a57932a4ee5e6e26d1b95cc79583d8f71",
+      "field": "samples"
+    }
+  }
+}

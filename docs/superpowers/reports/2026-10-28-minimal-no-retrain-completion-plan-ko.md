@@ -645,3 +645,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 재학습 없이 고정 V1·Selected의 508쌍 생성과 공통 502사례 source-M0 surface는 각각 완료 영수증이 있다. 공식 RGB1의 501사례·3,006 Cycles 작업도 완료했다. 현재 Ours raw/+M0×camera8/9/10 렌더는 **6/32청크·1,152/6,024작업**을 file4 SHA 검증 후 보관했고 `chunk006` staging을 시작했다. 여섯 청크 실측 시간은 172.82/200.79/218.05/131.35/126.05/196.14초다. 로컬 GPU0/1/2/3/6/7이 청크 렌더에 배정되고, 완료한 stage는 회수된다.
 - node16의 공식 RGB1 raw/+M0 learned evaluator PID517474는 CPU를 계속 사용하고 파일 읽기량이 81GB를 넘었다. 아직 공식 두 조건 summary가 없으므로 후속 9조건 영수증과 Ours 4조건 평가는 미완료다. 렌더→4조건 평가→동일 ID 공통 표→paired CI→공정 teaser→실측 원고·PDF의 기존 의존관계를 유지한다.
 - 렌더 26청크의 단순 청크 평균 외삽은 **약 70–90분**이나, 크기가 큰 GLB와 전송 편차가 남아 있다. 이는 렌더 종료 예상일 뿐 평가·논문 완료 시각이 아니다. 공식 learned 평가와 Ours learned 평가의 실제 속도를 확인하기 전에는 전체 종료 시각을 확정하지 않는다.
+
+## 13:39 KST 주 표의 성공률 출처 보강
+
+- 최종 주 표 생성기에 각 방법의 원래 TEST508 **성공 수/508** 열을 추가했다. 외부 7방법은 node16 `all-methods-full_test.csv`의 `evaluated_successes`, 공식 RGB1은 501사례 surface 완료 영수증, Ours V1/Selected는 508쌍 cascade 완료 영수증에서 가져왔다. 원본 세 파일의 SHA256과 열 값은 [고정 성공 수 manifest](2026-10-28-native-success-counts.json)에 저장했고 원본과 재대조했다. 공통 성공 집합에서 계산한 10지표의 분모와 각 방법의 원래 성공률을 구별할 수 있게 한다.
+- 표 생성기의 합성 입력 smoke test는 10행의 성공 수, 13열 LaTeX 구조, 표 JSON의 출처 필드를 통과했다. 이는 실제 최종 점수 검증을 대신하지 않는다. Ours 렌더는 **8/32청크·1,536/6,024작업**까지 file4에 검증 보관됐으며 `chunk008`을 시작했다.

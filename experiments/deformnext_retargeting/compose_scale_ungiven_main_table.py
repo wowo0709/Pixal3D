@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -42,6 +43,9 @@ def main() -> None:
     parser.add_argument('--external-target8', type=Path, required=True)
     parser.add_argument('--official-target8', type=Path, required=True)
     parser.add_argument('--ours-target8', type=Path, required=True)
+    parser.add_argument('--native-success', type=Path,
+                        default=Path(__file__).resolve().parents[2] /
+                        'docs/superpowers/reports/2026-10-28-native-success-counts.json')
     parser.add_argument('--output-tex', type=Path, required=True)
     parser.add_argument('--output-json', type=Path, required=True)
     args = parser.parse_args()
@@ -56,7 +60,15 @@ def main() -> None:
     ext_t = json.loads(args.external_target8.read_text())
     off_t = json.loads(args.official_target8.read_text())
     ours_t = json.loads(args.ours_target8.read_text())
+    native = json.loads(args.native_success.read_text())
     n = common['samples']
+    native_counts = native['methods']
+    if (native['status'] != 'PASS_FROZEN_TEST508_NATIVE_SUCCESS_COUNTS'
+            or native['planned_samples'] != 508
+            or set(native_counts) != set(METHODS)
+            or any(type(count) is not int or not n <= count <= 508
+                   for count in native_counts.values())):
+        raise ValueError('native per-method success counts differ from common TEST population')
     if (common['status'] != 'PASS_THIRTEEN_METHOD_COMMON_SUCCESS_BINDING'
             or not 1 <= n <= 502
             or len(common['sample_ids']) != n
@@ -108,18 +120,19 @@ def main() -> None:
         ranks[metric] = {ordered[0]: 'best', ordered[1]: 'second'}
     lines = [r'\begin{table*}[t]', r'\centering\scriptsize',
              r'\resizebox{\textwidth}{!}{%',
-             r'\begin{tabular}{llrrrrrrrrrr}', r'\toprule',
-             r'& & \multicolumn{3}{c}{Source preservation (9/10)}'
+             r'\begin{tabular}{llrrrrrrrrrrr}', r'\toprule',
+             r'& & & \multicolumn{3}{c}{Source preservation (9/10)}'
              r' & \multicolumn{2}{c}{Distribution (9/10)}'
              r' & \multicolumn{5}{c}{Target alignment (8/M1)}\\',
-             r'Method & Input & LPIPS$\downarrow$ & DreamSim$\downarrow$'
+             r'Method & Input & Success & LPIPS$\downarrow$ & DreamSim$\downarrow$'
              r' & CLIP$\uparrow$ & FID$\downarrow$ & KID$\downarrow$'
              r' & PSNR$\uparrow$ & SSIM$\uparrow$ & M-IoU$\uparrow$'
              r' & CD$\downarrow$ & F@0.02$\uparrow$\\', r'\midrule']
     for method in METHODS:
         if method == 'pixal3d_official_rgb1_source_m0' or method == EXTERNAL[0]:
             lines.append(r'\midrule')
-        row = [LABEL[method], INPUT[method]]
+        row = [LABEL[method], INPUT[method],
+               f'{native_counts[method]}/{native["planned_samples"]}']
         for metric in METRICS:
             value = values[method][metric] * (1000 if metric == 'KID' else 1)
             cell = f'{value:.{DIGITS[metric]}f}'
@@ -133,7 +146,8 @@ def main() -> None:
               (r'\caption{Common-success TEST comparison on ' + str(n) +
                r'/508 edits. All rows use the same evaluation cameras, Cycles renderer,'
                r' metric code, and post-generation source-M0-only Sim(3) alignment; no'
-               r' target-derived object scale is supplied at generation. T1 is the edited'
+               r' target-derived object scale is supplied at generation. Success is the'
+               r' native method count before the common intersection. T1 is the edited'
                r' target RGB, S3 three original source RGBs, M0 the textured source mesh,'
                r' A1 an original anchor RGB, P a TRELLIS.2 target proxy predicted from T1,'
                r' and C provided camera metadata. Native model input access differs by row;'
@@ -146,6 +160,9 @@ def main() -> None:
     result = {'status': 'PASS_SCALE_UNGIVEN_COMMON_SUCCESS_MAIN_TABLE',
               'samples': n, 'methods': list(METHODS), 'metrics': list(METRICS),
               'values': values, 'ranks': ranks,
+              'native_successes': native_counts,
+              'native_success_manifest_sha256': hashlib.sha256(
+                  args.native_success.read_bytes()).hexdigest(),
               'protocol_sha256': nine['protocol_sha256'],
               'common_manifest': str(args.common_manifest),
               'target8_registration_tex': str(registration_tex)}
