@@ -47,3 +47,5 @@ python docs/superpowers/paper/build_fair_manuscript.py \
 2026-10-28 확인: [CVPR 2027 공식 저자 지침](https://cvpr.thecvf.com/Conferences/2027/AuthorGuidelines)은 **본문 8페이지 이내(그림·표 포함), 공식 템플릿 사용**을 요구하고 참고문헌과 필수 LLM Usage Statement만 별도 페이지를 허용한다. 현재 `article` 기반의 12페이지 본문은 **연구 원고 초안**이며 CVPR 2027 투고 PDF가 아니다. 해당 연도 [공식 LaTeX author kit](https://media.eventhosts.cc/Conferences/CVPR2027/author-kit-CVPR2027-v1-latex.zip)을 `/root/dev/.cache/paper-tools/author-kit-CVPR2027-v1-latex.zip`에 받아 SHA256 `da1ec5db9b73531ea82a87723e4aedb631083331fe655d1972279b48a7bdb2fe`를 기록했다. CVPR 2027 투고를 목표로 한다면 실측 결과를 넣은 뒤 별도 공식 템플릿 8페이지 본문과 부록을 조립·검수해야 한다. 현재 장문 원고의 결과·증거를 지우지 않고 재배치한다.
 
 공식 kit의 `cvpr.sty`를 사용한 최소 review PDF를 로컬 Tectonic으로 컴파일했고, 필요한 LaTeX 패키지를 캐시한 뒤 `--only-cached` 재컴파일도 통과했다. 이는 **템플릿 환경 확인**이며 8페이지 본문 작성이나 최종 투고 PDF 완성을 뜻하지 않는다.
+
+별도 [CVPR 2027 압축 원고](../paper/cvpr2027-submission.tex)를 공식 review 템플릿으로 작성하고 [preview 빌더](../paper/build_cvpr2027_preview.py)로 4쪽(참고문헌 포함)을 조판·시각 검수했다. 레이아웃 오류, 미해결 참조·인용은 0개다. 이 버전은 공통 성공 집합의 최종 표와 teaser가 없다고 본문에 표시한 **protocol preview**다. 실측 결과와 공정 teaser를 넣은 뒤 본문 8쪽 제한 및 LLM Usage Statement를 다시 검수해야 하며, 현재 PDF를 최종 논문으로 사용하지 않는다.
