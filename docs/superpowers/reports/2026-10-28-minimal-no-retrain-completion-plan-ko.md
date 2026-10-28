@@ -429,3 +429,10 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - node16 외부 learned evaluator PID**2492093**이 ShapeUp 결과 파일을 새로 닫아 **5/7**이 됐다. 기존 네 방법과 새 ShapeUp 모두 **동일 502개 ID**, source view 1,004개, 실패 0건, 사례별 8개 유한 지표, 유한 FID/KID, `complete_population`/`full_metric_computation` 플래그를 직접 검사해 통과했다. 남은 원본 두 방법은 TRELLIS.2와 SpaceControl이다. 최종 논문 주 표에서는 공식 RGB1 성공 교집합의 N≤501로 9방법 전체를 재평가하므로 이 502건 값을 복사하지 않는다.
 - 같은 시각 Ours V1 **274/508**, Selected 및 paired **271/508** file4 SHA 보관이다. primary 0–3, tail 6/7, tail 연장 대기 프로세스, node16 bridge가 모두 생존 중이다. 최종 10지표와 공통 주 표는 아직 선행 단계 대기다.
+
+## 09:05 KST 계획·실행 재점검
+
+- 실시간 file4 SHA 보관은 V1 **284/508**, Selected와 동일 사례 paired **279/508**이다. GPU 0–3의 primary worker 네 개와 GPU 6/7의 서로 겹치지 않는 tail worker 두 개가 모두 살아 있고, node16 외부 evaluator PID2492093은 **5/7**개 방법의 원본 502사례 결과를 완료한 뒤 실제 읽기 바이트가 약 **115 GB**까지 증가했다. 공식 RGB1은 native 성공 교집합 **501/501**의 surface 및 렌더용 GLB export를 마쳤다. 최종 Cycles 렌더는 외부 평가 완료 후 GPU 6/7을 인계받도록 대기한다.
+- 계획 순서는 그대로다: 동결 V1/Selected 두 arm의 TEST508 생성·file4 검증 → 공식 RGB1을 포함한 최종 공통 성공 모집단의 Cycles 렌더 → source M0만을 사용한 생성 후 Sim(3)과 공통 10지표 평가 → paired CI, 통합 주 표, 실제 렌더 teaser → 최종 논문 PDF/시각 검수. 재학습은 하지 않는다. 현재 최종 공통 N은 공식 쪽 성공 501을 상한으로 하고, Ours 전체 성공 영수증과 공통 바인딩 완료 전까지 확정하지 않는다.
+- 9방법 학습형 지표 중 외부 7방법을 중복 추론할 필요가 없도록, 이미 저장된 **per-case 8지표와 per-view Inception-2048 feature**를 검증하고 최종 교집합에서 정확히 재집계하는 evaluator를 배치했다. 먼저 완료된 외부 5방법 각각의 원본 502사례 평균·CI·FID·KID를 평가기 원본 함수로 재현했으며 최대 절대 오차는 **6.3e-11** 미만이다. 이후 공식 RGB1 raw/+M0 두 방법은 최종 교집합에서 새로 평가한다. 캐시의 manifest/protocol/extractor/row ID hash, 7방법 전부의 재현 오차, 공통 N·2N 이미지 수를 최종 receipt에서 다시 강제한다. 따라서 기존 502 모집단의 FID/KID를 501 모집단에 그대로 복사하지 않는다.
+- node16의 기존 9방법 평가 watcher PID195556은 의도적으로 `T` 상태로 멈추고, 새 캐시 재집계 watcher PID3010914가 대기 중이다. 기존 watcher를 보존해 새 경로에 오류가 생기면 복구할 수 있다. local live ledger에는 두 프로세스의 상태와 새 watcher 소실 경고를 추가했고, 단발 실측·`py_compile`·whitespace 검사를 통과했다. 현재 캐시 경로는 **아직 최종 9방법 평가 통과를 주장하지 않는다**.

@@ -24,6 +24,10 @@ bridge=root/'official-fast-export-bridge-v3-recovered.json'
 score=json.loads(surface.read_text()) if surface.is_file() else {}
 metric_worker=None
 bridge_worker=None
+cached_nine_worker=None
+old_nine=Path('/proc/195556/stat')
+old_nine_state=(old_nine.read_text().split(') ',1)[1][0]
+ if old_nine.is_file() else 'missing')
 for process in Path('/proc').iterdir():
  if not process.name.isdigit():continue
  try:
@@ -32,6 +36,9 @@ for process in Path('/proc').iterdir():
   if (str(root/'bridge_official_fast_export.py') in argv
       and state not in ('Z','X')):
    bridge_worker=int(process.name)
+  if (str(root/'orchestrate_official_scale_ungiven_evaluation_cached.py') in argv
+      and state not in ('Z','X')):
+   cached_nine_worker=int(process.name)
   if (not argv or not argv[0].endswith('/M0Sim3-metrics')
       or str(external/'evaluation') not in argv):continue
   io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
@@ -49,6 +56,8 @@ print(json.dumps({'official_surface':score.get('samples'),
  'external_done':(external/'evaluation/summary.json').is_file(),
  'external_metric_worker':metric_worker,
  'nine_done':(nine/'evaluation/summary.json').is_file(),
+ 'nine_cached_worker':cached_nine_worker,
+ 'nine_original_watcher_state':old_nine_state,
  'nine_archive_done':Path('/file4/youngwoo/deformation/experiments/retargeting-v1/source-sim3-test508-20261028/official-rgb1-scale-ungiven-common-success-v2/final-evaluation/completion.json').is_file(),
  'ours_metric_rows':len(list((ours/'evaluation-ours-four').glob('*-results.json'))),
  'ours_done':(ours/'evaluation-ours-four/summary.json').is_file()}))
@@ -195,6 +204,10 @@ def render(local:dict,remote:dict|None,error:str|None,
                 if worker else 'no active evaluator found')
         out+=f'\n| External learned evaluator (PID/state/I/O) | {detail} |'
         out+=f'\n| Unified nine-method learned evaluation | {"complete" if remote["nine_done"] else "pending"} |'
+        cached=(f'PID {remote["nine_cached_worker"]}, old watcher {remote["nine_original_watcher_state"]}'
+                if remote.get('nine_cached_worker') else
+                f'not running, old watcher {remote.get("nine_original_watcher_state")}')
+        out+=f'\n| Unified cached evaluator | {cached} |'
         out+=f'\n| Ours four-condition learned results | {remote["ours_metric_rows"]}/4 |'
     else:
         out+='\n| Node16 status | temporarily unavailable; local work continues |'
@@ -215,6 +228,10 @@ def render(local:dict,remote:dict|None,error:str|None,
             and not remote['official_bridge_done']
             and remote.get('official_bridge_worker') is None):
         out+='Bridge attention: external metrics completed but no official render handoff process was found.\n\n'
+    if (remote is not None and not remote['nine_done']
+            and remote.get('nine_original_watcher_state') == 'T'
+            and remote.get('nine_cached_worker') is None):
+        out+='Nine-method attention: the cached evaluator ended while the original watcher remains paused.\n\n'
     missing=[str(rank) for rank,pids in health.items() if not pids]
     if missing and not flag(LOCAL/'cascade-two-arm-execution-v2-direct-file4/complete.json'):
         out+=('Worker attention: primary rank(s) '+', '.join(missing)
