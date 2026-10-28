@@ -436,3 +436,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 계획 순서는 그대로다: 동결 V1/Selected 두 arm의 TEST508 생성·file4 검증 → 공식 RGB1을 포함한 최종 공통 성공 모집단의 Cycles 렌더 → source M0만을 사용한 생성 후 Sim(3)과 공통 10지표 평가 → paired CI, 통합 주 표, 실제 렌더 teaser → 최종 논문 PDF/시각 검수. 재학습은 하지 않는다. 현재 최종 공통 N은 공식 쪽 성공 501을 상한으로 하고, Ours 전체 성공 영수증과 공통 바인딩 완료 전까지 확정하지 않는다.
 - 9방법 학습형 지표 중 외부 7방법을 중복 추론할 필요가 없도록, 이미 저장된 **per-case 8지표와 per-view Inception-2048 feature**를 검증하고 최종 교집합에서 정확히 재집계하는 evaluator를 배치했다. 먼저 완료된 외부 5방법 각각의 원본 502사례 평균·CI·FID·KID를 평가기 원본 함수로 재현했으며 최대 절대 오차는 **6.3e-11** 미만이다. 이후 공식 RGB1 raw/+M0 두 방법은 최종 교집합에서 새로 평가한다. 캐시의 manifest/protocol/extractor/row ID hash, 7방법 전부의 재현 오차, 공통 N·2N 이미지 수를 최종 receipt에서 다시 강제한다. 따라서 기존 502 모집단의 FID/KID를 501 모집단에 그대로 복사하지 않는다.
 - node16의 기존 9방법 평가 watcher PID195556은 의도적으로 `T` 상태로 멈추고, 새 캐시 재집계 watcher PID3010914가 대기 중이다. 기존 watcher를 보존해 새 경로에 오류가 생기면 복구할 수 있다. local live ledger에는 두 프로세스의 상태와 새 watcher 소실 경고를 추가했고, 단발 실측·`py_compile`·whitespace 검사를 통과했다. 현재 캐시 경로는 **아직 최종 9방법 평가 통과를 주장하지 않는다**.
+
+## 09:09 KST 캐시 evaluator 연결 복구
+
+- 실시간 감시가 새 캐시 evaluator PID3010914의 소실을 잡았다. SSH 세션은 코드 오류/평가 결과 없이 **exit 255**로 종료됐고, node16의 작업 디렉터리는 여전히 비어 있으며 기존 9방법 watcher PID195556은 `T`로 보존됐다. 외부 7방법 평가 PID2492093과 Ours worker 여섯 개는 계속 실행 중이다.
+- 같은 고정 인자와 빈 작업 디렉터리를 확인한 뒤 새 evaluator를 node16에서 SSH 세션과 분리된 `setsid` 프로세스 **PID3140957**, 로그 `unified-nine-method-cached-v2.log`로 다시 시작했다. PPID=1 및 live ledger의 PID 탐지를 확인했다. 계산은 공식 렌더·외부 평가 영수증을 계속 기다리는 상태이며, 완료 수치나 표에는 영향을 주지 않았다.
