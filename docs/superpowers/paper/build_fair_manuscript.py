@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--main-table-json',type=Path,required=True)
     parser.add_argument('--paired-json',type=Path,required=True)
     parser.add_argument('--official-contrasts-json',type=Path,required=True)
+    parser.add_argument('--claim-audit-json',type=Path,required=True)
     parser.add_argument('--common-manifest',type=Path,required=True)
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--tectonic',type=Path,default=Path('/root/dev/.cache/paper-tools/tectonic-0.17.0/tectonic'))
@@ -38,6 +39,7 @@ def main():
     table=json.loads(args.main_table_json.read_text())
     paired=json.loads(args.paired_json.read_text())
     official_contrasts=json.loads(args.official_contrasts_json.read_text())
+    claim_audit=json.loads(args.claim_audit_json.read_text())
     common=json.loads(args.common_manifest.read_text())
     teaser_json=args.paper_root/'final-results/figures/paper-teaser-provenance.json'
     teaser=json.loads(teaser_json.read_text())
@@ -54,6 +56,11 @@ def main():
                !={'ours_v1_source_m0','ours_selected_source_m0'}
             or any(len(metrics)!=8 for metrics in official_contrasts['contrasts'].values())
             or common['status']!='PASS_THIRTEEN_METHOD_COMMON_SUCCESS_BINDING'
+            or claim_audit['status']!='PASS_FAIR_TEST_CLAIM_AUDIT'
+            or claim_audit['samples']!=n
+            or len(claim_audit['comparisons']['selected_vs_v1'])!=8
+            or set(claim_audit['comparisons']['ours_vs_official'])
+               !={'ours_v1_source_m0','ours_selected_source_m0'}
             or teaser['status']!='PASS_FAIR_COMMON_TEST_TEASER_RENDER_SHA_VERIFIED'
             or teaser['sample_id'] not in common['sample_ids']
             or teaser['selection']['common_manifest_sha256']!=sha(args.common_manifest)
@@ -117,6 +124,7 @@ def main():
             'main_table_json_sha256':sha(args.main_table_json),
             'paired_json_sha256':sha(args.paired_json),
             'official_contrasts_json_sha256':sha(args.official_contrasts_json),
+            'claim_audit_json_sha256':sha(args.claim_audit_json),
             'teaser_provenance_sha256':sha(teaser_json)}
     (args.output_dir/'build-receipt.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result))

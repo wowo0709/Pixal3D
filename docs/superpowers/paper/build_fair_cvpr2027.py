@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument('--main-table-json', type=Path, required=True)
     parser.add_argument('--paired-json', type=Path, required=True)
     parser.add_argument('--official-contrasts-json', type=Path, required=True)
+    parser.add_argument('--claim-audit-json', type=Path, required=True)
     parser.add_argument('--common-manifest', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--kit-zip', type=Path, default=Path(
@@ -51,6 +52,7 @@ def main() -> None:
     table = read_json(args.main_table_json)
     paired = read_json(args.paired_json)
     contrasts = read_json(args.official_contrasts_json)
+    claim_audit = read_json(args.claim_audit_json)
     common = read_json(args.common_manifest)
     n = common['samples']
     if (common['status'] != 'PASS_THIRTEEN_METHOD_COMMON_SUCCESS_BINDING'
@@ -72,6 +74,12 @@ def main() -> None:
                != {'ours_v1_source_m0', 'ours_selected_source_m0'}
             or any(len(rows) != 8 for rows in contrasts['contrasts'].values())):
         raise ValueError('final fair population/table/paired result gates incomplete')
+    if (claim_audit['status'] != 'PASS_FAIR_TEST_CLAIM_AUDIT'
+            or claim_audit['samples'] != n
+            or len(claim_audit['comparisons']['selected_vs_v1']) != 8
+            or set(claim_audit['comparisons']['ours_vs_official'])
+               != {'ours_v1_source_m0', 'ours_selected_source_m0'}):
+        raise ValueError('fair TEST claim audit incomplete')
     for method, endpoints in contrasts['contrasts'].items():
         for metric, row in endpoints.items():
             if (abs(row['official_mean'] - table['values']
@@ -155,6 +163,7 @@ def main() -> None:
         'main_table_json_sha256': digest(args.main_table_json),
         'paired_json_sha256': digest(args.paired_json),
         'official_contrasts_json_sha256': digest(args.official_contrasts_json),
+        'claim_audit_json_sha256': digest(args.claim_audit_json),
         'common_manifest_sha256': digest(args.common_manifest),
         'teaser_provenance_sha256': digest(provenance_path),
     }
