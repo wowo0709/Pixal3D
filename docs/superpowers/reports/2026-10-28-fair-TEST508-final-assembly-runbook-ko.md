@@ -12,6 +12,7 @@
 | 최종 성공 교집합 10방법×10지표 | `/root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/complete.json`; 원고 `paper/final-results/scale-ungiven-main-table.tex` |
 | Raw 10방법×10지표 | `/root/dev/.cache/deformnext-benchmark-runtime/raw-common501-final-table-v1/complete.json`; 원고 `paper/final-results/scale-ungiven-raw-table.tex` |
 | V1↔Selected 8지표 paired CI | `/root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-ours-paired-v3/complete.json` |
+| Raw V1↔Selected 8지표 paired CI | `/root/dev/.cache/deformnext-benchmark-runtime/raw-ours-paired-v1/complete.json`; raw 표와 등록 후 paired 평가가 완료되면 자동 산출 |
 | Official RGB1↔V1/Selected 16지표 paired CI | `/root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-official-contrasts-v2/complete.json`; 원고 `paper/final-results/scale-ungiven-official-contrasts.tex` |
 | 실제 공정 teaser | `/root/dev/.cache/deformnext-retargeting/scale-ungiven-test508-20261028/fair-final-teaser-v2/complete.json`; 원고 `paper/final-results/figures/paper-teaser.{pdf,png}` 및 캡션·provenance |
 
@@ -22,7 +23,7 @@
 ## 실측 뒤 작성할 문장
 
 1. `scale-ungiven-main-table.json`과 `raw-common501-table.json`의 10방법×10지표 셀 및 raw/+M0 target8 표를 확인한다. 최고/2위 서식은 자동 생성되며, KID 표시값은 원값×1,000이다. Raw 외부 7방법은 원래 per-image 특징을 동일 501개로 replay했고, Ours raw 2행은 현재 평가가 끝나면 자동 추가된다.
-2. `paired-eight-endpoints.json`에서 Selected−V1의 source/target/geometry 8지표의 8-family interval을 확인한다. `official-contrasts-sixteen-endpoints.json`에서 official RGB1 대비 V1/Selected의 16-family interval을 확인한다. 0을 포함하는 구간은 개선·동등성 어느 쪽도 확정하지 않는다. FID/KID는 점추정만 서술한다.
+2. `paired-eight-endpoints.json`과 `raw-paired-eight-endpoints.json`에서 각각 ICP 후와 raw의 Selected−V1 source/target/geometry 8지표를 확인한다. 두 정합 조건을 함께 해석할 때는 각 파일의 `family16_bonferroni_ci95`를 사용한다. `official-contrasts-sixteen-endpoints.json`에서 official RGB1 대비 V1/Selected의 16-family interval을 확인한다. 0을 포함하는 구간은 개선·동등성 어느 쪽도 확정하지 않는다. FID/KID는 점추정만 서술한다.
    [claim 감사기](../../../experiments/deformnext_retargeting/audit_fair_test_claims.py)에 이 세 JSON과 공통 manifest를 전달해 각 endpoint의 방향·보정구간·주 표 평균 일치를 검사하고 `PASS_FAIR_TEST_CLAIM_AUDIT`을 받은 뒤 문장을 작성한다. 이 감사기는 FID/KID와 모델 순위를 기술적 점추정으로만 분류하고, 공식 RGB1 대 Ours를 입력 수가 다른 시스템 비교로 표시한다.
 
    ```bash
