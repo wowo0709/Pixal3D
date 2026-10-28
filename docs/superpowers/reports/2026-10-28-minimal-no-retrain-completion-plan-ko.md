@@ -456,3 +456,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 ## 09:16 KST 생성 입력·scale 중간 재감사
 
 - [전수 계획과 현재 archive 감사](2026-10-28-test508-image-scale-contract-audit-0916.json)를 다시 실행했다. 508개 TEST 사례의 V1/Selected plan 쌍과 image-only scale prediction 508개를 전수 대조했고, 현재 보관된 V1 **295**, Selected **292**, 두 arm paired **292**, 실제 generation **587건** 및 Selected Top-1 **292건**이 같은 RGB·카메라·추정 scale SHA/값을 사용함을 통과했다. `M0_M1_mesh_or_GT_scale_used_at_inference=false`; 전체 508쌍 완료는 여전히 false로 표시한다. 중간 결과의 데이터 누출 방지 확인이며 최종 품질 수치는 아니다.
+
+## 09:17 KST 외부 여섯 번째 방법 검증
+
+- node16 외부 learned evaluator가 SpaceControl 결과를 닫아 **6/7**이 됐다. 직접 읽은 원본 6개 결과 파일 모두 동일 502개 sample ID, camera9/10 **1,004**개 per-view row, 실패 0건, 8개 유한 지표와 유한 FID/KID, 완전 모집단·full-computation 플래그를 충족한다. 남은 방법은 TRELLIS.2다.
+- SpaceControl의 저장된 1,004×2,048 Inception feature 및 사례별 결과를 benchmark 원본 `summarize`/FID/KID 함수로 다시 집계했다. 원본 502 결과 대비 평균·source-cluster CI·FID/KID 최대 절대 오차 **1.21e-11**로 PASS했다. 이 검사는 최종 501 이하 공통 사례 재집계를 위한 캐시 정확성 중간 확인이며, 최종 표 자체는 아직 미완료다. 같은 시각 Ours paired SHA 보관은 **294/508**이다.
