@@ -587,3 +587,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 RGB1 501사례 raw/+M0의 공통 Cycles 렌더 **32/32청크·3,006작업**, 외부 7방법의 원본 common502 10지표는 완료됐다. node16의 통합 평가 watcher는 동일 501사례의 9방법 binding **4,509예측**과 공식 RGB1 target8 점수를 통과했고, 현재 외부 7방법 target8 점수 재집계 자식 PID **3598523**이 CPU와 파일 읽기를 계속 사용한다. 9방법 learned 지표와 최종 Ours 포함 통합 수치는 아직 없다.
 - Ours source-M0 surface 선계산은 세 배치 **469개 사례·938행**을 끝냈다. 마지막 공통 평가기는 캐시 key를 재확인하고 빠진 사례를 계산한다. 다음 게이트는 Ours 508쌍 archive, node16 외부 target8 재집계와 9방법 learned 평가, Ours 502사례 surface, 6,024건 Cycles 렌더, 4조건 learned 지표, 10방법 표·paired CI·실제 teaser·원고 PDF 순서다. 자동 후속 watcher는 살아 있으나, 뒤 단계의 완료 영수증은 아직 없다.
 - 공식 RGB1 raw→+M0의 501사례 target8 **PSNR 15.7741→17.7655**, **SSIM 0.9026→0.9212**, **M-IoU 0.3979→0.5302**는 공식 모델 내부 paired 중간값이다. 이를 최종 통합 표의 우열이나 Ours 성능 주장으로 쓰지 않는다. 최종 성공 교집합·10지표·CI가 닫힌 뒤에만 논문 문장과 teaser를 확정한다.
+
+## 12:36 KST 후속 표면 평가 선계산
+
+- 기존 469개 선계산 ID와 겹치지 않고 Ours 양 arm·Selected PBR의 file4 보관 영수증이 모두 있는 공통502 사례 **11개**를 네 번째 목록으로 고정했다. ID 목록 SHA256은 `782e02ec6df4f1c7714004e0d81797d0d19c747970ca98c8202d9e62c6018a33`이다. node16에서 nice 15·단일 CPU thread 두 작업자로 계산했고, 결과 **22행**의 ID×방법 집합·중복 없음·유한값을 로컬 복사본에서 검증했다. 누적 cache는 **480/502사례**이며 최종 scorer가 사례별 cache key와 원본 영수증을 다시 확인한다.
+- Ours paired file4 archive는 **491/508쌍**으로 증가했다. node16 외부 target8 재집계 PID3598523은 약 24분 실행 중이며 누적 읽기량이 약 932 MB로 계속 늘었다. 실제 10방법 공통 표·CI·PDF는 아직 없으므로 본 선계산을 최종 평가 완료로 간주하지 않는다.
