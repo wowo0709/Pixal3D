@@ -36,7 +36,19 @@
      --common-manifest /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/common-manifest.json \
      --output /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-claim-audit-v1/claim-audit.json
    ```
-3. 실제 결과에 근거한 `paper/final-results/unified-abstract-findings.tex`, `unified-results.tex`, `unified-discussion.tex`, `unified-conclusion.tex`를 쓴다. 최종 빌더는 이 네 파일을 모두 요구한다. 개별 semantic matching·score·ray sharing·retargeting의 필수성을 최종 V1↔Selected 묶음 비교에서 추론하지 않는다.
+3. 감사가 통과하면 아래 생성기로 장문 원고 4개와 CVPR 원고 3개 결과 문안 슬롯을 만든다. 생성기는 유리/불리/미해결 분류, raw/등록 후 수치, 입력 비대칭 한계와 FID/KID의 기술 통계 범위를 감사 JSON에 결속한다. 개별 semantic matching·score·ray sharing·retargeting의 필수성을 최종 V1↔Selected 묶음 비교에서 추론하지 않는다.
+
+   ```bash
+   python docs/superpowers/paper/generate_fair_findings.py \
+     --main-table-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/scale-ungiven-main-table.json \
+     --raw-table-json /root/dev/.cache/deformnext-benchmark-runtime/raw-common501-final-table-v1/raw-common501-table.json \
+     --paired-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-ours-paired-v3/paired-eight-endpoints.json \
+     --raw-paired-json /root/dev/.cache/deformnext-benchmark-runtime/raw-ours-paired-v1/raw-paired-eight-endpoints.json \
+     --official-contrasts-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-official-contrasts-v2/official-contrasts-sixteen-endpoints.json \
+     --claim-audit-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-claim-audit-v1/claim-audit.json \
+     --common-manifest /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/common-manifest.json \
+     --output-dir docs/superpowers/paper/final-results
+   ```
 4. 신규 공정 teaser와 Figure 2–4, Main/보조 표, 내부 oracle-scale 표의 캡션을 전 페이지 시각 검수한다. Teaser의 사전 선정 규칙과 공동 성공 집합 분모를 함께 표기한다.
    공정 teaser 규칙은 **결과를 보고 선택하되 규칙 자체를 미리 고정**한 것이다. source LPIPS와 target mask IoU가 V1보다 함께 좋아진 후보의 실제 개수를 캡션에 명시하고 그 안에서 두 지표의 중앙값에 가장 가까운 사례를 고른다. 따라서 figure를 모집단 성공률이나 outcome-blind 사례로 서술하지 않는다.
 
