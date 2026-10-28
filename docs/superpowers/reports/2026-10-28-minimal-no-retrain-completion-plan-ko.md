@@ -497,3 +497,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 RGB1의 501개 렌더 mesh가 `PASS_OFFICIAL_FAST_EXPORT_BRIDGE`로 검증된 경로에 연결됐다. 실제 face budget 25만/50만/100만/200만은 **488/9/2/2**건이다. 기존 1M watcher는 의도적으로 정지된 채 보존됐고, 로컬 공식 Cycles watcher는 현재 GPU6 tail 사례 종료 후 GPU6·7을 넘겨받도록 대기한다. 캐시 기반 node16 9방법 평가 watcher도 외부 완료를 확인했고 공식 32청크 렌더를 기다린다.
 - 인계 직후 tail GPU6가 정지 신호를 관측하기 전에 index405 한 사례를 시작한 경합이 있었다. 이 사례의 V1은 이미 file4 SHA 보관됐고 Selected 계산이 진행 중이다. 현재 사례가 닫히면 관리자가 공식 입력 준비를 감지해 더 낮은 index를 시작하지 않고 렌더 watcher를 재개하는지 영수증으로 확인한다. Ours primary GPU0–3은 계속 생성 중이며 paired **369/508**이다.
 - 10:31 KST 추가 확인: index405는 두 arm archive까지 닫혔지만 30초 원격 확인 주기 전에 **index403도 시작**됐다. 공식 export 입력은 수동 SSH의 동일 `test -f`로 확인됐고, tail 관리자 PID713405의 main thread는 새 사례를 시작하는 poll sleep이 아니라 실행 중인 GPU6 worker를 기다리는 join 상태다. 따라서 index403을 끝낸 뒤 공식 렌더로 넘기는 경로를 관찰한다. 중간 사례를 강제 종료해 불완전 산출물을 남기지 않는다.
+
+## 10:42 KST GPU 인계·첫 공식 Cycles 청크 통과
+
+- tail GPU6는 설정된 마지막 index401까지 V1·Selected SHA 보관을 끝냈다. tail 관리자 PID713405는 종료됐고 공식 렌더 watcher PID543994가 `T`에서 `S`로 재개됐다. 인계가 30초 원격 확인 창에 겹쳐 index403·401까지 추가로 시작된 점을 확인해, 후속 tail 코드에는 **각 사례 시작 직전에도 공식 입력을 확인**하는 조건을 추가했다. 현재 공식 렌더와 tail 생성은 GPU6/7에서 겹치지 않는다.
+- 공식 RGB1 Cycles 캠페인은 501사례의 raw/+source-M0×camera8/9/10, 총 **3,006 작업·32청크** 계획을 검증하고 시작했다. 첫 `chunk000`의 16사례·96작업은 동일 protocol에서 렌더·file4 영수증·로컬 staging 회수를 **121.4초**에 통과했다. `chunk001`이 staging 중이다. 첫 청크 속도를 단순 외삽한 32청크 약 65분은 대형 GLB와 네트워크 편차를 반영하지 않은 참고치이며 완료 예정 시각으로 확정하지 않는다.
+- Ours paired file4 SHA 보관은 **383/508**까지 늘었다. 외부 7방법 원본502는 검증 완료됐지만 공식 RGB1·Ours와 합친 최종 공통 N·10지표는 아직 없다. node16의 캐시 기반 9방법 evaluator는 공식 32청크 완료를 기다린다.
