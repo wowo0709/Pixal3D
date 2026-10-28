@@ -40,6 +40,8 @@ metric_worker=None
 bridge_worker=None
 cached_nine_worker=None
 ours_binding_worker=None
+ours_target_worker=None
+ours_metric_worker=None
 subset_file=root/'official-scale-ungiven-source-sim3-common-success-v2/official-success-common.json'
 subset=json.loads(subset_file.read_text()).get('sample_ids',[]) if subset_file.is_file() else []
 old_nine=Path('/proc/195556/stat')
@@ -50,6 +52,16 @@ for process in Path('/proc').iterdir():
  try:
   argv=(process/'cmdline').read_bytes().decode(errors='replace').split('\\0')
   state=(process/'stat').read_text().split(') ',1)[1][0]
+  if (str(root/'score_minimal_test_ours_target8.py') in argv
+      and state not in ('Z','X')):
+   io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
+   ours_target_worker={'pid':int(process.name),'state':state,
+                       'rchar':int(io.get('rchar','0'))}
+  if (argv and argv[0].endswith('/M0Sim3-metrics')
+      and str(ours/'evaluation-ours-four') in argv and state not in ('Z','X')):
+   io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
+   ours_metric_worker={'pid':int(process.name),'state':state,
+                       'rchar':int(io.get('rchar','0'))}
   if (str(root/'build_minimal_test_ours_eval_manifests.py') in argv
       and state not in ('Z','X')):
    io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
@@ -94,6 +106,8 @@ print(json.dumps({'official_surface':score.get('samples'),
  'nine_archive_done':(nine_ready and Path('/file4/youngwoo/deformation/experiments/retargeting-v1/source-sim3-test508-20261028/official-rgb1-scale-ungiven-common-success-v2/final-evaluation/completion.json').is_file()),
  'ours_metric_rows':len(list((ours/'evaluation-ours-four').glob('*-results.json'))),
  'ours_binding_worker':ours_binding_worker,
+ 'ours_target_worker':ours_target_worker,
+ 'ours_metric_worker':ours_metric_worker,
  'ours_done':(ours/'evaluation-ours-four/summary.json').is_file()}))
 '''
 
@@ -274,6 +288,11 @@ def render(local:dict,remote:dict|None,error:str|None,
             detail=(f'case {case}/{binding["total"]} (current file)' if case is not None
                     else 'current case unavailable')
             out+=f'\n| Ours input binding | PID {binding["pid"]}, {detail}, read {binding["rchar"] / 1e9:.2f} GB |'
+        for label,key in (('Ours target image scoring','ours_target_worker'),
+                          ('Ours learned metric evaluator','ours_metric_worker')):
+            worker=remote.get(key)
+            if worker:
+                out+=f'\n| {label} | PID {worker["pid"]}, state {worker["state"]}, read {worker["rchar"] / 1e9:.2f} GB |'
         out+=f'\n| Ours source-M0 surface precache (independent of final score) | {remote["ours_surface_precache_cases"]}/{remote["ours_surface_precache_planned"]} cases; workers {remote["ours_surface_precache_workers"]} |'
     else:
         out+='\n| Node16 status | temporarily unavailable; local work continues |'
