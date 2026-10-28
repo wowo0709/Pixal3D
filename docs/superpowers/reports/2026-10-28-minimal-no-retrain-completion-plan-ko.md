@@ -592,3 +592,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 기존 469개 선계산 ID와 겹치지 않고 Ours 양 arm·Selected PBR의 file4 보관 영수증이 모두 있는 공통502 사례 **11개**를 네 번째 목록으로 고정했다. ID 목록 SHA256은 `782e02ec6df4f1c7714004e0d81797d0d19c747970ca98c8202d9e62c6018a33`이다. node16에서 nice 15·단일 CPU thread 두 작업자로 계산했고, 결과 **22행**의 ID×방법 집합·중복 없음·유한값을 로컬 복사본에서 검증했다. 누적 cache는 **480/502사례**이며 최종 scorer가 사례별 cache key와 원본 영수증을 다시 확인한다.
 - Ours paired file4 archive는 **491/508쌍**으로 증가했다. node16 외부 target8 재집계 PID3598523은 약 24분 실행 중이며 누적 읽기량이 약 932 MB로 계속 늘었다. 실제 10방법 공통 표·CI·PDF는 아직 없으므로 본 선계산을 최종 평가 완료로 간주하지 않는다.
+
+## 12:43 KST 다섯 번째 선계산과 렌더 계약 확인
+
+- 네 번째 이후 추가로 file4에 보관된 공통502 사례 **10개**를 다섯 번째 목록으로 고정했다(ID 목록 SHA256 `6ccc4fc3d92922ec8752445a6a3b5b4045ad5b18f047d1bc0d928121459a588e`). nice 15 작업자 두 개가 계산한 결과 **20행**의 정확한 사례×방법 집합, 중복 없음, 모든 수치의 유한성을 로컬 복사본에서 확인했다. 누적 선계산은 **490/502사례**다.
+- Ours paired는 **497/508쌍**이다. GPU1·2 담당 shard는 완료돼 두 primary worker만 남았고, GPU6 대형 index392는 Selected 1M-face 초과 fallback 후 원본 대비 근사 한도를 통과해 file4 archive까지 검증됐다. 남은 생성과 공통 평가의 완료 영수증은 아직 대기 중이다.
+- 외부 raw target8 채점 입력과 +M0 target8 렌더 job의 `protocol_sha256`이 동일한 `5abddf2ff8a51af360e39a1ff7f5dda61d3b54269afa846b3fd14713a6e0fbb1`임을 사례별 원본 job에서 확인했다. 이 확인은 카메라·렌더 계약 일치의 한 증거이며, 전체 501사례 최종 지표·CI 검증을 대체하지 않는다.
