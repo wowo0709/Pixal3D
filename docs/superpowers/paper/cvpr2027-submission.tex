@@ -196,6 +196,26 @@ the physical retargeter rather than treating each as an isolated removal.}
 \label{tab:cvpr-ablation}
 \end{table}
 
+\begin{table}[t]
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrr}
+\toprule
+PBR on fixed geometry & LPIPS$\downarrow$ & DreamSim$\downarrow$\\
+\midrule
+Vanilla & 0.053513 & 0.158346\\
+Top-1 + R & 0.053290 & 0.157828\\
+Top-1 + learned value + R & 0.053326 & 0.157985\\
+Raw Top-K + learned value + R & 0.053361 & 0.158261\\
+\bottomrule
+\end{tabular}
+\caption{Matched DEV32 appearance comparison with identical geometry,
+guides, noise, and triangles. R denotes the retargeter. Top-1 + R has the
+lowest source distance points, but its paired intervals against vanilla
+include zero. All rows have identical geometry scores.}
+\label{tab:cvpr-pbr}
+\end{table}
+
 Raw semantics, decoder descriptors, and scalar scores form a favorable
 geometry point-estimate ladder in Table~\ref{tab:cvpr-ablation}. None of the
 48 adjusted development component intervals excludes zero. In separate
@@ -203,7 +223,7 @@ retrieval diagnostics, exact rank-one coverage rises from 1.25\% to 7.73\%
 with D1; member proposal coverage at 64 rises from 50.76\% to 73.36\%.
 These are retrieval measurements, not generated-quality claims. Fixed-geometry
 PBR DEV32 gives Top-1 retargeting a small LPIPS/DreamSim point advantage,
-but its paired intervals include zero.
+but its paired intervals include zero (Table~\ref{tab:cvpr-pbr}).
 
 \IfFileExists{final-results/cvpr2027-results.tex}{%
 \input{final-results/cvpr2027-results.tex}

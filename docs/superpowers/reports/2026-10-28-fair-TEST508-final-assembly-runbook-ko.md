@@ -49,3 +49,7 @@ python docs/superpowers/paper/build_fair_manuscript.py \
 공식 kit의 `cvpr.sty`를 사용한 최소 review PDF를 로컬 Tectonic으로 컴파일했고, 필요한 LaTeX 패키지를 캐시한 뒤 `--only-cached` 재컴파일도 통과했다. 이는 **템플릿 환경 확인**이며 8페이지 본문 작성이나 최종 투고 PDF 완성을 뜻하지 않는다.
 
 별도 [CVPR 2027 압축 원고](../paper/cvpr2027-submission.tex)를 공식 review 템플릿으로 작성하고 [preview 빌더](../paper/build_cvpr2027_preview.py)로 4쪽(참고문헌 포함)을 조판·시각 검수했다. 레이아웃 오류, 미해결 참조·인용은 0개다. 이 버전은 공통 성공 집합의 최종 표와 teaser가 없다고 본문에 표시한 **protocol preview**다. 실측 결과와 공정 teaser를 넣은 뒤 본문 8쪽 제한 및 LLM Usage Statement를 다시 검수해야 하며, 현재 PDF를 최종 논문으로 사용하지 않는다.
+
+최종 실측이 닫히면 `final-results/cvpr2027-abstract-findings.tex`, `cvpr2027-results.tex`, `cvpr2027-conclusion.tex`에 같은 공통 ID·paired CI에 근거한 문장을 작성한다. 이후 [최종 CVPR 빌더](../paper/build_fair_cvpr2027.py)를 장문 빌더와 동일한 `--main-table-json`, `--paired-json`, `--official-contrasts-json`, `--common-manifest`, `--paper-root`, 새 `--output-dir`로 실행한다. 이 빌더는 실측 표·구간·teaser의 ID/SHA와 공식 kit SHA, 본문 8쪽 이내, 보류 문구 부재를 검사하고 전 페이지 review PNG를 만든다. **빌더 통과 뒤에도 실제 그림·표의 가독성을 눈으로 검수한다.**
+
+실측 수치 대신 임시 값과 이전 그림을 넣은 별도 격리 레이아웃 시험에서 압축 원고는 **참고문헌 포함 5쪽, 본문 4쪽, Overfull 0건**으로 조판됐다. 이 시험에서 주 표 캡션의 수식 `10^{-3}`이 CVPR kit/Tectonic 캐시의 9pt 글꼴 오류를 일으켜 같은 의미의 일반 문장으로 바꿨다. 합성 시험의 PDF·수치는 논문 결과로 사용하지 않는다. 압축 본문에는 SS DEV128 geometry 표와 고정 geometry의 PBR DEV32 appearance 표를 각각 유지한다.

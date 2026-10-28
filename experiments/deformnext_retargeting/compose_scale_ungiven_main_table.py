@@ -157,7 +157,7 @@ def main() -> None:
                r' the older Pixal3D baseline estimates C and uses a 1536 cascade, while'
                r' the new RGB1 and Ours rows use given C and a 1024 cascade. Source metrics'
                r' use cameras 9/10; target image metrics use camera 8; geometry is measured'
-               r' against edited M1. KID is displayed in $10^{-3}$ raw units. Bold and'
+               r' against edited M1. KID values are multiplied by 1,000 for display. Bold and'
                r' underline mark the first and second values within this table.}'),
               r'\label{tab:scale-ungiven-common-main}', r'\end{table*}']
     result = {'status': 'PASS_SCALE_UNGIVEN_COMMON_SUCCESS_MAIN_TABLE',
