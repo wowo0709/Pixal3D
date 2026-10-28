@@ -579,3 +579,11 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 RGB1의 501사례 target-camera8 scorer 파일을 직접 확인했다. 이 모집단에서 PSNR은 raw **15.7741→+M0 17.7655 dB**, SSIM **0.9026→0.9212**, M-IoU **0.3979→0.5302**다. 이는 정답 M1을 정합에 쓰지 않은 source M0 사후 Sim(3)의 **공식 RGB1 내부 paired 검사값**이며, 아직 Ours와 외부 7법을 합친 최종 성공 교집합 결과가 아니다. 본문 주 비교 수치·성능 claim으로 앞서 사용하지 않는다.
 - Ours는 paired **475/508**까지 보관됐다. 파일서버 영수증 3개를 확인하고 기존 두 캐시 목록 437개와 겹치지 않는 공통502 사례 **32개**를 세 번째 선계산 목록으로 고정했다(SHA256 `e1fb18b92a29e1ec68aab2c93fc9300c96b7c78abbd4b3cd751d82c49da7ae00`). node16 복사본 checksum 차이 0을 확인한 뒤 nice 15·CPU 단일 thread 작업자 **PID 3812095/3812097**에서 처리 중이다. 외부 7방법 target8 scorer가 실행 중이므로 작업자를 2개만 사용한다.
 - 실시간 ledger는 앞으로 추가되는 `ids-*.json`과 `*-launch.json`을 읽도록 바꾸고 watcher **PID 855221**로 안전하게 교체했다. 첫 poll은 캐시 **438/469**, 두 선계산 작업자의 생존, GPU6·7 gap 관리자 두 개와 Ours primary 네 개의 생존을 확인했다. node16 외부 target8 재집계는 계속 실행 중이다.
+
+## 12:30 KST 계획·실행 중간 재점검
+
+- 범위는 여전히 **재학습 0회**, frozen V1·Selected의 TEST508 생성과 외부 7법·공식 RGB1의 공통 성공 사례 평가다. 카메라 제공 가능 방법에는 카메라를 주고, 생성에는 객체별 GT scale을 주지 않는다. +M0는 생성 후 source 원본 mesh로만 정합한다. 기존 M1 유래 scale 내부 ablation은 별도 표로 유지한다.
+- 실시간 영수증은 V1 **487/508**, Selected·Top-1 PBR **483/508**, 두 arm paired **483/508**이다. 0–3번 GPU의 primary worker 네 개와 각 Shape/PBR/메시 내보내기 하위 작업이 살아 있다. GPU6은 index392의 큰 Selected 메시를 더 높은 face budget으로 내보내는 중이다. GPU7은 미완료 사례 중 primary와 32 index 이상 떨어진 안전한 홀수 index가 없어 비어 있다. 일시적인 낮은 GPU 사용률은 메시 내보내기의 CPU 단계와 구분한다.
+- 공식 RGB1 501사례 raw/+M0의 공통 Cycles 렌더 **32/32청크·3,006작업**, 외부 7방법의 원본 common502 10지표는 완료됐다. node16의 통합 평가 watcher는 동일 501사례의 9방법 binding **4,509예측**과 공식 RGB1 target8 점수를 통과했고, 현재 외부 7방법 target8 점수 재집계 자식 PID **3598523**이 CPU와 파일 읽기를 계속 사용한다. 9방법 learned 지표와 최종 Ours 포함 통합 수치는 아직 없다.
+- Ours source-M0 surface 선계산은 세 배치 **469개 사례·938행**을 끝냈다. 마지막 공통 평가기는 캐시 key를 재확인하고 빠진 사례를 계산한다. 다음 게이트는 Ours 508쌍 archive, node16 외부 target8 재집계와 9방법 learned 평가, Ours 502사례 surface, 6,024건 Cycles 렌더, 4조건 learned 지표, 10방법 표·paired CI·실제 teaser·원고 PDF 순서다. 자동 후속 watcher는 살아 있으나, 뒤 단계의 완료 영수증은 아직 없다.
+- 공식 RGB1 raw→+M0의 501사례 target8 **PSNR 15.7741→17.7655**, **SSIM 0.9026→0.9212**, **M-IoU 0.3979→0.5302**는 공식 모델 내부 paired 중간값이다. 이를 최종 통합 표의 우열이나 Ours 성능 주장으로 쓰지 않는다. 최종 성공 교집합·10지표·CI가 닫힌 뒤에만 논문 문장과 teaser를 확정한다.
