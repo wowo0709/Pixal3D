@@ -57,6 +57,8 @@ def update_table(path: Path, condition: str, cache: Path, ids: list[str]) -> int
     if completed == 2 and condition == 'source_m0':
         lines = [line.replace('Ours 두 행의 CD/F-Score는 위 surface cache에서 집계한 임시 값이고', 'Ours 두 행의 CD/F-Score는 공통 evaluator 완료값이고')
                      .replace('Ours source 지표의 `—`는 계산 중이다.', 'Ours source 지표는 공통 evaluator 완료값이다.')
+                     .replace('Ours Selected의 source·geometry 지표는 공통 evaluator 완료값이고 target view 지표는 별도 paired 평가 완료값이다. Ours V1의 CD/F-Score는 기존 surface cache의 임시 값이며 source 지표는 계산 중이다.',
+                              'Ours 두 행의 source·geometry 지표는 공통 evaluator 완료값이고 target view 지표는 별도 paired 평가 완료값이다.')
                  for line in lines]
     if completed:
         updated = '\n'.join(lines) + '\n'
