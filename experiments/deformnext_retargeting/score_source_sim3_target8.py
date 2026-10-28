@@ -95,7 +95,8 @@ def main():
         summary[method] = values
     output = {'schema': ('deformnext-input-M0-Sim3-target8-paired-common-success-v2'
                          if args.subset else 'deformnext-input-M0-Sim3-target8-paired-common502-v1'),
-              'samples': len(ids), 'source_clusters': len(clusters), 'methods': summary}
+              'samples': len(ids), 'sample_ids': ids,
+              'source_clusters': len(clusters), 'methods': summary}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(output, indent=2, allow_nan=False) + '\n')
     print(json.dumps({'status': 'PASS_SOURCE_M0_TARGET8_PAIRED', 'samples': len(ids),

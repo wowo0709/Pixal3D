@@ -97,6 +97,7 @@ def main() -> None:
                                                     'ours_selected_source_m0', metric)}
     result = {'status': 'PASS_OURS_V1_SELECTED_RAW_AND_M0_TARGET8_PAIRED',
               'samples': len(scored), 'source_clusters': len(clusters),
+              'sample_ids': subset,
               'metrics': summary, 'per_sample': scored}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')

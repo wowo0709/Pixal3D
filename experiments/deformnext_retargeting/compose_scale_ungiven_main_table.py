@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -69,6 +70,13 @@ def main() -> None:
             or nine['split'] != ours['split'] or nine['split'] != 'test'
             or ext_t['samples'] != n or off_t['samples'] != n or ours_t['samples'] != n):
         raise ValueError('same TEST/common-success/metric protocol required')
+    if (ext_t['schema'] != 'deformnext-input-M0-Sim3-target8-paired-common-success-v2'
+            or off_t['status'] != 'PASS_OFFICIAL_RGB1_RAW_AND_M0_TARGET8_PAIRED'
+            or ours_t['status'] != 'PASS_OURS_V1_SELECTED_RAW_AND_M0_TARGET8_PAIRED'
+            or any(len(report['sample_ids']) != n
+                   or set(report['sample_ids']) != set(common['sample_ids'])
+                   for report in (ext_t, off_t, ours_t))):
+        raise ValueError('target8 raw/+M0 scores must use the exact common sample IDs')
     source = {**nine['methods'], **ours['methods']}
     values = {}
     for method in METHODS:
@@ -90,6 +98,8 @@ def main() -> None:
                 comparison = ours_t['metrics'][metric]['selected_minus_v1_source_m0']
                 m[metric] = float(comparison['left_mean'] if method == 'ours_v1_source_m0'
                                   else comparison['right_mean'])
+        if any(not math.isfinite(value) for value in m.values()):
+            raise ValueError('nonfinite common-success metric: ' + method)
         values[method] = m
     ranks = {}
     for metric in METRICS:

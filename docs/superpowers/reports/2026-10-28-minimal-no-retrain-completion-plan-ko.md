@@ -484,3 +484,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - [이미지 입력·scale 감사](2026-10-28-test508-image-scale-contract-audit-1000.json)를 같은 508쌍 frozen plan과 현재 archive에 다시 실행했다. V1 **347**, Selected/paired **343**, 실제 generation **690건**과 Selected Top-1 PBR archive **343건**의 RGB·카메라·image-only scale SHA/값 일치를 통과했다. M0/M1 mesh 또는 target GT scale은 생성 추정에 사용되지 않았고 `all_cascade_results_complete=false`다.
 - [렌더 mesh 근사 감사](2026-10-28-test508-render-fidelity-incremental.json)는 동일한 V1 **347**, Selected **343** archive의 GLB·원본 prediction·report SHA와 사전 정의한 q99 world **≤0.01**을 통과했다. 최대 q99는 **0.0098672**이고, 실제 face budget 25만/50만/100만/200만/500만은 **621/33/24/9/3**건이다. export 완료 후 archive 진행 중인 기록 1건은 성공 수에 포함하지 않았다. 원본 표면은 geometry metric용으로 그대로 보존한다.
+
+## 10:10 KST 최종 표 모집단 검증 보강
+
+- 최종 10지표 표 생성기를 검토해 target-camera PSNR/SSIM/M-IoU 보조 평가 3개가 기존에는 `samples=N`만 검사하고 실제 sample ID 집합은 확인하지 않는 빈틈을 발견했다. 외부 7법·공식 RGB1·Ours target8 평가 결과에 `sample_ids`를 기록하고, 표 생성 시 세 집합 모두 최종 13방법 공통 manifest의 ID와 정확히 같은지 검사하도록 보강했다. 유한한 10지표 값과 평가 영수증 status/schema도 검증한다.
+- 수정된 세 target8 평가 스크립트는 node16 대기 작업이 실행되기 전에 배포했고 로컬/원격 SHA 3개가 각각 일치함을 확인했다. 외부 평가 결과는 아직 6/7이며 공식 Cycles 렌더는 0청크라 새 평가 파일은 생성 전이다. 단발 합성 검증에서 같은 1사례 ID의 10방법×10지표 표는 통과했고, **사례 수는 같지만 ID가 다른** target8 입력은 표 생성 전에 거부됐다. `py_compile`과 `git diff --check`도 통과했다.
+- 이 시각 Ours paired file4 SHA 보관은 **356/508**까지 증가했고, 선행 GPU7 index396은 두 arm 모두 보관을 통과했다. node16 마지막 TRELLIS.2 평가 PID2492093의 실제 읽기량은 약 **133.5 GB**로 증가해 실행 중이다. 최종 표와 PDF 완료는 여전히 주장하지 않는다.

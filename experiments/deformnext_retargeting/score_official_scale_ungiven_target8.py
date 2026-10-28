@@ -89,6 +89,7 @@ def main() -> None:
                            'fraction_improved': float((diff > 0).mean())}
     result = {'status': 'PASS_OFFICIAL_RGB1_RAW_AND_M0_TARGET8_PAIRED',
               'samples': len(rows), 'source_clusters': len(clusters),
+              'sample_ids': ids,
               'metrics': summary, 'per_sample': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
