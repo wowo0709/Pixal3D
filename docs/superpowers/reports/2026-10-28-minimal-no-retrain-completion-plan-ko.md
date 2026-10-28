@@ -479,3 +479,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - file4 SHA 보관 기준 V1 **346/508**, Selected/Top-1 PBR 및 양 arm paired **341/508**이다. GPU0–3의 본 worker 네 개와 GPU6 index417, GPU7의 비중복 index396 worker가 살아 있다. index396은 V1 archive를 마치고 Selected PBR을 계산 중이다. 대형 렌더 bake의 fallback 때문에 GPU 점유율 순간값이 낮아도 CPU 작업이 진행될 수 있으므로, 종료 여부는 사례 영수증으로 판정한다.
 - node16 공식 RGB1 native 성공 507/508, 최종 외부 공통 집합에 속한 surface/export **501/501**이다. 외부 7방법 learned 결과는 **6/7**이고 마지막 TRELLIS.2 평가 PID2492093은 실행 중이며 누적 읽기 바이트가 약 **130.5 GB**로 증가했다. 공식 bridge PID1552286와 캐시 기반 9방법 watcher PID3140957은 살아 있으나 외부 7방법 완료를 기다린다. 공식 Cycles 렌더 watcher는 GPU6/7 인계 전까지 의도적으로 정지돼 있다.
 - 현재 최종 공통 N·10지표 표·V1↔Selected 및 공식 RGB1 paired CI·공정 teaser·배포용 PDF는 없다. 가장 최근 약 41분 동안 paired archive가 294→341로 47건 증가했다. 같은 속도만 외삽하면 남은 167건은 약 2.4시간이지만, GPU6/7의 공식 렌더 인계와 대형 mesh fallback이 있어 생성 종료는 **대략 2.5–4시간**으로만 예상한다. 이어 공통 렌더·평가·원고 반영이 더 필요하며, 전체 완료 시각은 마지막 외부 평가 및 렌더 처리량을 본 뒤 재산정한다.
+
+## 10:00 KST 생성 계약·렌더 근사 재감사
+
+- [이미지 입력·scale 감사](2026-10-28-test508-image-scale-contract-audit-1000.json)를 같은 508쌍 frozen plan과 현재 archive에 다시 실행했다. V1 **347**, Selected/paired **343**, 실제 generation **690건**과 Selected Top-1 PBR archive **343건**의 RGB·카메라·image-only scale SHA/값 일치를 통과했다. M0/M1 mesh 또는 target GT scale은 생성 추정에 사용되지 않았고 `all_cascade_results_complete=false`다.
+- [렌더 mesh 근사 감사](2026-10-28-test508-render-fidelity-incremental.json)는 동일한 V1 **347**, Selected **343** archive의 GLB·원본 prediction·report SHA와 사전 정의한 q99 world **≤0.01**을 통과했다. 최대 q99는 **0.0098672**이고, 실제 face budget 25만/50만/100만/200만/500만은 **621/33/24/9/3**건이다. export 완료 후 archive 진행 중인 기록 1건은 성공 수에 포함하지 않았다. 원본 표면은 geometry metric용으로 그대로 보존한다.
