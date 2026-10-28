@@ -84,6 +84,20 @@ def local_counts() -> dict:
             by_id[sid]['SELECTED'] &= pbr_done
     counts['pairs']=sum(all(v.get(k,False) for k in ('V1','SELECTED')) for v in by_id.values())
     counts['expected']=len(by_id)
+    for name, directory in (
+        ('official_render_chunks', BENCHMARK/'official-rgb1-render-campaign-v2/render-plan'),
+        ('ours_render_chunks', BENCHMARK/'ours-two-render-campaign-v2/render-plan'),
+    ):
+        chunks=sorted(directory.glob('chunk[0-9][0-9][0-9]'))
+        completed=0
+        for chunk in chunks:
+            receipt=chunk/'completed.json'
+            if not receipt.is_file():continue
+            try: row=json.loads(receipt.read_text())
+            except json.JSONDecodeError:continue  # writer may be finishing the receipt
+            completed+=(row.get('status')=='PASS_RENDER_CHUNK_ARCHIVED_ON_FILE4'
+                        and row.get('chunk')==chunk.name)
+        counts[name]={'completed':completed,'expected':len(chunks)}
     return counts
 
 
@@ -190,6 +204,12 @@ def render(local:dict,remote:dict|None,error:str|None,
            f'| Ours Selected full cascade, file4 SHA | {local["selected"]}/{n} |',
            f'| Ours Selected Top-1 PBR, file4 SHA | {local["selected_pbr"]}/{n} |',
            f'| 같은 사례의 두 arm 모두 완료 | {local["pairs"]}/{n} |']
+    for label,key in (('Official RGB1 Cycles render chunks','official_render_chunks'),
+                      ('Ours raw/+M0 Cycles render chunks','ours_render_chunks')):
+        progress=local[key]
+        value=(f'{progress["completed"]}/{progress["expected"]}'
+               if progress['expected'] else 'pending render plan')
+        lines.append(f'| {label}, file4 receipt | {value} |')
     out='\n'.join(lines)
     if remote is not None:
         out+=f'\n| Official Pixal3D RGB1 source-M0 surface | {remote["official_surface"] or 0}/501 |'

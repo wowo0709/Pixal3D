@@ -503,3 +503,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - tail GPU6는 설정된 마지막 index401까지 V1·Selected SHA 보관을 끝냈다. tail 관리자 PID713405는 종료됐고 공식 렌더 watcher PID543994가 `T`에서 `S`로 재개됐다. 인계가 30초 원격 확인 창에 겹쳐 index403·401까지 추가로 시작된 점을 확인해, 후속 tail 코드에는 **각 사례 시작 직전에도 공식 입력을 확인**하는 조건을 추가했다. 현재 공식 렌더와 tail 생성은 GPU6/7에서 겹치지 않는다.
 - 공식 RGB1 Cycles 캠페인은 501사례의 raw/+source-M0×camera8/9/10, 총 **3,006 작업·32청크** 계획을 검증하고 시작했다. 첫 `chunk000`의 16사례·96작업은 동일 protocol에서 렌더·file4 영수증·로컬 staging 회수를 **121.4초**에 통과했다. `chunk001`이 staging 중이다. 첫 청크 속도를 단순 외삽한 32청크 약 65분은 대형 GLB와 네트워크 편차를 반영하지 않은 참고치이며 완료 예정 시각으로 확정하지 않는다.
 - Ours paired file4 SHA 보관은 **383/508**까지 늘었다. 외부 7방법 원본502는 검증 완료됐지만 공식 RGB1·Ours와 합친 최종 공통 N·10지표는 아직 없다. node16의 캐시 기반 9방법 evaluator는 공식 32청크 완료를 기다린다.
+
+## 10:44 KST 공식 렌더 청크 실측·자동 진행표 보강
+
+- 공식 RGB1 `chunk001`도 16사례·96작업 렌더와 file4 영수증을 **109.24초**에 통과했고 `chunk002`가 시작됐다. 첫 두 청크는 2/32이며, node16 캐시 기반 9방법 평가 watcher가 같은 완료 청크 수를 관측했다. 이 속도의 단순 외삽은 약 1시간이지만 대형 mesh·전송 편차가 있으므로 실제 완료 영수증으로 판단한다.
+- [실시간 진행표](2026-10-28-scale-ungiven-live.md)에 공식 RGB1·Ours의 `PASS_RENDER_CHUNK_ARCHIVED_ON_FILE4` 청크 수를 추가했다. 갱신 스크립트의 단발 실측은 공식 **1/32**·Ours plan 대기를 표시했고, 기존 watcher를 안전하게 종료한 뒤 분리 실행 PID799903으로 재시작했다. 새 watcher가 `PPID=1`에서 실행하고 정상 ledger를 작성함을 확인했다. `py_compile` 및 whitespace 검사도 통과했다.
