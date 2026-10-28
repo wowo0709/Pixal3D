@@ -628,3 +628,4 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 첫 청크 `chunk000`의 **16사례·192개 렌더**가 local GPU0/1/2/3/6/7에서 완료됐고 file4 전송·checksum 검증 후 로컬 stage를 회수했다. `PASS_RENDER_CHUNK_ARCHIVED_ON_FILE4` 영수증의 전체 소요는 **172.82초**다. 다음 `chunk001` staging이 시작됐으며 캠페인은 **1/32청크**다.
 - 첫 청크 시간만 선형 연장하면 남은 31청크가 약 **1.5시간**이지만 사례별 GLB 크기·렌더 비용과 파일서버 전송 편차가 있으므로 확정 종료 시각은 아니다. 이후 Ours 4조건 learned metric·최종 공통 표·paired CI·그림·PDF 검수가 추가로 필요하다.
 - [첫 렌더 한 사례 sanity](2026-10-28-first-render-one-case-sanity.json)에서 동일 camera8의 GT·V1/Selected raw/+M0 RGBA를 실제 열어 시각 검수하고 benchmark 원본 `read_rgba`·`image_metrics`로 유한한 PSNR/SSIM/M-IoU와 비어 있지 않은 mask를 확인했다. 이 한 사례에서는 +M0가 두 arm 모두 target8 지표를 낮췄으므로 raw와 +M0의 paired 결과를 함께 보고할 필요가 재확인된다. **한 사례는 모집단 개선 주장이나 최종 표 값이 아니다.**
+- 두 번째 `chunk001`도 **16사례·192렌더**를 file4에 검증 보관했다(200.79초). 현재 **2/32청크**, 세 번째 청크 staging 중이다. 두 실측 시간의 평균은 약 187초/청크이지만 이후 사례의 크기 차이와 learned 평가 대기 시간을 포함하지 않은 렌더 구간 추정이다.
