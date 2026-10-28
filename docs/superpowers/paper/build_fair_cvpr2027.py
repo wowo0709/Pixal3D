@@ -144,6 +144,7 @@ def main() -> None:
                                           'LAYOUT TEST', 'Synthetic results')):
         raise ValueError('final CVPR PDF contains provisional content')
     if not all(token in content for token in ('LLM Usage Statement',
+                                              'OpenAI Codex',
                                               'Common-success TEST comparison',
                                               'Matched DEV128 geometry',
                                               'Matched DEV32 appearance')):
