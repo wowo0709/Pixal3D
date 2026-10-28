@@ -528,3 +528,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 실행 campaign이 가리키는 최종 개발 freeze 파일의 SHA256 **`09bcde32d2841bd7c2895132504733bc00fc31e9aff32bcfc05740aa2ed4f5ab`**를 실제 파일과 대조했다. `selected_pipeline_model_contract`가 V1·Selected의 SS480과 PBR1900 binding을 모두 통과했다. Selected는 SS `E_FIXED_RAW`(10개 source tensor, learned attention head 0), PBR `top1-only`(10개 source tensor)이며, V1은 두 stage 모두 source tensor 0이다.
 - Selected SS 실제 config의 `topk=64`, `score_temperature=0.05`, frozen D1, semantic weighted 후보 집계, native bilinear projection, `task_attention=None`을 확인했다. PBR은 별도 `candidate_aggregation=top1`, `appearance_mode=top1-only`다. 이는 원고의 **가중 Top-K SS와 별도 Top-1 PBR** 설명 및 새 Q/K/V head를 필수라고 주장하지 않는 문장과 일치한다. 구조·가중치 binding 감사이며 최종 TEST 성능 증거는 아니다.
 - 같은 시각 Ours paired file4 보관 **393/508**, 공식 RGB1 공통 Cycles 렌더 **8/32청크**다. node16 GPU7은 다른 작업이 약 13 GiB를 점유하고 있어 learned-metric 단계가 시작되면 속도와 메모리를 확인한다. 해당 작업은 건드리지 않는다.
+
+## 11:00 KST 최종 공통 사례·평가 입력 연결 사전 확인
+
+- node16의 외부 평가 binding은 502개, 원본 frozen baseline reference는 508개, 공식 RGB1 성공 교집합은 501개 ID다. 이 **501개 전부**가 두 reference 파일에 존재하며, ID별 reference JSON 행의 불일치는 **0개**였다. 이후 Ours binding과 9방법 binding이 같은 reference를 요구하는 merge gate의 현재 입력 조건을 충족한다. Ours 렌더가 아직 없으므로 최종 13조건 merge 완료를 뜻하지 않는다.
+- Ours binding·target8 평가 코드가 공식 성공 ID, raw/+M0 각각의 camera8/9/10 렌더 영수증과 SHA, 동일 502개 surface score의 transform을 검사하고, 최종 표 생성기가 세 target8 scorer의 `sample_ids`를 공통 manifest와 대조하는 것을 재확인했다. 최종 FID/KID와 10지표는 공식·Ours 렌더 및 learned evaluator 완료 후에만 작성된다.
