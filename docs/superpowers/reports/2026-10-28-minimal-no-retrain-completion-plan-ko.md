@@ -533,3 +533,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - node16의 외부 평가 binding은 502개, 원본 frozen baseline reference는 508개, 공식 RGB1 성공 교집합은 501개 ID다. 이 **501개 전부**가 두 reference 파일에 존재하며, ID별 reference JSON 행의 불일치는 **0개**였다. 이후 Ours binding과 9방법 binding이 같은 reference를 요구하는 merge gate의 현재 입력 조건을 충족한다. Ours 렌더가 아직 없으므로 최종 13조건 merge 완료를 뜻하지 않는다.
 - Ours binding·target8 평가 코드가 공식 성공 ID, raw/+M0 각각의 camera8/9/10 렌더 영수증과 SHA, 동일 502개 surface score의 transform을 검사하고, 최종 표 생성기가 세 target8 scorer의 `sample_ids`를 공통 manifest와 대조하는 것을 재확인했다. 최종 FID/KID와 10지표는 공식·Ours 렌더 및 learned evaluator 완료 후에만 작성된다.
+
+## 11:06 KST Ours surface 채점 병행 준비·실행
+
+- node16에서 실제 보관된 동일 사례 하나를 기존 scorer로 채점해 V1·Selected **2개 surface 결과**를 통과했다. 새 사례별 캐시 경로에 같은 사례를 다시 계산한 결과와 캐시 재사용 결과를 대조하니 세 JSONL의 SHA256이 모두 **`68cdc1401501afb77fdd28109d510f2b9693b6d9a27dc90f7d1c99fbcfd0dfb6`**로 완전히 같았고, 재사용 실행은 1초 이내였다. 한 사례의 동등성 검사이며 502사례 결과는 아니다.
+- `score_minimal_test_ours.py`에 선택된 사례 ID의 선계산과, 동일 manifest 행·source/target mesh stat·V1/Selected 파일서버 archive/export 영수증 SHA가 맞을 때만 캐시를 재사용하는 경로를 추가했다. 원래 최종 surface watcher는 cascade 완료 후 이 스크립트를 다시 배포하고 전체 502사례×2행을 검사하므로, 선계산에 빠진 사례는 기존처럼 새로 채점된다. 캐시가 불일치하거나 깨졌으면 이유를 로그에 남기고 해당 사례를 원본에서 다시 계산한다.
+- 현재 file4 검증이 끝난 395개 공통 사례를 고정한 목록으로 node16의 nice 10·CPU 1 thread 작업자 **PID 1840428/1840429/1840431/1840432**를 시작했다. node16은 96코어 중 시작 시 load 약 35였고, 로컬 GPU6·7의 공식 렌더는 계속 진행한다. [실시간 진행표](2026-10-28-scale-ungiven-live.md)에 선계산 사례 수와 작업자 PID를 추가하고 watcher를 **PID 814372**로 교체했다. 현재 Ours paired **403/508**, 공식 렌더 **11/32청크**다. 선계산 결과는 최종 공통 사례 10지표의 대체물이 아니다.

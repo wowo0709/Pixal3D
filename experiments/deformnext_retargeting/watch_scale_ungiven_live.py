@@ -19,9 +19,22 @@ export=root/'official-scale-ungiven-export-common-success-v3-250k'
 external=root/'source-sim3-final-evaluation-v6'
 nine=root/'unified-nine-method-final-evaluation-v4'
 ours=root/'ours-four-final-evaluation-v1'
+precache=root/'ours-surface-precache-v1'
 surface=root/'official-scale-ungiven-source-sim3-common-success-v2/complete.json'
 bridge=root/'official-fast-export-bridge-v3-recovered.json'
 score=json.loads(surface.read_text()) if surface.is_file() else {}
+precache_ids=(json.loads((precache/'ids-initial.json').read_text())
+ if (precache/'ids-initial.json').is_file() else [])
+precache_cases=sum(len(path.stem)==64 and all(c in '0123456789abcdef' for c in path.stem)
+ for path in precache.glob('*.json'))
+precache_launch=(json.loads((precache/'initial-launch.json').read_text())
+ if (precache/'initial-launch.json').is_file() else {})
+precache_workers=[]
+for row in precache_launch.get('workers',[]):
+ stat=Path(f'/proc/{row["pid"]}/stat')
+ if stat.is_file():
+  state=stat.read_text().split(') ',1)[1][0]
+  if state not in ('Z','X'):precache_workers.append(row['pid'])
 nine_ready=(nine/'evaluation/summary.json').is_file()
 metric_worker=None
 bridge_worker=None
@@ -53,6 +66,9 @@ print(json.dumps({'official_surface':score.get('samples'),
  'official_export_done':(export/'complete.json').is_file(),
  'official_bridge_done':bridge.is_file(),
  'official_bridge_worker':bridge_worker,
+ 'ours_surface_precache_cases':precache_cases,
+ 'ours_surface_precache_planned':len(precache_ids),
+ 'ours_surface_precache_workers':precache_workers,
  'external_metric_rows':len(list((external/'evaluation').glob('*-results.json'))),
  'external_done':(external/'evaluation/summary.json').is_file(),
  'external_metric_worker':metric_worker,
@@ -230,6 +246,7 @@ def render(local:dict,remote:dict|None,error:str|None,
                 f'not running, old watcher {remote.get("nine_original_watcher_state")}')
         out+=f'\n| Unified cached evaluator | {cached} |'
         out+=f'\n| Ours four-condition learned results | {remote["ours_metric_rows"]}/4 |'
+        out+=f'\n| Ours source-M0 surface precache (independent of final score) | {remote["ours_surface_precache_cases"]}/{remote["ours_surface_precache_planned"]} cases; workers {remote["ours_surface_precache_workers"]} |'
     else:
         out+='\n| Node16 status | temporarily unavailable; local work continues |'
     active=', '.join(f'{rank}:{"/".join(map(str,pids)) if pids else "missing"}'
