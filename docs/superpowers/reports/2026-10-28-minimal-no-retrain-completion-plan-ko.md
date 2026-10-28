@@ -462,3 +462,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - node16 외부 learned evaluator가 SpaceControl 결과를 닫아 **6/7**이 됐다. 직접 읽은 원본 6개 결과 파일 모두 동일 502개 sample ID, camera9/10 **1,004**개 per-view row, 실패 0건, 8개 유한 지표와 유한 FID/KID, 완전 모집단·full-computation 플래그를 충족한다. 남은 방법은 TRELLIS.2다.
 - SpaceControl의 저장된 1,004×2,048 Inception feature 및 사례별 결과를 benchmark 원본 `summarize`/FID/KID 함수로 다시 집계했다. 원본 502 결과 대비 평균·source-cluster CI·FID/KID 최대 절대 오차 **1.21e-11**로 PASS했다. 이 검사는 최종 501 이하 공통 사례 재집계를 위한 캐시 정확성 중간 확인이며, 최종 표 자체는 아직 미완료다. 같은 시각 Ours paired SHA 보관은 **294/508**이다.
 - 새 캐시 evaluator의 reference root도 원래 9방법 evaluator와 동일하게 검증하도록 `data -> /file4`, `renders -> frozen shared/gt-a02/renders` 두 resolved path 조건을 코드에 추가했다. node16 실제 두 링크가 해당 경로로 resolve됨을 독립 조회로 확인했고, 코드 compile/whitespace 및 원격 SHA 일치를 통과했다. 대기 중인 PID3140957은 계속 살아 있으며, 이미 시작한 프로세스의 런타임 상태는 변경하지 않았다.
+
+## 09:25 KST 대형 렌더 mesh 사례 완료
+
+- GPU6 tail index433 Selected는 25만/50만/100만/200만 face 렌더 bake가 형상 한도에 미달해 500만 face fallback을 실행했다. 하위 PID747717이 실제 CPU를 사용하며 약 14분간 계산한 뒤 **원본 19,911,998 faces 대비 렌더용 5,000,000 faces, q99 world 0.0019125**로 사전 한도 0.01을 통과했다. V1·Selected Top-1 PBR·Selected Shape 모두 file4 SHA archive receipt와 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`가 닫혔고 GPU6은 index431로 넘어갔다. 원본 geometry metric용 표면은 변경되지 않았다.
+- live ledger는 Ours paired **301/508**, 외부 learned **6/7**로 증가했다. 마지막 TRELLIS.2 evaluator PID2492093의 실제 읽기 바이트도 120.3 GB까지 증가해 실행 중이다. 공식 렌더 handoff와 최종 공통 표는 아직 선행 영수증 대기다.
