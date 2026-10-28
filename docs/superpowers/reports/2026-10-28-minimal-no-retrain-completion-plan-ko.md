@@ -698,3 +698,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - CPU 대형 메시 처리를 기다리는 동안 같은 Blender·protocol·GPU 0/1/2/3/6/7로 `chunk031` 72장과 `chunk030` 192장을 별도 렌더했다. 각 작업은 종료 코드 0과 `PASS_M0_SIM3_CHUNK_RENDER`를 기록했고, file4 복사 뒤 원래 `retire_verified_source_sim3_stage.py`의 전체 파일 checksum 검증을 통과했다. `chunk030`은 별도 작업 공간의 jobs·plan SHA를 원본과 대조한 뒤 원래 위치에 영수증을 작성했다. 두 청크는 원래 캠페인이 완료 영수증을 읽고 재사용한다.
 - 검증 보관은 총 **31/32청크·5,832/6,024장**이다. 남은 `chunk029`는 **180/192장**을 출력했고 대형 GLB에 대한 여섯 Blender 자식이 CPU 시간을 계속 누적한다. 32청크 완료 영수증과 Ours 4조건 지표는 아직 없다.
+
+## 15:52 KST Ours 렌더 완료·평가 준비 시작
+
+- `chunk029`까지 SHA 검증 보관하고 병렬 완료한 `chunk030`·`chunk031`을 원래 캠페인이 재사용했다. 최종 영수증은 `PASS_OURS_V1_SELECTED_RAW_AND_M0_COMMON502_RENDER_ARCHIVED`, **502사례·6,024장·32청크·추가 학습 0 update**다.
+- Ours 평가 워처 PID586066이 완료 영수증을 받아 node16에서 공통 **501 ID**의 렌더 및 surface 입력 manifest 검사 PID546863을 시작했다. 본 learned metric 결과는 아직 없다. node16 GPU7은 현재 다른 사용자의 프로세스가 약 **13 GiB/95.6 GiB**와 높은 연산 사용률을 보인다. 해당 프로세스는 그대로 두고 Ours 평가가 GPU를 실제로 사용하기 시작한 뒤 속도와 메모리를 확인한다.
