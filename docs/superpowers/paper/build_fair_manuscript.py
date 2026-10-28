@@ -69,6 +69,7 @@ def main():
             or claim_audit['status']!='PASS_FAIR_TEST_CLAIM_AUDIT'
             or claim_audit['samples']!=n
             or len(claim_audit['comparisons']['selected_vs_v1'])!=8
+            or len(claim_audit['comparisons']['raw_selected_vs_v1'])!=8
             or set(claim_audit['comparisons']['ours_vs_official'])
                !={'ours_v1_source_m0','ours_selected_source_m0'}
             or teaser['status']!='PASS_FAIR_COMMON_TEST_TEASER_RENDER_SHA_VERIFIED'

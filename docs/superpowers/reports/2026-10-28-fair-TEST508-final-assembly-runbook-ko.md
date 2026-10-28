@@ -29,7 +29,9 @@
    ```bash
    python -m experiments.deformnext_retargeting.audit_fair_test_claims \
      --main-table-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/scale-ungiven-main-table.json \
+     --raw-table-json /root/dev/.cache/deformnext-benchmark-runtime/raw-common501-final-table-v1/raw-common501-table.json \
      --paired-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-ours-paired-v3/paired-eight-endpoints.json \
+     --raw-paired-json /root/dev/.cache/deformnext-benchmark-runtime/raw-ours-paired-v1/raw-paired-eight-endpoints.json \
      --official-contrasts-json /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-official-contrasts-v2/official-contrasts-sixteen-endpoints.json \
      --common-manifest /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-main-table-v4/common-manifest.json \
      --output /root/dev/.cache/deformnext-benchmark-runtime/scale-ungiven-claim-audit-v1/claim-audit.json

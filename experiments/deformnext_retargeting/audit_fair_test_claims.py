@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -13,6 +14,10 @@ DIRECTION = {'LPIPS': -1, 'DreamSim': -1, 'CLIP': 1,
 V1 = 'ours_v1_source_m0'
 SELECTED = 'ours_selected_source_m0'
 OFFICIAL = 'pixal3d_official_rgb1_source_m0'
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def classification(delta: float, interval: list[float], direction: int) -> str:
@@ -41,7 +46,9 @@ def compare_means(row: dict, left: float, right: float,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--main-table-json', type=Path, required=True)
+    parser.add_argument('--raw-table-json', type=Path, required=True)
     parser.add_argument('--paired-json', type=Path, required=True)
+    parser.add_argument('--raw-paired-json', type=Path, required=True)
     parser.add_argument('--official-contrasts-json', type=Path, required=True)
     parser.add_argument('--common-manifest', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -49,7 +56,9 @@ def main() -> None:
     if args.output.exists():
         raise FileExistsError('claim audit output must be new')
     table = json.loads(args.main_table_json.read_text())
+    raw_table = json.loads(args.raw_table_json.read_text())
     paired = json.loads(args.paired_json.read_text())
+    raw_paired = json.loads(args.raw_paired_json.read_text())
     official = json.loads(args.official_contrasts_json.read_text())
     common = json.loads(args.common_manifest.read_text())
     n = common['samples']
@@ -59,9 +68,23 @@ def main() -> None:
             or table['status'] != 'PASS_SCALE_UNGIVEN_COMMON_SUCCESS_MAIN_TABLE'
             or table['samples'] != n or len(table['methods']) != 10
             or set(table['metrics']) != set(METRICS) | {'FID', 'KID'}
+            or raw_table['status'] != 'PASS_RAW_COMMON501_FULL_TABLE'
+            or raw_table['samples'] != n
+            or raw_table['methods'] != table['methods']
+            or set(raw_table['metrics']) != set(table['metrics'])
+            or raw_table['common_manifest_sha256'] != digest(args.common_manifest)
             or paired['status']
                != 'PASS_GT_SCALE_FREE_OURS_V1_SELECTED_COMMON_PAIRED_EIGHT_ENDPOINTS'
             or paired['samples'] != n or set(paired['metrics']) != set(METRICS)
+            or paired['bootstrap']['additional_family']
+               != 'two alignment conditions times eight endpoints'
+            or raw_paired['status']
+               != 'PASS_GT_SCALE_FREE_OURS_V1_SELECTED_RAW_COMMON_PAIRED_EIGHT_ENDPOINTS'
+            or raw_paired['samples'] != n
+            or raw_paired['source_clusters'] != paired['source_clusters']
+            or set(raw_paired['metrics']) != set(METRICS)
+            or raw_paired['bootstrap']['additional_family']
+               != 'two alignment conditions times eight endpoints'
             or paired['source_clusters'] != official['source_clusters']
             or paired['bootstrap']['family'] != 'eight predeclared endpoints'
             or official['status']
@@ -71,20 +94,36 @@ def main() -> None:
                != 'two comparisons times eight endpoints'
             or set(official['contrasts']) != {V1, SELECTED}):
         raise ValueError('final common-population result contracts incomplete')
-    results = {'selected_vs_v1': {}, 'ours_vs_official': {}}
+    results = {'selected_vs_v1': {}, 'raw_selected_vs_v1': {},
+               'ours_vs_official': {}}
     for metric in METRICS:
         row = paired['metrics'][metric]
         delta = compare_means(row, table['values'][V1][metric],
                               table['values'][SELECTED][metric],
                               'v1_mean', 'selected_mean', 'selected_minus_v1')
-        state = classification(delta, row['family8_bonferroni_ci95'],
+        state = classification(delta, row['family16_bonferroni_ci95'],
                                DIRECTION[metric])
-        if row['family8_favorable_interval'] != (state == 'supported_favorable'):
+        if row['family16_favorable_interval'] != (state == 'supported_favorable'):
             raise ValueError('selected/V1 favorable flag disagrees with interval')
         results['selected_vs_v1'][metric] = {
             'selected_minus_v1': delta,
-            'family8_interval': row['family8_bonferroni_ci95'],
+            'family16_interval': row['family16_bonferroni_ci95'],
             'classification': state,
+        }
+        raw_row = raw_paired['metrics'][metric]
+        raw_delta = compare_means(
+            raw_row, raw_table['values'][V1][metric],
+            raw_table['values'][SELECTED][metric], 'v1_mean',
+            'selected_mean', 'selected_minus_v1')
+        raw_state = classification(raw_delta,
+                                   raw_row['family16_bonferroni_ci95'],
+                                   DIRECTION[metric])
+        if raw_row['family16_favorable_interval'] != (raw_state == 'supported_favorable'):
+            raise ValueError('raw selected/V1 favorable flag disagrees with interval')
+        results['raw_selected_vs_v1'][metric] = {
+            'selected_minus_v1': raw_delta,
+            'family16_interval': raw_row['family16_bonferroni_ci95'],
+            'classification': raw_state,
         }
     for method in (V1, SELECTED):
         results['ours_vs_official'][method] = {}
@@ -121,12 +160,14 @@ def main() -> None:
             'FID/KID and all cross-method ranks are descriptive point estimates.',
             'Official RGB1 uses T1+C; Ours uses T1+S3+C: system comparison only.',
             'Selected versus V1 bundles modules and does not identify an isolated module effect.',
+            'Raw and source-M0 Selected/V1 claims use one sixteen-endpoint family.',
         ],
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
     counts = {state: sum(row['classification'] == state
                          for group in [results['selected_vs_v1'],
+                                       results['raw_selected_vs_v1'],
                                        *results['ours_vs_official'].values()]
                          for row in group.values())
               for state in ('supported_favorable', 'supported_unfavorable',
