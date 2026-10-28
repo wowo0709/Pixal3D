@@ -650,3 +650,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 최종 주 표 생성기에 각 방법의 원래 TEST508 **성공 수/508** 열을 추가했다. 외부 7방법은 node16 `all-methods-full_test.csv`의 `evaluated_successes`, 공식 RGB1은 501사례 surface 완료 영수증, Ours V1/Selected는 508쌍 cascade 완료 영수증에서 가져왔다. 원본 세 파일의 SHA256과 열 값은 [고정 성공 수 manifest](2026-10-28-native-success-counts.json)에 저장했고 원본과 재대조했다. 공통 성공 집합에서 계산한 10지표의 분모와 각 방법의 원래 성공률을 구별할 수 있게 한다.
 - 표 생성기의 합성 입력 smoke test는 10행의 성공 수, 13열 LaTeX 구조, 표 JSON의 출처 필드를 통과했다. 이는 실제 최종 점수 검증을 대신하지 않는다. Ours 렌더는 **8/32청크·1,536/6,024작업**까지 file4에 검증 보관됐으며 `chunk008`을 시작했다.
+
+## 13:40 KST 공식 RGB1 첫 learned 조건 완료
+
+- node16 `evaluation-official-two`의 `pixal3d_official_rgb1_raw` 결과 파일이 생성됐다. 원본 결과의 501개 고유 sample ID가 공식 성공 집합 501개와 정확히 같고, 133 source cluster·1,002 source-camera 이미지·완전 평가 플래그, 유한한 source/geometry/FID/KID 값을 확인했다. 이는 **raw 한 조건의 QA**이고, +M0 공식 조건·9방법 공통 summary·Ours 4조건을 완료했다는 뜻은 아니다. 평가 하위 PID517474는 다음 조건을 계속 실행 중이다.
+- Ours Cycles 렌더는 `chunk008`까지 **9/32청크·1,728/6,024작업**이 file4 검증 보관되고 `chunk009` staging으로 이어졌다. 각 완료 영수증에 실패는 없다.
