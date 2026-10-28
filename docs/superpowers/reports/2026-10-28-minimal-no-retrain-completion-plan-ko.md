@@ -573,3 +573,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - node16의 9방법 공통 evaluator binding은 **501개 사례, 4,509개 예측 항목**을 통과했다. 공식 RGB1 두 조건의 참조·렌더·surface와 외부 7방법이 같은 ID 집합으로 연결됐으며 learned metric 단계는 아직 시작 전이다.
 - post-official GPU6·7 gap 작업은 index399/397/395/394를 file4에 보관했다. GPU7은 다음 index393에서 같은 rank의 primary 첫 미완료 index369와 차이 **24<32**를 확인해 그 사례를 건너뛰었다. 반면 index391은 다른 rank의 차이 **40≥32**라 GPU7만 사용하는 두 번째 분리 작업 **PID 852330**을 시작했다. 시작 직전 조건을 다시 검사해 index391 worker PID **852332**가 실행 중이다. 기존 GPU6 작업과 index 범위가 겹치지 않는다.
 - GPU 관리 스크립트는 안전 간격 미달 사례를 건너뛰고 다른 rank의 안전한 후보를 계속 검사할 수 있게 보완했다. 실시간 watcher **PID 852659**가 두 gap 관리자를 모두 표시하며 첫 poll은 Ours paired **470/508**을 기록했다. 아직 실제 501사례 Ours surface·렌더 또는 최종 quality gain이 확인된 것은 아니다.
+
+## 12:21 KST 추가 surface 선계산과 공식 raw/+M0 중간 결과
+
+- 공식 RGB1의 501사례 target-camera8 scorer 파일을 직접 확인했다. 이 모집단에서 PSNR은 raw **15.7741→+M0 17.7655 dB**, SSIM **0.9026→0.9212**, M-IoU **0.3979→0.5302**다. 이는 정답 M1을 정합에 쓰지 않은 source M0 사후 Sim(3)의 **공식 RGB1 내부 paired 검사값**이며, 아직 Ours와 외부 7법을 합친 최종 성공 교집합 결과가 아니다. 본문 주 비교 수치·성능 claim으로 앞서 사용하지 않는다.
+- Ours는 paired **475/508**까지 보관됐다. 파일서버 영수증 3개를 확인하고 기존 두 캐시 목록 437개와 겹치지 않는 공통502 사례 **32개**를 세 번째 선계산 목록으로 고정했다(SHA256 `e1fb18b92a29e1ec68aab2c93fc9300c96b7c78abbd4b3cd751d82c49da7ae00`). node16 복사본 checksum 차이 0을 확인한 뒤 nice 15·CPU 단일 thread 작업자 **PID 3812095/3812097**에서 처리 중이다. 외부 7방법 target8 scorer가 실행 중이므로 작업자를 2개만 사용한다.
+- 실시간 ledger는 앞으로 추가되는 `ids-*.json`과 `*-launch.json`을 읽도록 바꾸고 watcher **PID 855221**로 안전하게 교체했다. 첫 poll은 캐시 **438/469**, 두 선계산 작업자의 생존, GPU6·7 gap 관리자 두 개와 Ours primary 네 개의 생존을 확인했다. node16 외부 target8 재집계는 계속 실행 중이다.

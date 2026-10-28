@@ -24,15 +24,12 @@ surface=root/'official-scale-ungiven-source-sim3-common-success-v2/complete.json
 bridge=root/'official-fast-export-bridge-v3-recovered.json'
 score=json.loads(surface.read_text()) if surface.is_file() else {}
 precache_ids=[]
-for name in ('ids-initial.json','ids-second.json'):
- file=precache/name
- if file.is_file():precache_ids.extend(json.loads(file.read_text()))
+for file in sorted(precache.glob('ids-*.json')):
+ precache_ids.extend(json.loads(file.read_text()))
 precache_cases=sum(len(path.stem)==64 and all(c in '0123456789abcdef' for c in path.stem)
  for path in precache.glob('*.json'))
 precache_workers=[]
-for name in ('initial-launch.json','second-launch.json'):
- file=precache/name
- if not file.is_file():continue
+for file in sorted(precache.glob('*-launch.json')):
  for row in json.loads(file.read_text()).get('workers',[]):
   stat=Path(f'/proc/{row["pid"]}/stat')
   if stat.is_file():
