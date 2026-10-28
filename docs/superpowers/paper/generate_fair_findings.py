@@ -7,6 +7,7 @@ the bundled Selected-versus-V1 contrast as an isolated module effect.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -22,6 +23,10 @@ OFFICIAL = 'pixal3d_official_rgb1_source_m0'
 
 def read(path: Path) -> dict:
     return json.loads(path.read_text())
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def metric_list(names: list[str]) -> str:
@@ -211,6 +216,23 @@ one correspondence, attention, ray-sharing, or retargeting component.
     }
     for name, text in slots.items():
         write_new(args.output_dir / name, text)
+    provenance = {
+        'status': 'PASS_AUDITED_FAIR_FINDINGS_WRITTEN',
+        'samples': n,
+        'inputs': {
+            'main_table_json': digest(args.main_table_json),
+            'raw_table_json': digest(args.raw_table_json),
+            'paired_json': digest(args.paired_json),
+            'raw_paired_json': digest(args.raw_paired_json),
+            'official_contrasts_json': digest(args.official_contrasts_json),
+            'claim_audit_json': digest(args.claim_audit_json),
+            'common_manifest': digest(args.common_manifest),
+        },
+        'files': {name: digest(args.output_dir / name) for name in slots},
+        'supported_selected_vs_v1': supported,
+    }
+    write_new(args.output_dir / 'fair-findings-provenance.json',
+              json.dumps(provenance, indent=2))
     print(json.dumps({'status': 'PASS_AUDITED_FAIR_FINDINGS_WRITTEN',
                       'samples': n, 'files': sorted(slots),
                       'supported_selected_vs_v1': supported}))

@@ -45,6 +45,8 @@ def main():
     official_contrasts=json.loads(args.official_contrasts_json.read_text())
     claim_audit=json.loads(args.claim_audit_json.read_text())
     common=json.loads(args.common_manifest.read_text())
+    findings_path=args.paper_root/'final-results/fair-findings-provenance.json'
+    findings=json.loads(findings_path.read_text())
     teaser_json=args.paper_root/'final-results/figures/paper-teaser-provenance.json'
     teaser=json.loads(teaser_json.read_text())
     teaser_caption=args.paper_root/'final-results/figures/paper-teaser-caption.tex'
@@ -94,6 +96,27 @@ def main():
                     or abs(row['ours_mean']-table['values'][method][metric])>1e-6):
                 raise ValueError('official paired contrast and paper table differ: '
                                  +method+'/'+metric)
+    finding_files=('unified-abstract-findings.tex','unified-results.tex',
+                   'unified-discussion.tex','unified-conclusion.tex',
+                   'cvpr2027-abstract-findings.tex','cvpr2027-results.tex',
+                   'cvpr2027-conclusion.tex')
+    expected_findings_inputs={
+        'main_table_json':sha(args.main_table_json),
+        'raw_table_json':sha(args.raw_table_json),
+        'paired_json':sha(args.paired_json),
+        'raw_paired_json':sha(args.raw_paired_json),
+        'official_contrasts_json':sha(args.official_contrasts_json),
+        'claim_audit_json':sha(args.claim_audit_json),
+        'common_manifest':sha(args.common_manifest),
+    }
+    if (findings.get('status')!='PASS_AUDITED_FAIR_FINDINGS_WRITTEN'
+            or findings.get('samples')!=n
+            or findings.get('inputs')!=expected_findings_inputs
+            or set(findings.get('files',{}))!=set(finding_files)
+            or any(findings['files'].get(name)
+                   !=sha(args.paper_root/'final-results'/name)
+                   for name in finding_files)):
+        raise ValueError('audited finding prose or provenance differs')
     required=('final-results/scale-ungiven-main-table.tex',
               'final-results/scale-ungiven-raw-table.tex',
               'final-results/scale-ungiven-target8-registration.tex',
@@ -143,6 +166,7 @@ def main():
             'raw_paired_json_sha256':sha(args.raw_paired_json),
             'official_contrasts_json_sha256':sha(args.official_contrasts_json),
             'claim_audit_json_sha256':sha(args.claim_audit_json),
+            'findings_provenance_sha256':sha(findings_path),
             'teaser_provenance_sha256':sha(teaser_json)}
     (args.output_dir/'build-receipt.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result))

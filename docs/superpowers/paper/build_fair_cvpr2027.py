@@ -58,6 +58,8 @@ def main() -> None:
     contrasts = read_json(args.official_contrasts_json)
     claim_audit = read_json(args.claim_audit_json)
     common = read_json(args.common_manifest)
+    findings_path = args.paper_root / 'final-results/fair-findings-provenance.json'
+    findings = read_json(findings_path)
     n = common['samples']
     if (common['status'] != 'PASS_THIRTEEN_METHOD_COMMON_SUCCESS_BINDING'
             or not 1 <= n <= 502
@@ -104,6 +106,26 @@ def main() -> None:
                     ['pixal3d_official_rgb1_source_m0'][metric]) > 1e-6
                     or abs(row['ours_mean'] - table['values'][method][metric]) > 1e-6):
                 raise ValueError('official paired contrast and table differ')
+    expected_findings_inputs = {
+        'main_table_json': digest(args.main_table_json),
+        'raw_table_json': digest(args.raw_table_json),
+        'paired_json': digest(args.paired_json),
+        'raw_paired_json': digest(args.raw_paired_json),
+        'official_contrasts_json': digest(args.official_contrasts_json),
+        'claim_audit_json': digest(args.claim_audit_json),
+        'common_manifest': digest(args.common_manifest),
+    }
+    if (findings.get('status') != 'PASS_AUDITED_FAIR_FINDINGS_WRITTEN'
+            or findings.get('samples') != n
+            or findings.get('inputs') != expected_findings_inputs
+            or any(findings.get('files', {}).get(name)
+                   != digest(args.paper_root / 'final-results' / name)
+                   for name in findings.get('files', {}))
+            or set(findings.get('files', {}))
+               != {'unified-abstract-findings.tex', 'unified-results.tex',
+                   'unified-discussion.tex', 'unified-conclusion.tex',
+                   *RESULT_SLOTS}):
+        raise ValueError('audited finding prose or provenance differs')
 
     figures = args.paper_root / 'final-results/figures'
     provenance_path = figures / 'paper-teaser-provenance.json'
@@ -185,6 +207,7 @@ def main() -> None:
         'raw_paired_json_sha256': digest(args.raw_paired_json),
         'official_contrasts_json_sha256': digest(args.official_contrasts_json),
         'claim_audit_json_sha256': digest(args.claim_audit_json),
+        'findings_provenance_sha256': digest(findings_path),
         'common_manifest_sha256': digest(args.common_manifest),
         'teaser_provenance_sha256': digest(provenance_path),
     }
