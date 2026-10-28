@@ -60,8 +60,16 @@ for process in Path('/proc').iterdir():
   if (argv and argv[0].endswith('/M0Sim3-metrics')
       and str(ours/'evaluation-ours-four') in argv and state not in ('Z','X')):
    io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
+   current=None
+   for fd in (process/'fd').iterdir():
+    try:
+     parts=Path(os.readlink(fd)).parts
+     current=next((subset.index(part)+1 for part in parts if part in subset),None)
+     if current is not None:break
+    except OSError:continue
    ours_metric_worker={'pid':int(process.name),'state':state,
-                       'rchar':int(io.get('rchar','0'))}
+                       'rchar':int(io.get('rchar','0')),
+                       'current_case':current,'total':len(subset)}
   if (str(root/'build_minimal_test_ours_eval_manifests.py') in argv
       and state not in ('Z','X')):
    io=dict(line.split(': ',1) for line in (process/'io').read_text().splitlines())
@@ -292,7 +300,10 @@ def render(local:dict,remote:dict|None,error:str|None,
                           ('Ours learned metric evaluator','ours_metric_worker')):
             worker=remote.get(key)
             if worker:
-                out+=f'\n| {label} | PID {worker["pid"]}, state {worker["state"]}, read {worker["rchar"] / 1e9:.2f} GB |'
+                case=worker.get('current_case')
+                position=(f', case {case}/{worker["total"]} (current file)'
+                          if case is not None else '')
+                out+=f'\n| {label} | PID {worker["pid"]}, state {worker["state"]}{position}, read {worker["rchar"] / 1e9:.2f} GB |'
         out+=f'\n| Ours source-M0 surface precache (independent of final score) | {remote["ours_surface_precache_cases"]}/{remote["ours_surface_precache_planned"]} cases; workers {remote["ours_surface_precache_workers"]} |'
     else:
         out+='\n| Node16 status | temporarily unavailable; local work continues |'
