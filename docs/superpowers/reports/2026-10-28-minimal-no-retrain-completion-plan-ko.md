@@ -553,3 +553,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 현재 Ours paired **432/508**, 공식 렌더 **21/32청크**, Ours surface 초기 선계산 **334/395사례**다. 네 primary GPU 작업자와 node16 선계산 작업자는 살아 있다.
 - 공식 렌더 완료 영수증을 기다리는 [GPU6·7 후속 gap 작업자](../../../experiments/deformnext_retargeting/use_freed_gpus_for_test_gap.py)를 분리 실행 **PID 832397**로 연결했다. 공식 렌더의 501사례 `complete.json`을 검증하기 전에는 GPU를 쓰지 않는다. 완료 후에는 현재 파일서버 보관 영수증에서 빠진 index 380–399만 높은 순서로 검사하고, 같은 rank의 primary 첫 미완료 index와 최소 32 index 간격을 확인한 사례만 GPU6·7에 배정한다. 각 사례는 기존 frozen worker·508분할·file4 checksum 경로를 재사용한다.
 - 연결 당시 실제 미완료 high index는 18개였고 primary 네 rank의 첫 미완료 index는 **312/325/330/327**이었다. 이 값은 launch 결정 시 다시 계산되며, 간격이 부족하면 추가 사례를 시작하지 않는다. 새 작업은 성능 실험 범위나 공통 평가 프로토콜을 바꾸지 않는 실행 속도 최적화다.
+
+## 11:51 KST Ours surface 선계산 첫 배치 검증·두 번째 배치 시작
+
+- 첫 배치 395개 사례의 네 작업자가 모두 정상 완료됐다. shard JSONL 합계 **790행**, 중복 없는 사례×방법 key **790개**, 사례 ID 집합은 사전 고정 395개 목록과 정확히 일치했다. 각 사례에서 V1·Selected 방법 1행씩이다. 최종 scorer는 동일 cache key를 재검증하므로 이 결과가 최종 공통 표를 선행 확정하지는 않는다.
+- 그 뒤 file4에 세 영수증(V1 Shape, Selected Shape, Selected Top-1 PBR)이 모두 생긴 공통502 사례를 다시 대조해, 첫 배치와 겹치지 않는 **42개**를 고정했다. 두 번째 ID 목록 SHA256은 `ab824b6b3e684db905128ed055a1357e60605d006f93988f1dcae34789be2ea9`이며, node16 복사본과 checksum dry-run 차이가 0이었다. node16에서 nice 10·단일 CPU thread 네 작업자 **PID 3043870–3043873**가 같은 scorer/cache schema로 이 42개를 처리한다.
+- 실시간 ledger가 두 목록의 총 **437개 계획**, 실제 캐시 사례 수와 두 번째 작업자 PID, 공식 렌더 종료 후 GPU6·7 gap 대기 PID를 표시하도록 갱신했다. 새 watcher **PID 838773**이 기존 PID를 안전하게 교체했고 첫 poll은 Ours paired **443/508**, 공식 렌더 **25/32청크**, 캐시 **396/437**을 기록했다. 외부 7방법의 정본과 9방법 통합 evaluator는 여전히 같은 최종 공통 N을 기다린다.

@@ -23,18 +23,21 @@ precache=root/'ours-surface-precache-v1'
 surface=root/'official-scale-ungiven-source-sim3-common-success-v2/complete.json'
 bridge=root/'official-fast-export-bridge-v3-recovered.json'
 score=json.loads(surface.read_text()) if surface.is_file() else {}
-precache_ids=(json.loads((precache/'ids-initial.json').read_text())
- if (precache/'ids-initial.json').is_file() else [])
+precache_ids=[]
+for name in ('ids-initial.json','ids-second.json'):
+ file=precache/name
+ if file.is_file():precache_ids.extend(json.loads(file.read_text()))
 precache_cases=sum(len(path.stem)==64 and all(c in '0123456789abcdef' for c in path.stem)
  for path in precache.glob('*.json'))
-precache_launch=(json.loads((precache/'initial-launch.json').read_text())
- if (precache/'initial-launch.json').is_file() else {})
 precache_workers=[]
-for row in precache_launch.get('workers',[]):
- stat=Path(f'/proc/{row["pid"]}/stat')
- if stat.is_file():
-  state=stat.read_text().split(') ',1)[1][0]
-  if state not in ('Z','X'):precache_workers.append(row['pid'])
+for name in ('initial-launch.json','second-launch.json'):
+ file=precache/name
+ if not file.is_file():continue
+ for row in json.loads(file.read_text()).get('workers',[]):
+  stat=Path(f'/proc/{row["pid"]}/stat')
+  if stat.is_file():
+   state=stat.read_text().split(') ',1)[1][0]
+   if state not in ('Z','X'):precache_workers.append(row['pid'])
 nine_ready=(nine/'evaluation/summary.json').is_file()
 metric_worker=None
 bridge_worker=None
@@ -178,12 +181,16 @@ def local_tail_supervisor()->list[int]:
     result=[]
     module='experiments.deformnext_retargeting.use_idle_gpus_for_test_tail'
     roots={str(LOCAL/f'disjoint-tail-gpu6-7-v{version}') for version in (3,4)}
+    after_module='experiments.deformnext_retargeting.use_freed_gpus_for_test_gap'
+    after_root=str(LOCAL/'post-official-disjoint-gap-v1')
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit():continue
         try:
             argv=(entry/'cmdline').read_bytes().decode(errors='replace').split('\0')
-            if module not in argv or '--output-root' not in argv:continue
-            if argv[argv.index('--output-root')+1] not in roots:continue
+            if '--output-root' not in argv:continue
+            output=argv[argv.index('--output-root')+1]
+            if not ((module in argv and output in roots)
+                    or (after_module in argv and output==after_root)):continue
             state=(entry/'stat').read_text().split(') ',1)[1].split(' ',1)[0]
             if state not in {'Z','X'}:result.append(int(entry.name))
         except (OSError,ValueError,IndexError):
