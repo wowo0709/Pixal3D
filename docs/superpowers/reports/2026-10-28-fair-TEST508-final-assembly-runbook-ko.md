@@ -34,6 +34,7 @@
    ```
 3. 실제 결과에 근거한 `paper/final-results/unified-abstract-findings.tex`, `unified-results.tex`, `unified-discussion.tex`, `unified-conclusion.tex`를 쓴다. 최종 빌더는 이 네 파일을 모두 요구한다. 개별 semantic matching·score·ray sharing·retargeting의 필수성을 최종 V1↔Selected 묶음 비교에서 추론하지 않는다.
 4. 신규 공정 teaser와 Figure 2–4, Main/보조 표, 내부 oracle-scale 표의 캡션을 전 페이지 시각 검수한다. Teaser의 사전 선정 규칙과 공동 성공 집합 분모를 함께 표기한다.
+   공정 teaser 규칙은 **결과를 보고 선택하되 규칙 자체를 미리 고정**한 것이다. source LPIPS와 target mask IoU가 V1보다 함께 좋아진 후보의 실제 개수를 캡션에 명시하고 그 안에서 두 지표의 중앙값에 가장 가까운 사례를 고른다. 따라서 figure를 모집단 성공률이나 outcome-blind 사례로 서술하지 않는다.
 
 ## 검증 조판 명령
 

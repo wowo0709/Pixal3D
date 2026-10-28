@@ -153,6 +153,16 @@ def draw(out:Path,choice:dict,inputs:list[np.ndarray],rendered:dict,
     provenance['render_display_crop_xywh']=list(map(int,render_box))
     provenance['figure_pdf_sha256']=sha(out/'paper-teaser.pdf')
     (out/'paper-teaser-provenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
+    if choice['selection_rule']=='median_jointly_favorable_source_LPIPS_target_MIoU':
+        selection=(r'This case is closest to the two-metric median among '
+                   +str(choice['jointly_favorable_candidates'])
+                   +r' cases with both lower source LPIPS and higher target '
+                   +r'mask IoU than V1. ')
+    elif choice['selection_rule']=='median_all_paired_source_LPIPS_target_MIoU':
+        selection=(r'No case improved both source LPIPS and target mask IoU; '
+                   +r'this case is closest to the two-metric median across all edits. ')
+    else:
+        raise ValueError('unrecognized prespecified teaser selection rule')
     caption=(r'\caption{Common-success TEST qualitative comparison on '
              +str(choice['common_samples'])
              +r' edits. The edited target RGB and three undeformed source RGBs '
@@ -162,9 +172,9 @@ def draw(out:Path,choice:dict,inputs:list[np.ndarray],rendered:dict,
              +r'uses source camera 9. The M1 reference retains the source '
              +r'material. Every prediction uses the same Cycles cameras and '
              +r'a post-generation source-M0-only Sim(3) fit, with no target mesh '
-             +r'used for registration. The case follows the prespecified '
-             +r'paired LPIPS and target mask-IoU median selection rule; it '
-             +r'illustrates a case rather than a population success rate.}'
+             +r'used for registration. '+selection
+             +r'The example is illustrative and does not estimate a population '
+             +r'success rate.}'
              +'\n')
     (out/'paper-teaser-caption.tex').write_text(caption)
 
