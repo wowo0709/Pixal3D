@@ -191,7 +191,8 @@ input-asymmetric system comparison.
 """
 
     cvpr_results = f"""
-On the same {n} common-success edits, {raw_sentence.lower()}
+The final comparison uses the same {n} common-success edits for every row.
+{raw_sentence}
 {reg_sentence} The family-wise adjustment spans both alignment conditions.
 {official_sentence} Official RGB1 uses T1+C and Ours uses T1+S3+C, so this is
 a complete-system comparison rather than a module effect. {registration}
