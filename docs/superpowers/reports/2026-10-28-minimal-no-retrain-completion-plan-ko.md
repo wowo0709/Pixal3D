@@ -677,3 +677,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 주 표의 `Success` 열은 원래 TEST508 전체 생성 성공 수여야 한다. 앞선 고정 manifest의 공식 RGB1 `501/508`은 외부 7방법의 공통502 집합과 교차한 뒤 **평가 가능한 501건**을 잘못 native 수로 적은 것이다. node16 생성 시도 완료 영수증 `no-scale-official1024/attempts-complete.json`은 **508시도·507성공·1 empty-sparse 실패**, SHA256 `b23aa23e7d96a623db58e09b519ea5124da37510e11369960d0a73a07ff0c891`이다. [고정 성공 수 manifest](2026-10-28-native-success-counts.json)를 이 원본의 `succeeded=507`로 정정했다.
 - 공통 지표의 최종 분모는 여전히 공식 raw/+M0와 외부 7방법 및 Ours 2방법이 모두 성공한 **501사례**로 별도 표기한다. 507과 501은 서로 다른 질문의 수치이며 성능 지표 계산이나 학습 결과를 바꾸지 않는다. 실측 주 표는 아직 생성되지 않았으므로 잘못된 성공 수를 담은 최종 표/PDF는 없다.
+
+## 14:26 KST 공식 두 조건 완료·공통 9방법 replay 시작
+
+- node16 `evaluation-official-two`에 공식 Pixal3D RGB1 **raw와 source-M0 두 결과**가 모두 생성됐다. 각 결과는 501개의 고유 동일 sample ID와 133 source cluster를 가지며 `full_metric_computation=true`다. node16 통합 watcher PID3140957은 이제 외부 7방법의 저장된 full502 특징을 같은 501 ID로 재집계하는 `replay_common_subset_evaluation.py` 자식 PID2533812를 실행 중이다. 실제 9방법 완료 영수증은 아직 없다.
+- Ours 렌더는 **27/32청크·5,184/6,024작업**을 file4 checksum 보관하고 다음 청크를 시작했다. 이 단계가 32청크를 닫고 9방법 완료 영수증을 받으면 Ours V1/Selected raw/+M0 네 조건의 learned metric evaluator가 시작된다. 아직 Ours 공통 10지표나 최종 논문 성능 수치는 없다.
