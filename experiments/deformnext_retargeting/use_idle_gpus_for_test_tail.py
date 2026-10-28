@@ -65,7 +65,10 @@ def main() -> None:
     def worker(gpu: int, initial: int) -> None:
         env = dict(os.environ, PIXAL3D_FILE4_CONTROL_SOCKET='/tmp/file4-ctl-v2')
         for index in range(initial, args.min_index - 1, -2):
-            if stop.is_set() or (ROOT / 'cascade-two-arm-execution-v2-direct-file4/complete.json').is_file():
+            # Recheck at the case boundary as well as in the supervisor loop:
+            # a case can finish between its 30-second remote polls.
+            if (stop.is_set() or official_export_complete()
+                    or (ROOT / 'cascade-two-arm-execution-v2-direct-file4/complete.json').is_file()):
                 break
             command = [sys.executable, '-u', '-m',
                        'experiments.deformnext_retargeting.run_minimal_test_cascade_worker',
