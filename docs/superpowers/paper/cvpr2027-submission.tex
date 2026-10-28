@@ -242,7 +242,11 @@ cannot establish a geometry effect. Candidate coverage need not improve
 generation. The final V1-to-selected contrast bundles matching, ray sharing,
 and retargeting and cannot assign a causal gain to each component. Camera
 metadata and source M0 access differ across native baselines and are labeled
-in the comparison. Overlap with earlier multi-view pretraining has not been
+in the comparison. On the common 501 edits, source-M0 registration changes
+the selected method's mean target mask IoU from 0.9124 to 0.8619, while the
+official RGB1 control changes from 0.3979 to 0.5302. These descriptive
+within-method changes motivate reporting raw and registered outputs together;
+the two systems use different image inputs. Overlap with earlier multi-view pretraining has not been
 audited; input-view metrics do not prove unseen-view quality.
 
 \section{Conclusion}

@@ -22,3 +22,12 @@
 **원본:** node16 `/home/youngwoo/retargeting-unified-test508/unified-nine-method-final-evaluation-v4/target8-external-paired.json` (SHA256 `bd7b5e21c8afcbc51098ed16f8449fc95366bd7617fbf5b1d6d9bf53e029b8c4`) 및 `target8-official-paired.json` (SHA256 `295d8eb76b149cd1655de826fbc3c657d64a39c409a1108f8d869cb512a41c78`). 두 원본의 501개 sample ID 집합이 정확히 같은지 확인했다.
 
 Ours 원본은 node16 `ours-four-final-evaluation-v1/target8-ours-four.json`, SHA256 `4056ec0287e281609f12cf3b312761c59980a18d2fec83b1734a2f4d0f070e30`이다. 상세 값과 결과 범위는 [Ours 공통501 중간 보고](2026-10-28-ours-common501-target8-interim-ko.md)에 기록했다.
+
+## Ours 정합이 target 점수를 낮춘 이유: 사례별 진단
+
+- Selected의 501개 중 target mask IoU는 **416개에서 감소, 85개에서 증가**했다. 중앙 변화량은 −0.03185다. V1은 400개 감소, 101개 증가했고 중앙 변화량은 −0.02691이다.
+- Selected의 source 정합 점수 평균은 **0.01307→0.01092**로 낮아졌고 501개 모두에서 개선됐다. 이는 4,096개 source/prediction 표면 표본의 양방향 최근접 거리에서 가까운 70%를 쓰는 **source 목적 함수**다. 구현은 identity도 후보로 두고 source 점수가 가장 낮은 변환을 고르므로, 개선은 정합 목표에 부합한다. Target 평가 개선을 보장하지는 않는다.
+- Selected Sim(3)의 scale 10/50/90 백분위는 **0.9937/1.0157/1.0564**, 회전각은 **0.52°/1.22°/2.78°**, 평행이동 크기는 source-defined world 단위로 **0.00349/0.00918/0.02642**다. 절대 log-scale 변화량과 target IoU 변화의 Pearson 상관은 **−0.717**이다. 상관은 진단이며 scale 하나가 하락을 유발했다고 입증하지 않는다.
+- 해석상 Ours는 camera와 image-only scale을 활용한 raw 출력이 이미 target에 가깝고, 사후 정합은 **변형 전 M0**에 전역 scale·회전·이동을 맞춘다. M0와 편집된 M1의 차이 및 scale/pose 보정이 결합해 target에 불리한 이동이 생길 수 있다. 이를 단일 원인으로 확정하려면 scale-only·rigid-only와 비변형 영역 진단이 추가로 필요하다.
+
+진단의 입력은 위 target8 결과와 [surface 점수 원본 및 SHA](2026-10-28-ours-common501-target8-interim-ko.md)다. Source 보존과 최종 geometry 결과는 별도로 확인해야 하며, 정합을 일률적으로 제거하거나 유리하다고 가정하지 않고 raw와 +M0를 함께 보고한다.
