@@ -559,3 +559,10 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 첫 배치 395개 사례의 네 작업자가 모두 정상 완료됐다. shard JSONL 합계 **790행**, 중복 없는 사례×방법 key **790개**, 사례 ID 집합은 사전 고정 395개 목록과 정확히 일치했다. 각 사례에서 V1·Selected 방법 1행씩이다. 최종 scorer는 동일 cache key를 재검증하므로 이 결과가 최종 공통 표를 선행 확정하지는 않는다.
 - 그 뒤 file4에 세 영수증(V1 Shape, Selected Shape, Selected Top-1 PBR)이 모두 생긴 공통502 사례를 다시 대조해, 첫 배치와 겹치지 않는 **42개**를 고정했다. 두 번째 ID 목록 SHA256은 `ab824b6b3e684db905128ed055a1357e60605d006f93988f1dcae34789be2ea9`이며, node16 복사본과 checksum dry-run 차이가 0이었다. node16에서 nice 10·단일 CPU thread 네 작업자 **PID 3043870–3043873**가 같은 scorer/cache schema로 이 42개를 처리한다.
 - 실시간 ledger가 두 목록의 총 **437개 계획**, 실제 캐시 사례 수와 두 번째 작업자 PID, 공식 렌더 종료 후 GPU6·7 gap 대기 PID를 표시하도록 갱신했다. 새 watcher **PID 838773**이 기존 PID를 안전하게 교체했고 첫 poll은 Ours paired **443/508**, 공식 렌더 **25/32청크**, 캐시 **396/437**을 기록했다. 외부 7방법의 정본과 9방법 통합 evaluator는 여전히 같은 최종 공통 N을 기다린다.
+
+## 12:04 KST 공식 RGB1 렌더 완료와 후속 인계 검증
+
+- 공식 RGB1의 501개 공통 성공 사례에서 raw/+source-M0×카메라 8/9/10, 총 **3,006건·32/32청크**가 모두 file4 검증 보관됐다. 공식 render watcher가 `PASS_OFFICIAL_RGB1_COMMON502_RENDER_ARCHIVED` 영수증을 작성했고 다음 렌더 작업을 시작하지 않는다.
+- 이 완료 영수증을 보고 local GPU6·7 gap 작업자 PID **832397**이 실제로 깨어났다. GPU6은 index394, GPU7은 index399의 frozen 단일 사례 worker를 실행 중이며, 기존 GPU0–3 primary 작업자 네 개도 살아 있다. 시작 시 두 사례는 primary의 같은 rank 첫 미완료 index에서 32 index 이상 떨어져 있었고, 이미 보관된 396/398은 건너뛰었다. 현재 Ours paired **456/508**이다.
+- node16의 캐시 기반 9방법 평가 watcher PID **3140957**도 공식 렌더 32/32와 외부 7방법 완료를 관측했다. 하위 PID **3387084**가 실제 공식 RGB1 501사례의 렌더·surface·reference binding을 구축 중이다. 아직 9방법 10지표 완료나 최종 13조건 공통 표를 뜻하지 않는다.
+- Ours surface 선계산 두 번째 배치 42사례도 shard JSONL 합계 **84행**, 고유 key 84개, 사전 고정 ID 집합과 정확히 일치함을 별도 검증했다. 누적 캐시는 **437개**다. 남은 Ours 생성·surface·6,024건 렌더·learned 평가·paired CI·최종 그림/원고/PDF는 계속 진행한다.
