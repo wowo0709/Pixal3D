@@ -566,3 +566,10 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 이 완료 영수증을 보고 local GPU6·7 gap 작업자 PID **832397**이 실제로 깨어났다. GPU6은 index394, GPU7은 index399의 frozen 단일 사례 worker를 실행 중이며, 기존 GPU0–3 primary 작업자 네 개도 살아 있다. 시작 시 두 사례는 primary의 같은 rank 첫 미완료 index에서 32 index 이상 떨어져 있었고, 이미 보관된 396/398은 건너뛰었다. 현재 Ours paired **456/508**이다.
 - node16의 캐시 기반 9방법 평가 watcher PID **3140957**도 공식 렌더 32/32와 외부 7방법 완료를 관측했다. 하위 PID **3387084**가 실제 공식 RGB1 501사례의 렌더·surface·reference binding을 구축 중이다. 아직 9방법 10지표 완료나 최종 13조건 공통 표를 뜻하지 않는다.
 - Ours surface 선계산 두 번째 배치 42사례도 shard JSONL 합계 **84행**, 고유 key 84개, 사전 고정 ID 집합과 정확히 일치함을 별도 검증했다. 누적 캐시는 **437개**다. 남은 Ours 생성·surface·6,024건 렌더·learned 평가·paired CI·최종 그림/원고/PDF는 계속 진행한다.
+
+## 12:16 KST 공통 입력 평가와 GPU7 안전한 추가 활용
+
+- node16에서 공식 RGB1 raw/+source-M0의 **501사례 target-camera8 paired 점수**가 `PASS_OFFICIAL_RGB1_RAW_AND_M0_TARGET8_PAIRED`로 닫혔다. 이어 외부 7방법의 동일 501사례 target8 scorer PID **3598523**이 실행 중이다. 공식·외부·Ours를 합친 최종 10방법 표는 아직 없다.
+- node16의 9방법 공통 evaluator binding은 **501개 사례, 4,509개 예측 항목**을 통과했다. 공식 RGB1 두 조건의 참조·렌더·surface와 외부 7방법이 같은 ID 집합으로 연결됐으며 learned metric 단계는 아직 시작 전이다.
+- post-official GPU6·7 gap 작업은 index399/397/395/394를 file4에 보관했다. GPU7은 다음 index393에서 같은 rank의 primary 첫 미완료 index369와 차이 **24<32**를 확인해 그 사례를 건너뛰었다. 반면 index391은 다른 rank의 차이 **40≥32**라 GPU7만 사용하는 두 번째 분리 작업 **PID 852330**을 시작했다. 시작 직전 조건을 다시 검사해 index391 worker PID **852332**가 실행 중이다. 기존 GPU6 작업과 index 범위가 겹치지 않는다.
+- GPU 관리 스크립트는 안전 간격 미달 사례를 건너뛰고 다른 rank의 안전한 후보를 계속 검사할 수 있게 보완했다. 실시간 watcher **PID 852659**가 두 gap 관리자를 모두 표시하며 첫 poll은 Ours paired **470/508**을 기록했다. 아직 실제 501사례 Ours surface·렌더 또는 최종 quality gain이 확인된 것은 아니다.

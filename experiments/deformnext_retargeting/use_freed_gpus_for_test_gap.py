@@ -62,9 +62,13 @@ def main() -> None:
     parser.add_argument('--high-index', type=int, default=399)
     parser.add_argument('--minimum-gap', type=int, default=32)
     parser.add_argument('--poll-seconds', type=int, default=30)
+    parser.add_argument('--gpus', default='6,7',
+                        help='Comma-separated subset of 6,7; allows a freed GPU to continue alone')
     args = parser.parse_args()
     pids = [int(item) for item in args.primary_pids.split(',')]
+    gpus = [int(item) for item in args.gpus.split(',')]
     if (args.output_root.exists() or len(pids) != 4 or len(set(pids)) != 4
+            or not gpus or len(set(gpus)) != len(gpus) or not set(gpus) <= {6, 7}
             or not 300 <= args.low_index < args.high_index < 400
             or args.minimum_gap < 24 or args.poll_seconds < 10
             or any(not alive(pid) for pid in pids)
@@ -102,11 +106,11 @@ def main() -> None:
             rank = index % 4
             next_primary = frontier(paths, rank)
             if index - next_primary < args.minimum_gap:
-                print(json.dumps({'phase': 'STOP_AT_PRIMARY_SAFETY_GAP',
+                print(json.dumps({'phase': 'SKIP_AT_PRIMARY_SAFETY_GAP',
                                   'gpu': gpu, 'index': index,
                                   'primary_frontier': next_primary,
                                   'required_gap': args.minimum_gap}), flush=True)
-                break
+                continue
             if not alive(pids[rank]):
                 raise RuntimeError(f'primary rank{rank} stopped before gap case {index}')
             command = [sys.executable, '-u', '-m',
@@ -128,8 +132,8 @@ def main() -> None:
             print(json.dumps({'phase': 'PASS_POST_OFFICIAL_DISJOINT_TEST_CASE',
                               'gpu': gpu, 'index': index}), flush=True)
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = (pool.submit(worker, 6, 0), pool.submit(worker, 7, 1))
+    with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
+        futures = [pool.submit(worker, gpu, gpu % 2) for gpu in gpus]
         for future in futures:
             future.result()
     receipt = {'status': 'PASS_POST_OFFICIAL_DISJOINT_TEST_GAP',

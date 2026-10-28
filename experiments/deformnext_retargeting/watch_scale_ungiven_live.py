@@ -182,7 +182,8 @@ def local_tail_supervisor()->list[int]:
     module='experiments.deformnext_retargeting.use_idle_gpus_for_test_tail'
     roots={str(LOCAL/f'disjoint-tail-gpu6-7-v{version}') for version in (3,4)}
     after_module='experiments.deformnext_retargeting.use_freed_gpus_for_test_gap'
-    after_root=str(LOCAL/'post-official-disjoint-gap-v1')
+    after_roots={str(LOCAL/name) for name in
+                 ('post-official-disjoint-gap-v1', 'post-official-disjoint-gap-v2-gpu7')}
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit():continue
         try:
@@ -190,7 +191,7 @@ def local_tail_supervisor()->list[int]:
             if '--output-root' not in argv:continue
             output=argv[argv.index('--output-root')+1]
             if not ((module in argv and output in roots)
-                    or (after_module in argv and output==after_root)):continue
+                    or (after_module in argv and output in after_roots)):continue
             state=(entry/'stat').read_text().split(') ',1)[1].split(' ',1)[0]
             if state not in {'Z','X'}:result.append(int(entry.name))
         except (OSError,ValueError,IndexError):
