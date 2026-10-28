@@ -45,3 +45,5 @@ python docs/superpowers/paper/build_fair_manuscript.py \
 합성 공정 표와 임시 결과 문장을 넣은 레이아웃 시험은 **26페이지**였고, 본문 결론이 12페이지, 참고문헌이 13–14페이지, 부록이 15페이지부터 시작했다. 이는 실제 최종 결과와 teaser가 들어가기 전의 배치이므로 최종 페이지 수가 아니다. 최종 실측 서술을 넣은 뒤에는 메인 표·선정된 ablation 표·핵심 그림을 우선 보존하고, 상세 내부 oracle-scale 결과와 부가 개발 진단을 부록으로 옮길지 검토한다. 정보나 부정적 결과를 삭제해 분량을 맞추지 않는다. 투고 형식의 실제 분량 요건은 투고 전에 별도로 확인한다.
 
 2026-10-28 확인: [CVPR 2027 공식 저자 지침](https://cvpr.thecvf.com/Conferences/2027/AuthorGuidelines)은 **본문 8페이지 이내(그림·표 포함), 공식 템플릿 사용**을 요구하고 참고문헌과 필수 LLM Usage Statement만 별도 페이지를 허용한다. 현재 `article` 기반의 12페이지 본문은 **연구 원고 초안**이며 CVPR 2027 투고 PDF가 아니다. 해당 연도 [공식 LaTeX author kit](https://media.eventhosts.cc/Conferences/CVPR2027/author-kit-CVPR2027-v1-latex.zip)을 `/root/dev/.cache/paper-tools/author-kit-CVPR2027-v1-latex.zip`에 받아 SHA256 `da1ec5db9b73531ea82a87723e4aedb631083331fe655d1972279b48a7bdb2fe`를 기록했다. CVPR 2027 투고를 목표로 한다면 실측 결과를 넣은 뒤 별도 공식 템플릿 8페이지 본문과 부록을 조립·검수해야 한다. 현재 장문 원고의 결과·증거를 지우지 않고 재배치한다.
+
+공식 kit의 `cvpr.sty`를 사용한 최소 review PDF를 로컬 Tectonic으로 컴파일했고, 필요한 LaTeX 패키지를 캐시한 뒤 `--only-cached` 재컴파일도 통과했다. 이는 **템플릿 환경 확인**이며 8페이지 본문 작성이나 최종 투고 PDF 완성을 뜻하지 않는다.
