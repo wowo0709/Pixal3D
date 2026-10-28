@@ -634,3 +634,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - `chunk000`–`chunk004` 총 **5/32청크·960/6,024작업**이 모두 파일서버4 검증 보관 영수증을 기록했다. 청크별 시간은 **172.82/200.79/218.05/131.35/126.05초**이며 `chunk005` staging으로 이어졌다. 실패·누락 영수증은 없다. 최근 청크가 빨라졌지만 전체 GLB 크기 분포가 남아 있어 종료 시간은 실측 누적으로 갱신한다.
 - node16 공식 RGB1 learned evaluator PID517474는 약 32분 실행 중이고 누적 읽기량이 약 76.5 GB로 증가했다. 공식 두 조건 summary와 통합 9조건 영수증은 아직 없다. Ours 4조건 evaluator는 렌더 32청크 완료 뒤 시작한다.
+
+## 13:31 KST 정합 효과의 동일 ID 중간 분석
+
+- [공식 RGB1·외부 7방법 target8 raw/+M0 분석](2026-10-28-source-m0-target8-interim-ko.md)을 원본 node16 평가 JSON 두 개에서 작성했다. **501개 동일 ID·133 source cluster**를 확인했고, 8방법 모두 M-IoU의 방법별 점추정과 95% cluster 구간이 +M0 방향이다. PSNR은 ShapeUp만 구간이 0을 포함하고 SSIM은 방법마다 다르다. 이 구간은 다중 비교 동시 보정이 없는 탐색적 결과다.
+- 동일한 한 사례의 Ours raw/+M0 진단에서는 오히려 +M0가 target8 지표를 낮췄다. 그래서 +M0의 공통 주 표와 raw/+M0 paired target8 표를 함께 유지한다. Ours 전체 결과가 없으므로 이 중간 분석을 최종 우열이나 논문 성능 주장으로 옮기지 않는다.
