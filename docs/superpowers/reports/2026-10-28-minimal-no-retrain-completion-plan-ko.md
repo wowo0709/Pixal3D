@@ -609,3 +609,10 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - node16의 외부 7방법 raw/+source-M0 target-camera8 PSNR·SSIM·M-IoU paired scorer가 `PASS_SOURCE_M0_TARGET8_PAIRED`로 **501사례**를 완료했다. 저장된 `sample_ids`가 공식 RGB1 target8 평가의 501개와 정확히 같고 source cluster **133개**, 외부 7방법의 요약 수치가 모두 유한함을 원본 JSON에서 확인했다.
 - 캐시 기반 9조건 evaluator PID3140957은 다음 단계인 공식 RGB1 raw/+M0 두 조건의 learned metric evaluator 자식 PID517474를 시작했다. 프로세스 환경의 `CUDA_VISIBLE_DEVICES=7`과 실행 상태를 확인했다. 이 단계의 종료 영수증·9조건 최종 집계는 아직 없다.
 - 로컬 Ours file4 archive는 V1 **503/508**, Selected·Top-1 PBR **501/508**, paired **501/508**이다. 남은 두 primary worker의 하위 Shape/PBR/export 계산이 살아 있고, 후속 502사례 surface·6,024건 렌더는 전체 cascade 영수증을 기다린다.
+
+## 13:10 KST frozen Ours 508쌍 종료·전수 감사 통과
+
+- V1 Shape **508/508**, Selected Shape·Top-1 PBR **508/508**, 원본 prediction·렌더 GLB export **1,016건**이 파일서버4 checksum 영수증을 닫았다. 복구 watcher가 `PASS_FROZEN_V1_SELECTED_TEST508_CASCADES_FILE4_ARCHIVED`를 기록했고 학습 업데이트는 **0**이다.
+- [최종 image-only scale 계약 감사](2026-10-28-test508-image-scale-contract-audit-final.json)는 **1,016건 실제 generation**과 508개 paired plan·scale prediction을 전수 대조해 통과했다. 두 arm의 RGB/A·카메라·scale 입력이 동일하고, M0/M1 mesh·GT scale은 추론에 사용하지 않았다. `all_cascade_results_complete=true`다.
+- [최종 렌더 메시 충실도 감사](2026-10-28-test508-render-fidelity-final.json)는 **1,016건**의 원본 prediction/GLB SHA, 사전 한도 q99 world ≤0.01, 원본 표면 geometry metric 사용을 전수 통과했다. face budget 25만/50만/100만/200만/500만은 **912/49/36/16/3건**, 최대 q99는 **0.009997854**다.
+- 전체 cascade 영수증을 받은 Ours 공통502 surface watcher가 node16의 4개 scorer PID729283–729286을 시작했다. 이 단계는 기존 **490개 사례 선계산 캐시**를 사례별 key로 재검증하고 나머지를 계산한다. 공식 RGB1 learned evaluator PID517474도 node16 GPU7에서 계속 실행 중이다. Ours 렌더·최종 표·PDF는 아직 대기다.

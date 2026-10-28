@@ -1,0 +1,21 @@
+{
+  "status": "PASS_TEST508_TWO_ARM_RENDER_FIDELITY_AUDIT",
+  "expected_per_arm": 508,
+  "archived": {
+    "V1": 508,
+    "SELECTED": 508
+  },
+  "finished_export_not_archived": 0,
+  "actual_render_face_budget_counts": {
+    "250000": 912,
+    "500000": 49,
+    "1000000": 36,
+    "2000000": 16,
+    "5000000": 3
+  },
+  "q99_world_max": 0.009997853978019503,
+  "q99_world_max_sample": "SELECTED/shard001_9cdf0c378174491ca1b81908dae6156a_d3_fast300fpssupplyv1_PA_target08",
+  "q99_world_limit": 0.01,
+  "geometry_metrics_use_untouched_prediction": true,
+  "GT_fitting_or_alignment": false
+}
