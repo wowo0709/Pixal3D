@@ -688,3 +688,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 RGB1 raw/+source-M0와 외부 7방법의 정확히 같은 **501개 ID·133 source cluster** 평가가 완료됐다. 9방법 모두 source 1,002장에 대한 10지표가 있으며, 외부 feature cache의 502→501 replay 오차는 최대 **3.34e-11**이다. 중간 수치·출처는 [공통501 9방법 중간 보고](2026-10-28-common501-nine-method-interim-ko.md)에 분리했다. 공식 RGB1 원래 생성 성공은 **507/508**이고, 501은 공통 평가 분모다.
 - Ours V1·Selected raw/+source-M0×camera8/9/10 Cycles 렌더는 **29/32청크·5,568/6,024작업**을 file4 SHA 검증 후 보관했다. 30번째 `chunk029`는 162/192 PNG를 출력한 뒤 5M-face급 GLB의 Blender import/decimation을 여섯 프로세스가 처리 중이다. 여섯 프로세스 모두 CPU를 계속 사용하고 RAM 여유가 있으며 OOM·traceback은 관측되지 않았다. GPU 사용률이 잠시 0인 것은 이 CPU 전처리 단계 때문이다. 완료된 청크·중간 PNG를 유지한 채 진행 상황을 감시한다.
 - 남은 의존 순서는 렌더 3청크 종료 영수증 → Ours raw/+M0 네 조건의 동일 501 ID full metric → 10방법 공통 표·paired source-cluster 구간·claim audit → 실측 teaser/원고·PDF 검수다. 아직 Ours 네 조건 결과는 **0/4**이므로 주 비교 우열과 최종 성능 주장은 확정하지 않는다. 재학습은 0회다.
+
+## 15:01 KST 남은 입력 사전 복사
+
+- 현재 `chunk029`의 5M-face급 GLB는 공통 렌더러가 1M-face 렌더 전용 decimation을 적용하며 처리 중이다. 여섯 Blender PID가 약 28분 동안 CPU 시간을 계속 누적하고 RSS가 증가했지만 OOM·traceback은 없고, 완료 렌더는 162/192장이다. 렌더 프로토콜과 메시 예산은 그대로 둔다.
+- 이 CPU 구간에 다음 `chunk030`의 입력 **64/64파일·3,297,815,443바이트**, 마지막 `chunk031`의 입력 **24/24파일·1,739,543,470바이트**를 file4에서 각 기존 stage 디렉터리로 미리 복사했다. 두 `rsync`는 종료 코드 0이고 파일 누락 0이다. 원래 캠페인이 해당 청크에 도달하면 동일 입력 목록을 다시 `rsync`하고 이후 렌더·SHA 검증 보관을 진행하므로 결과 조건은 바뀌지 않는다.
