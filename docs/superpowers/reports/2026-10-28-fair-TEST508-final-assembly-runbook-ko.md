@@ -71,3 +71,5 @@ python docs/superpowers/paper/build_fair_manuscript.py \
 최종 실측이 닫히면 `final-results/cvpr2027-abstract-findings.tex`, `cvpr2027-results.tex`, `cvpr2027-conclusion.tex`에 같은 공통 ID·paired CI에 근거한 문장을 작성한다. 이후 [최종 CVPR 빌더](../paper/build_fair_cvpr2027.py)를 장문 빌더와 동일한 `--main-table-json`, `--raw-table-json`, `--paired-json`, `--official-contrasts-json`, `--claim-audit-json`, `--common-manifest`, `--paper-root`, 새 `--output-dir`로 실행한다. 이 빌더는 실측 표·구간·claim 감사·teaser의 ID/SHA와 공식 kit SHA, 본문 8쪽 이내, 보류 문구 부재를 검사하고 전 페이지 review PNG를 만든다. **빌더 통과 뒤에도 실제 그림·표의 가독성을 눈으로 검수한다.**
 
 실측 수치 대신 임시 값과 이전 그림을 넣은 별도 격리 레이아웃 시험에서 압축 원고는 **참고문헌 포함 5쪽, 본문 4쪽, Overfull 0건**으로 조판됐다. 이 시험에서 주 표 캡션의 수식 `10^{-3}`이 CVPR kit/Tectonic 캐시의 9pt 글꼴 오류를 일으켜 같은 의미의 일반 문장으로 바꿨다. 합성 시험의 PDF·수치는 논문 결과로 사용하지 않는다. 압축 본문에는 SS DEV128 geometry 표와 고정 geometry의 PBR DEV32 appearance 표를 각각 유지한다.
+
+Raw 10지표 표를 추가한 뒤에도 격리된 **합성 값**과 임시 figure로 공식 template을 다시 조판했다. 두 전체 폭 표가 같은 페이지에 들어가고 reference 시작은 5쪽, 총 6쪽, Overfull 0건이다. 표의 실제 숫자와 공정 teaser가 나온 뒤 글자 크기·페이지 배치를 다시 눈으로 검수해야 한다. 이 합성 PDF는 실험 결과가 아니다.
