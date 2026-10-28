@@ -1,9 +1,11 @@
 # Source-M0 사후 정합의 target-view 중간 분석
 
-2026-10-28 13:31 KST. 공식 Pixal3D RGB1과 외부 7방법이 모두 성공한 **동일 501/508사례·133개 source cluster**의 camera8 결과다. 생성 뒤 입력 원본 source mesh M0만으로 Sim(3) 정합하고, 같은 Cycles/512 평가기로 재렌더했다. 정답 target M1은 정합에 쓰지 않았다. 모든 수치는 `raw→+M0`; Δ 뒤 대괄호는 방법별 source-cluster bootstrap 95% 구간이다. 여러 비교에 대한 동시 보정은 하지 않았으므로 탐색적 해석이다.
+2026-10-28. 공식 Pixal3D RGB1, 외부 7방법, Ours 두 방법이 모두 성공한 **동일 501/508사례·133개 source cluster**의 camera8 결과다. 생성 뒤 입력 원본 source mesh M0만으로 Sim(3) 정합하고, 같은 Cycles/512 평가기로 재렌더했다. 정답 target M1은 정합에 쓰지 않았다. 모든 수치는 `raw→+M0`; Δ 뒤 대괄호는 방법별 source-cluster bootstrap 95% 구간이다. 여러 비교에 대한 동시 보정은 하지 않았으므로 탐색적 해석이다.
 
 | 방법 | PSNR raw→+M0 (dB) | Δ [95%] | SSIM raw→+M0 | Δ [95%] | M-IoU raw→+M0 | Δ [95%] |
 |---|---:|---:|---:|---:|---:|---:|
+| Ours Selected | 25.14→23.28 | -1.85 [-2.21,-1.51] | 0.9555→0.9459 | -0.0096 [-0.0114,-0.0078] | 0.9124→0.8619 | -0.0506 [-0.0607,-0.0412] |
+| Ours V1 | 24.78→23.22 | -1.56 [-1.89,-1.25] | 0.9547→0.9463 | -0.0085 [-0.0103,-0.0068] | 0.9019→0.8584 | -0.0435 [-0.0531,-0.0348] |
 | TRELLIS.2 | 17.68→18.28 | +0.60 [+0.32,+0.89] | 0.9208→0.9210 | +0.0002 [-0.0035,+0.0036] | 0.4613→0.5633 | +0.1019 [+0.0820,+0.1232] |
 | Pixal3D 기존 (estimated C) | 16.44→18.77 | +2.33 [+1.96,+2.73] | 0.9111→0.9216 | +0.0105 [+0.0072,+0.0139] | 0.4130→0.6164 | +0.2034 [+0.1792,+0.2258] |
 | ReconViaGen | 18.88→19.88 | +0.99 [+0.69,+1.29] | 0.9274→0.9310 | +0.0036 [+0.0016,+0.0054] | 0.5927→0.6836 | +0.0909 [+0.0674,+0.1174] |
@@ -13,8 +15,10 @@
 | TRELLIS.2+SpaceControl | 16.70→17.37 | +0.68 [+0.40,+0.97] | 0.9157→0.9179 | +0.0022 [-0.0007,+0.0052] | 0.4650→0.5639 | +0.0989 [+0.0798,+0.1177] |
 | Pixal3D RGB1 1024 (given C) | 15.77→17.77 | +1.99 [+1.62,+2.40] | 0.9026→0.9212 | +0.0186 [+0.0145,+0.0228] | 0.3979→0.5302 | +0.1323 [+0.1124,+0.1529] |
 
-모든 8방법의 **마스크 IoU 점추정과 각 방법별 구간**이 +M0 방향이다. PSNR은 ShapeUp만 구간이 0을 포함하며, SSIM은 방법에 따라 작은 개선·저하 또는 불확실성이 나타난다. 따라서 source-M0 정합은 비교 표의 scale/pose 후처리로 유용하되, target-view 모든 지표가 반드시 좋아진다고 서술할 수 없다. 공식 RGB1의 camera given·객체 GT scale 미제공 설정에서 raw M-IoU는 0.3979, +M0는 0.5302다. 기존 Pixal3D estimated-camera 1536 행과 공식 RGB1 given-camera 1024 행은 입력·cascade 조건이 다르므로 카메라 제공 효과만의 인과 비교가 아니다.
+기존 8방법의 **마스크 IoU 점추정과 각 방법별 구간**은 +M0 방향인 반면, Ours V1·Selected는 세 target 지표 모두 정합 후 낮아졌다. 이는 동일 출력에 후처리를 적용한 paired 결과다. PSNR은 기존 8방법 중 ShapeUp만 구간이 0을 포함하며, SSIM은 방법에 따라 작은 개선·저하 또는 불확실성이 나타난다. 구간은 다중 비교 보정 전이므로 탐색적이다. Source-M0 정합이 모든 모델의 target 정합을 개선한다고 서술할 수 없으며 raw와 +M0를 함께 보고해야 한다. 기존 Pixal3D estimated-camera 1536 행과 공식 RGB1 given-camera 1024 행은 입력·cascade 조건이 다르므로 카메라 제공 효과만의 인과 비교가 아니다.
 
-**범위:** Ours V1/Selected의 target8 및 learned/source/geometry 지표가 아직 없고, 최종 13조건 공통 성공 집합이 확정되지 않았다. 이 파일을 최종 10방법×10지표 표나 논문 성능 주장으로 사용하지 않는다. 최종 표에는 동일 ID에서 재집계한 +M0 10지표와 raw/+M0 target8 paired 표를 함께 싣는다.
+**범위:** Ours V1/Selected의 target8은 공식 subset과 순서까지 같은 501개 ID에서 완료됐다. Learned/source 지표와 공통 evaluator의 geometry 재계산은 진행 중이다. 이 파일의 보정 전 구간을 최종 논문 주장으로 사용하지 않는다. 최종 표에는 동일 ID에서 재집계한 +M0 10지표와 raw/+M0 target8 paired 표를 함께 싣는다.
 
 **원본:** node16 `/home/youngwoo/retargeting-unified-test508/unified-nine-method-final-evaluation-v4/target8-external-paired.json` (SHA256 `bd7b5e21c8afcbc51098ed16f8449fc95366bd7617fbf5b1d6d9bf53e029b8c4`) 및 `target8-official-paired.json` (SHA256 `295d8eb76b149cd1655de826fbc3c657d64a39c409a1108f8d869cb512a41c78`). 두 원본의 501개 sample ID 집합이 정확히 같은지 확인했다.
+
+Ours 원본은 node16 `ours-four-final-evaluation-v1/target8-ours-four.json`, SHA256 `4056ec0287e281609f12cf3b312761c59980a18d2fec83b1734a2f4d0f070e30`이다. 상세 값과 결과 범위는 [Ours 공통501 중간 보고](2026-10-28-ours-common501-target8-interim-ko.md)에 기록했다.
