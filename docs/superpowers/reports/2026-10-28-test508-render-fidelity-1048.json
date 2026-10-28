@@ -1,0 +1,21 @@
+{
+  "status": "PASS_PARTIAL_RENDER_FIDELITY_AUDIT",
+  "expected_per_arm": 508,
+  "archived": {
+    "V1": 390,
+    "SELECTED": 387
+  },
+  "finished_export_not_archived": 0,
+  "actual_render_face_budget_counts": {
+    "250000": 697,
+    "500000": 38,
+    "1000000": 27,
+    "2000000": 12,
+    "5000000": 3
+  },
+  "q99_world_max": 0.009867181315176518,
+  "q99_world_max_sample": "V1/shard002_37c8436d8f824f82a9098fd4b6ac6ed4_d1_fast300fpssupplyv1_PA_target08",
+  "q99_world_limit": 0.01,
+  "geometry_metrics_use_untouched_prediction": true,
+  "GT_fitting_or_alignment": false
+}

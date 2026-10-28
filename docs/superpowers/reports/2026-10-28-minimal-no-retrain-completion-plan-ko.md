@@ -516,3 +516,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 RGB1 native 생성은 **507/508**, 최종 후보의 source-M0 surface와 GLB export는 **501/501**이다. GPU6·7의 공통 Cycles 렌더는 raw/+M0×camera 3개, 총 3,006작업 중 **3/32청크**를 file4에 보관했고 네 번째 청크의 Blender 자식 두 개가 실행 중이다. 첫 세 청크 소요는 **121.4/109.24/103.53초**였다.
 - 외부 7방법 원본 common502의 10지표 평가는 완료됐고 사례별 502 ID, source 1,004 view 및 Inception feature·FID/KID 재집계 정확성을 검증했다. node16의 캐시 기반 통합 평가 watcher는 공식 렌더 완료를 기다린다. Ours surface→렌더→4조건 평가→10방법 통합 표→paired CI→공정 teaser는 완료 영수증에 순서대로 연결돼 있다. 아직 **최종 공통 N, Ours 10지표, 표, 새 teaser, 최종 PDF는 없다**.
 - 최근 약 46분의 paired 증가 **343→385**를 단순 외삽하면 생성만 2시간 이상 남는다. GPU6·7 공식 렌더 인계와 대형 mesh 편차를 고려하면 생성 종료는 잠정 **2.5–4시간**이다. 그 뒤 surface·Ours 렌더·learned metric·논문 조판이 남으므로 전체 완료 시간을 이 수치에 포함시키지 않는다. 현재 로컬 가용 공간은 약 **1.0 TiB**이며 추가 재학습·arm 확장은 계획하지 않는다.
+
+## 10:49 KST 생성 입력·렌더 근사 감사
+
+- [입력·scale 계약 감사](2026-10-28-test508-image-scale-contract-audit-1048.json)는 전체 508쌍 plan과 현재 file4 보관된 **V1 390건, Selected 387건**, 실제 generation **777건**을 대조해 통과했다. 두 arm의 RGB·카메라·image-only scale 입력이 같고, 생성 시 M0/M1 mesh·GT scale 미사용 플래그와 scale prediction SHA가 일치한다. 완료 508쌍 감사로 확대해 해석하지 않는다.
+- [렌더 mesh 근사 감사](2026-10-28-test508-render-fidelity-1048.json)는 같은 777개 render bake의 영수증·원본 prediction SHA·GLB SHA를 대조해 통과했다. world-frame q99 최댓값 **0.0098672**는 사전 한도 0.01 이내다. 원본 geometry metric용 표면은 유지됐고, GT를 이용한 export 정합은 없었다. GPU6·7의 공식 공통 Cycles 렌더는 이 시점 **4/32청크**를 완료했다.
+- 남은 incomplete index는 주로 268–399이며, 현재 GPU0–3이 각자 처리 중이다. 공식 렌더 종료 후 GPU6·7을 재투입할지 결정할 때 각 rank의 미완료 구간과 현재 실행 사례를 다시 확인해 겹치는 사례를 만들지 않는다. 현재는 공식 렌더가 두 GPU를 사용하므로 생성 worker를 추가하지 않는다.
