@@ -118,7 +118,10 @@ def main() -> None:
         ordered = sorted(METHODS, key=lambda method: (-DIRECTION[metric] * values[method][metric],
                                                       method))
         ranks[metric] = {ordered[0]: 'best', ordered[1]: 'second'}
-    lines = [r'\begin{table*}[t]', r'\centering\scriptsize',
+    # The cached XeTeX bundle lacks 7/8/9 pt Latin Modern bold metrics.
+    # Use its available 10 pt bold face and let resizebox set the final size.
+    lines = [r'\begin{table*}[t]', r'\centering\normalsize',
+             r'\setlength{\tabcolsep}{2.5pt}',
              r'\resizebox{\textwidth}{!}{%',
              r'\begin{tabular}{llrrrrrrrrrrr}', r'\toprule',
              r'& & & \multicolumn{3}{c}{Source preservation (9/10)}'
