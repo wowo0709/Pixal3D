@@ -598,3 +598,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 네 번째 이후 추가로 file4에 보관된 공통502 사례 **10개**를 다섯 번째 목록으로 고정했다(ID 목록 SHA256 `6ccc4fc3d92922ec8752445a6a3b5b4045ad5b18f047d1bc0d928121459a588e`). nice 15 작업자 두 개가 계산한 결과 **20행**의 정확한 사례×방법 집합, 중복 없음, 모든 수치의 유한성을 로컬 복사본에서 확인했다. 누적 선계산은 **490/502사례**다.
 - Ours paired는 **497/508쌍**이다. GPU1·2 담당 shard는 완료돼 두 primary worker만 남았고, GPU6 대형 index392는 Selected 1M-face 초과 fallback 후 원본 대비 근사 한도를 통과해 file4 archive까지 검증됐다. 남은 생성과 공통 평가의 완료 영수증은 아직 대기 중이다.
 - 외부 raw target8 채점 입력과 +M0 target8 렌더 job의 `protocol_sha256`이 동일한 `5abddf2ff8a51af360e39a1ff7f5dda61d3b54269afa846b3fd14713a6e0fbb1`임을 사례별 원본 job에서 확인했다. 이 확인은 카메라·렌더 계약 일치의 한 증거이며, 전체 501사례 최종 지표·CI 검증을 대체하지 않는다.
+
+## 12:52 KST 종료 직전 생성 계약 재감사
+
+- frozen 508쌍 계획과 현재 완료된 **V1 501건·Selected 500건**, 실제 generation 기록 **1,001건**을 `audit_minimal_test_scale_contract.py`로 재검사했다. 두 arm의 네 RGB/A·카메라·image-only scale 예측 SHA/값이 일치하고 생성 시 M0/M1 mesh·GT scale 미사용임을 통과했다. 아직 508쌍이 아니므로 `all_cascade_results_complete=false`이다.
+- 같은 1,001개 file4 archive 영수증과 원본 prediction/렌더 GLB SHA·근사 한도를 `audit_minimal_test_render_fidelity.py`로 검사해 통과했다. 실제 렌더 face budget 분포는 25만/50만/100만/200만/500만 각각 **899/48/36/15/3건**이고 최대 q99 world discrepancy는 **0.009997854 ≤ 0.01**이다. 표면 geometry metric에는 손대지 않은 prediction을 사용한다. 완료 후 동일 검사를 **1,016건 전수**로 다시 실행해야 한다.
