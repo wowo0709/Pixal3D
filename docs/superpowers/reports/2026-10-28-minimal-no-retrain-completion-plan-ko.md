@@ -655,3 +655,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - node16 `evaluation-official-two`의 `pixal3d_official_rgb1_raw` 결과 파일이 생성됐다. 원본 결과의 501개 고유 sample ID가 공식 성공 집합 501개와 정확히 같고, 133 source cluster·1,002 source-camera 이미지·완전 평가 플래그, 유한한 source/geometry/FID/KID 값을 확인했다. 이는 **raw 한 조건의 QA**이고, +M0 공식 조건·9방법 공통 summary·Ours 4조건을 완료했다는 뜻은 아니다. 평가 하위 PID517474는 다음 조건을 계속 실행 중이다.
 - Ours Cycles 렌더는 `chunk008`까지 **9/32청크·1,728/6,024작업**이 file4 검증 보관되고 `chunk009` staging으로 이어졌다. 각 완료 영수증에 실패는 없다.
+
+## 13:51 KST 렌더 12청크와 긴 청크 점검
+
+- Ours raw/+M0×3 camera 렌더는 **12/32청크·2,304/6,024작업**을 file4 SHA 검증 후 보관했고 `chunk012` staging으로 이어졌다. `chunk011`은 큰 입력 메시 처리로 **403.99초** 걸렸지만, 중간 PNG가 104→170→192장으로 증가하고 여섯 Blender 자식이 CPU를 사용한 뒤 정상 영수증을 닫았다. 실패나 재시작은 없었다.
+- 전체 12청크 평균은 **182.13초**, 중앙값은 **170.45초**다. 남은 20청크를 평균으로 단순 외삽하면 렌더 약 **61분**이지만 메시 크기 편차 때문에 확정 ETA는 아니다. node16 공식 RGB1 raw learned 평가 한 조건은 정확한 501 ID·완전 지표로 끝났고, +M0 조건의 PID517474는 계속 파일을 읽으며 실행 중이다. 이후 Ours 4조건 평가는 별도 시간이 필요하다.
