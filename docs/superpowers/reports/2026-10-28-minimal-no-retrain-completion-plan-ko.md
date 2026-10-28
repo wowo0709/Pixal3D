@@ -472,3 +472,10 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 첫 tail supervisor의 GPU7 index400이 완료된 뒤 GPU6은 index425→421을 처리 중이어서, GPU7은 후속 tail 관리자 시작 전 잠시 비었다. 공식 export bridge는 아직 외부 7방법 완료를 기다리고, 기존 v4는 index398부터 시작하도록 대기함을 확인했다. 겹치지 않는 동일 frozen campaign/world-size508 단일 사례 **index398**을 GPU7에서 먼저 실행해 V1/Selected/Top-1 PBR 세 file4 SHA archive 및 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`를 확인했다. v4가 나중에 같은 index를 재방문하면 기존 영수증을 검증하고 건너뛰는 worker 계약이다.
 - 같은 방식으로 index396을 detached PID772131에서 시작했다. 각 사례 시작 직전에 공식 export handoff 영수증이 없음을 확인한다. 공식 렌더 인계가 먼저 준비되면 추가 GPU7 사례를 시작하지 않는다. node16 외부 TRELLIS.2 PID2492093은 간헐적 NFS RPC 대기 뒤 다시 실행 상태로 돌아왔고 실제 읽기 바이트가 계속 증가한다. 이 선행 tail 작업은 실험 조건이나 공통 성공 집합을 바꾸지 않는다.
+
+## 09:58 KST 계획·실행 중간 재점검
+
+- 범위는 frozen V1·Selected의 GT-scale-free TEST508 생성, 외부 7법·공식 RGB1과 동일 최종 성공 교집합의 source-M0-only 사후 Sim(3) 및 10지표 평가, paired CI·통합표·실제 teaser·최종 PDF이다. 새 학습이나 추가 arm 생성은 없다. 기존 M1-derived-scale 내부 ablation의 수치는 새 주 비교표에 섞지 않는다.
+- file4 SHA 보관 기준 V1 **346/508**, Selected/Top-1 PBR 및 양 arm paired **341/508**이다. GPU0–3의 본 worker 네 개와 GPU6 index417, GPU7의 비중복 index396 worker가 살아 있다. index396은 V1 archive를 마치고 Selected PBR을 계산 중이다. 대형 렌더 bake의 fallback 때문에 GPU 점유율 순간값이 낮아도 CPU 작업이 진행될 수 있으므로, 종료 여부는 사례 영수증으로 판정한다.
+- node16 공식 RGB1 native 성공 507/508, 최종 외부 공통 집합에 속한 surface/export **501/501**이다. 외부 7방법 learned 결과는 **6/7**이고 마지막 TRELLIS.2 평가 PID2492093은 실행 중이며 누적 읽기 바이트가 약 **130.5 GB**로 증가했다. 공식 bridge PID1552286와 캐시 기반 9방법 watcher PID3140957은 살아 있으나 외부 7방법 완료를 기다린다. 공식 Cycles 렌더 watcher는 GPU6/7 인계 전까지 의도적으로 정지돼 있다.
+- 현재 최종 공통 N·10지표 표·V1↔Selected 및 공식 RGB1 paired CI·공정 teaser·배포용 PDF는 없다. 가장 최근 약 41분 동안 paired archive가 294→341로 47건 증가했다. 같은 속도만 외삽하면 남은 167건은 약 2.4시간이지만, GPU6/7의 공식 렌더 인계와 대형 mesh fallback이 있어 생성 종료는 **대략 2.5–4시간**으로만 예상한다. 이어 공통 렌더·평가·원고 반영이 더 필요하며, 전체 완료 시각은 마지막 외부 평가 및 렌더 처리량을 본 뒤 재산정한다.
