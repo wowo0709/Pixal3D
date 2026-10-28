@@ -131,7 +131,7 @@ def main() -> None:
         lines.append(' & '.join(row) + r'\\')
     lines += [r'\bottomrule', r'\end{tabular}}',
               (r'\caption{Common-success TEST comparison on ' + str(n) +
-               r'/508 edits. All rows are evaluated with the same cameras, Cycles renderer,'
+               r'/508 edits. All rows use the same evaluation cameras, Cycles renderer,'
                r' metric code, and post-generation source-M0-only Sim(3) alignment; no'
                r' target-derived object scale is supplied at generation. T1 is the edited'
                r' target RGB, S3 three original source RGBs, M0 the textured source mesh,'
