@@ -17,3 +17,20 @@
 - Selected−V1은 matching·ray 단위 집계·retargeting과 선택된 PBR 경로가 함께 바뀐 **파이프라인 비교**다. 이 차이를 개별 모듈의 독립 효과로 해석하지 않는다.
 
 원본: node16 `/home/youngwoo/retargeting-unified-test508/ours-four-final-evaluation-v1/target8-ours-four.json`, SHA256 `4056ec0287e281609f12cf3b312761c59980a18d2fec83b1734a2f4d0f070e30`. `PASS_OURS_V1_SELECTED_RAW_AND_M0_TARGET8_PAIRED`, 501개 고유 ID가 공식 공통 subset의 순서와 정확히 일치하고 사례별 결과도 501개임을 확인했다. 별도 [baseline 중간 표](2026-10-28-common501-nine-method-interim-ko.md)의 입력 수·카메라 조건 차이를 감안해 최종 10방법 전체 표에서 함께 해석한다.
+
+## 동일 사례의 기존 surface 점수 중간 집계
+
+공통 evaluator가 geometry를 다시 계산하기 전, 기존 source-M0 surface 점수의 **동일 501 ID**를 집계했다. 각 arm은 501개 고유 사례를 가지며 source cluster는 133개다. CD는 대칭 unsquared L2, F-Score는 0.02 threshold다. 이 수치는 후속 공통 evaluator와 대조할 **중간 점수**다.
+
+| 생성 후 정합 | 모델 | CD ↓ | F-Score ↑ |
+|---|---|---:|---:|
+| Raw | V1 | <u>0.014198</u> | <u>0.818087</u> |
+| Raw | Selected | **0.013847** | **0.824140** |
+| Source M0 Sim(3) | V1 | <u>0.015125</u> | <u>0.803175</u> |
+| Source M0 Sim(3) | Selected | **0.014928** | **0.804705** |
+
+- Raw Selected−V1은 CD **−0.000351**과 F-Score **+0.006053**이다. 95% source-cluster bootstrap 구간은 각각 [−0.000731, −0.000053], [0.001133, 0.011202]다.
+- M0 정합 후 Selected−V1은 CD **−0.000197**, F-Score **+0.001530**이고 구간은 각각 [−0.000510, +0.000098], [−0.002698, +0.005674]다. 이 구간은 다중 비교 보정 전이며, 최종 공통 evaluator 결과와 보정 구간이 나온 뒤 주장을 확정한다.
+- 기존 surface 점수는 prediction과 target M1 표면을 각각 20,000점으로 고정 seed 표본화하고, source M0에서 구한 Sim(3)을 생성 후 prediction에 적용한다. M1은 평가에만 사용한다. 동일 입력이라도 공통 evaluator의 계산 및 수치 오차를 최종 대조한다.
+
+원본 디렉터리: node16 `/home/youngwoo/retargeting-unified-test508/ours-v1-selected-source-sim3-final-v1`. `shard0`–`shard3.jsonl` SHA256은 각각 `cff45cd840195e66f10856cbc9d78b6ab7e4731dd7e860dcea7c3045968627c9`, `7f3b8ab3cda22c24c63cbb10a49c866f604e750318e9d45f9e33127ae34aaa7f`, `12d9c96cdc51cfebba923cb79450ab9d286177d29e4193e2b061e02261281c28`, `ca2a9f5ac1372fc01cdd68d46487bb414eedbc6ce97351901156b05d1db49d53`이다. 501 ID subset SHA256은 `91c15aa37f79df13503dace479ea1baae54f9c94dd10ffb836a12bff48102189`이다. 구간은 seed 20261028, 20,000회 source-cluster bootstrap으로 계산했다.
