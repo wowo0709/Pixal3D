@@ -490,3 +490,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 최종 10지표 표 생성기를 검토해 target-camera PSNR/SSIM/M-IoU 보조 평가 3개가 기존에는 `samples=N`만 검사하고 실제 sample ID 집합은 확인하지 않는 빈틈을 발견했다. 외부 7법·공식 RGB1·Ours target8 평가 결과에 `sample_ids`를 기록하고, 표 생성 시 세 집합 모두 최종 13방법 공통 manifest의 ID와 정확히 같은지 검사하도록 보강했다. 유한한 10지표 값과 평가 영수증 status/schema도 검증한다.
 - 수정된 세 target8 평가 스크립트는 node16 대기 작업이 실행되기 전에 배포했고 로컬/원격 SHA 3개가 각각 일치함을 확인했다. 외부 평가 결과는 아직 6/7이며 공식 Cycles 렌더는 0청크라 새 평가 파일은 생성 전이다. 단발 합성 검증에서 같은 1사례 ID의 10방법×10지표 표는 통과했고, **사례 수는 같지만 ID가 다른** target8 입력은 표 생성 전에 거부됐다. `py_compile`과 `git diff --check`도 통과했다.
 - 이 시각 Ours paired file4 SHA 보관은 **356/508**까지 증가했고, 선행 GPU7 index396은 두 arm 모두 보관을 통과했다. node16 마지막 TRELLIS.2 평가 PID2492093의 실제 읽기량은 약 **133.5 GB**로 증가해 실행 중이다. 최종 표와 PDF 완료는 여전히 주장하지 않는다.
+
+## 10:28 KST 외부 7방법 종료·공식 렌더 인계
+
+- node16 외부 7방법의 원본 common502 10지표 평가가 `PASS_SOURCE_M0_FULL502_SEVEN_METHODS_TEN_METRICS` 영수증을 작성했다. 마지막 TRELLIS.2 결과를 별도 확인해 중복 없는 **502개 사례**, source view **1,004개**, 실패 0건, 유한한 사례별 지표·FID/KID, 완전 모집단 플래그, Inception feature **1,004×2,048**을 통과했다. benchmark 원본 aggregate/FID/KID 함수로 재집계한 최대 절대 오차는 **3.34e-11**이다. 이는 외부 502건 정본의 검증이며 공식 RGB1 성공 교집합 N≤501의 최종 표가 아니다.
+- 공식 RGB1의 501개 렌더 mesh가 `PASS_OFFICIAL_FAST_EXPORT_BRIDGE`로 검증된 경로에 연결됐다. 실제 face budget 25만/50만/100만/200만은 **488/9/2/2**건이다. 기존 1M watcher는 의도적으로 정지된 채 보존됐고, 로컬 공식 Cycles watcher는 현재 GPU6 tail 사례 종료 후 GPU6·7을 넘겨받도록 대기한다. 캐시 기반 node16 9방법 평가 watcher도 외부 완료를 확인했고 공식 32청크 렌더를 기다린다.
+- 인계 직후 tail GPU6가 정지 신호를 관측하기 전에 index405 한 사례를 시작한 경합이 있었다. 이 사례의 V1은 이미 file4 SHA 보관됐고 Selected 계산이 진행 중이다. 현재 사례가 닫히면 관리자가 공식 입력 준비를 감지해 더 낮은 index를 시작하지 않고 렌더 watcher를 재개하는지 영수증으로 확인한다. Ours primary GPU0–3은 계속 생성 중이며 paired **369/508**이다.
