@@ -39,3 +39,7 @@ python docs/superpowers/paper/build_fair_manuscript.py \
 ```
 
 빌더는 최종 공통 N, 10지표·10방법, V1↔Selected 8지표, official 16지표, teaser PNG/receipt로 검증된 PDF SHA·캡션, 원고 Abstract/Conclusion 존재, TeX 오류, 각 결과 평균과 주 표 셀 일치를 검사한다. 출력은 `source/retargeting-final-manuscript.pdf`와 전 페이지 `review-pages/`다. 눈으로 검사한 뒤에만 `docs/superpowers/reports/`에 **새 이름**으로 복사하고 SHA/사용한 평가 JSON·TeX·fig provenance를 리포트에 기록한다. 기존 2026-10-27 M1-scale PDF는 덮어쓰지 않는다.
+
+## 본문 길이 사전 점검
+
+합성 공정 표와 임시 결과 문장을 넣은 레이아웃 시험은 **26페이지**였고, 본문 결론이 12페이지, 참고문헌이 13–14페이지, 부록이 15페이지부터 시작했다. 이는 실제 최종 결과와 teaser가 들어가기 전의 배치이므로 최종 페이지 수가 아니다. 최종 실측 서술을 넣은 뒤에는 메인 표·선정된 ablation 표·핵심 그림을 우선 보존하고, 상세 내부 oracle-scale 결과와 부가 개발 진단을 부록으로 옮길지 검토한다. 정보나 부정적 결과를 삭제해 분량을 맞추지 않는다. 투고 형식의 실제 분량 요건은 투고 전에 별도로 확인한다.
