@@ -467,3 +467,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - GPU6 tail index433 Selected는 25만/50만/100만/200만 face 렌더 bake가 형상 한도에 미달해 500만 face fallback을 실행했다. 하위 PID747717이 실제 CPU를 사용하며 약 14분간 계산한 뒤 **원본 19,911,998 faces 대비 렌더용 5,000,000 faces, q99 world 0.0019125**로 사전 한도 0.01을 통과했다. V1·Selected Top-1 PBR·Selected Shape 모두 file4 SHA archive receipt와 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`가 닫혔고 GPU6은 index431로 넘어갔다. 원본 geometry metric용 표면은 변경되지 않았다.
 - live ledger는 Ours paired **301/508**, 외부 learned **6/7**로 증가했다. 마지막 TRELLIS.2 evaluator PID2492093의 실제 읽기 바이트도 120.3 GB까지 증가해 실행 중이다. 공식 렌더 handoff와 최종 공통 표는 아직 선행 영수증 대기다.
+
+## 09:48 KST 빈 GPU7의 비중복 TEST 사례 활용
+
+- 첫 tail supervisor의 GPU7 index400이 완료된 뒤 GPU6은 index425→421을 처리 중이어서, GPU7은 후속 tail 관리자 시작 전 잠시 비었다. 공식 export bridge는 아직 외부 7방법 완료를 기다리고, 기존 v4는 index398부터 시작하도록 대기함을 확인했다. 겹치지 않는 동일 frozen campaign/world-size508 단일 사례 **index398**을 GPU7에서 먼저 실행해 V1/Selected/Top-1 PBR 세 file4 SHA archive 및 `PASS_TEST_CASE_TWO_ARMS_ARCHIVED`를 확인했다. v4가 나중에 같은 index를 재방문하면 기존 영수증을 검증하고 건너뛰는 worker 계약이다.
+- 같은 방식으로 index396을 detached PID772131에서 시작했다. 각 사례 시작 직전에 공식 export handoff 영수증이 없음을 확인한다. 공식 렌더 인계가 먼저 준비되면 추가 GPU7 사례를 시작하지 않는다. node16 외부 TRELLIS.2 PID2492093은 간헐적 NFS RPC 대기 뒤 다시 실행 상태로 돌아왔고 실제 읽기 바이트가 계속 증가한다. 이 선행 tail 작업은 실험 조건이나 공통 성공 집합을 바꾸지 않는다.
