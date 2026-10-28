@@ -666,3 +666,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 성공 수 열과 최고값 bold를 포함한 합성 10방법×10지표 LaTeX 표를 실제 캐시 Tectonic으로 컴파일했다. 최초 `\scriptsize`는 캐시된 7pt Latin Modern bold 글꼴이 없어 실패했다. 생성기를 `\normalsize` 원본 조판 뒤 `\resizebox` 축소와 `\tabcolsep=2.5pt`로 수정해 **컴파일·PDF 시각 검수·Overfull hbox 없음**을 확인했다. 최종 표 본문 글자 크기는 합성 테스트에서 약 **7.07pt**다. 실제 최종 수치 표는 평가 완료 후 같은 경로로 다시 검수한다.
 - 렌더는 `chunk012`까지 **13/32청크·2,496/6,024작업**을 file4에 검증 보관했다. 공식 RGB1 +M0 learned 평가 프로세스는 계속 실행 중이다.
 - 별도 임시 디렉터리에서 합성 주 표와 raw/+M0 표를 실제 논문 전체 소스에 넣어 Tectonic 조판도 재현했다. **26페이지·Overfull hbox 0건**이며 두 새 표가 같은 페이지에 배치되는 것을 렌더 이미지로 확인했다. 합성 수치와 임시 결과 문장만 쓴 레이아웃 검증이므로 이 PDF는 최종 논문 산출물이 아니다.
+
+## 14:05 KST 재점검
+
+- 사용자 승인 범위 그대로 재학습 없이 frozen V1·Selected 두 arm만 공정 TEST 비교에 사용한다. **508/508쌍 생성·file4 SHA 보관, 공통502 source-M0 surface, 공식 RGB1 501사례의 32/32 렌더**는 완료 영수증이 있다. Ours raw/+M0×3시점 렌더는 **16/32청크·3,072/6,024작업**을 검증·보관했고 다음 청크를 진행 중이다. 최근 8청크 평균 176초를 단순 적용하면 남은 렌더 약 47분이지만 대형 메시와 전송 편차를 포함한 확정 시각은 아니다.
+- node16 GPU7의 공식 RGB1 learned evaluator는 raw 501사례의 완전 결과 1개를 썼고 +M0 조건을 계산 중이다. 자식 PID517474는 CPU/GPU를 사용하고 `/proc/io` 누적 읽기량이 계속 증가한다. 공식 2조건 완료→외부 7법의 같은 501 ID replay→Ours 4조건 learned 평가 순서는 그대로 유지한다. 아직 최종 10방법 공통 표, paired CI, 공정 teaser가 없으며 성능 우열은 판단하지 않는다.
+- 로컬 디스크 여유는 약 **1,009 GB**다. 렌더 청크의 로컬 stage는 file4 checksum 확인 후 회수된다. 별도 CVPR 2027 review 템플릿 압축 원고는 결과와 teaser를 보류로 표시한 4쪽 protocol preview까지 컴파일·시각 검수했으며, 최종 PDF로 간주하지 않는다.
