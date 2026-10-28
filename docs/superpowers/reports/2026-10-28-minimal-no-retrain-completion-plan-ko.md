@@ -648,7 +648,7 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 ## 13:39 KST 주 표의 성공률 출처 보강
 
-- 최종 주 표 생성기에 각 방법의 원래 TEST508 **성공 수/508** 열을 추가했다. 외부 7방법은 node16 `all-methods-full_test.csv`의 `evaluated_successes`, 공식 RGB1은 501사례 surface 완료 영수증, Ours V1/Selected는 508쌍 cascade 완료 영수증에서 가져왔다. 원본 세 파일의 SHA256과 열 값은 [고정 성공 수 manifest](2026-10-28-native-success-counts.json)에 저장했고 원본과 재대조했다. 공통 성공 집합에서 계산한 10지표의 분모와 각 방법의 원래 성공률을 구별할 수 있게 한다.
+- 최종 주 표 생성기에 각 방법의 원래 TEST508 **성공 수/508** 열을 추가했다. 외부 7방법은 node16 `all-methods-full_test.csv`의 `evaluated_successes`, Ours V1/Selected는 508쌍 cascade 완료 영수증에서 가져왔다. 공식 RGB1의 출처는 뒤의 14:09 KST 정정 항목을 따른다. 원본 파일의 SHA256과 열 값은 [고정 성공 수 manifest](2026-10-28-native-success-counts.json)에 저장했다. 공통 성공 집합에서 계산한 10지표의 분모와 각 방법의 원래 성공률을 구별한다.
 - 표 생성기의 합성 입력 smoke test는 10행의 성공 수, 13열 LaTeX 구조, 표 JSON의 출처 필드를 통과했다. 이는 실제 최종 점수 검증을 대신하지 않는다. Ours 렌더는 **8/32청크·1,536/6,024작업**까지 file4에 검증 보관됐으며 `chunk008`을 시작했다.
 
 ## 13:40 KST 공식 RGB1 첫 learned 조건 완료
@@ -672,3 +672,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 사용자 승인 범위 그대로 재학습 없이 frozen V1·Selected 두 arm만 공정 TEST 비교에 사용한다. **508/508쌍 생성·file4 SHA 보관, 공통502 source-M0 surface, 공식 RGB1 501사례의 32/32 렌더**는 완료 영수증이 있다. Ours raw/+M0×3시점 렌더는 **16/32청크·3,072/6,024작업**을 검증·보관했고 다음 청크를 진행 중이다. 최근 8청크 평균 176초를 단순 적용하면 남은 렌더 약 47분이지만 대형 메시와 전송 편차를 포함한 확정 시각은 아니다.
 - node16 GPU7의 공식 RGB1 learned evaluator는 raw 501사례의 완전 결과 1개를 썼고 +M0 조건을 계산 중이다. 자식 PID517474는 CPU/GPU를 사용하고 `/proc/io` 누적 읽기량이 계속 증가한다. 공식 2조건 완료→외부 7법의 같은 501 ID replay→Ours 4조건 learned 평가 순서는 그대로 유지한다. 아직 최종 10방법 공통 표, paired CI, 공정 teaser가 없으며 성능 우열은 판단하지 않는다.
 - 로컬 디스크 여유는 약 **1,009 GB**다. 렌더 청크의 로컬 stage는 file4 checksum 확인 후 회수된다. 별도 CVPR 2027 review 템플릿 압축 원고는 결과와 teaser를 보류로 표시한 4쪽 protocol preview까지 컴파일·시각 검수했으며, 최종 PDF로 간주하지 않는다.
+
+## 14:09 KST native 성공 수 분모 정정
+
+- 주 표의 `Success` 열은 원래 TEST508 전체 생성 성공 수여야 한다. 앞선 고정 manifest의 공식 RGB1 `501/508`은 외부 7방법의 공통502 집합과 교차한 뒤 **평가 가능한 501건**을 잘못 native 수로 적은 것이다. node16 생성 시도 완료 영수증 `no-scale-official1024/attempts-complete.json`은 **508시도·507성공·1 empty-sparse 실패**, SHA256 `b23aa23e7d96a623db58e09b519ea5124da37510e11369960d0a73a07ff0c891`이다. [고정 성공 수 manifest](2026-10-28-native-success-counts.json)를 이 원본의 `succeeded=507`로 정정했다.
+- 공통 지표의 최종 분모는 여전히 공식 raw/+M0와 외부 7방법 및 Ours 2방법이 모두 성공한 **501사례**로 별도 표기한다. 507과 501은 서로 다른 질문의 수치이며 성능 지표 계산이나 학습 결과를 바꾸지 않는다. 실측 주 표는 아직 생성되지 않았으므로 잘못된 성공 수를 담은 최종 표/PDF는 없다.

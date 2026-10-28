@@ -16,6 +16,8 @@
 
 최종 표는 external 7법, 공식 RGB1, Ours V1/Selected의 **동일 성공 ID**에 대해 카메라 제공 가능 모델의 given camera, 생성 단계의 객체별 GT scale 미제공, 생성 후 입력 source M0만 쓰는 Sim(3), 공통 Cycles·평가기 조건이다. 공식 RGB1과 Ours의 입력 사진 수가 다르므로 시스템 비교로만 해석한다. 예전 M1 유래 scale의 내부 6행 표를 주 비교 수치와 섞지 않는다.
 
+표의 `Success`는 **TEST508 전체의 방법별 native 성공 수**이고, 10지표의 분모 `N`은 모든 방법의 최종 공통 성공 교집합이다. 특히 공식 RGB1은 전체 생성 **507/508** 성공, 외부 방법들의 공통502 안에서는 **501/501** 평가 가능했다. 성공 수 출처는 [고정 manifest](2026-10-28-native-success-counts.json)의 공식 생성 시도 영수증 SHA를 따른다.
+
 ## 실측 뒤 작성할 문장
 
 1. `scale-ungiven-main-table.json`의 10방법×10지표 셀과 raw/+M0 target8 표를 확인한다. 최고/2위 서식은 자동 생성되며, KID 표시값은 원값×1,000이다.

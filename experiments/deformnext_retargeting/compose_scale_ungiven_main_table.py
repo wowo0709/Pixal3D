@@ -63,8 +63,13 @@ def main() -> None:
     native = json.loads(args.native_success.read_text())
     n = common['samples']
     native_counts = native['methods']
+    official_attempts = native['sources']['official_rgb1_generation_attempt_receipt']
     if (native['status'] != 'PASS_FROZEN_TEST508_NATIVE_SUCCESS_COUNTS'
             or native['planned_samples'] != 508
+            or official_attempts['field'] != 'succeeded'
+            or official_attempts['sha256']
+               != 'b23aa23e7d96a623db58e09b519ea5124da37510e11369960d0a73a07ff0c891'
+            or native_counts['pixal3d_official_rgb1_source_m0'] != 507
             or set(native_counts) != set(METHODS)
             or any(type(count) is not int or not n <= count <= 508
                    for count in native_counts.values())):
