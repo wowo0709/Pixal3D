@@ -629,3 +629,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 첫 청크 시간만 선형 연장하면 남은 31청크가 약 **1.5시간**이지만 사례별 GLB 크기·렌더 비용과 파일서버 전송 편차가 있으므로 확정 종료 시각은 아니다. 이후 Ours 4조건 learned metric·최종 공통 표·paired CI·그림·PDF 검수가 추가로 필요하다.
 - [첫 렌더 한 사례 sanity](2026-10-28-first-render-one-case-sanity.json)에서 동일 camera8의 GT·V1/Selected raw/+M0 RGBA를 실제 열어 시각 검수하고 benchmark 원본 `read_rgba`·`image_metrics`로 유한한 PSNR/SSIM/M-IoU와 비어 있지 않은 mask를 확인했다. 이 한 사례에서는 +M0가 두 arm 모두 target8 지표를 낮췄으므로 raw와 +M0의 paired 결과를 함께 보고할 필요가 재확인된다. **한 사례는 모집단 개선 주장이나 최종 표 값이 아니다.**
 - 두 번째 `chunk001`도 **16사례·192렌더**를 file4에 검증 보관했다(200.79초). 현재 **2/32청크**, 세 번째 청크 staging 중이다. 두 실측 시간의 평균은 약 187초/청크이지만 이후 사례의 크기 차이와 learned 평가 대기 시간을 포함하지 않은 렌더 구간 추정이다.
+
+## 13:29 KST 렌더 5청크 중간 점검
+
+- `chunk000`–`chunk004` 총 **5/32청크·960/6,024작업**이 모두 파일서버4 검증 보관 영수증을 기록했다. 청크별 시간은 **172.82/200.79/218.05/131.35/126.05초**이며 `chunk005` staging으로 이어졌다. 실패·누락 영수증은 없다. 최근 청크가 빨라졌지만 전체 GLB 크기 분포가 남아 있어 종료 시간은 실측 누적으로 갱신한다.
+- node16 공식 RGB1 learned evaluator PID517474는 약 32분 실행 중이고 누적 읽기량이 약 76.5 GB로 증가했다. 공식 두 조건 summary와 통합 9조건 영수증은 아직 없다. Ours 4조건 evaluator는 렌더 32청크 완료 뒤 시작한다.
