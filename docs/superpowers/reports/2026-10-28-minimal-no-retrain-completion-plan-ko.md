@@ -665,3 +665,4 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 성공 수 열과 최고값 bold를 포함한 합성 10방법×10지표 LaTeX 표를 실제 캐시 Tectonic으로 컴파일했다. 최초 `\scriptsize`는 캐시된 7pt Latin Modern bold 글꼴이 없어 실패했다. 생성기를 `\normalsize` 원본 조판 뒤 `\resizebox` 축소와 `\tabcolsep=2.5pt`로 수정해 **컴파일·PDF 시각 검수·Overfull hbox 없음**을 확인했다. 최종 표 본문 글자 크기는 합성 테스트에서 약 **7.07pt**다. 실제 최종 수치 표는 평가 완료 후 같은 경로로 다시 검수한다.
 - 렌더는 `chunk012`까지 **13/32청크·2,496/6,024작업**을 file4에 검증 보관했다. 공식 RGB1 +M0 learned 평가 프로세스는 계속 실행 중이다.
+- 별도 임시 디렉터리에서 합성 주 표와 raw/+M0 표를 실제 논문 전체 소스에 넣어 Tectonic 조판도 재현했다. **26페이지·Overfull hbox 0건**이며 두 새 표가 같은 페이지에 배치되는 것을 렌더 이미지로 확인했다. 합성 수치와 임시 결과 문장만 쓴 레이아웃 검증이므로 이 PDF는 최종 논문 산출물이 아니다.
