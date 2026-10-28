@@ -682,3 +682,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - node16 `evaluation-official-two`에 공식 Pixal3D RGB1 **raw와 source-M0 두 결과**가 모두 생성됐다. 각 결과는 501개의 고유 동일 sample ID와 133 source cluster를 가지며 `full_metric_computation=true`다. node16 통합 watcher PID3140957은 이제 외부 7방법의 저장된 full502 특징을 같은 501 ID로 재집계하는 `replay_common_subset_evaluation.py` 자식 PID2533812를 실행 중이다. 실제 9방법 완료 영수증은 아직 없다.
 - Ours 렌더는 **27/32청크·5,184/6,024작업**을 file4 checksum 보관하고 다음 청크를 시작했다. 이 단계가 32청크를 닫고 9방법 완료 영수증을 받으면 Ours V1/Selected raw/+M0 네 조건의 learned metric evaluator가 시작된다. 아직 Ours 공통 10지표나 최종 논문 성능 수치는 없다.
+
+## 14:50 KST 공통 9방법 완료·Ours 렌더 병목 점검
+
+- 공식 RGB1 raw/+source-M0와 외부 7방법의 정확히 같은 **501개 ID·133 source cluster** 평가가 완료됐다. 9방법 모두 source 1,002장에 대한 10지표가 있으며, 외부 feature cache의 502→501 replay 오차는 최대 **3.34e-11**이다. 중간 수치·출처는 [공통501 9방법 중간 보고](2026-10-28-common501-nine-method-interim-ko.md)에 분리했다. 공식 RGB1 원래 생성 성공은 **507/508**이고, 501은 공통 평가 분모다.
+- Ours V1·Selected raw/+source-M0×camera8/9/10 Cycles 렌더는 **29/32청크·5,568/6,024작업**을 file4 SHA 검증 후 보관했다. 30번째 `chunk029`는 162/192 PNG를 출력한 뒤 5M-face급 GLB의 Blender import/decimation을 여섯 프로세스가 처리 중이다. 여섯 프로세스 모두 CPU를 계속 사용하고 RAM 여유가 있으며 OOM·traceback은 관측되지 않았다. GPU 사용률이 잠시 0인 것은 이 CPU 전처리 단계 때문이다. 완료된 청크·중간 PNG를 유지한 채 진행 상황을 감시한다.
+- 남은 의존 순서는 렌더 3청크 종료 영수증 → Ours raw/+M0 네 조건의 동일 501 ID full metric → 10방법 공통 표·paired source-cluster 구간·claim audit → 실측 teaser/원고·PDF 검수다. 아직 Ours 네 조건 결과는 **0/4**이므로 주 비교 우열과 최종 성능 주장은 확정하지 않는다. 재학습은 0회다.
