@@ -547,3 +547,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - 공식 RGB1은 surface/export **501/501**을 마쳤고, GPU6·7의 raw/+M0×3 camera Cycles 작업은 **15/32청크**를 file4에 검증 보관했다. 16번째 청크는 렌더 결과를 node16/file4로 전송 중이어서 순간 GPU 사용률 0%가 작업 정지를 뜻하지 않는다. node16 캐시 기반 9방법 evaluator PID **3140957**은 공식 렌더 완료를 대기한다.
 - node16의 Ours surface 선계산은 초기 395개 계획 중 **125개 사례**의 캐시 파일을 작성했다. nice 10·단일 CPU thread 작업자 네 PID가 살아 있으며, 최종 scorer는 cache key를 다시 확인하고 빠진 사례를 직접 계산한다. 외부 7방법의 502개 원본 10지표는 완료됐지만 공식·Ours와 합친 최종 N과 10방법 표는 아직 없다.
 - 이 시점에 Ours 생성은 paired **94쌍**이 남고, 공식 렌더는 **17청크**가 남는다. 최근 paired 11쌍/약 13분과 청크별 2–6분의 편차를 고려하면 생성과 공식 렌더가 각각 대략 **1.5–2.5시간**, **0.5–1.5시간** 더 걸릴 수 있다. 이후 Ours 502사례 surface·6,024건 렌더·learned metric·paired CI·실측 원고·PDF 검수가 남으므로 이를 전체 완료 시간으로 오인하지 않는다. 로컬 저장공간은 약 **1,011 GiB** 여유다.
+
+## 11:39 KST 공식 렌더 종료 후 GPU 재투입 연결
+
+- 현재 Ours paired **432/508**, 공식 렌더 **21/32청크**, Ours surface 초기 선계산 **334/395사례**다. 네 primary GPU 작업자와 node16 선계산 작업자는 살아 있다.
+- 공식 렌더 완료 영수증을 기다리는 [GPU6·7 후속 gap 작업자](../../../experiments/deformnext_retargeting/use_freed_gpus_for_test_gap.py)를 분리 실행 **PID 832397**로 연결했다. 공식 렌더의 501사례 `complete.json`을 검증하기 전에는 GPU를 쓰지 않는다. 완료 후에는 현재 파일서버 보관 영수증에서 빠진 index 380–399만 높은 순서로 검사하고, 같은 rank의 primary 첫 미완료 index와 최소 32 index 간격을 확인한 사례만 GPU6·7에 배정한다. 각 사례는 기존 frozen worker·508분할·file4 checksum 경로를 재사용한다.
+- 연결 당시 실제 미완료 high index는 18개였고 primary 네 rank의 첫 미완료 index는 **312/325/330/327**이었다. 이 값은 launch 결정 시 다시 계산되며, 간격이 부족하면 추가 사례를 시작하지 않는다. 새 작업은 성능 실험 범위나 공통 평가 프로토콜을 바꾸지 않는 실행 속도 최적화다.
