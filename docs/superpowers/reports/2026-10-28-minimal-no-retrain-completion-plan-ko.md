@@ -639,3 +639,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - [공식 RGB1·외부 7방법 target8 raw/+M0 분석](2026-10-28-source-m0-target8-interim-ko.md)을 원본 node16 평가 JSON 두 개에서 작성했다. **501개 동일 ID·133 source cluster**를 확인했고, 8방법 모두 M-IoU의 방법별 점추정과 95% cluster 구간이 +M0 방향이다. PSNR은 ShapeUp만 구간이 0을 포함하고 SSIM은 방법마다 다르다. 이 구간은 다중 비교 동시 보정이 없는 탐색적 결과다.
 - 동일한 한 사례의 Ours raw/+M0 진단에서는 오히려 +M0가 target8 지표를 낮췄다. 그래서 +M0의 공통 주 표와 raw/+M0 paired target8 표를 함께 유지한다. Ours 전체 결과가 없으므로 이 중간 분석을 최종 우열이나 논문 성능 주장으로 옮기지 않는다.
+
+## 13:33 KST 실행 계획 재점검
+
+- 재학습 없이 고정 V1·Selected의 508쌍 생성과 공통 502사례 source-M0 surface는 각각 완료 영수증이 있다. 공식 RGB1의 501사례·3,006 Cycles 작업도 완료했다. 현재 Ours raw/+M0×camera8/9/10 렌더는 **6/32청크·1,152/6,024작업**을 file4 SHA 검증 후 보관했고 `chunk006` staging을 시작했다. 여섯 청크 실측 시간은 172.82/200.79/218.05/131.35/126.05/196.14초다. 로컬 GPU0/1/2/3/6/7이 청크 렌더에 배정되고, 완료한 stage는 회수된다.
+- node16의 공식 RGB1 raw/+M0 learned evaluator PID517474는 CPU를 계속 사용하고 파일 읽기량이 81GB를 넘었다. 아직 공식 두 조건 summary가 없으므로 후속 9조건 영수증과 Ours 4조건 평가는 미완료다. 렌더→4조건 평가→동일 ID 공통 표→paired CI→공정 teaser→실측 원고·PDF의 기존 의존관계를 유지한다.
+- 렌더 26청크의 단순 청크 평균 외삽은 **약 70–90분**이나, 크기가 큰 GLB와 전송 편차가 남아 있다. 이는 렌더 종료 예상일 뿐 평가·논문 완료 시각이 아니다. 공식 learned 평가와 Ours learned 평가의 실제 속도를 확인하기 전에는 전체 종료 시각을 확정하지 않는다.
