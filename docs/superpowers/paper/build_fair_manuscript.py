@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--main-table-json',type=Path,required=True)
     parser.add_argument('--raw-table-json',type=Path,required=True)
     parser.add_argument('--paired-json',type=Path,required=True)
+    parser.add_argument('--raw-paired-json',type=Path,required=True)
     parser.add_argument('--official-contrasts-json',type=Path,required=True)
     parser.add_argument('--claim-audit-json',type=Path,required=True)
     parser.add_argument('--common-manifest',type=Path,required=True)
@@ -40,6 +41,7 @@ def main():
     table=json.loads(args.main_table_json.read_text())
     raw_table=json.loads(args.raw_table_json.read_text())
     paired=json.loads(args.paired_json.read_text())
+    raw_paired=json.loads(args.raw_paired_json.read_text())
     official_contrasts=json.loads(args.official_contrasts_json.read_text())
     claim_audit=json.loads(args.claim_audit_json.read_text())
     common=json.loads(args.common_manifest.read_text())
@@ -55,6 +57,8 @@ def main():
             or raw_table['common_manifest_sha256']!=sha(args.common_manifest)
             or paired['status']!='PASS_GT_SCALE_FREE_OURS_V1_SELECTED_COMMON_PAIRED_EIGHT_ENDPOINTS'
             or paired['samples']!=n or len(paired['metrics'])!=8
+            or raw_paired['status']!='PASS_GT_SCALE_FREE_OURS_V1_SELECTED_RAW_COMMON_PAIRED_EIGHT_ENDPOINTS'
+            or raw_paired['samples']!=n or set(raw_paired['metrics'])!=set(paired['metrics'])
             or official_contrasts['status']
                !='PASS_COMMON_TEST_OURS_VERSUS_OFFICIAL_PAIRED_SIXTEEN_ENDPOINTS'
             or official_contrasts['samples']!=n
@@ -72,6 +76,11 @@ def main():
             or teaser['selection']['common_manifest_sha256']!=sha(args.common_manifest)
             or teaser['figure_pdf_sha256']!=sha(args.paper_root/'final-results/figures/paper-teaser.pdf')):
         raise ValueError('fair table, paired CI, population and teaser must agree')
+    for metric,row in raw_paired['metrics'].items():
+        if (len(row['family16_bonferroni_ci95'])!=2
+                or abs(row['v1_mean']-raw_table['values']['ours_v1_source_m0'][metric])>1e-6
+                or abs(row['selected_mean']-raw_table['values']['ours_selected_source_m0'][metric])>1e-6):
+            raise ValueError('raw paired contrast and paper table differ: '+metric)
     if (not teaser_caption.is_file()
             or 'Common-success TEST qualitative comparison' not in teaser_caption.read_text()
             or 'source-M0-only Sim(3)' not in teaser_caption.read_text()
@@ -130,6 +139,7 @@ def main():
             'pdf':str(pdf),'pdf_sha256':sha(pdf),'review_pages':str(review),
             'main_table_json_sha256':sha(args.main_table_json),
             'paired_json_sha256':sha(args.paired_json),
+            'raw_paired_json_sha256':sha(args.raw_paired_json),
             'official_contrasts_json_sha256':sha(args.official_contrasts_json),
             'claim_audit_json_sha256':sha(args.claim_audit_json),
             'teaser_provenance_sha256':sha(teaser_json)}

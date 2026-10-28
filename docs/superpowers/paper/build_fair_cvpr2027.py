@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument('--main-table-json', type=Path, required=True)
     parser.add_argument('--raw-table-json', type=Path, required=True)
     parser.add_argument('--paired-json', type=Path, required=True)
+    parser.add_argument('--raw-paired-json', type=Path, required=True)
     parser.add_argument('--official-contrasts-json', type=Path, required=True)
     parser.add_argument('--claim-audit-json', type=Path, required=True)
     parser.add_argument('--common-manifest', type=Path, required=True)
@@ -53,6 +54,7 @@ def main() -> None:
     table = read_json(args.main_table_json)
     raw_table = read_json(args.raw_table_json)
     paired = read_json(args.paired_json)
+    raw_paired = read_json(args.raw_paired_json)
     contrasts = read_json(args.official_contrasts_json)
     claim_audit = read_json(args.claim_audit_json)
     common = read_json(args.common_manifest)
@@ -74,6 +76,9 @@ def main() -> None:
                != 'PASS_GT_SCALE_FREE_OURS_V1_SELECTED_COMMON_PAIRED_EIGHT_ENDPOINTS'
             or paired['samples'] != n
             or len(paired['metrics']) != 8
+            or raw_paired['status'] != 'PASS_GT_SCALE_FREE_OURS_V1_SELECTED_RAW_COMMON_PAIRED_EIGHT_ENDPOINTS'
+            or raw_paired['samples'] != n
+            or set(raw_paired['metrics']) != set(paired['metrics'])
             or contrasts['status']
                != 'PASS_COMMON_TEST_OURS_VERSUS_OFFICIAL_PAIRED_SIXTEEN_ENDPOINTS'
             or contrasts['samples'] != n
@@ -81,6 +86,11 @@ def main() -> None:
                != {'ours_v1_source_m0', 'ours_selected_source_m0'}
             or any(len(rows) != 8 for rows in contrasts['contrasts'].values())):
         raise ValueError('final fair population/table/paired result gates incomplete')
+    for metric, row in raw_paired['metrics'].items():
+        if (len(row['family16_bonferroni_ci95']) != 2
+                or abs(row['v1_mean'] - raw_table['values']['ours_v1_source_m0'][metric]) > 1e-6
+                or abs(row['selected_mean'] - raw_table['values']['ours_selected_source_m0'][metric]) > 1e-6):
+            raise ValueError('raw paired contrast and table differ: ' + metric)
     if (claim_audit['status'] != 'PASS_FAIR_TEST_CLAIM_AUDIT'
             or claim_audit['samples'] != n
             or len(claim_audit['comparisons']['selected_vs_v1']) != 8
@@ -171,6 +181,7 @@ def main() -> None:
         'review_pages': str(review), 'official_kit_sha256': KIT_SHA256,
         'main_table_json_sha256': digest(args.main_table_json),
         'paired_json_sha256': digest(args.paired_json),
+        'raw_paired_json_sha256': digest(args.raw_paired_json),
         'official_contrasts_json_sha256': digest(args.official_contrasts_json),
         'claim_audit_json_sha256': digest(args.claim_audit_json),
         'common_manifest_sha256': digest(args.common_manifest),
