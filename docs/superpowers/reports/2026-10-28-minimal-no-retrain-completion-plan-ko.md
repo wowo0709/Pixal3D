@@ -441,3 +441,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 실시간 감시가 새 캐시 evaluator PID3010914의 소실을 잡았다. SSH 세션은 코드 오류/평가 결과 없이 **exit 255**로 종료됐고, node16의 작업 디렉터리는 여전히 비어 있으며 기존 9방법 watcher PID195556은 `T`로 보존됐다. 외부 7방법 평가 PID2492093과 Ours worker 여섯 개는 계속 실행 중이다.
 - 같은 고정 인자와 빈 작업 디렉터리를 확인한 뒤 새 evaluator를 node16에서 SSH 세션과 분리된 `setsid` 프로세스 **PID3140957**, 로그 `unified-nine-method-cached-v2.log`로 다시 시작했다. PPID=1 및 live ledger의 PID 탐지를 확인했다. 계산은 공식 렌더·외부 평가 영수증을 계속 기다리는 상태이며, 완료 수치나 표에는 영향을 주지 않았다.
+
+## 09:11 KST GPU3 세션 종료와 담당 구간 복구
+
+- live ledger에서 primary rank3 PID669224가 사라진 것을 확인했다. 원래 실행 세션은 **exit 143**으로 종료됐고, 마지막 출력은 index195 V1의 file4 SHA archive PASS였다. index195 Selected 및 이후 rank3 사례는 아직 미완료다. 저장된 PASS receipt를 손실/실패로 취급하지 않았다. 다른 primary rank0–2, tail GPU6/7, node16 evaluator/bridge 및 복구 watcher는 생존했다.
+- 동일 frozen campaign, SS 완료 영수증, file4 경로, GPU3/rank3/world-size4와 index11 별도 복구 skip ID를 유지해 rank3을 SSH/exec 세션과 분리한 **PID748587**, `gpu3-recovery-v3.log`로 재시작했다. 새 worker는 index3–191의 기존 두-arm receipt를 재확인하고 index195의 미완료 Selected부터 이어간다. PPID=1, `/proc` rank3 탐지, paired 진행 **286/508**을 확인했다. 결과 집합·checkpoint·학습 step은 바뀌지 않았다.
