@@ -20,3 +20,5 @@ T1은 편집 target RGB, S3는 원본 source RGB 3장, C는 제공 camera다. �
 외부 7방법의 raw는 기존 full-test per-sample 지표 및 Inception 특징을 최종 501 ID와 camera 9/10 순서로 재집계했다. 기존 공통502 FID/KID의 재현 최대 오차는 **2.57e-11**이고, ICP 결과에 쓰인 동일 reference 특징의 최대 차이는 **0**이다. 재집계 정본은 node16 `/home/youngwoo/retargeting-unified-test508/raw-external-common501-replay-v2/summary.json`, SHA256 `f850794bb1de40521fc542c729987dab7fe730097768f1edc5e4f421a0a0f0ac`다. 공식 RGB1 raw는 기존 공통501 평가, target8은 paired 평가, Ours geometry는 위 ICP 보고서의 surface cache 원본이다. 최종 Ours source 지표와 공통 evaluator geometry가 나오면 두 표의 값을 모두 다시 검증한다.
 
 이 summary와 7개 사례별 결과는 `/file4/youngwoo/deformation/experiments/retargeting-v1/source-sim3-test508-20261028/raw-external-common501-replay-v2/`에도 복사해 각각 SHA256 일치를 확인했다. Raw 최종 표 watcher는 Ours 네 조건과 공통 주 표가 닫힌 뒤 별도 10방법×10지표 표를 자동 생성한다.
+
+Ours 각 조건의 공통 evaluator 결과는 전체 완료를 기다리지 않고 [조건별 실시간 표](2026-10-28-ours-common501-live.md)에 순차 반영한다.

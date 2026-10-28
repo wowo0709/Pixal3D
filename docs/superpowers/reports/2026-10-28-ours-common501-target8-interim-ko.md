@@ -53,3 +53,5 @@
 | CorrAdapter + ReconViaGen, T1 | 0.09388 | 0.27669 | 0.89402 | 62.95 | 3.735 | 18.292 | 0.9202 | 0.5835 | 0.05203 | 0.4131 |
 
 T1은 edited target RGB, S3는 원본 source RGB 3장, C는 제공된 camera다. 방법에 따라 입력 이미지 수·camera·native 출력 조건이 달라 이 표는 **시스템 비교**다. Ours와 공식 RGB1 비교도 입력 수가 다르다. 동일 조건 V1 대비 Selected는 위 paired 구간으로 별도 해석하며, source 보존과 geometry 재계산을 포함한 최종 결과 전에 전체 방법의 우열을 확정하지 않는다.
+
+Ours 각 조건의 공통 evaluator 결과는 전체 완료를 기다리지 않고 [조건별 실시간 표](2026-10-28-ours-common501-live.md)에 순차 반영한다.
