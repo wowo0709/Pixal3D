@@ -508,3 +508,11 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - 공식 RGB1 `chunk001`도 16사례·96작업 렌더와 file4 영수증을 **109.24초**에 통과했고 `chunk002`가 시작됐다. 첫 두 청크는 2/32이며, node16 캐시 기반 9방법 평가 watcher가 같은 완료 청크 수를 관측했다. 이 속도의 단순 외삽은 약 1시간이지만 대형 mesh·전송 편차가 있으므로 실제 완료 영수증으로 판단한다.
 - [실시간 진행표](2026-10-28-scale-ungiven-live.md)에 공식 RGB1·Ours의 `PASS_RENDER_CHUNK_ARCHIVED_ON_FILE4` 청크 수를 추가했다. 갱신 스크립트의 단발 실측은 공식 **1/32**·Ours plan 대기를 표시했고, 기존 watcher를 안전하게 종료한 뒤 분리 실행 PID799903으로 재시작했다. 새 watcher가 `PPID=1`에서 실행하고 정상 ledger를 작성함을 확인했다. `py_compile` 및 whitespace 검사도 통과했다.
+
+## 10:46 KST 계획·진행 중간 점검
+
+- 사용자 범위를 다시 대조했다. 추가 학습 없이 frozen V1/Selected만 새 camera-given·객체별 GT scale 미제공 TEST508에서 생성한다. 공식 RGB1과 외부 7방법은 같은 최종 성공 ID에서 raw와 **생성 후 source M0만 이용한 Sim(3)**를 채점한다. 기존 M1 유래 scale의 내부 ablation은 별도 표로 유지한다.
+- file4 SHA 영수증은 V1 **387/508**, Selected/Top-1 PBR과 양 arm paired **385/508**이다. GPU0–3의 네 primary worker 및 해당 계산·export·전송 자식이 살아 있다. rank3 복구 worker는 index279까지 양 arm 영수증을 추가했다. 대형 mesh의 render-bake fallback과 파일 전송으로 GPU 순간 점유율이 낮을 수 있으며, 현재 단계의 완료 판정은 GPU 사용률이 아니라 사례별 영수증이다.
+- 공식 RGB1 native 생성은 **507/508**, 최종 후보의 source-M0 surface와 GLB export는 **501/501**이다. GPU6·7의 공통 Cycles 렌더는 raw/+M0×camera 3개, 총 3,006작업 중 **3/32청크**를 file4에 보관했고 네 번째 청크의 Blender 자식 두 개가 실행 중이다. 첫 세 청크 소요는 **121.4/109.24/103.53초**였다.
+- 외부 7방법 원본 common502의 10지표 평가는 완료됐고 사례별 502 ID, source 1,004 view 및 Inception feature·FID/KID 재집계 정확성을 검증했다. node16의 캐시 기반 통합 평가 watcher는 공식 렌더 완료를 기다린다. Ours surface→렌더→4조건 평가→10방법 통합 표→paired CI→공정 teaser는 완료 영수증에 순서대로 연결돼 있다. 아직 **최종 공통 N, Ours 10지표, 표, 새 teaser, 최종 PDF는 없다**.
+- 최근 약 46분의 paired 증가 **343→385**를 단순 외삽하면 생성만 2시간 이상 남는다. GPU6·7 공식 렌더 인계와 대형 mesh 편차를 고려하면 생성 종료는 잠정 **2.5–4시간**이다. 그 뒤 surface·Ours 렌더·learned metric·논문 조판이 남으므로 전체 완료 시간을 이 수치에 포함시키지 않는다. 현재 로컬 가용 공간은 약 **1.0 TiB**이며 추가 재학습·arm 확장은 계획하지 않는다.
