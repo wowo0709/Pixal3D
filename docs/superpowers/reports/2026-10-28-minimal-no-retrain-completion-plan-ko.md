@@ -522,3 +522,9 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - [입력·scale 계약 감사](2026-10-28-test508-image-scale-contract-audit-1048.json)는 전체 508쌍 plan과 현재 file4 보관된 **V1 390건, Selected 387건**, 실제 generation **777건**을 대조해 통과했다. 두 arm의 RGB·카메라·image-only scale 입력이 같고, 생성 시 M0/M1 mesh·GT scale 미사용 플래그와 scale prediction SHA가 일치한다. 완료 508쌍 감사로 확대해 해석하지 않는다.
 - [렌더 mesh 근사 감사](2026-10-28-test508-render-fidelity-1048.json)는 같은 777개 render bake의 영수증·원본 prediction SHA·GLB SHA를 대조해 통과했다. world-frame q99 최댓값 **0.0098672**는 사전 한도 0.01 이내다. 원본 geometry metric용 표면은 유지됐고, GT를 이용한 export 정합은 없었다. GPU6·7의 공식 공통 Cycles 렌더는 이 시점 **4/32청크**를 완료했다.
 - 남은 incomplete index는 주로 268–399이며, 현재 GPU0–3이 각자 처리 중이다. 공식 렌더 종료 후 GPU6·7을 재투입할지 결정할 때 각 rank의 미완료 구간과 현재 실행 사례를 다시 확인해 겹치는 사례를 만들지 않는다. 현재는 공식 렌더가 두 GPU를 사용하므로 생성 worker를 추가하지 않는다.
+
+## 10:56 KST 최종 방법 설명과 frozen 모델 대조
+
+- 실행 campaign이 가리키는 최종 개발 freeze 파일의 SHA256 **`09bcde32d2841bd7c2895132504733bc00fc31e9aff32bcfc05740aa2ed4f5ab`**를 실제 파일과 대조했다. `selected_pipeline_model_contract`가 V1·Selected의 SS480과 PBR1900 binding을 모두 통과했다. Selected는 SS `E_FIXED_RAW`(10개 source tensor, learned attention head 0), PBR `top1-only`(10개 source tensor)이며, V1은 두 stage 모두 source tensor 0이다.
+- Selected SS 실제 config의 `topk=64`, `score_temperature=0.05`, frozen D1, semantic weighted 후보 집계, native bilinear projection, `task_attention=None`을 확인했다. PBR은 별도 `candidate_aggregation=top1`, `appearance_mode=top1-only`다. 이는 원고의 **가중 Top-K SS와 별도 Top-1 PBR** 설명 및 새 Q/K/V head를 필수라고 주장하지 않는 문장과 일치한다. 구조·가중치 binding 감사이며 최종 TEST 성능 증거는 아니다.
+- 같은 시각 Ours paired file4 보관 **393/508**, 공식 RGB1 공통 Cycles 렌더 **8/32청크**다. node16 GPU7은 다른 작업이 약 13 GiB를 점유하고 있어 learned-metric 단계가 시작되면 속도와 메모리를 확인한다. 해당 작업은 건드리지 않는다.
