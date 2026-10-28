@@ -452,3 +452,7 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 
 - node16 원격 상태 질의 한 번이 40초 관측 제한에 걸려 live ledger에 일시적 `temporarily unavailable`가 표시됐다. 이어진 독립 `ps` 조회는 외부 evaluator PID2492093과 캐시 watcher PID3140957의 생존을 확인했으며, Ours local paired 영수증은 **290/508**으로 증가했다. 관측 제한만으로 작업을 재시작하지 않았다.
 - 9방법 평가가 아직 대기 중일 때마다 불필요하게 file4 완료 영수증을 열던 원격 상태 query를 변경해, node16 로컬 `summary.json`이 생긴 이후에만 file4 archive를 확인한다. 새 query의 단발 실측은 0.51초에 공식501/외부5/7/캐시 watcher/primary4/tail2 상태를 정상 반환했고, `py_compile`·whitespace 검사를 통과했다. live watcher도 세션과 독립된 **PID751550**, 로그 `live-watcher-v4.log`로 교체했다.
+
+## 09:16 KST 생성 입력·scale 중간 재감사
+
+- [전수 계획과 현재 archive 감사](2026-10-28-test508-image-scale-contract-audit-0916.json)를 다시 실행했다. 508개 TEST 사례의 V1/Selected plan 쌍과 image-only scale prediction 508개를 전수 대조했고, 현재 보관된 V1 **295**, Selected **292**, 두 arm paired **292**, 실제 generation **587건** 및 Selected Top-1 **292건**이 같은 RGB·카메라·추정 scale SHA/값을 사용함을 통과했다. `M0_M1_mesh_or_GT_scale_used_at_inference=false`; 전체 508쌍 완료는 여전히 false로 표시한다. 중간 결과의 데이터 누출 방지 확인이며 최종 품질 수치는 아니다.
