@@ -447,3 +447,8 @@ Retarget/Top-1·두 zero-shot의 GT-scale-free TEST508 신규 생성은 **필수
 - live ledger에서 primary rank3 PID669224가 사라진 것을 확인했다. 원래 실행 세션은 **exit 143**으로 종료됐고, 마지막 출력은 index195 V1의 file4 SHA archive PASS였다. index195 Selected 및 이후 rank3 사례는 아직 미완료다. 저장된 PASS receipt를 손실/실패로 취급하지 않았다. 다른 primary rank0–2, tail GPU6/7, node16 evaluator/bridge 및 복구 watcher는 생존했다.
 - 동일 frozen campaign, SS 완료 영수증, file4 경로, GPU3/rank3/world-size4와 index11 별도 복구 skip ID를 유지해 rank3을 SSH/exec 세션과 분리한 **PID748587**, `gpu3-recovery-v3.log`로 재시작했다. 새 worker는 index3–191의 기존 두-arm receipt를 재확인하고 index195의 미완료 Selected부터 이어간다. PPID=1, `/proc` rank3 탐지, paired 진행 **286/508**을 확인했다. 결과 집합·checkpoint·학습 step은 바뀌지 않았다.
 - 09:12 KST에는 index195의 Selected PBR·Shape까지 file4 checksum 영수증을 통과해 해당 두 arm paired 사례가 닫혔다. 현재 paired **289/508**, rank0–3·tail6/7 및 node16 외부/캐시 평가 작업은 생존한다. 원고 preview 25쪽의 page3–4에서 overview와 matching/retargeting 세부 그림의 PDF 크기 글자·캡션 배치를 눈으로 점검했다. 현재 teaser는 내부 scale 실험의 임시 그림이므로 최종 공정 teaser로 교체하기 전에는 논문 그림 검수를 완료로 표시하지 않는다.
+
+## 09:15 KST 실시간 감시 지연 축소
+
+- node16 원격 상태 질의 한 번이 40초 관측 제한에 걸려 live ledger에 일시적 `temporarily unavailable`가 표시됐다. 이어진 독립 `ps` 조회는 외부 evaluator PID2492093과 캐시 watcher PID3140957의 생존을 확인했으며, Ours local paired 영수증은 **290/508**으로 증가했다. 관측 제한만으로 작업을 재시작하지 않았다.
+- 9방법 평가가 아직 대기 중일 때마다 불필요하게 file4 완료 영수증을 열던 원격 상태 query를 변경해, node16 로컬 `summary.json`이 생긴 이후에만 file4 archive를 확인한다. 새 query의 단발 실측은 0.51초에 공식501/외부5/7/캐시 watcher/primary4/tail2 상태를 정상 반환했고, `py_compile`·whitespace 검사를 통과했다. live watcher도 세션과 독립된 **PID751550**, 로그 `live-watcher-v4.log`로 교체했다.

@@ -22,6 +22,7 @@ ours=root/'ours-four-final-evaluation-v1'
 surface=root/'official-scale-ungiven-source-sim3-common-success-v2/complete.json'
 bridge=root/'official-fast-export-bridge-v3-recovered.json'
 score=json.loads(surface.read_text()) if surface.is_file() else {}
+nine_ready=(nine/'evaluation/summary.json').is_file()
 metric_worker=None
 bridge_worker=None
 cached_nine_worker=None
@@ -55,10 +56,10 @@ print(json.dumps({'official_surface':score.get('samples'),
  'external_metric_rows':len(list((external/'evaluation').glob('*-results.json'))),
  'external_done':(external/'evaluation/summary.json').is_file(),
  'external_metric_worker':metric_worker,
- 'nine_done':(nine/'evaluation/summary.json').is_file(),
+ 'nine_done':nine_ready,
  'nine_cached_worker':cached_nine_worker,
  'nine_original_watcher_state':old_nine_state,
- 'nine_archive_done':Path('/file4/youngwoo/deformation/experiments/retargeting-v1/source-sim3-test508-20261028/official-rgb1-scale-ungiven-common-success-v2/final-evaluation/completion.json').is_file(),
+ 'nine_archive_done':(nine_ready and Path('/file4/youngwoo/deformation/experiments/retargeting-v1/source-sim3-test508-20261028/official-rgb1-scale-ungiven-common-success-v2/final-evaluation/completion.json').is_file()),
  'ours_metric_rows':len(list((ours/'evaluation-ours-four').glob('*-results.json'))),
  'ours_done':(ours/'evaluation-ours-four/summary.json').is_file()}))
 '''
