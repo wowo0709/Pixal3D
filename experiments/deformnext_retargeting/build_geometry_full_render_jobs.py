@@ -2,13 +2,15 @@
 from __future__ import annotations
 import argparse,json,os
 from pathlib import Path
+import numpy as np
 
 def rows(path): return [json.loads(x) for x in Path(path).read_text().splitlines() if x]
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--campaign',type=Path,required=True);p.add_argument('--template-plan-root',type=Path,required=True)
-    p.add_argument('--output-root',type=Path,required=True);p.add_argument('--chunk-samples',type=int,default=8);a=p.parse_args()
+    p.add_argument('--output-root',type=Path,required=True);p.add_argument('--chunk-samples',type=int,default=8)
+    p.add_argument('--source-m0-fits',type=Path);a=p.parse_args()
     if a.output_root.exists():raise FileExistsError(a.output_root)
     campaign=json.loads(a.campaign.read_text());arms=campaign['arms']
     entries={(r['arm'],r['sample_id']):r for r in campaign['plans']};ids=[r['sample_id'] for r in campaign['plans'] if r['arm']==arms[0]]
@@ -27,6 +29,11 @@ def main():
                 if not glb.is_file() or not report.is_file():raise FileNotFoundError(glb)
                 relative=Path('inputs')/arm/sid/'benchmark.glb';target=stage/relative;target.parent.mkdir(parents=True);os.link(glb,target);inputs.append(str(relative))
                 transform=json.loads(report.read_text())['to_world']
+                if a.source_m0_fits:
+                    fit=json.loads((a.source_m0_fits/arm/(sid+'.json')).read_text())
+                    if fit.get('status')!='PASS_REGENERATED_SOURCE_M0_SIM3' or fit.get('sample_id')!=sid or fit.get('arm')!=arm:
+                        raise ValueError('invalid source-M0 fit')
+                    transform=(np.asarray(fit['correction_sim3']) @ np.asarray(transform)).tolist()
                 for camera in (8,9,10):
                     job=dict(templates[sid,camera],method='geometry_'+arm.lower(),mesh=str(relative),metric_mesh=str(relative),
                         to_world=transform,trusted_material_dump=None,output_rgba=f'renders/{arm}/{sid}/view{camera:02d}.png')

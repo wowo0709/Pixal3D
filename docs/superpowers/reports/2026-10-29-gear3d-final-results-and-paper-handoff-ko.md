@@ -56,7 +56,7 @@ KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 
 - Raw semantic retrieval은 SS IoU/F1이 가장 높지만 최종 aligned CD는 Full보다 나쁘므로, SS proxy와 1024 cascade surface 품질을 동일시할 수 없다.
 - Appearance 세 행은 geometry를 고정했기 때문에 CD/F 및 SS 값이 동일하다. 이 행들의 차이는 source preservation metric으로만 해석한다.
 - Original/Top-K PBR의 source-view FID/KID와 target-view PSNR/SSIM/M-IoU는 실제 common-501 렌더에서 추가 측정했다. FID/KID는 기존 source-preservation 수치와 동일한 camera9/10 1,002-image pool이므로 표에 확정 반영했다.
-- 새 appearance target-view 값은 두 appearance arm끼리는 동일 계약에서 직접 비교할 수 있다. 다만 기존 Full 행보다 M-IoU가 크게 높아, 기존 Full target8의 카메라ㆍsource-M0 transformㆍGT render binding과 byte-level 교차검증하기 전까지 `†`로 표시하며 main claim/ranking에는 사용하지 않는다.
+- 새 appearance target-view 값은 export의 원본 `to_world`를 사용한 **raw 정합 전** 결과다. 기존 Full의 source-M0 Sim(3) 정합 후 target-view 값과 직접 비교할 수 없으므로 `†`로 표시하며 main claim/ranking에는 사용하지 않는다. 같은 문제가 진행 중인 geometry render job에도 있어 정합 행렬을 적용한 렌더가 추가로 필요하다.
 - Geometry-only SS 여섯 arm의 비어 있는 render metric은 현재 common-501 full PBR/render evaluation으로 측정 중이다. 완료되는 arm부터 같은 표에 순차 반영한다.
 
 ### 3.1 Correspondence retrieval diagnostic

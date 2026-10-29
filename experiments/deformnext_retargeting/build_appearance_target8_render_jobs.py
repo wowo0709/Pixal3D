@@ -16,6 +16,7 @@ def main() -> None:
     p.add_argument("--appearance-campaign", type=Path, required=True)
     p.add_argument("--template-plan-root", type=Path, required=True)
     p.add_argument("--output-root", type=Path, required=True)
+    p.add_argument("--aligned-source-plan-root", type=Path)
     p.add_argument("--chunk-samples", type=int, default=32)
     a = p.parse_args()
     if a.output_root.exists() or a.chunk_samples < 1:
@@ -31,6 +32,16 @@ def main() -> None:
                 templates[job["sample_id"]] = job
     if set(templates) != set(entries):
         raise ValueError("camera-8 template population differs")
+    aligned = {}
+    if a.aligned_source_plan_root:
+        for path in a.aligned_source_plan_root.glob("chunk*/jobs.jsonl"):
+            for job in rows(path):
+                key = (job["method"], job["sample_id"])
+                if key in aligned and aligned[key] != job["to_world"]:
+                    raise ValueError("source camera transforms disagree")
+                aligned[key] = job["to_world"]
+        if len(aligned) != 1002:
+            raise ValueError("aligned appearance source transforms incomplete")
     a.output_root.mkdir(parents=True)
     ids = list(entries)
     total = 0
@@ -53,7 +64,9 @@ def main() -> None:
                 inputs.append(str(relative))
                 job = dict(templates[sid], method="appearance_" + arm.replace("-", "_"),
                            mesh=str(relative), metric_mesh=str(relative),
-                           to_world=json.loads((Path(entry[key]) / "benchmark.json").read_text())["to_world"],
+                           to_world=(aligned[("appearance_" + arm.replace("-", "_"), sid)]
+                                     if a.aligned_source_plan_root else
+                                     json.loads((Path(entry[key]) / "benchmark.json").read_text())["to_world"]),
                            trusted_material_dump=None,
                            output_rgba=f"renders/{arm}/{sid}/view08.png")
                 jobs.append(job)
