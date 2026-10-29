@@ -20,6 +20,14 @@ def main():
     import torch,numpy as np
     from PIL import Image
     torch.set_num_threads(2);torch.cuda.set_device(0)
+    # xFormers defaults to a Hopper flash kernel which fails on this SM120
+    # GPU. The same attention math through CUTLASS is supported here.
+    import xformers.ops as xops
+    xformers_attention=xops.memory_efficient_attention
+    def compatible_attention(*args,**kwargs):
+        kwargs['op']=(xops.fmha.cutlass.FwOp,None)
+        return xformers_attention(*args,**kwargs)
+    xops.memory_efficient_attention=compatible_attention
     from trellis.pipelines.trellis_image_to_3d import TrellisVGGTTo3DPipeline
     from trellis.pipelines.trellis_hybrid_pipeline import TrellisHybridPipeline
     from trellis2.pipelines import Trellis2ImageTo3DPipeline
@@ -53,7 +61,7 @@ def main():
         if len(meshes)!=1 or resolution!=1024:raise ValueError('unexpected output')
         m=meshes[0];out.mkdir(parents=True)
         np.savez_compressed(out/'prediction.npz',vertices=m.vertices.cpu().numpy(),faces=m.faces.cpu().numpy(),coords=m.coords.cpu().numpy(),attrs=m.attrs.cpu().numpy())
-        rec={'status':'RECONVIAGEN_V05_GENERATED_RAW','sample_id':sid,'prediction_sha256':sha(out/'prediction.npz'),'input_sha256':[sha(x) for x in [row['target_anchor'],*row['source_images']]],'code_commit':'19a902f','ss_model_revision':'647659a5ad5fbf67e22793e7b5e2cee4b30c5d13','input':'edited target RGB + three original source RGB','camera_used':False,'target_mesh_used':False,'resolution':1024,'seed':0,'ss_source':'mesh','fusion':'adaptive_guidance_weight','seconds':round(time.monotonic()-start,2)}
+        rec={'status':'RECONVIAGEN_V05_GENERATED_RAW','sample_id':sid,'prediction_sha256':sha(out/'prediction.npz'),'input_sha256':[sha(x) for x in [row['target_anchor'],*row['source_images']]],'code_commit':'19a902f','ss_model_revision':'647659a5ad5fbf67e22793e7b5e2cee4b30c5d13','input':'edited target RGB + three original source RGB','camera_used':False,'target_mesh_used':False,'resolution':1024,'seed':0,'ss_source':'mesh','fusion':'adaptive_guidance_weight','xformers_forward_kernel':'cutlass','seconds':round(time.monotonic()-start,2)}
         (out/'receipt.json').write_text(json.dumps(rec,indent=2)+'\n');print(json.dumps(rec),flush=True)
 
 if __name__=='__main__':main()

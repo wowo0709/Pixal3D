@@ -12,7 +12,7 @@ def sha(path):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-root',type=Path,required=True);p.add_argument('--receipt-root',type=Path,required=True);p.add_argument('--remote-root',required=True);p.add_argument('--ssh-socket',type=Path,required=True);p.add_argument('--host',required=True);p.add_argument('--port',type=int,default=55555);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-root',type=Path,required=True);p.add_argument('--receipt-root',type=Path,required=True);p.add_argument('--remote-root',required=True);p.add_argument('--ssh-socket',type=Path,required=True);p.add_argument('--host',required=True);p.add_argument('--port',type=int,default=55555);p.add_argument('--kind',choices=['trellis2','recon'],default='trellis2');a=p.parse_args()
     if not re.fullmatch(r'/[a-zA-Z0-9_./-]+',a.remote_root) or not re.fullmatch(r'[a-zA-Z0-9_@.-]+',a.host):raise ValueError('explicit safe remote endpoint required')
     a.receipt_root.mkdir(parents=True,exist_ok=True);ssh=['ssh','-o','BatchMode=yes','-S',str(a.ssh_socket),'-p',str(a.port),a.host]
     while True:
@@ -23,7 +23,8 @@ def main():
             marker=a.receipt_root/(sid+'.json')
             if marker.is_file():count+=1;continue
             r=json.loads(receipt.read_text());prediction=receipt.parent/'prediction.npz';digest=sha(prediction)
-            if r['status']!='PASS_TRELLIS2_GENERATED_RAW' or digest!=r['prediction_sha256']:raise ValueError('local output checksum differs')
+            expected='PASS_TRELLIS2_GENERATED_RAW' if a.kind=='trellis2' else 'RECONVIAGEN_V05_GENERATED_RAW'
+            if r['status']!=expected or digest!=r['prediction_sha256']:raise ValueError('local output checksum differs')
             dest=a.remote_root+'/'+sid
             subprocess.run([*ssh,'mkdir','-p',dest],check=True)
             subprocess.run(['rsync','-a','-e',f'ssh -o BatchMode=yes -S {a.ssh_socket} -p {a.port}',str(prediction),str(receipt),a.host+':'+dest+'/'],check=True)
