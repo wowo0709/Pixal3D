@@ -70,7 +70,10 @@ def main() -> None:
                     "run(json.loads(Path(sys.argv[1]).read_text()))")
             execute([str(a.runtime_python), "-u", "-c", code, str(pbr_plan)],
                     root / "logs" / "pbr" / a.arm / f"{sid}.log", env)
-        for budget in (250_000, 500_000, 1_000_000, 2_000_000, 5_000_000):
+        attempts = ((250_000, None), (500_000, None), (1_000_000, None),
+                    (2_000_000, None), (5_000_000, None),
+                    (5_000_000, "native"))
+        for budget, simplifier in attempts:
             if glb.is_file() and glb.with_suffix(".json").is_file():
                 break
             command = [str(a.runtime_python), "-u", "-m",
@@ -82,11 +85,14 @@ def main() -> None:
                 "--anchor-evaluation", str(pbr_root / "geometry-evaluation.npz"),
                 "--texture-arm", "top1-only", "--render-face-budget", str(budget),
                 "--output", str(glb)]
-            log = root / "logs" / "export" / a.arm / f"{sid}-{budget}.log"
+            if simplifier:
+                command.extend(("--simplifier", simplifier))
+            suffix = f"-{simplifier}" if simplifier else ""
+            log = root / "logs" / "export" / a.arm / f"{sid}-{budget}{suffix}.log"
             try:
                 execute(command, log, env, 3600)
             except subprocess.CalledProcessError:
-                if budget == 5_000_000 or not retryable_render_failure(log.read_text(errors="replace")):
+                if (budget, simplifier) == attempts[-1] or not retryable_render_failure(log.read_text(errors="replace")):
                     raise
         report = json.loads(glb.with_suffix(".json").read_text())
         if report.get("glb_sha256") != sha(glb):
