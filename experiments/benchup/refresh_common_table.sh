@@ -20,7 +20,8 @@ while :; do
     --method CorrAdapter-Recon "$TASK_RUNTIME/corradapter-recon-render-stream-v1" "$TASK_RUNTIME/corradapter-recon-learned-metrics-v1" \
     --output "$TASK_OUTPUT"; then
     /opt/conda/envs/pixal3d/bin/python -m experiments.benchup.write_common_table --input "$TASK_OUTPUT" --output "$TASK_REPORT" || true
-    rsync -a --checksum -e 'ssh -o BatchMode=yes -S /tmp/file4-ctl-v2 -p 55555' "$TASK_OUTPUT" "$TASK_REPORT" rvi@10.0.12.170:/file4/youngwoo/deformation/experiments/retargeting-v1/benchup/reports/ || true
+    /opt/conda/envs/pixal3d/bin/python -m experiments.benchup.paired_cluster_bootstrap --runtime "$TASK_RUNTIME" --manifest "$TASK_RUNTIME/unit-scale-anchor-manifest-v1.jsonl" --aggregate "$TASK_OUTPUT" --output "$TASK_RUNTIME/paired-cluster-bootstrap-v1.json" || true
+    rsync -a --checksum -e 'ssh -o BatchMode=yes -S /tmp/file4-ctl-v2 -p 55555' "$TASK_OUTPUT" "$TASK_REPORT" "$TASK_RUNTIME/paired-cluster-bootstrap-v1.json" rvi@10.0.12.170:/file4/youngwoo/deformation/experiments/retargeting-v1/benchup/reports/ || true
   fi
   live=0
   for pid in "$@"; do if kill -0 "$pid" 2>/dev/null; then live=1; fi; done
