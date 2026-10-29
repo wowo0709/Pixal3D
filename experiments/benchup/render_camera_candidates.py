@@ -10,7 +10,7 @@ from .fit_source_orthographic_pilot import camera_basis
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--campaign',type=Path,required=True);p.add_argument('--input-root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--repo',type=Path,required=True);p.add_argument('--benchmark-root',type=Path,required=True);p.add_argument('--blender',type=Path,required=True);p.add_argument('--producer-pid',type=int,required=True);a=p.parse_args()
-    plan=json.loads((a.campaign/'plan.json').read_text());assert plan['views']==180 and plan['seeds']==[0,1,2,3]
+    plan=json.loads((a.campaign/'plan.json').read_text());total_views=plan['views'];assert 0<total_views<=180 and plan['seeds']==[0,1,2,3]
     sys_path=str(a.benchmark_root)
     import sys;sys.path.insert(0,sys_path)
     from deformnext_benchmark.io import canonical_hash
@@ -18,7 +18,7 @@ def main():
     a.output.mkdir(parents=True,exist_ok=True);index_path=a.output/'results.jsonl';seen=set()
     if index_path.exists():
         seen={(x['object_id'],x['view_name']) for x in map(json.loads,index_path.read_text().splitlines())}
-    while len(seen)<180:
+    while len(seen)<total_views:
         groups={}
         for f in sorted((a.campaign/'fits').glob('*/*-seed*.json')):
             stem=f.stem;view,seed=stem.rsplit('-seed',1);groups.setdefault((f.parent.name,view),{})[int(seed)]=f
@@ -52,8 +52,8 @@ def main():
             best=max(candidates,key=lambda x:x['diagnostic_score']);results.append({'object_id':obj,'view_name':view,'status':'source_render_QA_only_not_final_camera','best':best,'candidates':candidates})
         with index_path.open('a') as stream:
             for r in results:stream.write(json.dumps(r,sort_keys=True)+'\n')
-        seen.update(group);print(json.dumps({'status':'source_camera_QA_in_progress','views':len(seen),'total':180,'recent':[(x['object_id'],x['view_name'],round(x['best']['mask_iou'],3)) for x in results]}),flush=True)
-    (a.output/'complete.json').write_text(json.dumps({'status':'PASS_SOURCE_CAMERA_RENDER_QA_NOT_PAPER_VALIDATION','views':180,'source_only':True},indent=2)+'\n')
+        seen.update(group);print(json.dumps({'status':'source_camera_QA_in_progress','views':len(seen),'total':total_views,'recent':[(x['object_id'],x['view_name'],round(x['best']['mask_iou'],3)) for x in results]}),flush=True)
+    (a.output/'complete.json').write_text(json.dumps({'status':'PASS_SOURCE_CAMERA_RENDER_QA_NOT_PAPER_VALIDATION','views':total_views,'source_only':True},indent=2)+'\n')
 
 
 if __name__=='__main__':main()
