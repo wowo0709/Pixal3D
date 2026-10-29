@@ -11,7 +11,10 @@ def live(pid):
 def export_slot():
     """Limit simultaneous new native exports across all streaming workers."""
     while True:
-        for index in range(4):
+        for index in range(6):
+            if index>=4:
+                available=int(next(x.split()[1] for x in Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:')))
+                if available<(225000000 if index==5 else 210000000):continue
             handle=open(f'/tmp/benchup-textured-export-slot-{index}.lock','a')
             try:
                 fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
