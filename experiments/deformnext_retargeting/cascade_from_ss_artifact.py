@@ -177,12 +177,14 @@ def main():
     from pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import DinoV3ProjFeatureExtractor
     from .frozen_projection_streaming import install_frozen_projection_streaming
     install_frozen_projection_streaming(max_assets=1)
+    full_eval=plan.get('execute_full_cascade_pbr',False)
     specs=plan['stages'];cfgs={name:json.loads(Path(s['config']).read_text()) for name,s in specs.items()}
     stage_keys={'shape512':'shape_slat_flow_model_512','shape1024':'shape_slat_flow_model_1024'}
+    if full_eval:stage_keys['pbr1024']='tex_slat_flow_model_1024'
     loaded={stage_keys[name]:load_stage(cfgs[name],spec['checkpoint'])
         for name,spec in specs.items() if name in stage_keys}
     for key,path in plan['decoders'].items():
-        if key!='shape_slat_decoder':continue
+        if not full_eval and key!='shape_slat_decoder':continue
         if not Path(path+'.json').is_file() or not Path(path+'.safetensors').is_file():
             raise ValueError('explicit local decoder pair required: '+path)
         loaded[key]=models.from_pretrained(path).eval().requires_grad_(False)
@@ -194,7 +196,9 @@ def main():
     pipeline=module.Pixal3DImageTo3DPipeline(loaded,**constructors,**parameters,
         shape_slat_normalization=pipeline_cfg['shape_slat_normalization'],
         tex_slat_normalization=pipeline_cfg['tex_slat_normalization'],low_vram=True)
-    for stage,attr in [('shape512','image_cond_model_shape_512'),('shape1024','image_cond_model_shape_1024')]:
+    extractor_stages=[('shape512','image_cond_model_shape_512'),('shape1024','image_cond_model_shape_1024')]
+    if full_eval:extractor_stages.append(('pbr1024','image_cond_model_tex_1024'))
+    for stage,attr in extractor_stages:
         ec=dict(cfgs[stage]['trainer']['args']['image_cond_model']['args']);ec['model_name']=plan['DINO_local_path']
         if ec['image_size']!=cfgs[stage]['dataset']['args']['image_size']:
             raise ValueError('native dataset/extractor input sizes must agree')
@@ -216,11 +220,20 @@ def main():
         transform_matrix=row['transform_matrix'],mesh_scale=row['mesh_scale'])
     started=time.monotonic();torch.cuda.reset_peak_memory_stats()
     with torch.inference_mode():
-        meshes,latents=run_geometry_1024(pipeline,module,images,camera,coords,
-            int(plan['seed']),32768)
+        if full_eval:
+            meshes,latents=pipeline.run(images,camera,seed=int(plan['seed']),
+                preprocess_image=False,return_latent=True,
+                pipeline_type='1024_cascade',max_num_tokens=32768)
+        else:
+            meshes,latents=run_geometry_1024(pipeline,module,images,camera,coords,
+                int(plan['seed']),32768)
     print(json.dumps({'phase':'CASCADE_PIPELINE_DONE','seconds':time.monotonic()-started}),flush=True)
-    if len(meshes)!=1 or latents[1]!=1024:raise ValueError('one actual1024 cascade mesh required')
-    mesh=meshes[0];shape,resolution=latents
+    if full_eval:
+        if len(meshes)!=1 or latents[2]!=1024:raise ValueError('one actual1024 full cascade mesh required')
+        mesh=meshes[0];shape,texture,resolution=latents
+    else:
+        if len(meshes)!=1 or latents[1]!=1024:raise ValueError('one actual1024 cascade mesh required')
+        mesh=meshes[0];shape,resolution=latents
     if not len(mesh.vertices) or not len(mesh.faces):raise ValueError('empty generated mesh')
     stable=canonical_seed(sample_id)
     sampled=sample_surface_cuda(mesh.vertices,mesh.faces,[
@@ -231,9 +244,17 @@ def main():
     print(json.dumps({'phase':'CUDA_SURFACE_SAMPLES_DONE','seconds':time.monotonic()-started,
         'vertices':len(mesh.vertices),'faces':len(mesh.faces)}),flush=True)
     vertices=mesh.vertices.float().cpu().numpy();faces=mesh.faces.cpu().numpy()
-    # Geometry ablations retain the actual generated mesh but avoid compressing
-    # texture/latent arrays that are neither scored nor archived by this stage.
-    np.savez(output/'prediction.npz',vertices=vertices,faces=faces)
+    if full_eval:
+        np.savez_compressed(output/'prediction.npz',vertices=vertices,faces=faces,
+            coords=mesh.coords.cpu().numpy(),attrs=mesh.attrs.cpu().numpy(),
+            origin=mesh.origin.cpu().numpy(),voxel_size=np.asarray(mesh.voxel_size),
+            voxel_shape=np.asarray(mesh.voxel_shape),shape_coords=shape.coords.cpu().numpy(),
+            shape_feats=shape.feats.float().cpu().numpy(),
+            texture_feats=texture.feats.float().cpu().numpy())
+    else:
+        # Geometry ablations retain the actual generated mesh but avoid compressing
+        # texture/latent arrays that are neither scored nor archived by this stage.
+        np.savez(output/'prediction.npz',vertices=vertices,faces=faces)
     print(json.dumps({'phase':'MINIMAL_PREDICTION_SAVED','seconds':time.monotonic()-started}),flush=True)
     generation_seconds=time.monotonic()-started
     # Camera-frame conversion uses only inference inputs.  Evaluation-only GT
@@ -259,7 +280,8 @@ def main():
         target_world=target,target_faces=target_faces,source_center=center,
         source_extent=extent,anchor_rotation=rotation)
     print(json.dumps({'phase':'GEOMETRY_EVIDENCE_SAVED','seconds':time.monotonic()-started}),flush=True)
-    result=dict(status='PASS_ACTUAL_SS_TO_SHAPE512_SHAPE1024_GEOMETRY_GENERATION',sample_id=sample_id,
+    result=dict(status=('PASS_ACTUAL_SS_TO_SHAPE512_SHAPE1024_PBR1024_GENERATION' if full_eval
+        else 'PASS_ACTUAL_SS_TO_SHAPE512_SHAPE1024_GEOMETRY_GENERATION'),sample_id=sample_id,
         object_scale_policy=scale_policy,scale_used_in_generation=float(row['mesh_scale']),
         image_scale_predictions_sha256=sha(plan['image_scale_predictions']) if scale_policy=='image-estimated-v1' else None,
         M1_derived_scale_supplied_to_generation=scale_policy=='legacy-target',
@@ -270,7 +292,8 @@ def main():
         metrics=geometry,source_defined_normalization=True,per_output_alignment=False,
         SS_source_evaluation=plan['SS_evaluation'],SS_prediction_SHA256=entry['prediction_voxels_SHA256'],
         GT_geometry_or_coords_used_in_generation=False,GT_loaded_only_after_generation=True,
-        fixed_shape_models=True,PBR_checkpoint=None,geometry_stage_does_not_execute_PBR=True,
+        fixed_shape_models=True,PBR_checkpoint=specs['pbr1024']['checkpoint'] if full_eval else None,
+        geometry_stage_does_not_execute_PBR=not full_eval,
         additional_PBR_conditioner=False,full_evaluation_complete=False,
         raw_render_capture_not_implemented=True,multi_view_MIoU_not_measured=True,
         original_stage_configs_and_weights_unchanged=True,model_adopted=False)
