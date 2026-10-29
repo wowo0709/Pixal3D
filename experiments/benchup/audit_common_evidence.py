@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse,hashlib,json,sys
 from pathlib import Path
+import numpy as np
 
 
 def sha(p):
@@ -38,12 +39,26 @@ def main():
                 jobs=[json.loads(x) for x in (chunk/'jobs.jsonl').read_text().splitlines() if x];byout={j['output_rgba']:j for j in jobs}
                 if len(jobs)!=6 or len(byout)!=6:raise ValueError('six distinct render jobs required')
                 meshhash=sha(chunk/'stage/prediction.glb')
+                candidates=[]
+                for marker in root.glob(f'{method}-postprocess-shard-*/cases/{sid}/archive.json'):
+                    archive=json.loads(marker.read_text())
+                    if archive.get('status')=='PASS_FILE4_SHA256' and archive.get('sha256')==meshhash:
+                        bake=json.loads((marker.parent/'benchmark.json').read_text())
+                        reg=json.loads((marker.parent/'source-registration.json').read_text())
+                        if bake['glb_sha256']==meshhash and bake['prediction_sha256']==reg['prediction_sha256'] and not reg['target_GT_used']:
+                            candidates.append(reg)
+                if not candidates:raise ValueError('no matching archived bake/source-only registration')
+                raw_matrix=np.asarray(candidates[0]['to_world'],dtype=np.float64)
+                aligned_matrix=np.asarray(candidates[0]['correction_sim3'],dtype=np.float64)@raw_matrix
+                if name in {'TRELLIS2','ReconViaGen','MVAdapter-Recon','CorrAdapter-Recon'} and candidates[0]['native_frame']!='trellis_minus_y_front_plus_z_up':raise ValueError('uncorrected native front-axis')
                 for mode in ('raw','source_m0'):
                     entries=metrics['metrics'][mode]
                     if len(entries)!=3:raise ValueError('three metric views required')
                     for i,entry in enumerate(entries):
                         png=chunk/'stage'/mode/f'view{i}.png';receipt=json.loads(png.with_suffix('.receipt.json').read_text());job=byout[f'{mode}/view{i}.png'];digest=sha(png)
                         if job['sample_id']!=sid or job['method']!=method+'_'+mode or job['protocol_sha256']!=protocol_hash:raise ValueError('job identity/protocol')
+                        expected_camera={'camera_to_world':row['transform_matrix'][i],'camera_angle_x':row['camera_angle_x'][i],'convention':'Blender_OpenGL_camera_to_world'}
+                        if canonical_hash(job['camera'])!=canonical_hash(expected_camera) or not np.allclose(job['to_world'],raw_matrix if mode=='raw' else aligned_matrix,atol=1e-10):raise ValueError('job camera or alignment does not match manifest/registration')
                         if receipt['output_sha256']!=digest or entry['render_sha256']!=digest or entry['reference_sha256']!=refhash[i]:raise ValueError('render/reference image hash')
                         if receipt['input_sha256']!=meshhash or receipt['metric_mesh_sha256']!=meshhash or receipt['job_sha256']!=canonical_hash(job) or receipt['camera_sha256']!=canonical_hash(job['camera']) or receipt['to_world_sha256']!=canonical_hash(job['to_world']) or receipt['protocol_sha256']!=protocol_hash:raise ValueError('mesh/job/camera receipt')
                         if receipt['blender_version']!=protocol['render']['blender_version']:raise ValueError('Blender version')
