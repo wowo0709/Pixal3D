@@ -8,11 +8,11 @@ from .run_v1_cascade import sha
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for flag in ('manifest','registration','glb','bake-receipt','benchmark-root','output'):p.add_argument('--'+flag,type=Path,required=True)
-    p.add_argument('--method',choices=['v1','selected','mv-zero'],default='v1')
+    p.add_argument('--method',choices=['v1','selected','mv-zero','trellis2','recon','mvadapter-recon','corradapter-recon','official-rgb1','shapeup','spacecontrol'],default='v1')
     a=p.parse_args()
     if a.output.exists():raise FileExistsError(a.output)
     reg=json.loads(a.registration.read_text());bake=json.loads(a.bake_receipt.read_text());sid=reg['sample_id']
-    if bake['sample_id']!=sid or bake['glb_sha256']!=sha(a.glb) or bake['prediction_sha256']!=reg['prediction_sha256']:raise ValueError('prediction/bake/registration mismatch')
+    if bake.get('status') not in {'TEXTURED_GLB_BAKED_NEEDS_RENDER_QA','NATIVE_TEXTURED_GLB_VALIDATED_NEEDS_RENDER_QA'} or bake['sample_id']!=sid or bake['glb_sha256']!=sha(a.glb) or bake['prediction_sha256']!=reg['prediction_sha256']:raise ValueError('invalid or mismatched prediction/bake/registration')
     rows=[x for x in map(json.loads,a.manifest.read_text().splitlines()) if x['sample_id']==sid]
     if len(rows)!=1:raise ValueError('unique input required')
     row=rows[0]

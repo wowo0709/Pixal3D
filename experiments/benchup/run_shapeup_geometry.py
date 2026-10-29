@@ -20,7 +20,7 @@ def main():
     # Avoid loading unrelated training dataset/system modules; inference model
     # registration and all model/sampler code remain the official implementation.
     for key in ('shapeup_geometry.data','shapeup_geometry.systems'):
-        module=types.ModuleType(key);module.__path__=[];sys.modules[key]=module
+        module=types.ModuleType(key);module.__path__=[str(a.repo.joinpath(*key.split('.')))];sys.modules[key]=module
     import numpy as np,torch
     from PIL import Image
     from shapeup_geometry.geometry_spec import GEOMETRY_SPEC
@@ -37,7 +37,12 @@ def main():
     a.output.mkdir(parents=True,exist_ok=True)
     for row in rows:
         sid=row['sample_id'];source=a.source_root/row['source_uid']/'source/pc.npz';target=Path(row['target_anchor']);out=a.output/'cases'/sid
-        if out.exists():raise FileExistsError(out)
+        if out.exists():
+            receipt=out/'receipt.json';geometry=out/'geometry.obj'
+            if not receipt.is_file() or not geometry.is_file():raise FileExistsError(f'partial case needs inspection: {out}')
+            previous=json.loads(receipt.read_text())
+            if previous.get('status')!='SHAPEUP_GEOMETRY_ONLY_NO_TEXTURE' or previous.get('source_pointcloud_sha256')!=sha(source) or previous.get('target_sha256')!=sha(target) or previous.get('geometry_sha256')!=sha(geometry):raise ValueError(f'existing output differs: {out}')
+            print(json.dumps({'status':'reused','sample_id':sid}),flush=True);continue
         with np.load(source) as pc:
             batch={'surface':torch.from_numpy(pc['fps_coarse_surface'][:,0]).float().unsqueeze(0),'sharp_surface':torch.from_numpy(pc['fps_sharp_surface'][:,0]).float().unsqueeze(0),'image':[Image.open(target).convert('RGBA')]}
         start=time.monotonic()

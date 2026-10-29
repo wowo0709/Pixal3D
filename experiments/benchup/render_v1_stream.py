@@ -12,9 +12,9 @@ def main():
     for x in ('manifest','post-root','output','benchmark-root','repo','blender'):p.add_argument('--'+x,type=Path,required=True)
     p.add_argument('--producer-pids',required=True);p.add_argument('--remote-root',required=True)
     p.add_argument('--host',default='rvi@10.0.12.170');p.add_argument('--socket',default='/tmp/file4-ctl-v2')
-    p.add_argument('--method',choices=['v1','selected','mv-zero'],default='v1')
+    p.add_argument('--method',choices=['v1','selected','mv-zero','trellis2','recon','mvadapter-recon','corradapter-recon','official-rgb1','shapeup','spacecontrol'],default='v1')
     a=p.parse_args();pids=[int(x) for x in a.producer_pids.split(',')]
-    if len(pids)!=4:raise ValueError('four explicit postprocessor handles required')
+    if not pids or any(pid<=0 for pid in pids):raise ValueError('explicit postprocessor handles required')
     a.output.mkdir(parents=True,exist_ok=True);(a.output/'logs').mkdir(exist_ok=True)
     seen=set();failed={};ssh=['ssh','-o','BatchMode=yes','-S',a.socket,'-p','55555',a.host]
     while True:

@@ -23,22 +23,30 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for x in ('v1-render','v1-learned','selected-render','selected-learned','output'):p.add_argument('--'+x,type=Path,required=True)
     p.add_argument('--zero-render',type=Path);p.add_argument('--zero-learned',type=Path)
+    p.add_argument('--extra',action='append',nargs=3,metavar=('NAME','RENDER','LEARNED'),default=[])
     p.add_argument('--producer-pids',required=True);a=p.parse_args();pids=[int(x) for x in a.producer_pids.split(',')]
     while True:
         data={'V1':gather(a.v1_render,a.v1_learned),'Selected':gather(a.selected_render,a.selected_learned)}
         if (a.zero_render is None)!=(a.zero_learned is None):raise ValueError('both zero paths required')
         if a.zero_render is not None:data['MV zero']=gather(a.zero_render,a.zero_learned)
+        for name,render,learned in a.extra:
+            if name in data:raise ValueError('duplicate model name')
+            data[name]=gather(Path(render),Path(learned))
         active={name:items for name,items in data.items() if items}
         common=set.intersection(*(set(x) for x in active.values())) if active else set()
         lines=['# BenchUp 실시간 이미지 진단 (잠정)','',
             '공개된 109개 편집 이미지 중 아래 각 행의 완료 사례만 집계한다. 카메라는 원본 이미지와 source mesh에서 추정했고 target이 같은 인덱스의 카메라라는 가정은 검증되지 않았다.',
             'Target은 편집 입력 RGB, source는 원본 입력 두 뷰다. 렌더 조명이 원본 이미지와 다르고 source 보존 점수는 의도한 편집도 벌점화할 수 있으므로 아래는 논문 최종 수치가 아니다.',
+            '모델별 입력은 다르다: Pixal3D 계열은 source에서 추정한 카메라, ShapeUP은 원본 source mesh와 뷰, SpaceControl은 TRELLIS.2 예측 메시와 source RGB를 사용한다. 카메라 미입력 모델의 고정 출력 축은 단일 사례만 검증했다.',
+            'paired-v1-selected는 두 모델만의 공통 사례이며 paired-all은 현재 값이 나온 모든 모델의 공통 사례다. 표본이 적으면 모델 순위를 해석하지 않는다.',
             'GT target mesh가 없어 target CD/F-score는 계산하지 않는다. FID/KID는 전체 모집단 및 공통 성공 집합이 확정될 때까지 계산하지 않는다.','',
             '| 모델 | 집계 | 정합 | N / 109 | Target PSNR ↑ | Target SSIM ↑ | Target M-IoU ↑ | Source LPIPS ↓ | Source DreamSim ↓ | Source CLIP ↑ |',
             '|---|---|---|---:|---:|---:|---:|---:|---:|---:|']
-        for subset in ('available','paired'):
+        selected_pair=set(data['V1']) & set(data['Selected'])
+        for subset in ('available','paired-v1-selected','paired-all'):
             for name,items in data.items():
-                ids=sorted(items if subset=='available' else common if items else [])
+                if subset=='paired-v1-selected' and name not in {'V1','Selected'}:continue
+                ids=sorted(items if subset=='available' else selected_pair if subset=='paired-v1-selected' else common if items else [])
                 if not ids:continue
                 for mode in ('raw','source_m0'):
                     vals=[]
