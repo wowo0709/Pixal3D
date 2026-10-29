@@ -158,7 +158,6 @@ additional qualitative comparisons are included in the supplementary material.
 
 \input{tables/matching_ablation}
 \input{tables/main_ablation}
-\input{tables/appearance_ablation}
 
 \YW{
 
@@ -177,7 +176,7 @@ The small differences indicate that improved correspondence coverage does not by
 %
 We examine whether retaining and weighting multiple matches is more effective than relying on a single correspondence.
 %
-The full model, which includes ray-level proposal fusion and score-weighted Top-$K$ aggregation, achieves the lowest CD in \Tref{tab:main_ablation}, with scaled values of $150.13$ for Top-1 and $150.60$ for uniform weighting versus $149.28$ for Full. The controls were regenerated for the full-render evaluation, so these differences also include generation variation.
+The full model, which includes ray-level proposal fusion and score-weighted Top-$K$ aggregation, achieves the lowest CD in \Tref{tab:main_ablation}, with values of $0.01501$ for Top-1 and $0.01506$ for uniform weighting versus $0.01493$ for Full. The controls were regenerated for the full-render evaluation, so these differences also include generation variation.
 Its F-Score is within $0.23$ points of both alternatives.
 %
 \Tref{tab:matching_ablation} illustrates the additional candidate coverage of ray fusion; the geometry comparison evaluates aggregation alternatives under the selected ray-level delivery rather than separately removing ray fusion.
@@ -186,7 +185,7 @@ Its F-Score is within $0.23$ points of both alternatives.
 %
 Relevant source evidence must also be adapted to the target state.
 %
-Removing residual retargeting increases scaled CD from $149.28$ to $151.68$, while F-Score remains close ($80.47$ vs. $80.39$; \Tref{tab:main_ablation}).
+Removing residual retargeting increases CD from $0.01493$ to $0.01517$, while F-Score remains close ($0.8047$ vs. $0.8039$; \Tref{tab:main_ablation}).
 Thus retargeting primarily improves surface proximity in this evaluation rather than uniformly improving every geometry endpoint.
 
 \paragraph{Appearance Retargeting.}

@@ -1,40 +1,25 @@
-% Geometry-stage ablation (TEST508/common501): display-only scaling.
-% Required packages: booktabs, xcolor.
-\definecolor{gearAblBest}{RGB}{255,204,204}
-\definecolor{gearAblSecond}{RGB}{255,224,180}
-\providecommand{\gearAblBest}[1]{\colorbox{gearAblBest}{#1}}
-\providecommand{\gearAblSecond}[1]{\colorbox{gearAblSecond}{#1}}
-
-\begin{table}[t]
+% Unified common-501 module ablation, generated from the verified report.
+\begin{table*}[t]
 \centering
-\caption{\small
-\textbf{Geometry-stage ablation.}
-All variants are evaluated on the same common-501 subset after input-source-only Sim(3) registration. The six controls use regenerated meshes for the full-render evaluation; the Full row uses the original main-evaluation output. The full model uses ray-fused, score-weighted Top-$K$ evidence; matching variants retain the same Fixed-style ray-level delivery. CD and F-Score are multiplied by $10^4$ and $10^2$, respectively, for display.
-}
+\caption{\small \textbf{Unified module ablation.} All image and surface metrics use the same 501 edits and source-only Sim(3) registration. The six SS controls use regenerated meshes, whereas Full uses the original main-evaluation mesh; generation variation can contribute to differences. PBR alternatives share the Full geometry. LPIPS, DreamSim and CLIP measure source preservation on cameras 9/10; FID/KID use the same 1,002 source-view images; PSNR, SSIM and M-IoU measure target alignment on camera 8. CD and F-score measure aligned surfaces. KID is multiplied by $10^3$. Bold and underlining denote the best and second-best displayed values, including ties.}
 \label{tab:main_ablation}
-\begingroup
-\footnotesize
-\setlength{\tabcolsep}{4pt}
-\setlength{\fboxsep}{0.9pt}
-\renewcommand{\arraystretch}{1.12}
-\begin{tabular}{@{}lcc@{}}
+\label{tab:appearance_ablation}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lcccccccccc@{}}
 \toprule
-\textbf{Variant} & \textbf{CD}$\downarrow$ & \textbf{F-Score}$\uparrow$ \\
+Variant & LPIPS $\downarrow$ & Dream $\downarrow$ & CLIP $\uparrow$ & FID $\downarrow$ & KID $\downarrow$ & PSNR $\uparrow$ & SSIM $\uparrow$ & M-IoU $\uparrow$ & CD $\downarrow$ & F-Score $\uparrow$ \\
 \midrule
-\textbf{Ours (Ray-fused Top-$K$)} & \gearAblBest{149.28} & \gearAblBest{80.47} \\
-\midrule
-\multicolumn{3}{@{}l}{\emph{Semantic feature matching}} \\
-Spatial retrieval           & 151.28 & 80.39 \\
-Semantic retrieval          & 151.33 & 80.31 \\
-Decoder matching (cosine)   & 150.55 & 80.20 \\
-\midrule
-\multicolumn{3}{@{}l}{\emph{Matching-aware feature aggregation}} \\
-Top-1 selection             & \gearAblSecond{150.13} & 80.25 \\
-Uniform Top-$K$ weighting   & 150.60 & 80.24 \\
-\midrule
-\multicolumn{3}{@{}l}{\emph{Target-aware feature retargeting}} \\
-Without retargeting         & 151.68 & \gearAblSecond{80.39} \\
+MV-Pixal3D (FT) & 0.05359 & 0.13393 & \textbf{0.93909} & \underline{38.61} & 0.737 & 23.22 & 0.94626 & 0.85838 & 0.01512 & 0.8032 \\
+\textbf{Full: score Top-$K$ SS + Top-1 PBR} & 0.05382 & 0.13517 & 0.93843 & \textbf{38.56} & \underline{0.685} & 23.28 & 0.94591 & 0.86186 & \textbf{0.01493} & \textbf{0.8047} \\
+Spatial retrieval SS & \underline{0.05334} & 0.13514 & 0.93782 & -- & -- & 23.24 & \textbf{0.94642} & 0.86099 & 0.01513 & \underline{0.8039} \\
+Raw semantic retrieval SS & 0.05373 & \underline{0.13388} & 0.93876 & -- & -- & 23.24 & 0.94621 & 0.86139 & 0.01513 & 0.8031 \\
+Decoder matching SS & 0.05398 & 0.13652 & 0.93779 & -- & -- & 23.23 & 0.94581 & 0.86054 & 0.01505 & 0.8020 \\
+Top-1 selection SS & \textbf{0.05324} & \textbf{0.13367} & 0.93833 & -- & -- & 23.25 & \underline{0.94639} & \textbf{0.86246} & \underline{0.01501} & 0.8025 \\
+Uniform Top-$K$ SS & 0.05363 & 0.13435 & 0.93813 & -- & -- & \textbf{23.32} & 0.94637 & 0.86145 & 0.01506 & 0.8024 \\
+No-retargeting SS & 0.05372 & 0.13562 & 0.93774 & -- & -- & 23.24 & 0.94629 & 0.85959 & 0.01517 & \underline{0.8039} \\
+Selected SS + original PBR & 0.05373 & 0.13478 & \underline{0.93879} & 38.77 & 0.698 & \textbf{23.32} & 0.94618 & \underline{0.86187} & \textbf{0.01493} & \textbf{0.8047} \\
+Selected SS + Top-$K$ PBR & 0.05371 & 0.13481 & 0.93872 & 38.63 & \textbf{0.681} & \underline{23.29} & 0.94595 & 0.86184 & \textbf{0.01493} & \textbf{0.8047} \\
 \bottomrule
-\end{tabular}
-\endgroup
-\end{table}
+\end{tabular}%
+}
+\end{table*}
