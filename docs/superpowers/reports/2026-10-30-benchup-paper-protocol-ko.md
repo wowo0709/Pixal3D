@@ -9,6 +9,7 @@
 - 공개 데이터에서 target GT mesh와 명시적 카메라 행렬을 찾지 못했다. 카메라는 source mesh와 source RGB만으로 추정했으며, 편집 target과 같은 인덱스의 source 카메라가 일치한다는 가정은 검증되지 않았다. 이를 GT camera 또는 검증된 camera-given이라고 부르지 않는다.
 - Pixal3D에 target GT scale을 주지 않는다. 현재 입력 manifest의 `mesh_scale=1.0`은 고정 단위 값이며, source mesh는 카메라 추정과 보조 정합에 쓰인다. 서로 다른 방법이 source mesh에 접근하는 정도가 다르다는 점을 밝힌다.
 - seed는 전 방법에 동일하지 않다. 현재 Pixal3D cascade/SS runner는 frozen manifest의 사례 인덱스 `i`에 대해 `42+i`, ReconViaGen 및 ShapeUP texture runner는 `0`을 사용한다. 각 예측 receipt의 seed와 입력 hash가 개별 기록이므로 이를 확인하고, 모든 방법에 동일한 seed를 썼다고 쓰지 않는다.
+- 표의 `GEAR3D (selected)`는 이전 결과 정리에서 선택한 score-weighted Top-K SS와 Top-1 PBR을 결합한다. 실제 PBR receipt에는 `pbr_arm: top1-only`가 기록된다. 따라서 이 행만으로 PBR 단계에서 Top-K가 Top-1보다 우수하다고 주장하지 않는다.
 
 ## 점수와 보조 정합
 
