@@ -9,16 +9,16 @@
 \toprule
 Variant & LPIPS $\downarrow$ & Dream $\downarrow$ & CLIP $\uparrow$ & FID $\downarrow$ & KID $\downarrow$ & PSNR $\uparrow$ & SSIM $\uparrow$ & M-IoU $\uparrow$ & CD $\downarrow$ & F-Score $\uparrow$ \\
 \midrule
-MV-Pixal3D (FT) & 0.05359 & 0.13393 & \textbf{0.93909} & \underline{38.61} & 0.737 & 23.22 & 0.94626 & 0.85838 & 0.01512 & 0.8032 \\
-\textbf{Full: score Top-$K$ SS + Top-1 PBR} & 0.05382 & 0.13517 & 0.93843 & \textbf{38.56} & \underline{0.685} & 23.28 & 0.94591 & 0.86186 & \textbf{0.01493} & \textbf{0.8047} \\
-Spatial retrieval SS & \underline{0.05334} & 0.13514 & 0.93782 & -- & -- & 23.24 & \textbf{0.94642} & 0.86099 & 0.01513 & \underline{0.8039} \\
-Raw semantic retrieval SS & 0.05373 & \underline{0.13388} & 0.93876 & -- & -- & 23.24 & 0.94621 & 0.86139 & 0.01513 & 0.8031 \\
-Decoder matching SS & 0.05398 & 0.13652 & 0.93779 & -- & -- & 23.23 & 0.94581 & 0.86054 & 0.01505 & 0.8020 \\
-Top-1 selection SS & \textbf{0.05324} & \textbf{0.13367} & 0.93833 & -- & -- & 23.25 & \underline{0.94639} & \textbf{0.86246} & \underline{0.01501} & 0.8025 \\
-Uniform Top-$K$ SS & 0.05363 & 0.13435 & 0.93813 & -- & -- & \textbf{23.32} & 0.94637 & 0.86145 & 0.01506 & 0.8024 \\
-No-retargeting SS & 0.05372 & 0.13562 & 0.93774 & -- & -- & 23.24 & 0.94629 & 0.85959 & 0.01517 & \underline{0.8039} \\
+MV-Pixal3D (FT) & 0.05359 & 0.13393 & \textbf{0.93909} & 38.61 & 0.737 & 23.22 & 0.94626 & 0.85838 & 0.01512 & 0.8032 \\
+\textbf{Full: score Top-$K$ SS + Top-1 PBR} & 0.05382 & 0.13517 & 0.93843 & 38.56 & 0.685 & 23.28 & 0.94591 & 0.86186 & \textbf{0.01493} & \textbf{0.8047} \\
+Spatial retrieval SS & \underline{0.05334} & 0.13514 & 0.93782 & \underline{38.41} & 0.690 & 23.24 & \textbf{0.94642} & 0.86099 & 0.01513 & \underline{0.8039} \\
+Raw semantic retrieval SS & 0.05373 & \underline{0.13388} & 0.93876 & 38.60 & 0.788 & 23.24 & 0.94621 & 0.86139 & 0.01513 & 0.8031 \\
+Decoder matching SS & 0.05398 & 0.13652 & 0.93779 & 38.80 & 0.679 & 23.23 & 0.94581 & 0.86054 & 0.01505 & 0.8020 \\
+Top-1 selection SS & \textbf{0.05324} & \textbf{0.13367} & 0.93833 & 38.95 & 0.711 & 23.25 & \underline{0.94639} & \textbf{0.86246} & \underline{0.01501} & 0.8025 \\
+Uniform Top-$K$ SS & 0.05363 & 0.13435 & 0.93813 & \textbf{38.09} & \textbf{0.573} & \textbf{23.32} & 0.94637 & 0.86145 & 0.01506 & 0.8024 \\
+No-retargeting SS & 0.05372 & 0.13562 & 0.93774 & 39.09 & \underline{0.611} & 23.24 & 0.94629 & 0.85959 & 0.01517 & \underline{0.8039} \\
 Selected SS + original PBR & 0.05373 & 0.13478 & \underline{0.93879} & 38.77 & 0.698 & \textbf{23.32} & 0.94618 & \underline{0.86187} & \textbf{0.01493} & \textbf{0.8047} \\
-Selected SS + Top-$K$ PBR & 0.05371 & 0.13481 & 0.93872 & 38.63 & \textbf{0.681} & \underline{23.29} & 0.94595 & 0.86184 & \textbf{0.01493} & \textbf{0.8047} \\
+Selected SS + Top-$K$ PBR & 0.05371 & 0.13481 & 0.93872 & 38.63 & 0.681 & \underline{23.29} & 0.94595 & 0.86184 & \textbf{0.01493} & \textbf{0.8047} \\
 \bottomrule
 \end{tabular}%
 }

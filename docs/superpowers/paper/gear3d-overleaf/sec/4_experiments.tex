@@ -178,6 +178,7 @@ We examine whether retaining and weighting multiple matches is more effective th
 %
 The full model, which includes ray-level proposal fusion and score-weighted Top-$K$ aggregation, achieves the lowest CD in \Tref{tab:main_ablation}, with values of $0.01501$ for Top-1 and $0.01506$ for uniform weighting versus $0.01493$ for Full. The controls were regenerated for the full-render evaluation, so these differences also include generation variation.
 Its F-Score is within $0.23$ points of both alternatives.
+The rendering metrics show a different trade-off: uniform Top-$K$ has lower FID/KID ($38.09$/$0.573\times10^{-3}$), while Top-1 has lower LPIPS and higher target mask IoU than Full. These results do not establish a uniform advantage for score weighting across endpoints.
 %
 \Tref{tab:matching_ablation} illustrates the additional candidate coverage of ray fusion; the geometry comparison evaluates aggregation alternatives under the selected ray-level delivery rather than separately removing ray fusion.
 

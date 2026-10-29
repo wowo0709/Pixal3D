@@ -9,7 +9,7 @@
 - 501개 샘플은 133개 source cluster로 구성된다.
 - Ours와 새 Pixal3D target 1-view 및 MV-Pixal3D 비교는 camera-given, scale-ungiven 조건이다. 외부 방법들의 생성 입력은 각 방법의 인터페이스를 따르며, Pixal3D native 행은 추정 카메라를 사용한다. GT mesh에는 정합하지 않으며, 입력 source M0만 사용한 Sim(3) 정합을 모든 mesh 출력에 적용했다.
 - Ours와 새 Pixal3D 비교는 1024 cascade를 사용한다. Pixal3D native는 1536 cascade이며 외부 방법은 원래 출력을 사용하므로 모든 생성 해상도가 같지는 않다. 출력 렌더 카메라와 metric 구현은 방법 간 동일하게 고정했다.
-- Main comparison 11개 방법과 appearance-stage ablation은 완료했다. Geometry-stage ablation은 SS, surface 및 이미지별 렌더 지표를 완료했으며, source-M0 정합 후 FID/KID는 집계 중이다.
+- Main comparison 11개 방법과 appearance-stage ablation은 완료했다. Geometry-stage ablation도 source-M0 정합 후 렌더 및 요청된 모든 지표의 집계를 완료했다.
 
 ## 2. Main comparison
 
@@ -35,29 +35,31 @@ GEAR3D는 FID, PSNR, M-IoU, CD, F-Score에서 최고 성능이다. Source-preser
 
 Geometry/appearance stage를 별도 표로 나누지 않고, 모든 arm을 동일한 metric schema에 배치했다. `Full`은 Ray-fused score-weighted Top-K SS와 사전에 선택한 Top-1 PBR을 조합한 GEAR3D main model이다. `Original PBR`과 `Top-K PBR`은 Full과 동일한 selected geometry를 사용하므로 SS 및 surface 값도 Full과 같다. `Vanilla V1`은 ablation 해석을 위한 full-pipeline reference다.
 
-KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. `—`는 해당 arm의 full-render metric이 아직 완료되지 않은 값이며, 다른 arm의 값을 복사하거나 추정하지 않았다. 굵은 값과 밑줄은 현재 기재된 표시값 기준 각각 최고와 두 번째로 좋은 값이다(동률 포함).
+KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. 굵은 값과 밑줄은 현재 기재된 표시값 기준 각각 최고와 두 번째로 좋은 값이다(동률 포함).
 
 | Unified arm | LPIPS ↓ | Dream ↓ | CLIP ↑ | FID ↓ | KID ↓ | PSNR ↑ | SSIM ↑ | M-IoU ↑ | Aligned CD ↓ | Aligned F ↑ | SS IoU ↑ | SS Prec. ↑ | SS Recall ↑ | SS F1 ↑ | Raw CD ↓ | Raw F ↑ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Vanilla V1 reference | 0.05359 | 0.13393 | **0.93909** | <u>38.61</u> | 0.737 | 23.22 | 0.94626 | 0.85838 | 0.01512 | 0.8032 | 0.37422 | 0.50186 | 0.59536 | 0.54462 | 0.01420 | 0.8181 |
-| **Full: Ray-fused Top-K SS + Top-1 PBR** | 0.05382 | 0.13517 | 0.93843 | **38.56** | <u>0.685</u> | 23.28 | 0.94591 | 0.86186 | **0.01493** | **0.8047** | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
-| Spatial retrieval SS | <u>0.05334</u> | 0.13514 | 0.93782 | — | — | 23.24 | **0.94642** | 0.86099 | 0.01513 | <u>0.8039</u> | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01399 | 0.8233 |
-| Raw semantic retrieval SS | 0.05373 | <u>0.13388</u> | 0.93876 | — | — | 23.24 | 0.94621 | 0.86139 | 0.01513 | 0.8031 | **0.38045** | **0.51308** | 0.59544 | **0.55120** | **0.01382** | **0.8266** |
-| Decoder matching SS | 0.05398 | 0.13652 | 0.93779 | — | — | 23.23 | 0.94581 | 0.86054 | 0.01505 | 0.8020 | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01390 | 0.8231 |
-| Top-1 selection SS | **0.05324** | **0.13367** | 0.93833 | — | — | 23.25 | <u>0.94639</u> | **0.86246** | <u>0.01501</u> | 0.8025 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01393 | 0.8235 |
-| Uniform Top-K SS | 0.05363 | 0.13435 | 0.93813 | — | — | **23.32** | 0.94637 | 0.86145 | 0.01506 | 0.8024 | <u>0.38016</u> | <u>0.51248</u> | <u>0.59553</u> | <u>0.55089</u> | <u>0.01383</u> | <u>0.8253</u> |
-| No-retargeting SS | 0.05372 | 0.13562 | 0.93774 | — | — | 23.24 | 0.94629 | 0.85959 | 0.01517 | <u>0.8039</u> | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
+| Vanilla V1 reference | 0.05359 | 0.13393 | **0.93909** | 38.61 | 0.737 | 23.22 | 0.94626 | 0.85838 | 0.01512 | 0.8032 | 0.37422 | 0.50186 | 0.59536 | 0.54462 | 0.01420 | 0.8181 |
+| **Full: Ray-fused Top-K SS + Top-1 PBR** | 0.05382 | 0.13517 | 0.93843 | 38.56 | 0.685 | 23.28 | 0.94591 | 0.86186 | **0.01493** | **0.8047** | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Spatial retrieval SS | <u>0.05334</u> | 0.13514 | 0.93782 | <u>38.41</u> | 0.690 | 23.24 | **0.94642** | 0.86099 | 0.01513 | <u>0.8039</u> | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01399 | 0.8233 |
+| Raw semantic retrieval SS | 0.05373 | <u>0.13388</u> | 0.93876 | 38.60 | 0.788 | 23.24 | 0.94621 | 0.86139 | 0.01513 | 0.8031 | **0.38045** | **0.51308** | 0.59544 | **0.55120** | **0.01382** | **0.8266** |
+| Decoder matching SS | 0.05398 | 0.13652 | 0.93779 | 38.80 | 0.679 | 23.23 | 0.94581 | 0.86054 | 0.01505 | 0.8020 | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01390 | 0.8231 |
+| Top-1 selection SS | **0.05324** | **0.13367** | 0.93833 | 38.95 | 0.711 | 23.25 | <u>0.94639</u> | **0.86246** | <u>0.01501</u> | 0.8025 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01393 | 0.8235 |
+| Uniform Top-K SS | 0.05363 | 0.13435 | 0.93813 | **38.09** | **0.573** | **23.32** | 0.94637 | 0.86145 | 0.01506 | 0.8024 | <u>0.38016</u> | <u>0.51248</u> | <u>0.59553</u> | <u>0.55089</u> | <u>0.01383</u> | <u>0.8253</u> |
+| No-retargeting SS | 0.05372 | 0.13562 | 0.93774 | 39.09 | <u>0.611</u> | 23.24 | 0.94629 | 0.85959 | 0.01517 | <u>0.8039</u> | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
 | Selected SS + Original PBR | 0.05373 | 0.13478 | <u>0.93879</u> | 38.77 | 0.698 | **23.32** | 0.94618 | <u>0.86187</u> | **0.01493** | **0.8047** | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
-| Selected SS + Top-K PBR | 0.05371 | 0.13481 | 0.93872 | 38.63 | **0.681** | <u>23.29</u> | 0.94595 | 0.86184 | **0.01493** | **0.8047** | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Selected SS + Top-K PBR | 0.05371 | 0.13481 | 0.93872 | 38.63 | 0.681 | <u>23.29</u> | 0.94595 | 0.86184 | **0.01493** | **0.8047** | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
 
 이 통합 표에서 확인되는 핵심은 다음과 같다.
 
 - Full은 최종 aligned CD가 가장 낮지만, F-Score 및 SS voxel metric의 모든 열에서 항상 최고인 것은 아니다.
 - Raw semantic retrieval은 SS IoU/F1이 가장 높지만 최종 aligned CD는 Full보다 나쁘므로, SS proxy와 1024 cascade surface 품질을 동일시할 수 없다.
+- Uniform Top-K SS는 이 통합 ablation에서 FID/KID가 가장 낮고, Top-1 SS는 LPIPS/DreamSim 및 M-IoU가 가장 좋다. Full의 CD/F 우위가 모든 렌더 지표의 우위를 의미하지는 않는다. SS 대조군과 Full은 별도로 생성된 mesh이므로 작은 차이에는 생성 변동도 포함된다.
 - Appearance 세 행은 geometry를 고정했기 때문에 CD/F 및 SS 값이 동일하다. 렌더 기반 source preservation, FID/KID 및 target-view 지표는 각 texture arm에서 직접 측정했다.
 - Original/Top-K PBR의 source-view FID/KID와 target-view PSNR/SSIM/M-IoU는 실제 common-501 렌더에서 추가 측정했다. FID/KID는 기존 source-preservation 수치와 동일한 camera9/10 1,002-image pool이므로 표에 확정 반영했다.
 - 이전에 임시 표기한 appearance target-view 값은 raw 정합 전 수치였다. 이제 source-view 평가와 동일한 source-M0 정합 행렬을 적용해 501개를 재렌더한 값으로 교체했다. Geometry 여섯 arm도 각 재생성 mesh의 source-M0 정합을 적용해 재렌더했다.
-- Geometry-only SS 여섯 arm의 LPIPS, DreamSim, CLIP, PSNR, SSIM, M-IoU는 정합 후 common-501 렌더 9,018장 전체에서 측정해 반영했다. FID/KID는 현재 집계 중이다.
+- Geometry-only SS 여섯 arm의 렌더 지표는 정합 후 common-501 렌더 9,018장 전체에서 측정했다. FID/KID는 arm별 source view 1,002장의 동일 feature 집합으로 집계했다.
+- 집계 결과는 `geometry-full-render-common501-v1/metrics-aligned-v1/metrics.json` 및 `metrics-fast.json`에 있다. 압축 feature를 한 번씩 읽는 집계기는 기존 집계와 raw 및 정합 후 각각 6개 arm의 8개 지표 전체를 대조했다. 최대 절대 차이는 각각 `1.90e-11`, `3.83e-11`이다. 정합 후 이미지 9,018개의 receipt와 camera/protocol/job/output hash를 모두 검증했다.
 - 여섯 SS arm의 CD/F는 새 full-render 결과물과 같은 재생성 mesh에 대해 다시 측정한 값이다. 이전 geometry-only 생성의 CD/F와 소폭 차이가 있으며, 기존 paired bootstrap은 이전 생성에 대한 결과이므로 이 행들에 그대로 적용하지 않는다.
 
 정합 전 raw 렌더의 참고 수치도 common-501에서 완료됐다. 아래 값은 위 표의 정합 후 Full/V1 수치와 직접 순위를 매기지 않는다. KID는 동일하게 ×1,000이다.
@@ -101,10 +103,10 @@ Deformation-weighted paired cluster bootstrap에서 Top-K − Top-1 LPIPS는 `-0
 ## 5. 최종 산출물
 
 - 논문 PDF: `docs/superpowers/reports/2026-10-29-gear3d-common501-final.pdf`
-  - SHA256: `9d85b20730c3ce4ec3e0c3421fbbba508c778a8be432fa2001835884b46bc806`
+  - SHA256: `8921ed558fd48cbc2442ee1f07068e10919145757eb2b780226b10c698f4f5c8`
   - 15 pages
 - Overleaf source ZIP: `docs/superpowers/reports/2026-10-29-gear3d-overleaf.zip`
-  - SHA256: `d0243cbce171b39550dc3581899e5548576a1723de6ae89952b8cce3b170808d`
+  - SHA256: `b0a574379e983a3a6899e8bff4787b654647cb5260e39fb6da4eccbf55c62f8e`
   - 21 source files; 별도 임시 디렉터리에서 clean compile 검증 완료
 - Paper source: `docs/superpowers/paper/gear3d-overleaf`
 - 실시간/실험 인계 기록: `docs/superpowers/reports/2026-10-28-scale-ungiven-live.md`

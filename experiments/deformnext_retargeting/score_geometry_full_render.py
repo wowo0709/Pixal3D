@@ -44,11 +44,12 @@ def main():
         features={}
         for _,_,out in children:
             with np.load(out.with_suffix('.npz')) as z:
-                for i,key in enumerate(z['keys']):
+                keys, predictions, references = z['keys'], z['prediction'], z['reference']
+                for i,key in enumerate(keys):
                     name,sid,camera=json.loads(key)
                     if name==arm:
                         if (sid,camera) in features:raise ValueError('duplicate inception feature')
-                        features[sid,camera]=(z['prediction'][i].copy(),z['reference'][i].copy())
+                        features[sid,camera]=(predictions[i].copy(),references[i].copy())
         required={(sid,camera) for sid in refs for camera in (9,10)}
         if set(features)!=required:raise ValueError('incomplete 1002-image inception population')
         ordered=sorted(required);pf=np.stack([features[k][0] for k in ordered]);rf=np.stack([features[k][1] for k in ordered])
