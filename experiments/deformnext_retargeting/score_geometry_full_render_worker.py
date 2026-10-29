@@ -11,6 +11,8 @@ def main():
     p.add_argument('--physical-gpu',required=True);p.add_argument('--rank',type=int,required=True);p.add_argument('--world-size',type=int,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     if a.physical_gpu not in '0,1,2,3,6,7'.split(',') or not 0<=a.rank<a.world_size:raise ValueError('authorized shard required')
     os.environ['CUDA_VISIBLE_DEVICES']=a.physical_gpu;os.environ['BENCHMARK_ASSIGNED_GPU']=a.physical_gpu;os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
+    import torch
+    torch.set_num_threads(2)
     import sys;sys.path.insert(0,str(a.benchmark_root));from deformnext_benchmark.io import read_rgba;from deformnext_benchmark.metrics import image_metrics
     from deformnext_benchmark.learned import OfflineMetrics
     tasks=rows(a.tasks)[a.rank::a.world_size];learned=OfflineMetrics(a.registry,device='cuda:0');result=[];pf=[];rf=[];feature_keys=[]

@@ -25,7 +25,7 @@ def main():
             tasks.append({'arm':arm,'sample_id':sid,'camera_id':camera,'prediction':str(chunk/'stage'/job['output_rgba']),'reference':reference})
     if len(tasks)!=9018:raise ValueError('render task closure differs')
     a.output_root.mkdir(parents=True);task_path=a.output_root/'tasks.jsonl';task_path.write_text(''.join(json.dumps(x,sort_keys=True)+'\n' for x in tasks));shards=a.output_root/'shards';logs=a.output_root/'logs';shards.mkdir();logs.mkdir()
-    children=[];gpus=[g for g in GPUS for _ in range(a.workers_per_gpu)];env=dict(os.environ,PYTHONPATH=str(Path(__file__).resolve().parents[2]))
+    children=[];gpus=[g for g in GPUS for _ in range(a.workers_per_gpu)];env=dict(os.environ,PYTHONPATH=str(Path(__file__).resolve().parents[2]),OMP_NUM_THREADS='2',OPENBLAS_NUM_THREADS='2',MKL_NUM_THREADS='2')
     for rank,gpu in enumerate(gpus):
         out=shards/f'rank{rank:02d}.jsonl';stream=(logs/f'rank{rank:02d}-gpu{gpu}.log').open('w');cmd=[str(a.metric_python),'-u','-m','experiments.deformnext_retargeting.score_geometry_full_render_worker','--tasks',str(task_path),'--registry',str(a.registry),'--benchmark-root',str(a.benchmark_root),'--physical-gpu',gpu,'--rank',str(rank),'--world-size',str(len(gpus)),'--output',str(out)]
         proc=subprocess.Popen(cmd,env=env,stdout=stream,stderr=subprocess.STDOUT);children.append((proc,stream,out))
