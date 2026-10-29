@@ -24,7 +24,8 @@ def main():
     p.add_argument('--limit',type=int,default=0)
     p.add_argument('--rank',type=int,default=0)
     p.add_argument('--world-size',type=int,default=1)
-    p.add_argument('--arm',choices=['V1','SELECTED'],default='V1')
+    p.add_argument('--arm',choices=['V1','SELECTED','MV_ZERO'],default='V1')
+    p.add_argument('--original-checkpoint',type=Path)
     a=p.parse_args()
     if a.world_size<1 or not 0<=a.rank<a.world_size: raise ValueError('invalid shard')
     if os.environ.get('CUDA_VISIBLE_DEVICES') != a.gpu: raise ValueError('explicit allowed GPU required')
@@ -39,7 +40,8 @@ def main():
     manifest=a.output/'inference-manifest.jsonl'
     manifest.write_text(''.join(json.dumps(r,sort_keys=True)+'\n' for r in rows))
     prior=json.loads(a.evaluation.read_text()); cfg=json.loads(Path(prior['arm_config']).read_text())
-    if (prior['conditioner_checkpoint'] is None) != (a.arm=='V1'): raise ValueError('arm/checkpoint mismatch')
+    if (prior['conditioner_checkpoint'] is None) != (a.arm in {'V1','MV_ZERO'}): raise ValueError('arm/checkpoint mismatch')
+    if (a.original_checkpoint is not None) != (a.arm=='MV_ZERO'):raise ValueError('original checkpoint is required only for MV_ZERO')
     from pixal3d import datasets, models, trainers
     from pixal3d.utils.data_utils import recursive_to_device
     from train import setup_rng
@@ -53,15 +55,16 @@ def main():
             return item
     ds_args=copy.deepcopy(cfg['validation']['dataset_args'])
     ds_args.update(expected_split='test',expected_ss_schema=None,path_map={},verify_files=False)
-    if a.arm=='V1': ds_args['transport_arm']='v1'
+    if a.arm in {'V1','MV_ZERO'}: ds_args['transport_arm']='v1'
     else: ds_args.update(projection_root=None,match_root=None)
     dataset=InferenceDataset(str(manifest),**ds_args)
     setup_rng(0,cfg['training_seed']);torch.set_num_threads(2);torch.cuda.set_device(0)
     with torch.device('meta'):
         model_defs={name:getattr(models,spec['name'])(**spec['args']) for name,spec in cfg['models'].items()}
     kw=copy.deepcopy(cfg['trainer']['args'])
-    kw.update(continuation_ckpt={'denoiser':prior['checkpoint']},batch_size_per_gpu=1,batch_split=1,num_workers=0,prefetch_data=False,max_steps=1)
-    if a.arm=='V1':
+    checkpoint=str(a.original_checkpoint) if a.arm=='MV_ZERO' else prior['checkpoint']
+    kw.update(continuation_ckpt={'denoiser':checkpoint},batch_size_per_gpu=1,batch_split=1,num_workers=0,prefetch_data=False,max_steps=1)
+    if a.arm in {'V1','MV_ZERO'}:
         kw['deform_conditioner']=None;kw.get('model_learning_rates',{}).pop('deform_conditioner',None)
         from experiments.deformnext_retargeting.r_mediated_native_runtime import selected_trainer
         if cfg['trainer']['name'] != 'RMediatedNativeFlowTrainer': raise ValueError('unexpected V1 trainer')
@@ -94,6 +97,6 @@ def main():
         records.append(record)
         with (a.output/'progress.jsonl').open('a') as f: f.write(json.dumps(record)+'\n')
         print(json.dumps(record),flush=True)
-    (a.output/'complete.json').write_text(json.dumps({'status':'PASS_GT_FREE_SS_SHARD','samples':len(records),'rank':a.rank,'world_size':a.world_size,'manifest_sha256':sha(a.manifest),'scale_sha256':sha(a.scale_predictions),'evaluation_sha256':sha(a.evaluation)},indent=2)+'\n')
+    (a.output/'complete.json').write_text(json.dumps({'status':'PASS_GT_FREE_SS_SHARD','arm':a.arm,'samples':len(records),'rank':a.rank,'world_size':a.world_size,'manifest_sha256':sha(a.manifest),'scale_sha256':sha(a.scale_predictions),'evaluation_sha256':sha(a.evaluation),'checkpoint_sha256':sha(checkpoint)},indent=2)+'\n')
 
 if __name__=='__main__': main()
