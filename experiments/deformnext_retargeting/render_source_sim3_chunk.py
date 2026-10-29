@@ -46,6 +46,17 @@ def main():
                    '--benchmark-root', str(args.benchmark_root), '--protocol', str(args.protocol),
                    '--jobs', str(args.chunk / 'jobs.jsonl'), '--indices', str(index_file),
                    '--root', str(args.stage_root), '--device', 'OPTIX']
+        # glTF import and mesh processing can spawn many threads despite
+        # Blender's -t flag. Bound only this BenchUp campaign, leaving other
+        # workloads and other benchmark invocations untouched.
+        if args.chunk.resolve().is_relative_to(Path('/root/dev/.cache/benchup-runtime')):
+            allowed = sorted(os.sched_getaffinity(0))
+            physical = int(gpu)
+            if not 0 <= physical < 4 or len(allowed) < 4:
+                raise ValueError('BenchUp needs four explicit GPUs and sufficient CPU affinity')
+            width = min(16, len(allowed)//4)
+            cpus = allowed[physical*width:(physical+1)*width]
+            command = ['taskset', '--cpu-list', ','.join(map(str, cpus)), *command]
         stream = (logs / f'gpu{gpu}.log').open('w')
         process = subprocess.Popen(command, env=env, stdout=stream, stderr=subprocess.STDOUT)
         processes.append((gpu, process, stream))
