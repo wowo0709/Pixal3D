@@ -41,12 +41,12 @@ KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Vanilla V1 reference | 0.05359 | 0.13393 | 0.93909 | 38.61 | 0.737 | 23.22 | 0.94626 | 0.85838 | 0.01512 | 0.8032 | 0.37422 | 0.50186 | 0.59536 | 0.54462 | 0.01420 | 0.8181 |
 | **Full: Ray-fused Top-K SS + Top-1 PBR** | 0.05382 | 0.13517 | 0.93843 | 38.56 | 0.685 | 23.28 | 0.94591 | 0.86186 | **0.01493** | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
-| Spatial retrieval SS | — | — | — | — | — | — | — | — | 0.01512 | 0.8037 | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01401 | 0.8231 |
-| Raw semantic retrieval SS | — | — | — | — | — | — | — | — | 0.01516 | 0.8022 | **0.38045** | **0.51308** | 0.59544 | **0.55120** | 0.01384 | **0.8262** |
-| Decoder matching SS | — | — | — | — | — | — | — | — | 0.01499 | 0.8024 | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01390 | 0.8229 |
-| Top-1 selection SS | — | — | — | — | — | — | — | — | 0.01504 | 0.8017 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01394 | 0.8233 |
-| Uniform Top-K SS | — | — | — | — | — | — | — | — | 0.01504 | 0.8038 | 0.38016 | 0.51248 | 0.59553 | 0.55089 | **0.01383** | 0.8252 |
-| No-retargeting SS | — | — | — | — | — | — | — | — | 0.01514 | **0.8050** | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
+| Spatial retrieval SS | — | — | — | — | — | — | — | — | 0.01513 | 0.8039 | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01399 | 0.8233 |
+| Raw semantic retrieval SS | — | — | — | — | — | — | — | — | 0.01513 | 0.8031 | **0.38045** | **0.51308** | 0.59544 | **0.55120** | **0.01382** | **0.8266** |
+| Decoder matching SS | — | — | — | — | — | — | — | — | 0.01505 | 0.8020 | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01390 | 0.8231 |
+| Top-1 selection SS | — | — | — | — | — | — | — | — | 0.01501 | 0.8025 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01393 | 0.8235 |
+| Uniform Top-K SS | — | — | — | — | — | — | — | — | 0.01506 | 0.8024 | 0.38016 | 0.51248 | 0.59553 | 0.55089 | 0.01383 | 0.8253 |
+| No-retargeting SS | — | — | — | — | — | — | — | — | 0.01517 | 0.8039 | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
 | Selected SS + Original PBR | 0.05373 | **0.13478** | **0.93879** | 38.77 | 0.698 | 25.15† | 0.95571† | 0.91242† | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
 | Selected SS + Top-K PBR | **0.05371** | 0.13481 | 0.93872 | <u>38.63</u> | **0.681** | 25.14† | 0.95552† | 0.91244† | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
 
@@ -58,6 +58,7 @@ KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 
 - Original/Top-K PBR의 source-view FID/KID와 target-view PSNR/SSIM/M-IoU는 실제 common-501 렌더에서 추가 측정했다. FID/KID는 기존 source-preservation 수치와 동일한 camera9/10 1,002-image pool이므로 표에 확정 반영했다.
 - 새 appearance target-view 값은 export의 원본 `to_world`를 사용한 **raw 정합 전** 결과다. 기존 Full의 source-M0 Sim(3) 정합 후 target-view 값과 직접 비교할 수 없으므로 `†`로 표시하며 main claim/ranking에는 사용하지 않는다. 같은 문제가 진행 중인 geometry render job에도 있어 정합 행렬을 적용한 렌더가 추가로 필요하다.
 - Geometry-only SS 여섯 arm의 비어 있는 render metric은 현재 common-501 full PBR/render evaluation으로 측정 중이다. 완료되는 arm부터 같은 표에 순차 반영한다.
+- 여섯 SS arm의 CD/F는 새 full-render 결과물과 같은 재생성 mesh에 대해 다시 측정한 값이다. 이전 geometry-only 생성의 CD/F와 소폭 차이가 있으며, 기존 paired bootstrap은 이전 생성에 대한 결과이므로 이 행들에 그대로 적용하지 않는다.
 
 ### 3.1 Correspondence retrieval diagnostic
 
@@ -89,10 +90,10 @@ Deformation-weighted paired cluster bootstrap에서 Top-K − Top-1 LPIPS는 `-0
 ## 5. 최종 산출물
 
 - 논문 PDF: `docs/superpowers/reports/2026-10-29-gear3d-common501-final.pdf`
-  - SHA256: `0c64943b8e63eeee2fdbef5b615d0abcd783ddc318e9bec1fe39b5a0c1a03f82`
+  - SHA256: `9d85b20730c3ce4ec3e0c3421fbbba508c778a8be432fa2001835884b46bc806`
   - 15 pages
 - Overleaf source ZIP: `docs/superpowers/reports/2026-10-29-gear3d-overleaf.zip`
-  - SHA256: `0d33cf9ef844ff975cb6558c9946e4d308888542c76817a63c79f12297670f83`
+  - SHA256: `d0243cbce171b39550dc3581899e5548576a1723de6ae89952b8cce3b170808d`
   - 21 source files; 별도 임시 디렉터리에서 clean compile 검증 완료
 - Paper source: `docs/superpowers/paper/gear3d-overleaf`
 - 실시간/실험 인계 기록: `docs/superpowers/reports/2026-10-28-scale-ungiven-live.md`
