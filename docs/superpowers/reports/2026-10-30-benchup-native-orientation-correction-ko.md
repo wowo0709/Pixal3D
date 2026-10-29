@@ -10,3 +10,7 @@
 - 이전 방향으로 계산한 TRELLIS.2 계열 및 SpaceControl의 렌더·지표는 폐기 대상으로 분리했다. 수정된 출력은 file4 `benchup/orientation-correct-v2/`에 저장한다. 다른 모델의 결과와 수정 전 수치를 섞지 않는다.
 
 이 파일은 고정 축의 앞뒤 오류를 기록한다. 일부 샘플의 육안 확인은 모든 물체의 출력 방향과 추정 target 카메라 정확성을 증명하지 않는다. 공통 평가에서는 여전히 이 한계를 명시한다.
+
+## 중단된 단일 mesh 복구
+
+CorrAdapter `helmet__render_0006`의 기존 GLB는 완성됐지만 중단 시점에 bake 검증 영수증이 없었다. 원본 예측의 SHA-256, GLB 로딩, UV 및 PBR 이미지, 원본과 GLB 표면의 vertex-distance q99 0.00273을 확인한 후 검증 영수증을 복구했다. GLB와 영수증은 file4에 재보관했고 SHA-256을 확인했다. 수정된 방향의 source 정합과 렌더링은 다른 사례와 동일하게 다시 수행한다.
