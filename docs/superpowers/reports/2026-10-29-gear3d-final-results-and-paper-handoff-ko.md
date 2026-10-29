@@ -31,39 +31,33 @@
 
 GEAR3D는 FID, PSNR, M-IoU, CD, F-Score에서 최고 성능이다. Source-preservation metric은 MV-Pixal3D (FT)와 대체로 비슷하다.
 
-## 3. Geometry-stage ablation
+## 3. Unified module ablation
 
-CD와 F-Score는 각각 `×10^4`, `×10^2` 표시다.
+Geometry/appearance stage를 별도 표로 나누지 않고, 모든 arm을 동일한 metric schema에 배치했다. `Full`은 Ray-fused score-weighted Top-K SS와 사전에 선택한 Top-1 PBR을 조합한 GEAR3D main model이다. `Original PBR`과 `Top-K PBR`은 Full과 동일한 selected geometry를 사용하므로 SS 및 surface 값도 Full과 같다. `Vanilla V1`은 ablation 해석을 위한 full-pipeline reference다.
 
-| Variant | CD ↓ | F-Score ↑ |
-|---|---:|---:|
-| Ours (Ray-fused Top-K) | **149.28** | 80.47 |
-| Spatial retrieval | 151.25 | 80.37 |
-| Semantic retrieval | 151.60 | 80.22 |
-| Decoder matching (cosine) | 149.89 | 80.24 |
-| Top-1 selection | 150.40 | 80.17 |
-| Uniform Top-K weighting | 150.37 | 80.38 |
-| Without retargeting | 151.36 | **80.50** |
+KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. `—`는 해당 arm을 full rendering까지 실행하지 않아 실제로 측정되지 않은 값이며, 다른 arm의 값을 복사하거나 추정하지 않았다.
 
-Full model은 CD 기준 가장 좋으며, decoder matching·score-aware Top-K·ray fusion·retargeting을 조합한 파이프라인의 geometry 경향을 지지한다. 다만 133개 source cluster paired bootstrap 및 12-endpoint Bonferroni CI에서는 차이가 대체로 0을 포함하므로, 개별 모듈에 대한 통계적 유의성을 과장하지 않는다.
+| Unified arm | LPIPS ↓ | Dream ↓ | CLIP ↑ | FID ↓ | KID ↓ | PSNR ↑ | SSIM ↑ | M-IoU ↑ | Aligned CD ↓ | Aligned F ↑ | SS IoU ↑ | SS Prec. ↑ | SS Recall ↑ | SS F1 ↑ | Raw CD ↓ | Raw F ↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Vanilla V1 reference | 0.05359 | 0.13393 | 0.93909 | 38.61 | 0.737 | 23.22 | 0.94626 | 0.85838 | 0.01512 | 0.8032 | 0.37422 | 0.50186 | 0.59536 | 0.54462 | 0.01420 | 0.8181 |
+| **Full: Ray-fused Top-K SS + Top-1 PBR** | 0.05382 | 0.13517 | 0.93843 | 38.56 | 0.685 | 23.28 | 0.94591 | 0.86186 | **0.01493** | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Spatial retrieval SS | — | — | — | — | — | — | — | — | 0.01512 | 0.8037 | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01401 | 0.8231 |
+| Raw semantic retrieval SS | — | — | — | — | — | — | — | — | 0.01516 | 0.8022 | **0.38045** | **0.51308** | 0.59544 | **0.55120** | 0.01384 | **0.8262** |
+| Decoder matching SS | — | — | — | — | — | — | — | — | 0.01499 | 0.8024 | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01390 | 0.8229 |
+| Top-1 selection SS | — | — | — | — | — | — | — | — | 0.01504 | 0.8017 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01394 | 0.8233 |
+| Uniform Top-K SS | — | — | — | — | — | — | — | — | 0.01504 | 0.8038 | 0.38016 | 0.51248 | 0.59553 | 0.55089 | **0.01383** | 0.8252 |
+| No-retargeting SS | — | — | — | — | — | — | — | — | 0.01514 | **0.8050** | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
+| Selected SS + Original PBR | 0.05373 | **0.13478** | **0.93879** | — | — | — | — | — | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Selected SS + Top-K PBR | **0.05371** | 0.13481 | 0.93872 | — | — | — | — | — | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
 
-### 3.1 참고용 전체 geometry 진단
+이 통합 표에서 확인되는 핵심은 다음과 같다.
 
-논문 표에서 생략한 SS voxel metric과 source-M0 정합 전 surface metric은 아래와 같다. SS metric은 TEST508 전체 508개에서 계산했고, cascade surface metric은 모든 방법이 성공한 common-501에서 계산했으므로 두 metric 묶음의 분모가 다르다. `Aligned`는 입력 source M0만 사용한 Sim(3) 정합 결과이고 `Raw`는 정합 전 결과다. Full의 raw surface 값은 이 geometry-ablation archive에 같은 sampling contract로 저장되지 않아 `—`로 둔다.
+- Full은 최종 aligned CD가 가장 낮지만, F-Score 및 SS voxel metric의 모든 열에서 항상 최고인 것은 아니다.
+- Raw semantic retrieval은 SS IoU/F1이 가장 높지만 최종 aligned CD는 Full보다 나쁘므로, SS proxy와 1024 cascade surface 품질을 동일시할 수 없다.
+- Appearance 세 행은 geometry를 고정했기 때문에 CD/F 및 SS 값이 동일하다. 이 행들의 차이는 source preservation metric으로만 해석한다.
+- Original/Top-K PBR과 geometry-only SS arms의 비어 있는 render metric을 모두 채우려면 각 arm의 complete PBR/target-view cascade와 common render evaluation을 새로 실행해야 한다. 현재 완료된 stage ablation 결과만으로 해당 값을 정직하게 산출할 수는 없다.
 
-| Variant | SS IoU ↑ | SS Precision ↑ | SS Recall ↑ | SS F1 ↑ | Aligned CD ↓ | Aligned F ↑ | Raw CD ↓ | Raw F ↑ |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Ours (Ray-fused Top-K) | 0.37910 | 0.51158 | 0.59413 | 0.54977 | **0.01493** | 0.8047 | — | — |
-| Spatial retrieval | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01512 | 0.8037 | 0.01401 | 0.8231 |
-| Semantic retrieval | **0.38045** | **0.51308** | 0.59544 | **0.55120** | 0.01516 | 0.8022 | 0.01384 | **0.8262** |
-| Decoder matching (cosine) | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01499 | 0.8024 | 0.01390 | 0.8229 |
-| Top-1 selection | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01504 | 0.8017 | 0.01394 | 0.8233 |
-| Uniform Top-K weighting | 0.38016 | 0.51248 | 0.59553 | 0.55089 | 0.01504 | 0.8038 | **0.01383** | 0.8252 |
-| Without retargeting | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01514 | **0.8050** | 0.01420 | 0.8189 |
-
-SS voxel metric과 최종 1024 surface metric의 순위는 일치하지 않는다. 예를 들어 raw semantic arm은 SS IoU/F1이 가장 높지만 aligned CD는 Full보다 나쁘다. 따라서 논문에서는 최종 geometry 품질을 나타내는 aligned CD/F-Score를 주 지표로 사용하고, voxel metric은 stage-level 진단으로만 해석한다. Raw metric도 모델이 출력한 native pose/scale에 민감하므로 정합된 공정 비교의 대체 지표로 사용하지 않는다.
-
-### 3.2 참고용 correspondence retrieval
+### 3.1 Correspondence retrieval diagnostic
 
 별도 DEV32 진단은 50,493개 observable relation에서 다음과 같다.
 
@@ -76,49 +70,13 @@ SS voxel metric과 최종 1024 surface metric의 순위는 일치하지 않는�
 
 이는 후보 검색 개선을 직접 지지하지만, downstream 생성 성능의 독립적 인과 효과와 동일한 주장은 아니다.
 
-## 4. Appearance-stage ablation
+### 3.2 Appearance weighting and paired contrast
 
-동일한 selected geometry, paired PBR noise, source cameras 9/10을 사용했다. LPIPS와 DreamSim은 `×10^3` 표시다.
+Source UID마다 deformation 수가 다른 영향을 줄인 UID-weighted LPIPS/DreamSim/CLIP은 Original `0.05234101/0.13546220/0.93766897`, Top-1 `0.05235734/0.13543287/0.93735379`, Top-K `0.05227706/0.13503078/0.93757465`다. Top-K가 UID-weighted LPIPS와 DreamSim point estimate는 가장 좋지만 CLIP은 Original이 가장 높다.
 
-| Variant | LPIPS ↓ | DreamSim ↓ | CLIP ↑ |
-|---|---:|---:|---:|
-| Original conditioning | 53.73 | **134.78** | **0.9388** |
-| Top-1 retargeting (main) | 53.82 | 135.17 | 0.9384 |
-| Top-K retargeting | **53.71** | 134.81 | 0.9387 |
+Deformation-weighted paired cluster bootstrap에서 Top-K − Top-1 LPIPS는 `-0.00010595`, 95% CI `[-0.00021024, -0.00000810]`으로 Top-K에 유리하다. 같은 contrast의 DreamSim `-0.00036563` CI `[-0.00113084, +0.00036246]`와 CLIP `+0.00029032` CI `[-0.00018362, +0.00076841]`는 0을 포함한다. Top-K − Original 및 Top-1 − Original의 세 appearance metric CI도 모두 0을 포함한다. 따라서 광범위한 appearance 향상은 주장하지 않는다.
 
-Top-K는 Top-1보다 LPIPS가 `-0.00010595` 개선되었고 95% paired cluster bootstrap CI `[-0.00021024, -0.00000810]`은 0을 제외한다. 그러나 Top-K 대 original conditioning의 LPIPS/DreamSim/CLIP CI는 모두 0을 포함한다. 따라서 논문의 주장은 “appearance가 유지되는 가운데 geometry가 개선된다”로 제한하며, 광범위한 appearance 향상을 주장하지 않는다. Main comparison은 test 결과를 보고 checkpoint를 교체하지 않고 사전에 선택된 Top-1 checkpoint를 유지했다.
-
-### 4.1 참고용 weighting별 appearance metric
-
-위 논문 표는 deformation 하나를 하나의 표본으로 보는 deformation-weighted 평균이다. Source UID마다 deformation 수가 다른 영향을 줄이기 위해 UID별 평균을 다시 평균한 UID-weighted 결과도 함께 기록한다. 아래 값은 표시 배율을 적용하지 않은 원 단위다.
-
-| Variant | Def. LPIPS ↓ | Def. DreamSim ↓ | Def. CLIP ↑ | UID LPIPS ↓ | UID DreamSim ↓ | UID CLIP ↑ |
-|---|---:|---:|---:|---:|---:|---:|
-| Original conditioning | 0.05372738 | **0.13477762** | **0.93879063** | 0.05234101 | 0.13546220 | **0.93766897** |
-| Top-1 retargeting (main) | 0.05381702 | 0.13517165 | 0.93842988 | 0.05235734 | 0.13543287 | 0.93735379 |
-| Top-K retargeting | **0.05371107** | 0.13480601 | 0.93872019 | **0.05227706** | **0.13503078** | 0.93757465 |
-
-UID-weighted 결과에서도 Top-K가 LPIPS와 DreamSim point estimate는 가장 좋지만 CLIP은 original conditioning이 가장 높다. 따라서 weighting을 바꾸어도 “모든 appearance metric의 일관된 향상”이라는 결론은 성립하지 않는다.
-
-### 4.2 참고용 paired cluster contrast
-
-`Δ`는 앞 arm에서 뒤 arm을 뺀 deformation-weighted 차이다. LPIPS/DreamSim은 음수가, CLIP은 양수가 유리하다.
-
-| Contrast | Metric | Δ | 95% cluster CI | 해석 |
-|---|---|---:|---:|---|
-| Top-1 − Original | LPIPS | +0.00008964 | [-0.00019832, +0.00042281] | 불확실 |
-| Top-1 − Original | DreamSim | +0.00039403 | [-0.00175313, +0.00307886] | 불확실 |
-| Top-1 − Original | CLIP | -0.00036075 | [-0.00125568, +0.00045897] | 불확실 |
-| Top-K − Original | LPIPS | -0.00001631 | [-0.00031137, +0.00032197] | 불확실 |
-| Top-K − Original | DreamSim | +0.00002839 | [-0.00214352, +0.00269820] | 불확실 |
-| Top-K − Original | CLIP | -0.00007043 | [-0.00097891, +0.00075313] | 불확실 |
-| Top-K − Top-1 | LPIPS | **-0.00010595** | **[-0.00021024, -0.00000810]** | Top-K 유리 |
-| Top-K − Top-1 | DreamSim | -0.00036563 | [-0.00113084, +0.00036246] | 불확실 |
-| Top-K − Top-1 | CLIP | +0.00029032 | [-0.00018362, +0.00076841] | 불확실 |
-
-FID/KID와 target-camera PSNR/SSIM/M-IoU는 이 PBR-only ablation에서 별도로 재측정하지 않았다. 세 appearance arm은 selected geometry를 고정하고 source cameras 9/10의 appearance 전달만 비교하기 때문에, target alignment와 geometry metric은 arm을 분리하는 지표가 아니다. 전체 파이프라인의 해당 값은 위 Main comparison 표에 기록되어 있다.
-
-## 5. 논문 claim 구성
+## 4. 논문 claim 구성
 
 1. 핵심 정량 주장은 common-501에서의 geometry 및 target alignment 개선이다.
 2. Semantic matching은 raw cosine보다 matching decoder가 correspondence retrieval을 크게 개선하고, score refinement와 ray fusion이 Top-K 후보 활용을 더 개선한다.
@@ -126,7 +84,7 @@ FID/KID와 target-camera PSNR/SSIM/M-IoU는 이 PBR-only ablation에서 별도�
 4. Appearance는 baseline 수준을 보존하지만, common-501에서 일관된 우위는 확인되지 않았다.
 5. 모든 비교는 common-success subset이라는 한계를 명시하며, 실패율/coverage 주장으로 확대하지 않는다.
 
-## 6. 최종 산출물
+## 5. 최종 산출물
 
 - 논문 PDF: `docs/superpowers/reports/2026-10-29-gear3d-common501-final.pdf`
   - SHA256: `97dc00f73b3d07fd9ba46ed677769d7dbab27ee822e5c0345556b60203879c83`
@@ -143,7 +101,7 @@ FID/KID와 target-camera PSNR/SSIM/M-IoU는 이 PBR-only ablation에서 별도�
 - Geometry: `/root/dev/.cache/deformnext-retargeting/fair-ablation-test508-20261029/geometry-six-arms-v1`
 - Appearance: `/root/dev/.cache/deformnext-retargeting/fair-ablation-test508-20261029/appearance-common501-v2`
 
-## 7. 재검증 명령
+## 6. 재검증 명령
 
 ```bash
 cd /root/dev/Pixal3D/.worktrees/ray-score-prior-stage-20261019
@@ -157,7 +115,7 @@ cd docs/superpowers/paper/gear3d-overleaf
 latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
 ```
 
-## 8. 제출 전 남은 수동 항목
+## 7. 제출 전 남은 수동 항목
 
 - `main.tex`의 익명 저자 placeholder는 제출 모드에 맞춰 최종 확인해야 한다.
 - CVPR submission ID 및 acknowledgements는 실제 제출 정보가 확정된 뒤 입력한다.
