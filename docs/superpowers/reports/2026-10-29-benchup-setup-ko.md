@@ -31,3 +31,10 @@ Target RGB에 대한 PSNR/SSIM/M-IoU와 LPIPS/CLIP/DINO, source view에 대한 L
 5. 논문 주표에는 데이터셋·카메라·GT mesh 유무와 입력 차이를 기재하고, ShapeUP 원논문의 100건 수치와 측정 프로토콜이 다르면 별도 출처로만 제시한다.
 
 현재 상태: 원본·sample 인덱스 및 source PNG 준비 완료. 2개 객체의 카메라 정합 진단과 1개 Pixal3D cascade smoke test 완료. 전체 데이터의 카메라와 mesh 정합 검증, 나머지 runner 연결, 각 모델 smoke test 및 본평가는 아직 완료되지 않았다.
+
+## 2026-10-30 실행 진행
+
+- 공개 109건의 target과 동일 index의 source view 및 각 객체의 공통 후보 view 0/8/17/25를 합쳐 23개 객체·180개 source view를 고정했다. 네 초기값씩 720개 camera 후보를 CPU 4 worker로 추정한다. 이 단계는 source 영상·source mesh만 사용하며 최종 camera 승인을 뜻하지 않는다.
+- 완료된 4개 후보마다 Blender source 재투영을 로컬 GPU 0/1/2/3에서 수행하고 silhouette 및 source RGB 차이를 기록한다. 카메라 축 변환, 객체 크기 정규화 및 낮은 정합 사례를 명시적으로 검사한다. 재투영 결과 역시 target image와 카메라가 같다는 증거는 아니다.
+- 저장 원본은 file4이며, input과 checkpoint 처리에 필요한 임시 캐시는 `/root/dev/.cache/benchup-camera-v1`, `/root/dev/.cache/benchup-runtime`에 둔다. Camera 출력과 모델 결과는 검증 후 file4에 보존한다.
+- TRELLIS.2 공식 checkpoint의 revision `af44b45f2e35a493886929c6d786e563ec68364d`을 로컬 실행 캐시에 준비 중이다. 동 baseline의 세부 runtime과 이전 node16 기록의 동일성은 smoke 검증 후 확정한다.
