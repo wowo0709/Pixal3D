@@ -25,25 +25,101 @@
   "evaluation": {
     "raw_and_source_mesh_sim3": true,
     "registration": "input source mesh only; never a target mesh",
-    "source_preservation": ["LPIPS", "DreamSim", "CLIP-I", "DINO-I"],
-    "target_image_alignment": ["PSNR", "SSIM", "M-IoU", "LPIPS", "CLIP-I", "DINO-I", "CLIP-direction"],
-    "distributional": ["FID", "KID"],
+    "source_preservation": [
+      "LPIPS",
+      "DreamSim",
+      "CLIP-I",
+      "DINO-I"
+    ],
+    "target_image_alignment": [
+      "PSNR",
+      "SSIM",
+      "M-IoU",
+      "LPIPS",
+      "CLIP-I",
+      "DINO-I",
+      "CLIP-direction"
+    ],
+    "distributional": [
+      "FID",
+      "KID"
+    ],
     "target_surface_metrics": "unavailable without edited target ground truth mesh",
     "success_reporting": "per-method complete denominator and common-success intersection",
     "caveat": "source views are unedited; source preservation metrics can penalize intended edits"
   },
   "arms": [
-    {"id": "mv_pixal3d_zero", "input": "target RGB + source RGB3 + estimated cameras", "cascade": "1024_cascade"},
-    {"id": "pixal3d_target1", "input": "target RGB + estimated camera", "cascade": "1024_cascade"},
-    {"id": "mv_pixal3d_ft", "input": "target RGB + source RGB3 + estimated cameras", "cascade": "1024_cascade"},
-    {"id": "gear3d", "input": "target RGB + source RGB3 + estimated cameras", "cascade": "1024_cascade"},
-    {"id": "trellis2", "input": "target RGB", "cascade": "1024_cascade"},
-    {"id": "pixal3d_native", "input": "target RGB + estimated camera", "cascade": "1536_cascade"},
-    {"id": "reconviagen", "input": "target RGB + source RGB3", "cascade": "1024_cascade"},
-    {"id": "mvadapter", "input": "target RGB; generated multiview to ReconViaGen", "cascade": "1024_cascade"},
-    {"id": "corradapter", "input": "target RGB; generated multiview to ReconViaGen", "cascade": "1024_cascade"},
-    {"id": "shapeup", "input": "target RGB + source textured mesh", "cascade": "native"},
-    {"id": "spacecontrol", "input": "source anchor RGB + predicted target proxy mesh", "cascade": "native"}
+    {
+      "id": "mv_pixal3d_zero",
+      "input": "target RGB + source RGB3 + estimated cameras",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "pixal3d_target1",
+      "input": "target RGB + estimated camera",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "mv_pixal3d_ft",
+      "input": "target RGB + source RGB3 + estimated cameras",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "gear3d",
+      "input": "target RGB + source RGB3 + estimated cameras",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "trellis2",
+      "input": "target RGB",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "pixal3d_native",
+      "input": "target RGB + estimated camera",
+      "cascade": "1536_cascade"
+    },
+    {
+      "id": "reconviagen",
+      "input": "target RGB + source RGB3",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "mvadapter",
+      "input": "target RGB; generated multiview to ReconViaGen",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "corradapter",
+      "input": "target RGB; generated multiview to ReconViaGen",
+      "cascade": "1024_cascade"
+    },
+    {
+      "id": "shapeup",
+      "input": "target RGB + source textured mesh",
+      "cascade": "native"
+    },
+    {
+      "id": "spacecontrol",
+      "input": "source anchor RGB + predicted target proxy mesh",
+      "cascade": "native"
+    }
   ],
-  "state": "draft; do not run generation until camera calibration, view selection, masks, and metric reference policy are validated"
+  "state": "draft; do not run generation until camera calibration, view selection, masks, and metric reference policy are validated",
+  "resources": {
+    "host": "local node17",
+    "physical_gpu_allowlist": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "forbidden_gpu_indices": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "node16_execution": false
+  }
 }
