@@ -35,7 +35,7 @@ GEAR3D는 FID, PSNR, M-IoU, CD, F-Score에서 최고 성능이다. Source-preser
 
 Geometry/appearance stage를 별도 표로 나누지 않고, 모든 arm을 동일한 metric schema에 배치했다. `Full`은 Ray-fused score-weighted Top-K SS와 사전에 선택한 Top-1 PBR을 조합한 GEAR3D main model이다. `Original PBR`과 `Top-K PBR`은 Full과 동일한 selected geometry를 사용하므로 SS 및 surface 값도 Full과 같다. `Vanilla V1`은 ablation 해석을 위한 full-pipeline reference다.
 
-KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. `—`는 해당 arm을 full rendering까지 실행하지 않아 실제로 측정되지 않은 값이며, 다른 arm의 값을 복사하거나 추정하지 않았다.
+KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. `—`는 해당 arm을 full rendering까지 실행하지 않아 실제로 측정되지 않은 값이며, 다른 arm의 값을 복사하거나 추정하지 않았다. `†`는 실제 측정은 끝났지만 기존 Full target-view 행과의 protocol 동등성 교차검증이 진행 중인 값이다.
 
 | Unified arm | LPIPS ↓ | Dream ↓ | CLIP ↑ | FID ↓ | KID ↓ | PSNR ↑ | SSIM ↑ | M-IoU ↑ | Aligned CD ↓ | Aligned F ↑ | SS IoU ↑ | SS Prec. ↑ | SS Recall ↑ | SS F1 ↑ | Raw CD ↓ | Raw F ↑ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -47,15 +47,17 @@ KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 
 | Top-1 selection SS | — | — | — | — | — | — | — | — | 0.01504 | 0.8017 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01394 | 0.8233 |
 | Uniform Top-K SS | — | — | — | — | — | — | — | — | 0.01504 | 0.8038 | 0.38016 | 0.51248 | 0.59553 | 0.55089 | **0.01383** | 0.8252 |
 | No-retargeting SS | — | — | — | — | — | — | — | — | 0.01514 | **0.8050** | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
-| Selected SS + Original PBR | 0.05373 | **0.13478** | **0.93879** | — | — | — | — | — | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
-| Selected SS + Top-K PBR | **0.05371** | 0.13481 | 0.93872 | — | — | — | — | — | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Selected SS + Original PBR | 0.05373 | **0.13478** | **0.93879** | 38.77 | 0.698 | 25.15† | 0.95571† | 0.91242† | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Selected SS + Top-K PBR | **0.05371** | 0.13481 | 0.93872 | <u>38.63</u> | **0.681** | 25.14† | 0.95552† | 0.91244† | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
 
 이 통합 표에서 확인되는 핵심은 다음과 같다.
 
 - Full은 최종 aligned CD가 가장 낮지만, F-Score 및 SS voxel metric의 모든 열에서 항상 최고인 것은 아니다.
 - Raw semantic retrieval은 SS IoU/F1이 가장 높지만 최종 aligned CD는 Full보다 나쁘므로, SS proxy와 1024 cascade surface 품질을 동일시할 수 없다.
 - Appearance 세 행은 geometry를 고정했기 때문에 CD/F 및 SS 값이 동일하다. 이 행들의 차이는 source preservation metric으로만 해석한다.
-- Original/Top-K PBR과 geometry-only SS arms의 비어 있는 render metric을 모두 채우려면 각 arm의 complete PBR/target-view cascade와 common render evaluation을 새로 실행해야 한다. 현재 완료된 stage ablation 결과만으로 해당 값을 정직하게 산출할 수는 없다.
+- Original/Top-K PBR의 source-view FID/KID와 target-view PSNR/SSIM/M-IoU는 실제 common-501 렌더에서 추가 측정했다. FID/KID는 기존 source-preservation 수치와 동일한 camera9/10 1,002-image pool이므로 표에 확정 반영했다.
+- 새 appearance target-view 값은 두 appearance arm끼리는 동일 계약에서 직접 비교할 수 있다. 다만 기존 Full 행보다 M-IoU가 크게 높아, 기존 Full target8의 카메라ㆍsource-M0 transformㆍGT render binding과 byte-level 교차검증하기 전까지 `†`로 표시하며 main claim/ranking에는 사용하지 않는다.
+- Geometry-only SS 여섯 arm의 비어 있는 render metric은 현재 common-501 full PBR/render evaluation으로 측정 중이다. 완료되는 arm부터 같은 표에 순차 반영한다.
 
 ### 3.1 Correspondence retrieval diagnostic
 
@@ -87,10 +89,10 @@ Deformation-weighted paired cluster bootstrap에서 Top-K − Top-1 LPIPS는 `-0
 ## 5. 최종 산출물
 
 - 논문 PDF: `docs/superpowers/reports/2026-10-29-gear3d-common501-final.pdf`
-  - SHA256: `97dc00f73b3d07fd9ba46ed677769d7dbab27ee822e5c0345556b60203879c83`
+  - SHA256: `0c64943b8e63eeee2fdbef5b615d0abcd783ddc318e9bec1fe39b5a0c1a03f82`
   - 15 pages
 - Overleaf source ZIP: `docs/superpowers/reports/2026-10-29-gear3d-overleaf.zip`
-  - SHA256: `be1a23760346a96d86cedf24082b18831160c9e89a8d2793824b64d4f67d5b2b`
+  - SHA256: `0d33cf9ef844ff975cb6558c9946e4d308888542c76817a63c79f12297670f83`
   - 21 source files; 별도 임시 디렉터리에서 clean compile 검증 완료
 - Paper source: `docs/superpowers/paper/gear3d-overleaf`
 - 실시간/실험 인계 기록: `docs/superpowers/reports/2026-10-28-scale-ungiven-live.md`

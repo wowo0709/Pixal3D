@@ -5,13 +5,14 @@
 \providecommand{\gearAblBest}[1]{\colorbox{gearAblBest}{#1}}
 \providecommand{\gearAblSecond}[1]{\colorbox{gearAblSecond}{#1}}
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \caption{\small
 \textbf{Appearance-stage ablation.}
 All variants are evaluated on the same 501 test edits with fixed selected
 geometry, paired PBR noise, identical rendering, and source cameras 9/10.
-LPIPS and DreamSim are multiplied by $10^3$ for display. The Top-$K$ variant
+LPIPS, DreamSim, and KID are multiplied by $10^3$ for display. FID/KID use
+the same 1,002 source-view images from cameras 9/10. The Top-$K$ variant
 uses a learned Top-$K$ feature readout but retains the Top-1
 carrier/source-use path.
 }
@@ -21,14 +22,14 @@ carrier/source-use path.
 \setlength{\tabcolsep}{3.2pt}
 \setlength{\fboxsep}{0.9pt}
 \renewcommand{\arraystretch}{1.12}
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-\textbf{Variant} & \textbf{LPIPS}$\downarrow$ & \textbf{DreamSim}$\downarrow$ & \textbf{CLIP}$\uparrow$ \\
+\textbf{Variant} & \textbf{LPIPS}$\downarrow$ & \textbf{DreamSim}$\downarrow$ & \textbf{CLIP}$\uparrow$ & \textbf{FID}$\downarrow$ & \textbf{KID}$\downarrow$ \\
 \midrule
-Original conditioning & \gearAblSecond{53.73} & \gearAblBest{134.78} & \gearAblBest{0.9388} \\
-\textbf{Top-1 retargeting (main)} & 53.82 & 135.17 & 0.9384 \\
-Top-$K$ retargeting & \gearAblBest{53.71} & \gearAblSecond{134.81} & \gearAblSecond{0.9387} \\
+Original conditioning & \gearAblSecond{53.73} & \gearAblBest{134.78} & \gearAblBest{0.9388} & 38.77 & 0.698 \\
+\textbf{Top-1 retargeting (main)} & 53.82 & 135.17 & 0.9384 & \gearAblBest{38.56} & \gearAblSecond{0.685} \\
+Top-$K$ retargeting & \gearAblBest{53.71} & \gearAblSecond{134.81} & \gearAblSecond{0.9387} & \gearAblSecond{38.63} & \gearAblBest{0.681} \\
 \bottomrule
 \end{tabular}
 \endgroup
-\end{table}
+\end{table*}

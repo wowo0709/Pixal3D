@@ -195,7 +195,8 @@ We compare appearance conditioning on the same 501 edits, holding geometry,
 texture noise, source cameras, and rendering fixed
 (\Tref{tab:appearance_ablation}).  The three variants are close: original
 conditioning gives the lowest DreamSim and highest CLIP, whereas Top-$K$
-retargeting gives the lowest LPIPS.  Relative to Top-1, the Top-$K$ LPIPS
+retargeting gives the lowest LPIPS and KID.  Top-1 gives the lowest FID
+($38.56$), followed closely by Top-$K$ ($38.63$).  Relative to Top-1, the Top-$K$ LPIPS
 difference is $-0.106\!\times\!10^{-3}$ with a source-cluster bootstrap 95\%
 CI of $[-0.210,-0.008]\!\times\!10^{-3}$; the corresponding DreamSim and
 CLIP intervals include zero.  All three Top-$K$--versus--original intervals
