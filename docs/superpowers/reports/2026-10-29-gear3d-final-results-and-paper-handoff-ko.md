@@ -47,7 +47,34 @@ CD와 F-Score는 각각 `×10^4`, `×10^2` 표시다.
 
 Full model은 CD 기준 가장 좋으며, decoder matching·score-aware Top-K·ray fusion·retargeting을 조합한 파이프라인의 geometry 경향을 지지한다. 다만 133개 source cluster paired bootstrap 및 12-endpoint Bonferroni CI에서는 차이가 대체로 0을 포함하므로, 개별 모듈에 대한 통계적 유의성을 과장하지 않는다.
 
-별도 correspondence 진단(DEV32, 50,493 observable relations)에서는 Raw cosine → matching decoder → score refinement → ray fusion 순으로 Exact@1이 1.25 → 7.73 → 8.56 → 11.19, Exact@8이 11.09 → 28.47 → 29.92 → 45.68로 개선됐다. 이는 후보 검색 개선을 직접 지지하지만, downstream 생성 성능의 독립적 인과 효과와 동일한 주장은 아니다.
+### 3.1 참고용 전체 geometry 진단
+
+논문 표에서 생략한 SS voxel metric과 source-M0 정합 전 surface metric은 아래와 같다. SS metric은 TEST508 전체 508개에서 계산했고, cascade surface metric은 모든 방법이 성공한 common-501에서 계산했으므로 두 metric 묶음의 분모가 다르다. `Aligned`는 입력 source M0만 사용한 Sim(3) 정합 결과이고 `Raw`는 정합 전 결과다. Full의 raw surface 값은 이 geometry-ablation archive에 같은 sampling contract로 저장되지 않아 `—`로 둔다.
+
+| Variant | SS IoU ↑ | SS Precision ↑ | SS Recall ↑ | SS F1 ↑ | Aligned CD ↓ | Aligned F ↑ | Raw CD ↓ | Raw F ↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Ours (Ray-fused Top-K) | 0.37910 | 0.51158 | 0.59413 | 0.54977 | **0.01493** | 0.8047 | — | — |
+| Spatial retrieval | 0.37799 | 0.50831 | **0.59585** | 0.54861 | 0.01512 | 0.8037 | 0.01401 | 0.8231 |
+| Semantic retrieval | **0.38045** | **0.51308** | 0.59544 | **0.55120** | 0.01516 | 0.8022 | 0.01384 | **0.8262** |
+| Decoder matching (cosine) | 0.37907 | 0.51181 | 0.59377 | 0.54975 | 0.01499 | 0.8024 | 0.01390 | 0.8229 |
+| Top-1 selection | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01504 | 0.8017 | 0.01394 | 0.8233 |
+| Uniform Top-K weighting | 0.38016 | 0.51248 | 0.59553 | 0.55089 | 0.01504 | 0.8038 | **0.01383** | 0.8252 |
+| Without retargeting | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01514 | **0.8050** | 0.01420 | 0.8189 |
+
+SS voxel metric과 최종 1024 surface metric의 순위는 일치하지 않는다. 예를 들어 raw semantic arm은 SS IoU/F1이 가장 높지만 aligned CD는 Full보다 나쁘다. 따라서 논문에서는 최종 geometry 품질을 나타내는 aligned CD/F-Score를 주 지표로 사용하고, voxel metric은 stage-level 진단으로만 해석한다. Raw metric도 모델이 출력한 native pose/scale에 민감하므로 정합된 공정 비교의 대체 지표로 사용하지 않는다.
+
+### 3.2 참고용 correspondence retrieval
+
+별도 DEV32 진단은 50,493개 observable relation에서 다음과 같다.
+
+| Retrieval variant | Exact@1 ↑ | Exact@8 ↑ | Exact@64 ↑ |
+|---|---:|---:|---:|
+| Raw cosine | 1.25 | 11.09 | 50.76 |
+| + Matching decoder | 7.73 | 28.47 | 50.76 |
+| + Score refinement | 8.56 | 29.92 | 50.76 |
+| + Ray fusion | **11.19** | **45.68** | **73.36** |
+
+이는 후보 검색 개선을 직접 지지하지만, downstream 생성 성능의 독립적 인과 효과와 동일한 주장은 아니다.
 
 ## 4. Appearance-stage ablation
 
@@ -60,6 +87,36 @@ Full model은 CD 기준 가장 좋으며, decoder matching·score-aware Top-K·r
 | Top-K retargeting | **53.71** | 134.81 | 0.9387 |
 
 Top-K는 Top-1보다 LPIPS가 `-0.00010595` 개선되었고 95% paired cluster bootstrap CI `[-0.00021024, -0.00000810]`은 0을 제외한다. 그러나 Top-K 대 original conditioning의 LPIPS/DreamSim/CLIP CI는 모두 0을 포함한다. 따라서 논문의 주장은 “appearance가 유지되는 가운데 geometry가 개선된다”로 제한하며, 광범위한 appearance 향상을 주장하지 않는다. Main comparison은 test 결과를 보고 checkpoint를 교체하지 않고 사전에 선택된 Top-1 checkpoint를 유지했다.
+
+### 4.1 참고용 weighting별 appearance metric
+
+위 논문 표는 deformation 하나를 하나의 표본으로 보는 deformation-weighted 평균이다. Source UID마다 deformation 수가 다른 영향을 줄이기 위해 UID별 평균을 다시 평균한 UID-weighted 결과도 함께 기록한다. 아래 값은 표시 배율을 적용하지 않은 원 단위다.
+
+| Variant | Def. LPIPS ↓ | Def. DreamSim ↓ | Def. CLIP ↑ | UID LPIPS ↓ | UID DreamSim ↓ | UID CLIP ↑ |
+|---|---:|---:|---:|---:|---:|---:|
+| Original conditioning | 0.05372738 | **0.13477762** | **0.93879063** | 0.05234101 | 0.13546220 | **0.93766897** |
+| Top-1 retargeting (main) | 0.05381702 | 0.13517165 | 0.93842988 | 0.05235734 | 0.13543287 | 0.93735379 |
+| Top-K retargeting | **0.05371107** | 0.13480601 | 0.93872019 | **0.05227706** | **0.13503078** | 0.93757465 |
+
+UID-weighted 결과에서도 Top-K가 LPIPS와 DreamSim point estimate는 가장 좋지만 CLIP은 original conditioning이 가장 높다. 따라서 weighting을 바꾸어도 “모든 appearance metric의 일관된 향상”이라는 결론은 성립하지 않는다.
+
+### 4.2 참고용 paired cluster contrast
+
+`Δ`는 앞 arm에서 뒤 arm을 뺀 deformation-weighted 차이다. LPIPS/DreamSim은 음수가, CLIP은 양수가 유리하다.
+
+| Contrast | Metric | Δ | 95% cluster CI | 해석 |
+|---|---|---:|---:|---|
+| Top-1 − Original | LPIPS | +0.00008964 | [-0.00019832, +0.00042281] | 불확실 |
+| Top-1 − Original | DreamSim | +0.00039403 | [-0.00175313, +0.00307886] | 불확실 |
+| Top-1 − Original | CLIP | -0.00036075 | [-0.00125568, +0.00045897] | 불확실 |
+| Top-K − Original | LPIPS | -0.00001631 | [-0.00031137, +0.00032197] | 불확실 |
+| Top-K − Original | DreamSim | +0.00002839 | [-0.00214352, +0.00269820] | 불확실 |
+| Top-K − Original | CLIP | -0.00007043 | [-0.00097891, +0.00075313] | 불확실 |
+| Top-K − Top-1 | LPIPS | **-0.00010595** | **[-0.00021024, -0.00000810]** | Top-K 유리 |
+| Top-K − Top-1 | DreamSim | -0.00036563 | [-0.00113084, +0.00036246] | 불확실 |
+| Top-K − Top-1 | CLIP | +0.00029032 | [-0.00018362, +0.00076841] | 불확실 |
+
+FID/KID와 target-camera PSNR/SSIM/M-IoU는 이 PBR-only ablation에서 별도로 재측정하지 않았다. 세 appearance arm은 selected geometry를 고정하고 source cameras 9/10의 appearance 전달만 비교하기 때문에, target alignment와 geometry metric은 arm을 분리하는 지표가 아니다. 전체 파이프라인의 해당 값은 위 Main comparison 표에 기록되어 있다.
 
 ## 5. 논문 claim 구성
 
