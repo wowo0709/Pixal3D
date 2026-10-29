@@ -9,10 +9,10 @@ def live(pid):
 
 def render_slot():
     while True:
-        for index in range(3):
-            if index==2:
+        for index in range(4):
+            if index>=2:
                 available=int(next(x.split()[1] for x in Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:')))
-                if available<175000000:continue
+                if available<(205000000 if index==3 else 175000000):continue
             handle=open(f'/tmp/benchup-render-slot-{index}.lock','a')
             try:
                 fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
