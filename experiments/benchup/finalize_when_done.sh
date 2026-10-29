@@ -15,6 +15,11 @@ while :; do
 done
 # The monitor itself is among the supplied PIDs, so its atomic writes have ended.
 bash experiments/benchup/refresh_common_table.sh || exit 1
+/opt/conda/envs/pixal3d/bin/python -u -m experiments.benchup.audit_failures --runtime "$R" --output "$R/recorded-failures-audit-v1.json"
+TASK_FAILURE_STATUS=$?
+rsync -a --checksum -e 'ssh -o BatchMode=yes -S /tmp/file4-ctl-v2 -p 55555' "$R/recorded-failures-audit-v1.json" \
+  rvi@10.0.12.170:/file4/youngwoo/deformation/experiments/retargeting-v1/benchup/reports/ || exit 1
+[ "$TASK_FAILURE_STATUS" -eq 0 ] || exit "$TASK_FAILURE_STATUS"
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 nice -n 15 /opt/conda/envs/pixal3d/bin/python -u -m experiments.benchup.audit_common_evidence \
   --runtime "$R" --corrected-root "$F" --benchmark-root "$B" \
   --manifest "$R/unit-scale-anchor-manifest-v1.jsonl" --aggregate "$R/all-method-common-metrics-v1.json" \
