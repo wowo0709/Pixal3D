@@ -8,6 +8,7 @@ from .run_v1_cascade import sha
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for flag in ('manifest','registration','glb','bake-receipt','benchmark-root','output'):p.add_argument('--'+flag,type=Path,required=True)
+    p.add_argument('--method',choices=['v1','selected','mv-zero'],default='v1')
     a=p.parse_args()
     if a.output.exists():raise FileExistsError(a.output)
     reg=json.loads(a.registration.read_text());bake=json.loads(a.bake_receipt.read_text());sid=reg['sample_id']
@@ -25,7 +26,7 @@ def main():
     jobs=[]
     for mode,matrix in [('raw',raw),('source_m0',aligned)]:
         for index in range(3):
-            jobs.append({'schema':'deformnext-render-job-v1','camera':{'camera_to_world':row['transform_matrix'][index],'camera_angle_x':row['camera_angle_x'][index],'convention':'Blender_OpenGL_camera_to_world'},'camera_id':index,'frame_id':'benchup-source-normalized','mesh':'prediction.glb','metric_mesh':'prediction.glb','method':'v1_'+mode,'output_rgba':f'{mode}/view{index}.png','protocol_sha256':ph,'sample_id':sid,'to_world':matrix.tolist(),'trusted_material_dump':None})
+            jobs.append({'schema':'deformnext-render-job-v1','camera':{'camera_to_world':row['transform_matrix'][index],'camera_angle_x':row['camera_angle_x'][index],'convention':'Blender_OpenGL_camera_to_world'},'camera_id':index,'frame_id':'benchup-source-normalized','mesh':'prediction.glb','metric_mesh':'prediction.glb','method':a.method+'_'+mode,'output_rgba':f'{mode}/view{index}.png','protocol_sha256':ph,'sample_id':sid,'to_world':matrix.tolist(),'trusted_material_dump':None})
     (a.output/'jobs.jsonl').write_text(''.join(json.dumps(j,sort_keys=True)+'\n' for j in jobs));(a.output/'plan.json').write_text(json.dumps({'jobs':len(jobs),'sample_id':sid,'status':'PREPARED_RENDER_CONVENTION_QA'})+'\n');(a.output/'input-files.txt').write_text('prediction.glb\n')
     print(json.dumps({'sample_id':sid,'jobs':len(jobs),'output':str(a.output)}))
 

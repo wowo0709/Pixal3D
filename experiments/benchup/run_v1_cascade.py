@@ -1,6 +1,7 @@
 """Run the frozen V1 1024 cascade from GT-free BenchUp SS predictions."""
 from __future__ import annotations
 import argparse, hashlib, json, os, time
+from contextlib import nullcontext
 from pathlib import Path
 os.environ.setdefault('ATTN_BACKEND','sdpa')
 os.environ.setdefault('HF_HUB_OFFLINE','1')
@@ -66,15 +67,21 @@ def main():
         pipeline.sample_sparse_structure=sparse_support
         images=[Image.open(path).copy() for path in [row['target_anchor'],*row['source_images']]]
         camera=dict(camera_angle_x=row['camera_angle_x'],distance=[float(np.linalg.norm(np.asarray(t)[:3,3])) for t in row['transform_matrix']],transform_matrix=row['transform_matrix'],mesh_scale=row['mesh_scale'])
+        out=a.output/'cases'/sid;out.mkdir(parents=True,exist_ok=False)
+        if a.ss_arm=='selected':
+            from experiments.deformnext_retargeting.native_guide_capture_context import capture_native_guides
+            capture=capture_native_guides(module.Pixal3DImageTo3DPipeline,out/'native-shape-guides.pt')
+        else:capture=nullcontext(None)
         start=time.monotonic()
-        with torch.inference_mode():
+        with capture as events,torch.inference_mode():
             meshes,latents=pipeline.run(images,camera,seed=42+i,preprocess_image=False,return_latent=True,pipeline_type='1024_cascade',max_num_tokens=32768)
         if len(meshes)!=1 or latents[2]!=1024:raise ValueError('one 1024 cascade output required')
         mesh=meshes[0];shape,texture,resolution=latents
         if not len(mesh.vertices) or not len(mesh.faces):raise ValueError('empty mesh')
-        out=a.output/'cases'/sid;out.mkdir(parents=True,exist_ok=False)
+        if a.ss_arm=='selected' and len(events)!=1:raise ValueError('actual native shape subdivision guide capture required')
         np.savez_compressed(out/'prediction.npz',vertices=mesh.vertices.float().cpu().numpy(),faces=mesh.faces.cpu().numpy(),coords=mesh.coords.cpu().numpy(),attrs=mesh.attrs.cpu().numpy(),origin=mesh.origin.cpu().numpy(),voxel_size=np.asarray(mesh.voxel_size),voxel_shape=np.asarray(mesh.voxel_shape),shape_coords=shape.coords.cpu().numpy(),shape_feats=shape.feats.float().cpu().numpy(),texture_feats=texture.feats.float().cpu().numpy())
         result={'status':'V1_CASCADE_GENERATED_NO_TARGET_3D_GT' if a.ss_arm=='v1' else 'CASCADE_GENERATED_NO_TARGET_3D_GT','ss_arm':a.ss_arm,'sample_id':sid,'prediction_sha256':sha(out/'prediction.npz'),'ss_sha256':sha(artifact),'seed':42+i,'seconds':round(time.monotonic()-start,2),'camera':'estimated_from_source_mesh_and_views','scale':'image_estimated','resolution':resolution,'source_mesh_used_for_camera_estimation':True,'GT_target_geometry_used':False,'pbr_checkpoint':specs['pbr1024']['checkpoint'],'selected_ss_with_vanilla_pbr_is_not_selected_full':a.ss_arm=='selected'}
+        if a.ss_arm=='selected':result['native_shape_guides_sha256']=sha(out/'native-shape-guides.pt')
         (out/'receipt.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result),flush=True)
         del mesh,meshes,latents,shape,texture,coords;torch.cuda.empty_cache()
 

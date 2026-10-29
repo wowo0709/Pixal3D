@@ -29,6 +29,8 @@ def main():
             if not glb.exists() and not bake.exists():commands.append([sys.executable,'-u','-m','experiments.benchup.export_textured_mesh','--gpu',a.gpu,'--prediction',str(prediction),'--receipt',str(rec),'--output',str(glb),'--benchmark-root',str(a.benchmark_root)])
             try:
                 for n,cmd in enumerate(commands):
+                    if 'experiments.benchup.export_textured_mesh' in cmd:
+                        while int(subprocess.check_output(['nvidia-smi','--id='+a.gpu,'--query-gpu=memory.free','--format=csv,noheader,nounits'],text=True).strip())<30000:time.sleep(5)
                     with (a.output/'logs'/f'{sid}-{n}.log').open('w') as log:subprocess.run(cmd,stdout=log,stderr=subprocess.STDOUT,check=True)
                 b=json.loads(bake.read_text());r=json.loads(reg.read_text())
                 if b['status']!='TEXTURED_GLB_BAKED_NEEDS_RENDER_QA' or b['glb_sha256']!=sha(glb) or b['prediction_sha256']!=r['prediction_sha256']:raise ValueError('output contract mismatch')

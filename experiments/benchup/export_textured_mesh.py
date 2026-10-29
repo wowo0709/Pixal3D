@@ -13,7 +13,7 @@ def main():
     if os.environ.get('CUDA_VISIBLE_DEVICES')!=a.gpu or a.output.exists():raise ValueError('assigned GPU and fresh output required')
     from .run_v1_cascade import sha
     receipt=json.loads(a.receipt.read_text())
-    if receipt.get('status') not in {'PASS_TRELLIS2_GENERATED_RAW','V1_CASCADE_GENERATED_NO_TARGET_3D_GT'} or receipt['prediction_sha256']!=sha(a.prediction):raise ValueError('source prediction receipt mismatch')
+    if receipt.get('status') not in {'PASS_TRELLIS2_GENERATED_RAW','V1_CASCADE_GENERATED_NO_TARGET_3D_GT','CASCADE_GENERATED_NO_TARGET_3D_GT','SELECTED_FULL_PBR_GENERATED_NO_TARGET_3D_GT'} or receipt['prediction_sha256']!=sha(a.prediction):raise ValueError('source prediction receipt mismatch')
     import torch,o_voxel,cumesh
     from fast_simplification import simplify
     torch.set_num_threads(2);torch.cuda.set_device(0);started=time.monotonic()
