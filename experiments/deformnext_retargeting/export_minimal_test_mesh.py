@@ -26,7 +26,9 @@ def main() -> None:
     parser.add_argument('--shape-generation', type=Path, required=True)
     parser.add_argument('--texture-generation', type=Path)
     parser.add_argument('--anchor-evaluation', type=Path, required=True)
-    parser.add_argument('--texture-arm', choices=('vanilla', 'top1-only'), required=True)
+    parser.add_argument('--texture-arm',
+                        choices=('vanilla', 'top1-only', 'raw-topk-plus-feature'),
+                        required=True)
     parser.add_argument('--render-face-budget', type=int,
                         choices=(100_000, 250_000, 500_000, 1_000_000, 2_000_000,
                                  5_000_000), default=1_000_000)
@@ -36,8 +38,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.output.exists() or args.output.with_suffix('.json').exists():
         raise FileExistsError('immutable render export already exists')
-    if (args.texture_arm == 'top1-only') != bool(args.texture_generation):
-        raise ValueError('Top-1 texture requires its own frozen generation receipt')
+    if args.texture_arm != 'vanilla' and not args.texture_generation:
+        raise ValueError('retargeted texture requires its own frozen generation receipt')
     sys.path.insert(0, str(args.pixal3d_repo.resolve()))
     sys.path.insert(0, str(args.benchmark_repo.resolve()))
     import torch
@@ -58,10 +60,10 @@ def main() -> None:
         texture = json.loads(args.texture_generation.read_text())
         if (texture['status'] != 'PASS_ACTUAL_R_PBR_REPLAY_ON_GENERATED_SHAPE'
                 or texture['sample_id'] != shape['sample_id']
-                or texture['PBR_arm'] != 'top1-only'
+                or texture['PBR_arm'] != args.texture_arm
                 or not all(texture['geometry_array_byte_identity'].values())
                 or texture['GT_geometry_or_coords_used_in_generation']):
-            raise ValueError('frozen paired Top-1 texture receipt required')
+            raise ValueError('frozen paired retargeted texture receipt required')
     else:
         texture = None
         if args.prediction.parent != args.shape_generation.parent:

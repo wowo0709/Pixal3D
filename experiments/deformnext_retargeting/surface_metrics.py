@@ -19,8 +19,15 @@ def sample_surface(vertices, faces, *, count=20000, seed):
             or faces.dtype.kind not in 'iu' or faces.min()<0 or faces.max()>=len(vertices)
             or isinstance(count,bool) or not isinstance(count,int) or count<1):
         raise ValueError('nonempty indexed triangle mesh and explicit point count required')
-    triangles = vertices[faces]
-    area = np.linalg.norm(np.cross(triangles[:,1]-triangles[:,0], triangles[:,2]-triangles[:,0]),axis=1)
+    # Dense 1024 outputs can contain several million triangles.  Avoid the
+    # (F,3,3) materialization: these edge buffers preserve the reference
+    # arithmetic and RNG result with a much smaller peak working set.
+    base = vertices[faces[:, 0]]
+    edge1 = vertices[faces[:, 1]] - base
+    edge2 = vertices[faces[:, 2]] - base
+    del base
+    area = np.linalg.norm(np.cross(edge1, edge2), axis=1)
+    del edge1, edge2
     if not np.isfinite(area).all() or area.sum()<=0:
         raise ValueError('mesh has no finite positive surface area')
     rng = np.random.default_rng(seed)
@@ -28,7 +35,7 @@ def sample_surface(vertices, faces, *, count=20000, seed):
     u,v = rng.random((2,count))
     root = np.sqrt(u)
     weights = np.stack([1-root,root*(1-v),root*v],axis=1)
-    return (triangles[chosen]*weights[:,:,None]).sum(1)
+    return (vertices[faces[chosen]]*weights[:,:,None]).sum(1)
 
 
 def compare_surfaces(prediction, target, *, threshold=.02):

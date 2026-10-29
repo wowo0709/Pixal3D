@@ -1,0 +1,94 @@
+\section{Related Work}
+\label{sec:related_work}
+
+\subsection{Image-Conditioned 3D Generation}
+
+Image-conditioned 3D generation has advanced through two complementary paradigms.
+%
+Feed-forward reconstruction methods directly infer 3D geometry and appearance from input images using learned geometric priors~\cite{ICLR2024_dcad3425_lrm,xu2024instantmesh,wang2024crm,boss2025sf3d}.
+%
+In contrast, generative approaches learn structured or native 3D latent representations to synthesize high-fidelity assets with complex geometry and appearance~\cite{Xiang_2025_CVPR_Trellis,Xiang_2026_CVPR_Trellis2,zhao2025hunyuan3d,li2025triposg,li2025step1x3d}.
+%
+Recent studies further improve fidelity to input observations through pixel-aligned conditioning and reconstruction-guided generation~\cite{li2026pixal3d,chang2026reconviagen,huang2026unirecgen}.
+%
+Among these, Pixal3D~\cite{li2026pixal3d} incorporates projected image features into 3D generation to better preserve observed appearance.
+%
+However, these methods primarily assume that the conditioning images depict the geometry to be generated.
+%
+In contrast, our framework combines a geometry-aligned target view with original source views depicting different geometric states, explicitly retargeting source appearance evidence across geometric variations.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Geometry-Guided 3D Editing}
+
+Geometry-guided 3D editing aims to modify existing 3D assets while preserving their structural plausibility and visual cues.
+%
+Prior methods achieve geometric modifications through deformation constraints, learned shape priors, and image- or text-guided optimization~\cite{yoo2024plausible,choi2026image,kim2025meshup,dinh2025geometryinstyle}.
+%
+More recent approaches incorporate spatial controls into generative frameworks or introduce dedicated 3D editing models~\cite{fedele2026spacecontrol,erkoc2025preditor3d}.
+%
+However, geometric controls alone may leave the visual conditioning inconsistent with the edited shape.
+%
+Complementary to geometry editing, reference-guided texturing methods synthesize consistent appearance on prescribed geometry through diffusion-based view generation and texture transfer~\cite{chen2023text2tex,cao2023texfusion,yeh2024texturedreamer,xie2024styletex}.
+%
+Specifically, ShapeUP~\cite{gat2026shapeup} performs geometry editing through latent-space translation and subsequently guides texture synthesis using the edited geometry and renderings of the source asset.
+%
+While ShapeUP demonstrates the importance of preserving source appearance during geometric modifications, our approach uses a VLM-edited target view as a structural anchor and explicitly retargets source-view features across geometric states within the 3D generation process.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Correspondence-Guided Feature Fusion}
+
+Dense correspondence estimation has benefited from semantic representations learned by diffusion and self-supervised vision models~\cite{tang2023emergent,zhang2023tale,luo2023diffusionhyperfeatures,simeoni2025dinov3}.
+%
+Beyond semantic descriptors, learned matching frameworks and geometric foundation models provide complementary structural and 3D-aware priors for establishing correspondences~\cite{Edstedt_2024_CVPR_roma,mast3r_eccv24,wang2025vggt,wang2026vggtomega}.
+%
+In particular, RoMa-$\Omega$~\cite{nordstrom2026romaomega} investigates the correspondence capabilities of VGGT-$\Omega$~\cite{wang2026vggtomega} features and incorporates selected geometric representations into a learned dense matching framework.
+%
+Its findings suggest that geometrically informative features do not necessarily provide reliable correspondences through direct feature similarity, highlighting the importance of dedicated feature matching.
+
+Correspondence and geometric alignment have also been explored for consistent multi-view generation.
+%
+Existing methods employ synchronized denoising, cross-view attention, and geometry-aware feature aggregation to maintain consistency across generated views~\cite{shi2024mvdream,liu2024syncdreamer,hollein2024viewdiff,tang2023mvdiffusion,kant2024spad,huang2025mv,zhang2026align}.
+%
+While these approaches primarily focus on correspondence estimation or cross-view consistency, our work leverages semantic correspondences for a different purpose: retrieving source-specific appearance information across geometric state changes and adapting the matched features to guide target-state 3D generation.

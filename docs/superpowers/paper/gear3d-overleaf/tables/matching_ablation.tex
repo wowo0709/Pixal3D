@@ -1,0 +1,34 @@
+% Cross-state correspondence diagnostics (DEV32).
+% Required packages: booktabs, xcolor.
+\definecolor{gearAblBest}{RGB}{255,204,204}
+\definecolor{gearAblSecond}{RGB}{255,224,180}
+\providecommand{\gearAblBest}[1]{\colorbox{gearAblBest}{#1}}
+\providecommand{\gearAblSecond}[1]{\colorbox{gearAblSecond}{#1}}
+
+\begin{table}[t]
+\centering
+\caption{\small
+\textbf{Cross-state correspondence retrieval.}
+Exact@K scores are percentages over 50,493 observable relations from 32
+development source clusters. The first three variants re-rank candidates on
+mean-ray support; the final row combines proposals from distinct target
+patches. These diagnostics measure retrieval rather than downstream generation.
+}
+\label{tab:matching_ablation}
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{2.2pt}
+\setlength{\fboxsep}{0.7pt}
+\renewcommand{\arraystretch}{1.11}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Variant} & \textbf{Exact@1}$\uparrow$ & \textbf{Exact@8}$\uparrow$ & \textbf{Exact@64}$\uparrow$ \\
+\midrule
+Raw cosine & 1.25 & 11.09 & 50.76 \\
+$+$ Matching decoder & 7.73 & 28.47 & 50.76 \\
+$+$ Score refinement & \gearAblSecond{8.56} & \gearAblSecond{29.92} & 50.76 \\
+\textbf{$+$ Ray fusion (Ours)} & \gearAblBest{11.19} & \gearAblBest{45.68} & \gearAblBest{73.36} \\
+\bottomrule
+\end{tabular}
+\endgroup
+\end{table}

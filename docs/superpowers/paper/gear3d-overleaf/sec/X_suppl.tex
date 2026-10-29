@@ -1,0 +1,343 @@
+\clearpage
+\setcounter{page}{1}
+\renewcommand{\thepage}{S\arabic{page}}
+\maketitlesupplementary
+
+
+\begin{appendix}
+
+\section*{Overview}
+
+This supplementary material provides the construction and screening details of
+DeformNeXt-10k, the implementation of semantic correspondence and
+matching-aware feature aggregation, additional training and evaluation
+protocols, and qualitative results.  We report all evaluation variants with
+their input and alignment assumptions explicitly stated; ground-truth
+correspondence is used only to construct training supervision and is never
+provided to the model at inference time.
+
+
+\section{DeformNeXt-10k Construction Details}
+\label{sec:supp_deformnext}
+
+\paragraph{Source assets and canonical correspondence.}
+We construct DeformNeXt-10k from textured PartNeXt assets and their hierarchical part annotations~\cite{wang2026partnext}.
+For each source mesh $M_0=(V_0,F,A_0)$, we generate edited variants $M_{1,k}=(V_{1,k},F,A_0)$, modifying vertex positions while preserving the ordered face array and source UV, material, and corner attributes.
+Consequently, corresponding points can be identified by the same face index and barycentric coordinates, without nearest-neighbor reassignment.
+This correspondence is used to construct training labels for cross-state matching; it is not assumed for surfaces decoded by the generative model.
+
+\paragraph{Donor-guided deformation.}
+We select same-category donor objects using fixed semantic-role and structural-compatibility heuristics.
+Roles are grouped semantically rather than requiring one-to-one correspondences between individual mesh components, allowing objects with different part counts and disconnected components.
+Eight renders of each donor with its original appearance are used to personalize a pretrained SDXL prior through GeoStyle~\cite{choi2026image}.
+Donor-specific DreamBooth LoRA is trained for $800$ updates (rank $16$, resolution $512$, learning rate $10^{-4}$), and its weights can be reused across source--donor pairs.
+We use the personalization caption ``A photo of TOK sculpture'' and the deformation prompt ``A TOK style sculpture of a \texttt{<category>}''.
+The donor supplies a morphology prior for proposing edits; neither the donor geometry nor its images are provided to the appearance-retargeting model at inference.
+
+\paragraph{Part-aware assembly.}
+GeoStyle proposes per-face Jacobian changes through image-space score distillation.
+To better preserve the source assembly, we deform selected primary surfaces while treating complementary physical components as rigid followers.
+Hierarchical semantic labels identify candidate roles, but do not provide ground-truth mechanical joints.
+We instead derive physical components from source connectivity and coincident-vertex classes, and estimate attachment constraints from nearby source surfaces using vertex-to-triangle patches, barycentric coordinates, and rest-frame offsets.
+The default attachment radius is $0.006$ times the source diagonal, with at most $96$ contact samples per component.
+Reconstruction alternates four projected Poisson/rigid steps, followed by a Dirichlet solve for follower positions.
+These constraints improve assembly coherence without guaranteeing collision-free geometry.
+
+\paragraph{Optimization and optional refinement.}
+The main production configuration performs $300$ deformation iterations at resolution $512$ with batch size one (seed $37$), using main/auxiliary score-distillation weights of $2.5/0.25$ and a cage-loss epoch of $83$.
+This shorter budget was chosen for dataset-scale throughput; it is not assumed equivalent to the reference $3{,}600$-iteration GeoStyle configuration (resolution $1024$, batch size four).
+The final snapshot also retains a small number of earlier longer-budget variants with their original provenance.
+We additionally consider an optional balanced Jacobian--normal--Laplacian (JN-L) refinement of a coarse deformation proposal, optimized for $120$ Adam iterations at learning rate $0.003$.
+The refinement combines Jacobian consistency, source-crease-aware normal preservation, and an area-weighted residual umbrella Laplacian.
+For coarse vertex positions $\bar V$ and residual displacements $r_i=v_i-\bar v_i$, the latter term is
+\begin{equation}
+    \mathcal{L}_{\mathrm{L}} =
+    \sum_i m_i\left\|r_i-\sum_{j\in\mathcal{N}(i)}w_{ij}r_j\right\|_2^2,
+    \label{eq:supp_deformnext_laplacian}
+\end{equation}
+where $m_i$ is an area weight and $w_{ij}$ denotes row-normalized, inverse-edge-length weights on the source mesh.
+Boundary, nonmanifold, and sharp-crease edges are excluded from this neighborhood.
+The Laplacian weight is fixed from the initial gradient-norm ratio to the Jacobian and normal terms, rather than tuned using final evaluation scores.
+Both the original part-aware (PA) proposal and its refined version are considered independently.
+
+\paragraph{Screening and paired observations.}
+Each candidate is assessed against the original source $M_0$, rather than against its donor or initial proposal.
+We check canonical correspondence and finite geometry, meaningful deformation, severe assembly failures, paired RGB usability, survival under native 3D representations, and compatibility with the training loader.
+Multi-view, model-assisted screening also identifies conspicuous spikes, detached components, and assembly collapse; it is not equivalent to exhaustive human review or a guarantee of intersection-free meshes.
+All accepted pairs retain the source-defined coordinate frame (extent $0.48$), original source materials, and matched calibrated cameras, without independently normalizing the edited geometry.
+For retargeting, an edited $M_1$ target-view render specifies the desired state, whereas undeformed $M_0$ source-view renders supply appearance evidence; neither donor imagery nor ground-truth correspondence is passed to the generator at inference.
+Approved distinct variants are retained, while near-duplicate final geometries are merged.
+The frozen snapshot contains $5{,}611$ PA, $4{,}548$ balanced JN-L, and six earlier bootstrap variants.
+
+\paragraph{Dataset scope and splits.}
+The resulting dataset contains $10{,}165$ accepted edits from $3{,}483$ source assets spanning $50$ categories.
+A fixed approximately $90/5/5$ train/validation/test split contains $9{,}149/508/508$ edits, with all variants of each source UID and existing source-geometry cluster assigned to a single split.
+The split is disjoint in source identities and geometry clusters, but donor identities are not constrained to be split-disjoint; overlap with earlier multi-view pretraining data has not been established.
+The dataset is intended to provide plausible and observable shape edits with source-material correspondence, rather than physically certified assemblies or an estimate of the success rate of the underlying deformation procedure.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Semantic Feature Matching Details}
+\label{sec:supp_semantic_matching}
+
+\paragraph{Descriptors and candidate retrieval.}
+For each observed target patch $m$, we retrieve the top-$64$ candidate patches $\mathcal{C}_m$ across the three undeformed source views using cosine similarity of semantic descriptors.
+We use $1024$-dimensional layer-12 FRAME descriptors from a frozen VGGT-$\Omega$ backbone~\cite{wang2026vggtomega} for correspondence estimation.
+These matching descriptors are distinct from the native DINOv3 features subsequently aggregated for 3D generation (Sec.~\ref{sec:supp_matching_aggregation}).
+Candidate retrieval defines the support over which matching scores are refined; the decoder cannot recover a ground-truth match absent from this initial proposal set.
+
+\paragraph{Matching decoder.}
+We use a lightweight D1 decoder to refine the candidate ranking under geometric deformation.
+It contains one query-only cross-attention block with four heads of width $32$ and a $128$-dimensional feed-forward bottleneck.
+The decoder contextualizes the target query, while the retrieved candidate descriptors remain unchanged.
+A LayerNorm--MLP scalar head with hidden dimension $64$ adds a bounded $0.25\tanh$ residual to the contextualized cosine score.
+Thus, the final score $s_{mk}$ combines descriptor similarity with a learned, candidate-specific correction; the refined scores are used to construct the matching probabilities in Sec.~3.4.
+
+\paragraph{Correspondence supervision.}
+As described in Sec.~\ref{sec:supp_deformnext}, each source--target mesh pair preserves its ordered face indices and barycentric surface correspondence.
+We use these correspondences together with training-only depth checks to identify valid positive source patches $\mathcal{P}_m$ for each target patch.
+The multi-positive listwise objective in Sec.~3.3 assigns probability to the intersection $\mathcal{C}_m\cap\mathcal{P}_m$, allowing more than one valid positive within the retrieved support.
+Only queries with at least one valid positive candidate contribute to the loss; losses are averaged over eligible queries within each asset, and assets without eligible queries do not update the matcher.
+Queries without an observable correspondence and cases where the proposal set misses all positives are recorded separately rather than treated as reliable negatives.
+Ground-truth surface correspondence and depth checks are used for supervision and diagnostic scoring, not for inference-time source selection or visibility gating.
+
+\paragraph{Training and freezing.}
+Of the $9{,}149$ geometry-stage training examples, $9{,}143$ are certified for matcher training; six teacher-rejected cases are excluded from this step only.
+We train the D1 decoder for seven passes ($62{,}545$ updates) using AdamW with learning rate $10^{-4}$, weight decay $0.01$, and gradient clipping at $1$.
+The VGGT-$\Omega$ backbone is frozen during decoder training, and the complete matcher is frozen during subsequent 3D generative fine-tuning.
+No matching-head training or calibration is performed on the test split.
+
+\paragraph{Matching diagnostics.}
+On $50{,}493$ observable source-camera-ray/target-patch relations from $32$ development source clusters, raw cosine matching on the mean-ray support achieves $1.25\%$ exact Top-1 accuracy.
+Contextualized decoder similarity increases this to $7.73\%$, and scalar score refinement further increases it to $8.56\%$.
+Exact Top-8 coverage increases from $11.09\%$ to $28.47\%$ and $29.92\%$, respectively.
+Exact Top-64 coverage remains $50.76\%$ for these variants because they rerank the same proposal support; the additional coverage from combining observed target-member proposals is analyzed separately in Sec.~\ref{sec:supp_matching_aggregation}.
+These retrieval diagnostics measure correspondence ranking and candidate coverage, not downstream 3D generation quality.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Matching-Aware Feature Aggregation Details}
+\label{sec:supp_matching_aggregation}
+
+\paragraph{Ray grouping and observation support.}
+The geometry (SS) stage uses a $16^3$ conditioning grid and $32\times32$ image-patch maps; SS64 denotes the decoded occupancy resolution rather than the conditioning-grid size.
+For each source camera $j$ and source patch $p$, we group conditioning sites that project to the same source-camera patch address into a ray $r=(j,p)$.
+The corresponding set $\mathcal{M}_r$ contains the \emph{distinct observed target patches} associated with those grid sites.
+Repeated projections to the same target patch contribute only once, avoiding an implicit preference for patches intersected by more grid sites.
+Ray membership and observation support follow the calibrated cameras and image alpha; neither target surface depth nor ground-truth visibility is required at inference.
+
+\paragraph{Ray-level matching posterior.}
+As described in Sec.~3.3, each observed target patch $m$ retrieves up to $64$ candidates $\mathcal{C}_m$ from the three source images, using frozen semantic matching descriptors and the D1 decoder's refined scores $s_{mk}$.
+We normalize these scores over $\mathcal{C}_m$ with temperature $\tau=0.05$.
+A source candidate $k$ indexes both its source view and image patch; candidates absent from a member's proposal set receive zero probability for that member.
+We average the normalized distributions across $\mathcal{M}_r$, retain the $64$ highest-probability candidates from the resulting ray-level mixture, and renormalize their weights, as defined in Eqs.~\eqref{eq:matching_probability}--\eqref{eq:ray_matching}.
+Unlike matching a single averaged target descriptor, this procedure retains alternative correspondence hypotheses contributed by different target patches before truncation.
+
+\paragraph{Aggregation of native source features.}
+The matching descriptors and the values transferred to the generator are distinct.
+Matching uses $1024$-dimensional layer-12 FRAME descriptors from the frozen VGGT-$\Omega$ backbone, whereas the geometry stage gathers $1024$-dimensional \emph{native DINOv3 features} at the selected source patches.
+The final aggregation is the weighted sum in Eq.~\eqref{eq:matching_aggregation}, using the ray-level matching probabilities as weights.
+The selected Fixed Top-K design uses these native values directly, without an additional learned query/key attention module, value projection, or output projection.
+Consequently, all conditioning sites in a source-camera ray receive the same retrieved evidence, which is subsequently used to correct the source contribution of the native projection conditioner (Sec.~3.5).
+
+\paragraph{Unsupported observations and fallback.}
+Rays with no observed target members or insufficient valid proposals abstain from cross-state retrieval, leaving the original source-conditioning path unchanged.
+Importantly, image alpha and camera projection specify observation support rather than physical source--target co-visibility.
+Likewise, a concentrated matching posterior is not necessarily a calibrated estimate of correspondence correctness.
+The fallback therefore handles absent evidence but cannot eliminate confidently incorrect matches.
+Ground-truth surface correspondences and depth checks are used for matcher supervision or diagnostics only, never as inference-time visibility masks.
+
+\paragraph{Aggregation alternatives and diagnostics.}
+Our comparisons include retrieval from the actual Top-1 candidate and uniform weighting over the \emph{same} retained Top-K support.
+The latter isolates the role of matching-score weights, whereas Top-1 changes both the number of retrieved candidates and their aggregation.
+We also evaluate learned score refinement as an alternative to fixed weighting.
+To preserve the initial matching distribution, its per-head attention weights are anchored to the frozen prior:
+\begin{equation}
+    a_{rhk}(\theta)=
+    \operatorname{softmax}_{k\in\mathcal{K}_r}
+    \left[\log p_r(k)+s_{rhk}(\theta)-s_{rhk}(\theta_0)\right],
+    \label{eq:supp_anchored_matching_attention}
+\end{equation}
+where $h$ indexes four heads and $\theta_0$ denotes initialization.
+The head probabilities are averaged before aggregating native values; at $\theta=\theta_0$, the weights recover the Fixed posterior.
+This learned refinement is an evaluated alternative, not part of the selected Fixed Top-K pathway.
+
+On $50{,}493$ observable relations from $32$ development source clusters, combining target-member proposals increases exact Top-64 matching coverage from $50.76\%$ to $73.36\%$.
+Among $31{,}408$ observable relations where Top-1 misses but Top-K contains a ground-truth candidate, the mean probability assigned to valid candidates is $1.63\%$ for post-hoc uniform weighting, $6.46\%$ for Fixed weighting, and $6.18\%$ for learned refinement.
+These quantities characterize candidate availability and probability allocation, rather than downstream generation quality; the post-hoc uniform diagnostic is distinct from the separately trained uniform-weighting control.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Target-Aware Feature Retargeting Details}
+\label{sec:supp_target_retargeting}
+
+\paragraph{Retargeting within the native conditioner.}
+The geometry stage retains the pretrained multi-view projection conditioner, including its target-view contribution and global conditioning tokens.
+For a source-camera ray $r$, let $\mathbf{E}_r$ be the matching-weighted source evidence from Sec.~3.4 and $\mathbf{S}_r$ the native source feature already represented in the conditioning pathway.
+Rather than injecting $\mathbf{E}_r$ as an independent feature, we use the difference $\mathbf{E}_r-\mathbf{S}_r$ to express a correction relative to the existing source contribution.
+This avoids treating the retrieved evidence as an additional observation and retains the scale and structure of the pretrained conditioning pathway.
+The correspondence decision is shared by conditioning-grid sites belonging to the same source-camera ray, as described in Sec.~\ref{sec:supp_matching_aggregation}.
+
+\paragraph{Target context and adaptive source use.}
+The retargeter combines the source-feature difference with a native target context $\mathbf{T}_r$ pooled over the conditioning-grid sites of ray $r$.
+The target context is distinct from the set of observed target patches used to construct the matching posterior: the latter determines which source candidates are retrieved, whereas $\mathbf{T}_r$ provides target-state information for adapting their features.
+A learned source-use probability $u_r$ controls the contribution of the correction, together with a bounded signed gate $g$ on the direct feature difference.
+The learnable retargeter $\mathcal{R}_{\phi}$ produces an additional feature residual conditioned on $[\mathbf{E}_r-\mathbf{S}_r,\mathbf{T}_r]$, yielding the correction in Eq.~\eqref{eq:feature_retargeting}.
+The source-use probability is a conditioning weight, not a calibrated estimate of physical surface visibility or matching correctness.
+
+\paragraph{Residual injection and initialization.}
+Source corrections are organized in their respective source-view patch maps and bilinearly projected into the 3D conditioning grid using the original calibrated camera operators.
+Their sum is normalized by the total number of conditioning views, consistent with the native projection-based aggregation.
+The target-view path and global conditioning tokens are not replaced by the retargeted source evidence.
+We initialize the signed gate to zero and the retargeter output to zero, so the correction initially vanishes and the pretrained conditioning function is recovered.
+If a ray has no usable matching support, its correction is omitted and the native source contribution is retained rather than replaced with a zero feature.
+This fallback prevents unsupported updates, although it does not detect confidently incorrect correspondences.
+Preserving the target conditioning path does not guarantee pixel-exact reproduction of the edited target image after 3D generation.
+
+\paragraph{Stage-specific source adaptation.}
+We adapt the geometry and appearance stages separately rather than imposing one correspondence aggregation strategy on the complete cascade.
+The sparse-structure stage (SS64) uses the Fixed Top-K evidence of Sec.~3.4 followed by the gated residual retargeter.
+The intermediate Shape512 and Shape1024 stages remain frozen.
+Appearance synthesis (PBR1024) operates on the generated geometry and uses its own source-conditioning pathway with a separately trained Top-1 retargeter and native DINOv3/NAF features.
+The main comparison retains this pre-existing Top-1 PBR checkpoint and does not replace it after inspecting the test set.
+In the common-501 fixed-geometry control, original conditioning, Top-1, and Top-K have comparable source-fidelity metrics: Top-K improves LPIPS relative to Top-1, but its DreamSim and CLIP intervals include zero, and none of its three intervals against original conditioning excludes zero.
+Accordingly, we do not claim that Top-1 is uniformly preferable for appearance or that appearance retargeting provides a broad gain.
+
+\paragraph{Fine-tuning and controlled comparisons.}
+We continue the supplied multi-view base-plus-LoRA checkpoints, using the original SS64/Shape512 checkpoint at step $4{,}210$ and Shape1024/PBR1024 checkpoint at step $16{,}850$.
+Image encoders, the VGGT-$\Omega$ matching backbone and decoder, and the intermediate shape stages remain frozen during generative fine-tuning.
+The geometry stage is trained for $480$ updates with global batch size $96$, LoRA rank/alpha $16/16$, and denoiser/conditioner learning rates $10^{-5}/10^{-4}$.
+The appearance stage uses $1{,}900$ updates, global batch size $24$, and denoiser/conditioner learning rates $5\times10^{-6}/10^{-4}$.
+Geometry-stage alternatives are compared with common frozen downstream shape models and the same Top-1-retargeting PBR model; appearance-stage alternatives are compared on identical generated geometry, guides, texture noise, rendering triangles, and references.
+Modules removed in ablations are physically omitted rather than replaced with zero-filled inputs.
+These controls separate changes in geometry conditioning from changes in appearance synthesis.
+
+\paragraph{Common-success evaluation protocol.}
+The cross-method comparison uses the 501 test edits successfully produced by
+every evaluated method, spanning 133 source-geometry clusters.  Generation
+never receives a scale measured from the edited target mesh.  Methods that
+natively accept calibrated cameras retain that interface; the original
+single-view Pixal3D baseline additionally appears at its native 1536
+resolution with estimated camera parameters.  For every method, we report
+the native output and a source-only Sim(3) variant whose transform is fitted
+to the input source mesh $M_0$.  The edited target mesh $M_1$ is opened only
+after this transform has been fixed and is used solely for CD and F-Score
+evaluation.  Source preservation uses cameras 9 and 10, target-image metrics
+use camera 8, and all images are rendered by the same Cycles protocol.
+
+The \emph{MV-Pixal3D (zero-shot)} control uses the pretrained mixed385
+multi-view checkpoints without DeformNeXt optimization and receives the same
+edited target plus three original source RGB images as our method.  The
+\emph{Pixal3D (target 1-view)} control instead receives only the edited target
+RGB and its calibrated camera in the 1024 cascade.  Keeping these controls
+separate from the native-1536 Pixal3D row exposes the effects of multi-view
+input, camera access, and task-specific fine-tuning without treating any of
+them as an isolated proposed-module contribution.
+
+
+
+
+
+
+
+
+
+
+
+
+
+\end{appendix}

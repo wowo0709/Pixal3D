@@ -20,8 +20,8 @@ from .zero_shot_cascade_inputs import validate_zero_shot_cascade
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--plan',type=Path,required=True);a=p.parse_args()
     plan=json.loads(a.plan.read_text());gpu=os.environ.get('CUDA_VISIBLE_DEVICES','')
-    if gpu not in {'0','1','2','3'} or gpu not in os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(','):
-        raise ValueError('one explicitly assigned physical GPU0-3 required')
+    if gpu not in {'0','1','2','3','6','7'} or gpu not in os.environ.get('MATCHING_V2_ALLOWED_GPUS','').split(','):
+        raise ValueError('one explicitly assigned authorized physical GPU required')
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
     torch.set_num_threads(2);torch.cuda.set_device(0)
     torch.cuda.set_per_process_memory_fraction(plan['allocator_fraction'],0)

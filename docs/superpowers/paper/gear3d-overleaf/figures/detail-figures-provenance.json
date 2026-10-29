@@ -1,0 +1,14 @@
+{
+  "crop_xywh": [
+    70,
+    87,
+    359,
+    359
+  ],
+  "input_sha256": {
+    "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/exports/pixal3d-incremental-controller-v1-8b3c670324ec67fb5a281ab2/delta/train/render_cond/shard002_ae9e9a122b1841e7a56ecdf0d9ae0427_d1_fast300fpssupplyv1_PA_target08/view00.png": "192d16dc8ebf7f27828aeb2bf01a47a52e8185085345cd258c09421c495fc13c",
+    "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/exports/pixal3d-incremental-controller-v1-8b3c670324ec67fb5a281ab2/delta/train/render_cond/shard002_ae9e9a122b1841e7a56ecdf0d9ae0427_d1_fast300fpssupplyv1_PA_target08/view02.png": "11d4fc5e97b02e4a1469676b4080a64178e74fe7e2dab3cedb51019811cbc564",
+    "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/exports/pixal3d-incremental-controller-v1-8b3c670324ec67fb5a281ab2/delta/train/render_cond/shard002_ae9e9a122b1841e7a56ecdf0d9ae0427_d1_fast300fpssupplyv1_PA_target08/view03.png": "1c66c83ba31039294c83c86ec36d75950ef4a522d8fde6f64784038e1c0e378b",
+    "/root/dev/.cache/deformnext-file4/file4/youngwoo/deformation/exports/pixal3d-incremental-controller-v1-8b3c670324ec67fb5a281ab2/delta/train/render_cond/shard002_ae9e9a122b1841e7a56ecdf0d9ae0427_d1_fast300fpssupplyv1_PA_target08/view04.png": "d6438f265a5e631516221420061d1d83f85d8a59f2c0aaee625c4167a7ab158b"
+  }
+}

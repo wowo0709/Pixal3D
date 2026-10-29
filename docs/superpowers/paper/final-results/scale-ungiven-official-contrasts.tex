@@ -1,0 +1,28 @@
+\begin{table*}[t]
+\centering\scriptsize
+\begin{tabular}{llrrl}
+\toprule
+Ours method & Metric & $\Delta$ to official & Family-adjusted 95\% CI & Favorable interval?\\
+\midrule
+Vanilla V1 & LPIPS & -0.04431 & $[-0.05110,-0.03826]$ & yes\\
+Vanilla V1 & DreamSim & -0.22901 & $[-0.25395,-0.20487]$ & yes\\
+Vanilla V1 & CLIP & +0.07002 & $[+0.05992,+0.08059]$ & yes\\
+Vanilla V1 & PSNR & +5.454 & $[+4.821,+6.116]$ & yes\\
+Vanilla V1 & SSIM & +0.02505 & $[+0.02042,+0.03016]$ & yes\\
+Vanilla V1 & M-IoU & +0.32820 & $[+0.29356,+0.36341]$ & yes\\
+Vanilla V1 & CD & -0.040900 & $[-0.047055,-0.035648]$ & yes\\
+Vanilla V1 & F@0.02 & +0.40882 & $[+0.37246,+0.44471]$ & yes\\
+\midrule
+Ours selected & LPIPS & -0.04409 & $[-0.05073,-0.03808]$ & yes\\
+Ours selected & DreamSim & -0.22777 & $[-0.25200,-0.20440]$ & yes\\
+Ours selected & CLIP & +0.06935 & $[+0.05979,+0.07925]$ & yes\\
+Ours selected & PSNR & +5.519 & $[+4.877,+6.191]$ & yes\\
+Ours selected & SSIM & +0.02470 & $[+0.02002,+0.02966]$ & yes\\
+Ours selected & M-IoU & +0.33168 & $[+0.29762,+0.36629]$ & yes\\
+Ours selected & CD & -0.041097 & $[-0.047171,-0.035905]$ & yes\\
+Ours selected & F@0.02 & +0.41035 & $[+0.37305,+0.44598]$ & yes\\
+\bottomrule
+\end{tabular}
+\caption{Paired source-cluster comparisons of frozen Vanilla V1 and Ours selected against the official given-camera Pixal3D RGB1 on the same 501/508 successful edits after source-M0-only post-generation registration. $\Delta$ is Ours minus official; favorable directions are lower LPIPS, DreamSim and CD, and higher CLIP, PSNR, SSIM, M-IoU and F@0.02. The family contains two comparisons times eight endpoints, with Bonferroni adjusted source-cluster intervals. ``Uncertain does not establish equality. The official control uses T1+C and Ours uses T1+S3+C; these rows compare complete systems, not an isolated module. FID/KID are distribution point estimates in Table~\ref{tab:scale-ungiven-common-main}.}
+\label{tab:scale-ungiven-official-contrasts}
+\end{table*}

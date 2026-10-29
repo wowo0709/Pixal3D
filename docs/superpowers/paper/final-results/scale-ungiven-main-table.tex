@@ -1,0 +1,26 @@
+\begin{table*}[t]
+\centering\normalsize
+\setlength{\tabcolsep}{2.5pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrrrrrrrrr}
+\toprule
+& & & \multicolumn{3}{c}{Source preservation (9/10)} & \multicolumn{2}{c}{Distribution (9/10)} & \multicolumn{5}{c}{Target alignment (8/M1)}\\
+Method & Input & Success & LPIPS$\downarrow$ & DreamSim$\downarrow$ & CLIP$\uparrow$ & FID$\downarrow$ & KID$\downarrow$ & PSNR$\uparrow$ & SSIM$\uparrow$ & M-IoU$\uparrow$ & CD$\downarrow$ & F@0.02$\uparrow$\\
+\midrule
+Ours selected & T1+S3+C & 508/508 & \underline{0.0538} & \underline{0.1352} & \underline{0.9384} & \textbf{38.56} & \underline{0.685} & \textbf{23.28} & \underline{0.9459} & \textbf{0.8619} & \textbf{0.01493} & \textbf{0.8047}\\
+Ours vanilla V1 & T1+S3+C & 508/508 & \textbf{0.0536} & \textbf{0.1339} & \textbf{0.9391} & \underline{38.61} & 0.737 & \underline{23.22} & \textbf{0.9463} & \underline{0.8584} & \underline{0.01512} & \underline{0.8032}\\
+\midrule
+Pixal3D official 1024 (given C) & T1+C & 507/508 & 0.0979 & 0.3629 & 0.8691 & 79.64 & 8.049 & 17.77 & 0.9212 & 0.5302 & 0.05603 & 0.3944\\
+\midrule
+TRELLIS.2 & T1 & 508/508 & 0.0909 & 0.2539 & 0.9018 & 57.73 & 1.996 & 18.28 & 0.9210 & 0.5633 & 0.05168 & 0.4779\\
+Pixal3D official (estimated C) & T1 & 508/508 & 0.0887 & 0.2035 & 0.9211 & 54.06 & 2.806 & 18.77 & 0.9216 & 0.6164 & 0.04419 & 0.4846\\
+ReconViaGen & T1+S3 & 508/508 & 0.0731 & 0.1772 & 0.9274 & 45.21 & \textbf{0.637} & 19.88 & 0.9310 & 0.6836 & 0.03607 & 0.5848\\
+MVAdapter+ReconViaGen & T1 & 504/508 & 0.0946 & 0.2794 & 0.8933 & 64.65 & 4.169 & 18.26 & 0.9180 & 0.5877 & 0.05236 & 0.4175\\
+CorrAdapter+ReconViaGen & T1 & 502/508 & 0.0939 & 0.2767 & 0.8940 & 62.95 & 3.735 & 18.29 & 0.9202 & 0.5835 & 0.05203 & 0.4131\\
+ShapeUp & T1+M0 & 508/508 & 0.0853 & 0.2947 & 0.8863 & 72.49 & 6.411 & 18.02 & 0.9218 & 0.6017 & 0.05045 & 0.5170\\
+TRELLIS.2+SpaceControl & T1+P+A1 & 508/508 & 0.0913 & 0.2844 & 0.8945 & 62.19 & 2.970 & 17.37 & 0.9179 & 0.5639 & 0.05173 & 0.4726\\
+\bottomrule
+\end{tabular}}
+\caption{Common-success TEST comparison on 501/508 edits. All rows use the same evaluation cameras, Cycles renderer, metric code, and post-generation source-M0-only Sim(3) alignment; no target-derived object scale is supplied at generation. Success is the native method count before the common intersection. T1 is the edited target RGB, S3 three original source RGBs, M0 the textured source mesh, A1 an original anchor RGB, P a TRELLIS.2 target proxy predicted from T1, and C provided camera metadata. Native model input access differs by row; the older Pixal3D baseline estimates C and uses a 1536 cascade, while the new RGB1 and Ours rows use given C and a 1024 cascade. Source metrics use cameras 9/10; target image metrics use camera 8; geometry is measured against edited M1. KID values are multiplied by 1,000 for display. Bold and underline mark the first and second values within this table.}
+\label{tab:scale-ungiven-common-main}
+\end{table*}

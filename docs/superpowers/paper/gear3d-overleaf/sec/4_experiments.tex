@@ -1,0 +1,210 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\input{tables/main_quantitative}
+
+\subsection{Experimental Setting}
+
+\YW{
+
+\paragraph{Dataset.}
+%
+We conduct experiments on DeformNeXt-10k, comprising 10,165 paired deformations from 3,483 source objects across 50 categories.
+%
+The dataset is divided into 9,149 training, 508 validation, and 508 test examples, with source identities and geometry clusters disjoint across splits.
+%
+Each example provides multi-view observations of the original source object and its deformed counterpart, with preserved surface correspondences and appearance.
+%
+For controlled evaluation, we use rendered target-state images as geometry-aligned target observations, isolating appearance retargeting from variations in VLM-based editing.
+%
+Further details are provided in the supplementary material.
+
+\paragraph{Baselines.}
+%
+We compare against three categories of methods to evaluate different strategies for geometry-conditioned 3D editing.
+%
+\emph{Image-to-3D generation} methods, TRELLIS.2~\cite{Xiang_2026_CVPR_Trellis2} and Pixal3D~\cite{li2026pixal3d}, generate 3D assets from the edited target image alone, without access to the original source appearance.
+%
+\emph{Multi-view reconstruction} methods include ReconViaGen~\cite{chang2026reconviagen}, which directly combines edited target and original source views, and MVAdapter~\cite{huang2025mv} and CorrAdapter~\cite{zhang2026align}, which generate edited
+multi-view images followed by a common ReconViaGen reconstruction backbone.
+%
+\emph{Geometry-guided editing} methods include ShapeUP~\cite{gat2026shapeup}, which edits an existing source mesh, and SpaceControl~\cite{fedele2026spacecontrol}, which uses a predicted target mesh as spatial control with original source-image appearance conditioning.
+%
+Together, these baselines examine the trade-offs between target-view reconstruction, multi-view conditioning, and explicit geometric control.
+
+For Pixal3D, we report two complementary single-view controls to make the
+evaluation interface explicit.  \emph{Pixal3D (target 1-view)} is our fresh
+1024-resolution run with the target RGB image and its evaluation camera,
+whereas \emph{Pixal3D (native 1536)} uses the original baseline pipeline with
+estimated camera parameters at its native resolution.  We additionally
+evaluate \emph{MV-Pixal3D (zero-shot)}, the pretrained multi-view checkpoint
+before DeformNeXt fine-tuning, with exactly the same target-plus-three-source
+RGB inputs used by ReconViaGen and our method.  These rows isolate input-view,
+camera, and task-specific fine-tuning effects rather than conflating them with
+the proposed modules.
+
+\paragraph{Metrics.}
+%
+We evaluate three aspects of 3D editing quality: source appearance preservation, target alignment, and overall visual quality.
+%
+Appearance preservation is measured using LPIPS~\cite{zhang2018unreasonable}, DreamSim~\cite{fu2023dreamsim}, and CLIP similarity, against reference renderings of the target geometry with the original source materials.
+%
+Target alignment is evaluated using PSNR, SSIM, and mask IoU for rendered images, together with Chamfer Distance (CD) and surface F-Score for geometry.
+%
+We additionally report FID and KID to assess the overall distribution of generated renderings.
+All meshes are evaluated both in their native output frame and after a
+source-only Sim(3) correction estimated from the input source mesh; the main
+comparison reports the latter.  The edited target mesh is never used for
+registration or to set generation scale.
+
+\paragraph{Implementation Details.}
+%
+We extend the single-view Pixal3D~\cite{li2026pixal3d}, built on TRELLIS.2 with DINOv3 projection conditioning, to multi-view generation and train the resulting model.
+%
+We then fine-tune SS64 and PBR1024 on \emph{DeformNeXt-10k} using LoRA, while keeping Shape512/1024 frozen.
+%
+The matching decoder is separately trained with surface correspondence supervision and frozen alongside the image encoders during generative fine-tuning.
+%
+SS64 and PBR1024 are trained for 5 epochs, with batch sizes of 96 and 24, respectively.
+%
+Further details are provided in the supplementary material.
+}
+
+
+
+
+
+
+
+
+
+\subsection{Generation Results}
+
+\YW{
+
+\paragraph{DeformNeXt-10k.}
+%
+We evaluate 3D editing performance on DeformNeXt-10k, comparing source appearance preservation and target geometry alignment against existing approaches.
+%
+\Tref{tab:main_quantitative} presents results on 501 commonly successful test examples,
+using identical cameras, rendering, metric implementations, and source-only
+registration for every method.
+%
+Among existing methods, ReconViaGen gives the strongest overall balance,
+including source LPIPS (0.0731), DreamSim (0.1772), and Chamfer Distance
+(0.0361), highlighting the value of incorporating original source observations.
+%
+ShapeUP improves surface F-Score to 0.5170, but exhibits lower source
+appearance fidelity, particularly in DreamSim (0.2947).
+%
+Meanwhile, MVAdapter and CorrAdapter show lower geometric fidelity than direct multi-view reconstruction, suggesting that generating edited multi-view images does not necessarily ensure accurate geometry.
+%
+These results highlight the challenge of jointly preserving source appearance and achieving target geometry alignment.
+%
+GEAR3D achieves the best FID (38.56), target-view PSNR (23.28), mask IoU
+(0.8619), Chamfer Distance (0.01493), and surface F-Score (0.8047).  Its
+appearance metrics remain close to the vanilla DeformNeXt fine-tuned
+MV-Pixal3D control, while substantially outperforming the strongest external
+baseline on both appearance preservation and target alignment.
+The matched MV-Pixal3D zero-shot control uses the same four RGB inputs and
+evaluation protocol, separating the effect of DeformNeXt fine-tuning from the
+difficulty of the cross-geometry input itself.
+The two single-view Pixal3D rows are intentionally kept separate: the fresh
+target-view control follows our 1024-resolution, camera-given protocol, while
+the native-1536 row preserves the external baseline's estimated-camera
+interface.
+%
+\Fref{fig:teaser} gives an image-grounded example of the resulting trade-off;
+additional qualitative comparisons are included in the supplementary material.
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Ablation Study}
+\label{sec:ablation}
+
+\input{tables/matching_ablation}
+\input{tables/main_ablation}
+\input{tables/appearance_ablation}
+
+\YW{
+
+\paragraph{Semantic Feature Matching.}
+%
+We examine whether learned semantic correspondence provides more informative source evidence across geometric changes.
+%
+As shown in \Tref{tab:matching_ablation}, the decoder and score refinement increase Exact@1 from $1.25\%$ to $8.56\%$ on the same candidate support.
+%
+Combining proposals from distinct target observations further improves Exact@1 to $11.19\%$ and Exact@64 coverage from $50.76\%$ to $73.36\%$.
+%
+On the full common-501 cascade, the decoder-refined variant gives the strongest retrieval-only CD, while the complete model gives the lowest CD overall (\Tref{tab:main_ablation}).
+The small paired differences and overlapping confidence intervals indicate that improved correspondence coverage does not by itself guarantee a large surface-metric gain.
+
+\paragraph{Matching-Aware Feature Aggregation.}
+%
+We examine whether retaining and weighting multiple matches is more effective than relying on a single correspondence.
+%
+The full model, which includes ray-level proposal fusion and score-weighted Top-$K$ aggregation, achieves the lowest CD in \Tref{tab:main_ablation}, improving the scaled value from $150.40$ for Top-1 and $150.37$ for uniform weighting to $149.28$.
+Its F-Score remains within $0.09$ points of both alternatives.
+%
+\Tref{tab:matching_ablation} illustrates the additional candidate coverage of ray fusion; the geometry comparison evaluates aggregation alternatives under the selected ray-level delivery rather than separately removing ray fusion.
+
+\paragraph{Target-Aware Feature Retargeting.}
+%
+Relevant source evidence must also be adapted to the target state.
+%
+Removing residual retargeting increases scaled CD from $149.28$ to $151.36$, while F-Score is effectively tied ($80.47$ vs. $80.50$; \Tref{tab:main_ablation}).
+Thus retargeting primarily improves surface proximity in this evaluation rather than uniformly improving every geometry endpoint.
+
+\paragraph{Appearance Retargeting.}
+%
+We compare appearance conditioning on the same 501 edits, holding geometry,
+texture noise, source cameras, and rendering fixed
+(\Tref{tab:appearance_ablation}).  The three variants are close: original
+conditioning gives the lowest DreamSim and highest CLIP, whereas Top-$K$
+retargeting gives the lowest LPIPS.  Relative to Top-1, the Top-$K$ LPIPS
+difference is $-0.106\!\times\!10^{-3}$ with a source-cluster bootstrap 95\%
+CI of $[-0.210,-0.008]\!\times\!10^{-3}$; the corresponding DreamSim and
+CLIP intervals include zero.  All three Top-$K$--versus--original intervals
+also include zero.  Thus the large-scale control does not support a broad
+appearance-preservation gain from retargeting; the principal empirical
+advantage in our evaluation is geometric, while appearance variants preserve comparable
+source fidelity.  The main comparison retains the pre-existing Top-1
+checkpoint rather than selecting a replacement on the test set.
+%
+Additional results are provided in the Supp. Mat..
+
+}

@@ -1,0 +1,34 @@
+% PBR appearance-stage ablation (TEST508/common501); identical geometry.
+% Required packages: booktabs, xcolor.
+\definecolor{gearAblBest}{RGB}{255,204,204}
+\definecolor{gearAblSecond}{RGB}{255,224,180}
+\providecommand{\gearAblBest}[1]{\colorbox{gearAblBest}{#1}}
+\providecommand{\gearAblSecond}[1]{\colorbox{gearAblSecond}{#1}}
+
+\begin{table}[t]
+\centering
+\caption{\small
+\textbf{Appearance-stage ablation.}
+All variants are evaluated on the same 501 test edits with fixed selected
+geometry, paired PBR noise, identical rendering, and source cameras 9/10.
+LPIPS and DreamSim are multiplied by $10^3$ for display. The Top-$K$ variant
+uses a learned Top-$K$ feature readout but retains the Top-1
+carrier/source-use path.
+}
+\label{tab:appearance_ablation}
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.2pt}
+\setlength{\fboxsep}{0.9pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Variant} & \textbf{LPIPS}$\downarrow$ & \textbf{DreamSim}$\downarrow$ & \textbf{CLIP}$\uparrow$ \\
+\midrule
+Original conditioning & \gearAblSecond{53.73} & \gearAblBest{134.78} & \gearAblBest{0.9388} \\
+\textbf{Top-1 retargeting (main)} & 53.82 & 135.17 & 0.9384 \\
+Top-$K$ retargeting & \gearAblBest{53.71} & \gearAblSecond{134.81} & \gearAblSecond{0.9387} \\
+\bottomrule
+\end{tabular}
+\endgroup
+\end{table}

@@ -1,0 +1,22 @@
+\begin{table*}[t]
+\centering\scriptsize
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+& \multicolumn{3}{c}{PSNR (dB)$\uparrow$} & \multicolumn{3}{c}{SSIM$\uparrow$} & \multicolumn{3}{c}{Mask IoU$\uparrow$}\\
+Method & Raw & +M0 & $\Delta$ & Raw & +M0 & $\Delta$ & Raw & +M0 & $\Delta$\\
+\midrule
+Ours selected & 25.14 & 23.28 & -1.85 & 0.9555 & 0.9459 & -0.0096 & 0.9124 & 0.8619 & -0.0506\\
+Ours vanilla V1 & 24.78 & 23.22 & -1.56 & 0.9547 & 0.9463 & -0.0085 & 0.9019 & 0.8584 & -0.0435\\
+Pixal3D official 1024 (given C) & 15.77 & 17.77 & +1.99 & 0.9026 & 0.9212 & +0.0186 & 0.3979 & 0.5302 & +0.1323\\
+TRELLIS.2 & 17.68 & 18.28 & +0.60 & 0.9208 & 0.9210 & +0.0002 & 0.4613 & 0.5633 & +0.1019\\
+Pixal3D official (estimated C) & 16.44 & 18.77 & +2.33 & 0.9111 & 0.9216 & +0.0105 & 0.4130 & 0.6164 & +0.2034\\
+ReconViaGen & 18.88 & 19.88 & +0.99 & 0.9274 & 0.9310 & +0.0036 & 0.5927 & 0.6836 & +0.0909\\
+MVAdapter+ReconViaGen & 17.04 & 18.26 & +1.23 & 0.9120 & 0.9180 & +0.0060 & 0.4839 & 0.5877 & +0.1038\\
+CorrAdapter+ReconViaGen & 17.05 & 18.29 & +1.24 & 0.9140 & 0.9202 & +0.0062 & 0.4762 & 0.5835 & +0.1073\\
+ShapeUp & 17.76 & 18.02 & +0.26 & 0.9242 & 0.9218 & -0.0023 & 0.5289 & 0.6017 & +0.0728\\
+TRELLIS.2+SpaceControl & 16.70 & 17.37 & +0.68 & 0.9157 & 0.9179 & +0.0022 & 0.4650 & 0.5639 & +0.0989\\
+\bottomrule
+\end{tabular}
+\caption{Paired effect of post-generation Sim(3) alignment to the input source M0 mesh on the exact 501/508 common-success edits. Target-camera metrics are computed from raw and rerendered +M0 outputs with the same references; $\Delta$ is +M0 minus raw. The edited target mesh is never used for alignment.}
+\label{tab:target8-source-m0-effect}
+\end{table*}

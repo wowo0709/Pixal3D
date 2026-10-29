@@ -1,0 +1,91 @@
+%% This file contains a number of tweaks that are typically applied to the main document.
+%% They are not enabled by default, but can be enabled by uncommenting the relevant lines.
+
+%%
+%% Inline annotations; for predefined colors, refer to "dvipsnames" in the xcolor package:
+%% https://tinyurl.com/overleaf-colors
+%%
+\newcommand{\red}[1]{{\color{red}#1}}
+\newcommand{\todo}[1]{{\color{red}#1}}
+\newcommand{\TODO}[1]{\textbf{\color{red}[TODO: #1]}}
+
+\newcommand{\DEL}[1]{{\color{gray}#1}}
+% Keep collaborative revision blocks in the source, but render them as normal
+% submission text.
+\newcommand{\YW}[1]{#1}
+%%
+%% disable for camera ready / submission by uncommenting these lines
+%%
+% \renewcommand{\TODO}[1]{}
+% \renewcommand{\todo}[1]{#1}
+
+
+\newcommand{\Sref}[1]{Sec.~\ref{#1}}
+\newcommand{\Eref}[1]{Eq.~(\ref{#1})}
+\newcommand{\Fref}[1]{Fig.~\ref{#1}}
+\newcommand{\Tref}[1]{Table~\ref{#1}}
+
+
+% =========================================================
+% Preamble
+% =========================================================
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{adjustbox}
+
+% Optional typography helpers
+\definecolor{best}{RGB}{255,184,184}     % light red
+\definecolor{second}{RGB}{255,215,160}  % light orange
+
+\newcommand{\best}[1]{\cellcolor{best}\textbf{#1}}
+\newcommand{\second}[1]{\cellcolor{second}#1}
+
+\newcommand{\tblhead}[1]{\scriptsize\bfseries #1}
+\newcommand{\tblsub}[1]{\fontsize{6.5}{7.2}\selectfont #1}
+\newcommand{\method}[1]{\scriptsize #1}
+\newcommand{\viewhead}[1]{\fontsize{6.8}{7.5}\selectfont\bfseries #1}
+
+\newcommand{\abhead}[1]{\fontsize{7.2}{7.8}\selectfont\bfseries #1}
+\newcommand{\absub}[1]{\fontsize{6.8}{7.2}\selectfont #1}
+\newcommand{\abrow}[1]{\fontsize{7.0}{7.6}\selectfont #1}
+
+\usepackage{array}
+\newcolumntype{M}{>{\centering\arraybackslash}m{0.8cm}}
+
+%%
+%% work harder in optimizing text layout. Typically shrinks text by 1/6 of page, enable
+%% it at the very end of the writing process, when you are just above the page limit
+%%
+% \usepackage{microtype}
+
+%%
+%% fine-tune paragraph spacing
+%%
+% \renewcommand{\paragraph}[1]{\vspace{.5em}\noindent\textbf{#1.}}
+
+%%
+%% globally adjusts space between figure and caption
+%%
+% \setlength{\abovecaptionskip}{.5em}
+
+
+%%
+%% Allows "the use of \paper to refer to the project name"
+%% with automatic management of space at the end of the word
+%%
+% \usepackage{xspace}
+% \newcommand{\paper}{ProjectName\xspace}
+
+%%
+%% Commonly used math definitions
+%%
+% \DeclareMathOperator*{\argmin}{arg\,min}
+% \DeclareMathOperator*{\argmax}{arg\,max}
+
+%%
+%% Tigthen underline
+%%
+% \usepackage{soul}
+% \setuldepth{foobar}

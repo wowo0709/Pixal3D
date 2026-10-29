@@ -44,6 +44,10 @@ def main() -> None:
     parser.add_argument('--campaign', type=Path, required=True)
     parser.add_argument('--paper-figures', type=Path, required=True)
     parser.add_argument('--output-root', type=Path, required=True)
+    parser.add_argument('--file4-host', default='youngwoo@n16.unist.info')
+    parser.add_argument('--ssh-port', type=int, default=55555)
+    parser.add_argument('--official-archive', default=OFFICIAL_ARCHIVE)
+    parser.add_argument('--ours-archive', default=OURS_ARCHIVE)
     parser.add_argument('--poll-seconds', type=int, default=60)
     args = parser.parse_args()
     if args.output_root.exists() or args.poll_seconds < 10:
@@ -95,9 +99,10 @@ def main() -> None:
                     '--campaign', str(args.campaign),
                     '--official-plan', str(official_plan),
                     '--ours-plan', str(ours_plan),
-                    '--official-archive', OFFICIAL_ARCHIVE,
-                    '--ours-archive', OURS_ARCHIVE,
-                    '--file4-host', 'youngwoo@n16.unist.info',
+                    '--official-archive', args.official_archive,
+                    '--ours-archive', args.ours_archive,
+                    '--file4-host', args.file4_host,
+                    '--ssh-port', str(args.ssh_port),
                     '--file4-control-socket', str(args.output_root / 'no-control-socket'),
                     '--staging-dir', str(args.output_root / 'staging'),
                     '--output-dir', str(figure)], check=True)

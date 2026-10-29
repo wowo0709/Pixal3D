@@ -1,0 +1,40 @@
+% Geometry-stage ablation (TEST508/common501): display-only scaling.
+% Required packages: booktabs, xcolor.
+\definecolor{gearAblBest}{RGB}{255,204,204}
+\definecolor{gearAblSecond}{RGB}{255,224,180}
+\providecommand{\gearAblBest}[1]{\colorbox{gearAblBest}{#1}}
+\providecommand{\gearAblSecond}[1]{\colorbox{gearAblSecond}{#1}}
+
+\begin{table}[t]
+\centering
+\caption{\small
+\textbf{Geometry-stage ablation.}
+All variants are evaluated on the same common-501 subset after input-source-only Sim(3) registration. The full model uses ray-fused, score-weighted Top-$K$ evidence; matching variants retain the same Fixed-style ray-level delivery. CD and F-Score are multiplied by $10^4$ and $10^2$, respectively, for display.
+}
+\label{tab:main_ablation}
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\setlength{\fboxsep}{0.9pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Variant} & \textbf{CD}$\downarrow$ & \textbf{F-Score}$\uparrow$ \\
+\midrule
+\textbf{Ours (Ray-fused Top-$K$)} & \gearAblBest{149.28} & \gearAblSecond{80.47} \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Semantic feature matching}} \\
+Spatial retrieval           & 151.25 & 80.37 \\
+Semantic retrieval          & 151.60 & 80.22 \\
+Decoder matching (cosine)   & \gearAblSecond{149.89} & 80.24 \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Matching-aware feature aggregation}} \\
+Top-1 selection             & 150.40 & 80.17 \\
+Uniform Top-$K$ weighting   & 150.37 & 80.38 \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Target-aware feature retargeting}} \\
+Without retargeting         & 151.36 & \gearAblBest{80.50} \\
+\bottomrule
+\end{tabular}
+\endgroup
+\end{table}
