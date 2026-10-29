@@ -32,7 +32,7 @@ def main():
     else:
         # trimesh GLB export is Y-up; Blender converts this by B. SpaceControl
         # uses the same TRELLIS native frame as its target-proxy control.
-        b=np.eye(4);b[:3,:3]=blender;q=np.eye(4);q[:3,:3]=[[-1,0,0],[0,0,1],[0,1,0]]
+        b=np.eye(4);b[:3,:3]=blender;q=np.eye(4);q[:3,:3]=[[1,0,0],[0,0,1],[0,-1,0]]
         to_world=output_to_world(row)@q@np.linalg.inv(b);frame='spacecontrol_trellis_to_blender_import'
     seed=int(hashlib.sha256(sid.encode()).hexdigest()[:8],16)
     moving=apply(sample_surface(verts,faces,count=4096,seed=seed+103),to_world)

@@ -24,6 +24,7 @@ def vector(runtime: Path, method: str, sid: str, mode: str) -> np.ndarray:
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--runtime',type=Path,required=True)
+    p.add_argument('--corrected-root',type=Path)
     p.add_argument('--manifest',type=Path,required=True)
     p.add_argument('--aggregate',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
@@ -53,7 +54,8 @@ def main():
         mode_results={}
         for label,method in mapping.items():
             if label=='Selected' or label not in aggregate['methods']:continue
-            diff=selected-np.stack([vector(a.runtime,method,sid,mode) for sid in sample_ids])
+            root=a.corrected_root if a.corrected_root is not None and label in {'TRELLIS2','ReconViaGen','MVAdapter-Recon','CorrAdapter-Recon','SpaceControl'} else a.runtime
+            diff=selected-np.stack([vector(root,method,sid,mode) for sid in sample_ids])
             draws_mean=np.stack([diff[ix].mean(axis=0) for ix in resamples])
             lo,hi=np.quantile(draws_mean,[0.025,0.975],axis=0)
             mean=diff.mean(axis=0)

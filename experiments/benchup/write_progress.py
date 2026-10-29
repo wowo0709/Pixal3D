@@ -18,6 +18,7 @@ def ids(paths, population):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--runtime', type=Path, required=True)
+    p.add_argument('--corrected-root', type=Path)
     p.add_argument('--manifest', type=Path, required=True)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--watch-pids', default='')
@@ -43,9 +44,10 @@ def main():
                  '| 모델 | 생성 | 후처리 | 이미지 지표 |', '|---|---:|---:|---:|']
         for label, (root, method) in roots.items():
             generated = ids(a.runtime.glob(root + '/cases/*/receipt.json'), population)
-            processed = ids(a.runtime.glob(method + '-postprocess-shard-*/cases/*/archive.json'), population)
-            basic = ids(a.runtime.glob(method + '-render-stream-v1/cases/*/diagnostic-scores.json'), population)
-            learned = ids(a.runtime.glob(method + '-learned-metrics-v1/*/learned.json'), population)
+            evaluated = a.corrected_root if a.corrected_root is not None and label in {'TRELLIS2','ReconViaGen','MVAdapter-Recon','CorrAdapter-Recon','SpaceControl'} else a.runtime
+            processed = ids(evaluated.glob(method + '-postprocess-shard-*/cases/*/archive.json'), population)
+            basic = ids(evaluated.glob(method + '-render-stream-v1/cases/*/diagnostic-scores.json'), population)
+            learned = ids(evaluated.glob(method + '-learned-metrics-v1/*/learned.json'), population)
             lines.append(f'| {label} | {len(generated)}/109 | {len(processed)}/109 | {len(basic & learned)}/109 |')
         lines += ['', '지표는 임시 카메라와 입력 이미지 참조를 사용한다. 방법별 완료 집합은 다르므로 공통 성공 집합의 별도 표를 이용한다.',
                   f'갱신 시각: {datetime.now(timezone.utc).isoformat(timespec="seconds")} UTC', '']

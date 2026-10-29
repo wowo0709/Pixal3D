@@ -23,7 +23,7 @@ def output_to_world(row):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for k in ('manifest','prediction','receipt','source-surface','output','benchmark-root'):p.add_argument('--'+k,type=Path,required=True)
-    p.add_argument('--native-trellis-frame',action='store_true',help='map official TRELLIS +Y front/+Z up to Pixal +Z front/+Y up')
+    p.add_argument('--native-trellis-frame',action='store_true',help='map TRELLIS -Y front/+Z up to Pixal +Z front/+Y up')
     a=p.parse_args()
     if a.output.exists():raise FileExistsError(a.output)
     receipt=json.loads(a.receipt.read_text());sid=receipt['sample_id']
@@ -32,7 +32,7 @@ def main():
     if len(rows)!=1:raise ValueError('sample manifest identity mismatch')
     row=rows[0];to_world=output_to_world(row)
     if a.native_trellis_frame:
-        native_to_anchor=np.eye(4);native_to_anchor[:3,:3]=[[-1,0,0],[0,0,1],[0,1,0]]
+        native_to_anchor=np.eye(4);native_to_anchor[:3,:3]=[[1,0,0],[0,0,1],[0,-1,0]]
         to_world=to_world@native_to_anchor
     with np.load(a.source_surface) as z: points=z['points'].astype(np.float64);bounds=z['bounds'].astype(np.float64)
     center=bounds.mean(0);extent=np.max(bounds[1]-bounds[0])
@@ -44,7 +44,7 @@ def main():
     moving=apply(sample_surface(vertices,faces,count=4096,seed=seed+103),to_world)
     rng=np.random.default_rng(seed+101);fixed=fixed[rng.choice(len(fixed),size=4096,replace=False)]
     correction,after,before=register_m0(moving,fixed)
-    result={'status':'SOURCE_M0_REGISTRATION_ONLY_NEEDS_RENDER_QA','sample_id':sid,'prediction_sha256':sha(a.prediction),'source_surface_sha256':sha(a.source_surface),'registration_reference':'input_source_mesh_evaluated_frame1_only','target_GT_used':False,'native_frame':'trellis_plus_y_front_plus_z_up' if a.native_trellis_frame else 'pixal_plus_z_front_plus_y_up','to_world':to_world.tolist(),'correction_sim3':correction.tolist(),'source_fit_before':before,'source_fit_after':after,'source_fit_is_not_target_accuracy':True,'source_camera_qa_iou':row['source_camera_qa_iou'],'target_camera_assumption':row['target_camera_assumption']}
+    result={'status':'SOURCE_M0_REGISTRATION_ONLY_NEEDS_RENDER_QA','sample_id':sid,'prediction_sha256':sha(a.prediction),'source_surface_sha256':sha(a.source_surface),'registration_reference':'input_source_mesh_evaluated_frame1_only','target_GT_used':False,'native_frame':'trellis_minus_y_front_plus_z_up' if a.native_trellis_frame else 'pixal_plus_z_front_plus_y_up','to_world':to_world.tolist(),'correction_sim3':correction.tolist(),'source_fit_before':before,'source_fit_after':after,'source_fit_is_not_target_accuracy':True,'source_camera_qa_iou':row['source_camera_qa_iou'],'target_camera_assumption':row['target_camera_assumption']}
     a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result),flush=True)
 
 if __name__=='__main__':main()
