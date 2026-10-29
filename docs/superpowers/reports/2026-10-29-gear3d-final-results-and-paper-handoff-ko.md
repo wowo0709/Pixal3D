@@ -35,7 +35,7 @@ GEAR3D는 FID, PSNR, M-IoU, CD, F-Score에서 최고 성능이다. Source-preser
 
 Geometry/appearance stage를 별도 표로 나누지 않고, 모든 arm을 동일한 metric schema에 배치했다. `Full`은 Ray-fused score-weighted Top-K SS와 사전에 선택한 Top-1 PBR을 조합한 GEAR3D main model이다. `Original PBR`과 `Top-K PBR`은 Full과 동일한 selected geometry를 사용하므로 SS 및 surface 값도 Full과 같다. `Vanilla V1`은 ablation 해석을 위한 full-pipeline reference다.
 
-KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. `—`는 해당 arm을 full rendering까지 실행하지 않아 실제로 측정되지 않은 값이며, 다른 arm의 값을 복사하거나 추정하지 않았다. `†`는 실제 측정은 끝났지만 기존 Full target-view 행과의 protocol 동등성 교차검증이 진행 중인 값이다.
+KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 정합 후 common-501 값이고, Raw CD/F는 정합 전 값이다. SS voxel metric은 TEST508 전체 508개 값이다. `—`는 해당 arm의 full-render metric이 아직 완료되지 않은 값이며, 다른 arm의 값을 복사하거나 추정하지 않았다.
 
 | Unified arm | LPIPS ↓ | Dream ↓ | CLIP ↑ | FID ↓ | KID ↓ | PSNR ↑ | SSIM ↑ | M-IoU ↑ | Aligned CD ↓ | Aligned F ↑ | SS IoU ↑ | SS Prec. ↑ | SS Recall ↑ | SS F1 ↑ | Raw CD ↓ | Raw F ↑ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -47,16 +47,16 @@ KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 
 | Top-1 selection SS | — | — | — | — | — | — | — | — | 0.01501 | 0.8025 | 0.37805 | 0.50885 | 0.59527 | 0.54868 | 0.01393 | 0.8235 |
 | Uniform Top-K SS | — | — | — | — | — | — | — | — | 0.01506 | 0.8024 | 0.38016 | 0.51248 | 0.59553 | 0.55089 | 0.01383 | 0.8253 |
 | No-retargeting SS | — | — | — | — | — | — | — | — | 0.01517 | 0.8039 | 0.37525 | 0.50361 | 0.59550 | 0.54571 | 0.01420 | 0.8189 |
-| Selected SS + Original PBR | 0.05373 | **0.13478** | **0.93879** | 38.77 | 0.698 | 25.15† | 0.95571† | 0.91242† | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
-| Selected SS + Top-K PBR | **0.05371** | 0.13481 | 0.93872 | <u>38.63</u> | **0.681** | 25.14† | 0.95552† | 0.91244† | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Selected SS + Original PBR | 0.05373 | **0.13478** | **0.93879** | 38.77 | 0.698 | **23.32** | 0.94618 | **0.86187** | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
+| Selected SS + Top-K PBR | **0.05371** | 0.13481 | 0.93872 | <u>38.63</u> | **0.681** | <u>23.29</u> | 0.94595 | 0.86184 | 0.01493 | 0.8047 | 0.37910 | 0.51158 | 0.59413 | 0.54977 | 0.01385 | 0.8241 |
 
 이 통합 표에서 확인되는 핵심은 다음과 같다.
 
 - Full은 최종 aligned CD가 가장 낮지만, F-Score 및 SS voxel metric의 모든 열에서 항상 최고인 것은 아니다.
 - Raw semantic retrieval은 SS IoU/F1이 가장 높지만 최종 aligned CD는 Full보다 나쁘므로, SS proxy와 1024 cascade surface 품질을 동일시할 수 없다.
-- Appearance 세 행은 geometry를 고정했기 때문에 CD/F 및 SS 값이 동일하다. 이 행들의 차이는 source preservation metric으로만 해석한다.
+- Appearance 세 행은 geometry를 고정했기 때문에 CD/F 및 SS 값이 동일하다. 렌더 기반 source preservation, FID/KID 및 target-view 지표는 각 texture arm에서 직접 측정했다.
 - Original/Top-K PBR의 source-view FID/KID와 target-view PSNR/SSIM/M-IoU는 실제 common-501 렌더에서 추가 측정했다. FID/KID는 기존 source-preservation 수치와 동일한 camera9/10 1,002-image pool이므로 표에 확정 반영했다.
-- 새 appearance target-view 값은 export의 원본 `to_world`를 사용한 **raw 정합 전** 결과다. 기존 Full의 source-M0 Sim(3) 정합 후 target-view 값과 직접 비교할 수 없으므로 `†`로 표시하며 main claim/ranking에는 사용하지 않는다. 같은 문제가 진행 중인 geometry render job에도 있어 정합 행렬을 적용한 렌더가 추가로 필요하다.
+- 이전에 임시 표기한 appearance target-view 값은 raw 정합 전 수치였다. 이제 source-view 평가와 동일한 source-M0 정합 행렬을 적용해 501개를 재렌더한 값으로 교체했다. Geometry 여섯 arm에도 각 재생성 mesh의 source-M0 정합을 적용한 재렌더가 진행 중이다.
 - Geometry-only SS 여섯 arm의 비어 있는 render metric은 현재 common-501 full PBR/render evaluation으로 측정 중이다. 완료되는 arm부터 같은 표에 순차 반영한다.
 - 여섯 SS arm의 CD/F는 새 full-render 결과물과 같은 재생성 mesh에 대해 다시 측정한 값이다. 이전 geometry-only 생성의 CD/F와 소폭 차이가 있으며, 기존 paired bootstrap은 이전 생성에 대한 결과이므로 이 행들에 그대로 적용하지 않는다.
 
