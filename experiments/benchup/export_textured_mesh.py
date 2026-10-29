@@ -4,16 +4,17 @@ import argparse,json,os,time
 from pathlib import Path
 import numpy as np
 
-def surface_fidelity(vertices,faces,exported,export_faces,benchmark_root):
+def surface_fidelity(vertices,faces,exported,export_faces,benchmark_root,samples=100000):
     """Upper-bound surface distance using deterministic area-uniform samples."""
     import sys
     from scipy.spatial import cKDTree
     sys.path.insert(0,str(benchmark_root));from deformnext_benchmark.metrics import sample_surface
-    raw=sample_surface(vertices,faces,count=100000,seed=123)
-    baked=sample_surface(exported,export_faces,count=100000,seed=456)
+    if samples<100000:raise ValueError('at least 100000 surface samples required')
+    raw=sample_surface(vertices,faces,count=samples,seed=123)
+    baked=sample_surface(exported,export_faces,count=samples,seed=456)
     forward=cKDTree(baked).query(raw,workers=2)[0]
     backward=cKDTree(raw).query(baked,workers=2)[0]
-    return {'samples_per_surface':100000,'seed_raw':123,'seed_baked':456,'raw_to_baked_q99':float(np.quantile(forward,.99)),'baked_to_raw_q99':float(np.quantile(backward,.99)),'threshold':.01,'interpretation':'sampled-surface nearest-neighbor distance upper bounds nearest continuous-surface distance'}
+    return {'samples_per_surface':samples,'seed_raw':123,'seed_baked':456,'raw_to_baked_q99':float(np.quantile(forward,.99)),'baked_to_raw_q99':float(np.quantile(backward,.99)),'threshold':.01,'interpretation':'sampled-surface nearest-neighbor distance upper bounds nearest continuous-surface distance'}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
