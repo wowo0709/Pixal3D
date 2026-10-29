@@ -60,6 +60,17 @@ KID는 `×1,000` 표시다. Aligned CD/F는 input source M0만 사용한 Sim(3) 
 - Geometry-only SS 여섯 arm의 비어 있는 render metric은 현재 common-501 full PBR/render evaluation으로 측정 중이다. 완료되는 arm부터 같은 표에 순차 반영한다.
 - 여섯 SS arm의 CD/F는 새 full-render 결과물과 같은 재생성 mesh에 대해 다시 측정한 값이다. 이전 geometry-only 생성의 CD/F와 소폭 차이가 있으며, 기존 paired bootstrap은 이전 생성에 대한 결과이므로 이 행들에 그대로 적용하지 않는다.
 
+정합 전 raw 렌더의 참고 수치도 common-501에서 완료됐다. 아래 값은 위 표의 정합 후 Full/V1 수치와 직접 순위를 매기지 않는다. KID는 동일하게 ×1,000이다.
+
+| Arm (raw) | LPIPS ↓ | Dream ↓ | CLIP ↑ | FID ↓ | KID ↓ | PSNR ↑ | SSIM ↑ | M-IoU ↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Spatial retrieval SS | 0.04880 | 0.13269 | 0.93860 | 38.57 | 0.646 | 25.08 | 0.95604 | 0.91086 |
+| Raw semantic retrieval SS | 0.04875 | 0.13125 | 0.93908 | 38.43 | 0.762 | 25.18 | 0.95625 | 0.91333 |
+| Decoder matching SS | 0.04923 | 0.13388 | 0.93840 | 38.63 | 0.663 | 25.14 | 0.95567 | 0.91310 |
+| Top-1 selection SS | 0.04869 | 0.13165 | 0.93823 | 38.84 | 0.643 | 25.03 | 0.95566 | 0.91047 |
+| Uniform Top-K SS | 0.04874 | 0.13215 | 0.93908 | 38.12 | 0.638 | 25.23 | 0.95646 | 0.91418 |
+| No-retargeting SS | 0.04961 | 0.13367 | 0.93834 | 38.92 | 0.605 | 24.85 | 0.95484 | 0.90345 |
+
 ### 3.1 Correspondence retrieval diagnostic
 
 별도 DEV32 진단은 50,493개 observable relation에서 다음과 같다.
