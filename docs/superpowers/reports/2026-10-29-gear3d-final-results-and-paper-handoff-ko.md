@@ -9,7 +9,7 @@
 - 501개 샘플은 133개 source cluster로 구성된다.
 - 본 평가는 camera-given, scale-ungiven 조건이다. GT mesh에는 정합하지 않으며, 입력 source M0만 사용한 Sim(3) 정합을 모든 mesh 출력에 동일하게 적용했다.
 - mesh 평가는 1024 해상도로 통일했고, 렌더 카메라 및 metric 구현도 방법 간 동일하게 고정했다.
-- Main comparison 11개 방법, geometry-stage ablation, appearance-stage ablation을 모두 완료했다.
+- Main comparison 11개 방법과 appearance-stage ablation은 완료했다. Geometry-stage ablation은 SS 및 surface 지표와 정합 전 렌더 지표를 완료했으며, source-M0 정합 후 렌더 지표는 계산 중이다.
 
 ## 2. Main comparison
 
