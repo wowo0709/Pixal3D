@@ -26,3 +26,10 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 nice -n 15 /opt/conda/envs/pixal3d/bin/
   --output "$R/common-evidence-audit-v1.json" || exit 1
 rsync -a --checksum -e 'ssh -o BatchMode=yes -S /tmp/file4-ctl-v2 -p 55555' "$R/common-evidence-audit-v1.json" \
   rvi@10.0.12.170:/file4/youngwoo/deformation/experiments/retargeting-v1/benchup/reports/ || exit 1
+/opt/conda/envs/pixal3d/bin/python -u -m experiments.benchup.audit_coverage \
+  --manifest "$R/unit-scale-anchor-manifest-v1.jsonl" --aggregate "$R/all-method-common-metrics-v1.json" \
+  --output "$R/coverage-audit-v1.json"
+TASK_COVERAGE_STATUS=$?
+rsync -a --checksum -e 'ssh -o BatchMode=yes -S /tmp/file4-ctl-v2 -p 55555' "$R/coverage-audit-v1.json" \
+  rvi@10.0.12.170:/file4/youngwoo/deformation/experiments/retargeting-v1/benchup/reports/ || exit 1
+exit "$TASK_COVERAGE_STATUS"
