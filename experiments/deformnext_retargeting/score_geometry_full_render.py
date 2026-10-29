@@ -33,14 +33,25 @@ def main():
         code=proc.wait();stream.close()
         if code or not out.is_file():raise RuntimeError('metric worker failed')
     scored=[r for _,_,out in children for r in rows(out)];protocol=json.loads(a.protocol.read_text());sys.path.insert(0,str(a.benchmark_root));from deformnext_benchmark.metrics import frechet_distance,kernel_distance
+    expected={(task['arm'],task['sample_id'],task['camera_id']) for task in tasks}
+    actual=[(row['arm'],row['sample_id'],row['camera_id']) for row in scored]
+    if len(expected)!=9018 or len(actual)!=9018 or len(set(actual))!=9018 or set(actual)!=expected:
+        raise ValueError('scored render identities do not match the complete 6 x 501 x 3 population')
     result={};arms=sorted(set(r['arm'] for r in scored));settings=protocol['distribution']
     for arm in arms:
         own=[r for r in scored if r['arm']==arm];target_rows=[r for r in own if r['camera_id']==8];source=[r for r in own if r['camera_id'] in (9,10)]
         summary={k:float(np.mean([r['metrics'][k] for r in source])) for k in ('LPIPS','DreamSim','CLIP')};summary.update({k:float(np.mean([r['metrics'][k] for r in target_rows])) for k in ('PSNR','SSIM','M_IoU')})
-        pf=[];rf=[]
+        features={}
         for _,_,out in children:
             with np.load(out.with_suffix('.npz')) as z:
-                keys=[json.loads(x) for x in z['keys']];index=[i for i,k in enumerate(keys) if k[0]==arm];pf.extend(z['prediction'][index]);rf.extend(z['reference'][index])
-        pf=np.asarray(pf);rf=np.asarray(rf);summary['FID']=frechet_distance(pf,rf);summary.update(kernel_distance(pf,rf,subset_size=settings['kid_subset_size'],subsets=settings['kid_subsets'],seed=settings['seed']));result[arm]=summary
+                for i,key in enumerate(z['keys']):
+                    name,sid,camera=json.loads(key)
+                    if name==arm:
+                        if (sid,camera) in features:raise ValueError('duplicate inception feature')
+                        features[sid,camera]=(z['prediction'][i].copy(),z['reference'][i].copy())
+        required={(sid,camera) for sid in refs for camera in (9,10)}
+        if set(features)!=required:raise ValueError('incomplete 1002-image inception population')
+        ordered=sorted(required);pf=np.stack([features[k][0] for k in ordered]);rf=np.stack([features[k][1] for k in ordered])
+        summary['FID']=frechet_distance(pf,rf);summary.update(kernel_distance(pf,rf,subset_size=settings['kid_subset_size'],subsets=settings['kid_subsets'],seed=settings['seed']));result[arm]=summary
     payload={'status':'PASS_COMMON501_GEOMETRY_SIX_ARM_RENDER_METRICS','samples':501,'rows':result};(a.output_root/'metrics.json').write_text(json.dumps(payload,indent=2)+'\n');print(json.dumps(payload),flush=True)
 if __name__=='__main__':main()
