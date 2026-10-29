@@ -22,6 +22,7 @@ def main():
     for flag in ('manifest','ss-root','template','output'):p.add_argument('--'+flag,type=Path,required=True)
     p.add_argument('--gpu',required=True,choices=['0','1','2','3'])
     p.add_argument('--rank',type=int,default=0);p.add_argument('--world-size',type=int,default=1);p.add_argument('--limit',type=int,default=0)
+    p.add_argument('--ss-arm',choices=['v1','selected','mv-zero'],default='v1')
     a=p.parse_args()
     if os.environ.get('CUDA_VISIBLE_DEVICES')!=a.gpu or not 0<=a.rank<a.world_size:raise ValueError('explicit GPU/shard required')
     torch.set_num_threads(2);torch.cuda.set_device(0)
@@ -54,7 +55,7 @@ def main():
     selected=[(i,row) for i,row in enumerate(rows) if i%a.world_size==a.rank]
     if a.limit:selected=selected[:a.limit]
     for i,row in selected:
-        sid=row['sample_id'];artifact=a.ss_root/('v1-ss-shard-'+str(i%4))/'ss-artifacts'/(hashlib.sha256(sid.encode()).hexdigest()+'.npz')
+        sid=row['sample_id'];artifact=a.ss_root/(a.ss_arm+'-ss-shard-'+str(i%4))/'ss-artifacts'/(hashlib.sha256(sid.encode()).hexdigest()+'.npz')
         with np.load(artifact) as z:
             if str(z['sample_id'])!=sid:raise ValueError('SS identity mismatch')
             occ=np.unpackbits(z['prediction_occupancy_packed'],count=64**3).reshape(64,64,64).astype(bool)
@@ -73,7 +74,7 @@ def main():
         if not len(mesh.vertices) or not len(mesh.faces):raise ValueError('empty mesh')
         out=a.output/'cases'/sid;out.mkdir(parents=True,exist_ok=False)
         np.savez_compressed(out/'prediction.npz',vertices=mesh.vertices.float().cpu().numpy(),faces=mesh.faces.cpu().numpy(),coords=mesh.coords.cpu().numpy(),attrs=mesh.attrs.cpu().numpy(),origin=mesh.origin.cpu().numpy(),voxel_size=np.asarray(mesh.voxel_size),voxel_shape=np.asarray(mesh.voxel_shape),shape_coords=shape.coords.cpu().numpy(),shape_feats=shape.feats.float().cpu().numpy(),texture_feats=texture.feats.float().cpu().numpy())
-        result={'status':'V1_CASCADE_GENERATED_NO_TARGET_3D_GT','sample_id':sid,'prediction_sha256':sha(out/'prediction.npz'),'ss_sha256':sha(artifact),'seed':42+i,'seconds':round(time.monotonic()-start,2),'camera':'estimated_from_source_mesh_and_views','scale':'image_estimated','resolution':resolution,'source_mesh_used_for_camera_estimation':True,'GT_target_geometry_used':False}
+        result={'status':'V1_CASCADE_GENERATED_NO_TARGET_3D_GT' if a.ss_arm=='v1' else 'CASCADE_GENERATED_NO_TARGET_3D_GT','ss_arm':a.ss_arm,'sample_id':sid,'prediction_sha256':sha(out/'prediction.npz'),'ss_sha256':sha(artifact),'seed':42+i,'seconds':round(time.monotonic()-start,2),'camera':'estimated_from_source_mesh_and_views','scale':'image_estimated','resolution':resolution,'source_mesh_used_for_camera_estimation':True,'GT_target_geometry_used':False,'pbr_checkpoint':specs['pbr1024']['checkpoint'],'selected_ss_with_vanilla_pbr_is_not_selected_full':a.ss_arm=='selected'}
         (out/'receipt.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result),flush=True)
         del mesh,meshes,latents,shape,texture,coords;torch.cuda.empty_cache()
 
