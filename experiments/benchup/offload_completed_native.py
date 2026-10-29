@@ -17,7 +17,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-root', type=Path, required=True)
     p.add_argument('--post-root', type=Path, required=True)
-    p.add_argument('--method', choices=['trellis2', 'recon', 'official-rgb1'], required=True)
+    p.add_argument('--method', choices=['trellis2', 'recon', 'official-rgb1', 'mvadapter-recon', 'corradapter-recon'], required=True)
     p.add_argument('--post-pids', required=True)
     p.add_argument('--apply', action='store_true')
     a = p.parse_args()

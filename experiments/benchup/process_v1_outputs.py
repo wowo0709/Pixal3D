@@ -38,6 +38,12 @@ def main():
             if sid not in byid or sid in seen or sid in failed:continue
             row=byid[sid];folder=a.output/'cases'/sid;folder.mkdir(parents=True,exist_ok=True)
             prediction=rec.parent/'prediction.npz';reg=folder/'source-registration.json';glb=folder/'benchmark.glb';bake=folder/'benchmark.json'
+            marker=folder/'archive.json'
+            if marker.is_file():
+                b=json.loads(bake.read_text()); r=json.loads(reg.read_text()); archived=json.loads(marker.read_text())
+                if archived.get('status')!='PASS_FILE4_SHA256' or b.get('status')!='TEXTURED_GLB_BAKED_NEEDS_RENDER_QA' or archived.get('sha256')!=b.get('glb_sha256') or sha(glb)!=b['glb_sha256'] or b['prediction_sha256']!=r['prediction_sha256'] or b['prediction_sha256']!=json.loads(rec.read_text())['prediction_sha256']:
+                    raise ValueError('existing archived output contract mismatch: '+sid)
+                seen.add(sid); continue
             commands=[]
             if not reg.exists():
                 cmd=[sys.executable,'-u','-m','experiments.benchup.register_source_m0','--manifest',str(a.manifest),'--prediction',str(prediction),'--receipt',str(rec),'--source-surface',str(a.surfaces/(row['source_uid']+'.npz')),'--benchmark-root',str(a.benchmark_root),'--output',str(reg)]

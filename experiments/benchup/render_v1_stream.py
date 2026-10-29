@@ -1,11 +1,21 @@
 """Render and score each successfully baked V1 case as soon as it is ready."""
 from __future__ import annotations
-import argparse,json,os,subprocess,sys,time
+import argparse,fcntl,json,os,subprocess,sys,time
 from pathlib import Path
 
 def live(pid):
     try:os.kill(pid,0);return True
     except ProcessLookupError:return False
+
+def render_slot():
+    while True:
+        for index in range(2):
+            handle=open(f'/tmp/benchup-render-slot-{index}.lock','a')
+            try:
+                fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                return handle
+            except BlockingIOError:handle.close()
+        time.sleep(5)
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -28,7 +38,11 @@ def main():
             if not score.exists():commands.append([sys.executable,'-u','-m','experiments.benchup.score_render_case','--manifest',str(a.manifest),'--chunk',str(chunk),'--benchmark-root',str(a.benchmark_root),'--output',str(score)])
             try:
                 for n,cmd in enumerate(commands):
-                    with (a.output/'logs'/f'{sid}-{n}.log').open('w') as log:subprocess.run(cmd,cwd=a.repo,stdout=log,stderr=subprocess.STDOUT,check=True)
+                    slot=render_slot() if 'experiments.deformnext_retargeting.render_source_sim3_chunk' in cmd else None
+                    try:
+                        with (a.output/'logs'/f'{sid}-{n}.log').open('w') as log:subprocess.run(cmd,cwd=a.repo,stdout=log,stderr=subprocess.STDOUT,check=True)
+                    finally:
+                        if slot is not None:fcntl.flock(slot,fcntl.LOCK_UN);slot.close()
                 if json.loads(score.read_text())['status']!='IMAGE_DIAGNOSTIC_PROVISIONAL_NOT_FINAL_BENCHMARK':raise ValueError('score contract mismatch')
                 dest=a.remote_root+'/'+sid;subprocess.run([*ssh,'mkdir','-p',dest],check=True)
                 subprocess.run(['rsync','-a','--checksum','-e',f'ssh -o BatchMode=yes -S {a.socket} -p 55555',str(score),str(chunk/'stage/raw'),str(chunk/'stage/source_m0'),a.host+':'+dest+'/'],check=True)

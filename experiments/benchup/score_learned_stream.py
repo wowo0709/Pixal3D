@@ -39,6 +39,15 @@ def main():
             folder=a.output/sid;folder.mkdir(exist_ok=True);out=folder/'learned.json';features=folder/'inception.npz'
             try:
                 row=rows[sid];refs=[row['target_anchor'],row['source_images'][0],row['source_images'][1]]
+                if out.is_file() and features.is_file():
+                    prior=json.loads(out.read_text())
+                    if prior.get('status')!='PROVISIONAL_INPUT_IMAGE_METRICS' or prior.get('metric_identity')!=metrics.identity or prior.get('inception_sha256')!=sha(features):raise ValueError('existing learned metric contract mismatch')
+                    for mode in ('raw','source_m0'):
+                        for i,entry in enumerate(prior['metrics'][mode]):
+                            if entry['render_sha256']!=sha(score.parent/'stage'/mode/f'view{i}.png') or entry['reference_sha256']!=sha(refs[i]):raise ValueError('existing metric input hash mismatch')
+                    dest=a.remote_root+'/'+sid;subprocess.run([*ssh,'mkdir','-p',dest],check=True)
+                    subprocess.run(['rsync','-a','--checksum','-e',f'ssh -o BatchMode=yes -S {a.socket} -p 55555',str(out),str(features),a.host+':'+dest+'/'],check=True)
+                    seen.add(sid);continue
                 ref_rgb=[rgb(x) for x in refs];ref_features=metrics.inception(ref_rgb[0]);result={};arrays={'reference_target':ref_features}
                 for mode in ('raw','source_m0'):
                     rec=[]
