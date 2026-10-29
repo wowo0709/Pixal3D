@@ -9,6 +9,7 @@ def main():
     if r['status']!='PROVISIONAL_COMMON_SUCCESS_INPUT_IMAGE_METRICS':raise ValueError('unexpected aggregate')
     lines=['# BenchUp 공통 성공 사례 비교 (잠정)','',f"현재 전 모델 공통 성공: **{r['common_count']} / 109**. 개별 완료 건수: "+', '.join(f'{k} {v}/109' for k,v in r['available_counts'].items())+'.','',
     '모든 행은 같은 공통 사례를 쓴다. 편집 target GT mesh와 공식 카메라는 없으며, target RGB는 입력 이미지, source RGB는 원본 보존의 대리 지표다. 추정 카메라와 조명 차이 때문에 논문 최종 수치가 아니다.',
+    '렌더링은 100만 면 상한을 공통 적용한다. 상한을 초과해 Blender에서 추가 단순화된 메시는 그 단순화 후 표면 오차를 별도로 검증하지 않았다.',
     'FID/KID는 edited target 입력 이미지와 렌더 이미지를 비교한다. 사례 수가 100 미만이거나 동일 물체의 여러 편집이 포함되면 값이 특히 불안정하다. CD/F-Score는 target GT mesh 부재로 계산할 수 없다.','',
     '| 모델 | 정합 | N | PSNR ↑ | SSIM ↑ | M-IoU ↑ | LPIPS ↓ | DreamSim ↓ | CLIP ↑ | FID ↓ | KID ↓ |',
     '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
